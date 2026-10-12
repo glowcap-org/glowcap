@@ -1,7 +1,7 @@
 //! Open DataChannel byte-completion authority.
 //!
 //! The read, write, cancel, and terminal-failure choreography is the shared
-//! hinted try-I/O machine in `net.completion`; this module binds it to the
+//! hinted try-I/O machine in `net.completion`. This module binds it to the
 //! sidecar peer's packet verbs and keeps what is WebRTC's own: the borrow
 //! token, the signaling-authorized channel key, and per-publication seat
 //! reservation.

@@ -1,7 +1,10 @@
 // Rows in the rooms rail: a room you are in, a directory with nothing open,
 // an invitation waiting, and the mark that ends a row.
 
-import { useState } from "react";
+import { ActionFeedback, useActionCooldown } from "../ActionFeedback.tsx";
+import { joinRefusalKeys } from "../admission_feedback.ts";
+import { Said } from "../Said.tsx";
+import { PRESENTATION, useProgress } from "../presentation.ts";
 import { type DirId, type DirView, type Invitation, membersHere, type RoomConv, type SessionPhase } from "../types.ts";
 import { useConversationMembers } from "../hooks.ts";
 import { dirCaptionSaid, directoryName, dirStanding, type DirWhere, phaseWord, roomCalled } from "../text.ts";
@@ -26,6 +29,7 @@ import {
 	rowOpen,
 	rowPrivateRoom,
 	rowRetryStatus,
+	rowStopJoining,
 	rowTakeInvitation,
 	rowTakingInvitation,
 } from "../../../lib/text/conversation.ts";
@@ -33,6 +37,27 @@ import { railFrom, railIn, railLeave, railNoRoomsYet } from "../../../lib/text/r
 
 export function Empty({ text }: { text: string }) {
 	return <li className="empty">{text}</li>;
+}
+
+/** Visible before discovery or admission has produced a durable room row. */
+export function PendingRoomRow({ name, onCancel }: { name: string; onCancel: () => void }) {
+	return (
+		<li className="room-pending" aria-busy="true">
+			<div className="room-open">
+				<span className="hash room-progress" aria-hidden="true" />
+				<span className="rname" title={name}>{name}</span>
+			</div>
+			<span className="rwhere rwhere-status" role="status">{rowJoiningStatus}</span>
+			<IconButton
+				className="room-leave"
+				icon="close"
+				label={rowStopJoining(name)}
+				size="small"
+				variant="ghost"
+				onClick={onCancel}
+			/>
+		</li>
+	);
 }
 
 /** What a list says when the filter is holding every one of its rows back.
@@ -64,21 +89,24 @@ export function RowClose(
 		await onClose();
 	});
 	return (
-		<IconButton
-			className="room-leave"
-			icon="close"
-			label={said}
-			size="small"
-			variant="ghost"
-			tone={oneWay ? "danger" : "neutral"}
-			title={title}
-			busy={closing.busy}
-			disabled={disabled || closing.busy}
-			onClick={(e) => {
-				e.stopPropagation();
-				void closing.run();
-			}}
-		/>
+		<>
+			<IconButton
+				className="room-leave"
+				icon="close"
+				label={said}
+				size="small"
+				variant="ghost"
+				tone={oneWay ? "danger" : "neutral"}
+				title={title}
+				busy={closing.busy}
+				disabled={disabled || closing.busy}
+				onClick={(e) => {
+					e.stopPropagation();
+					void closing.run();
+				}}
+			/>
+			{closing.why !== "" && <Said kind="failure" className="row-failure">{closing.why}</Said>}
+		</>
 	);
 }
 
@@ -88,7 +116,7 @@ export function RowClose(
  * are two different things, and rendering the second while inferring the first
  * from it is what made this list a catalogue that reordered itself under the
  * pointer whenever a stranger joined something. The catalogue has its own
- * surface now; what is left here is short, stable, and yours.
+ * surface. What is left here is short, stable, and yours.
  *
  * The badge is unread, for the same reason: a head-count is somebody else's
  * activity, and nothing on this list should move or change because of it. */
@@ -97,7 +125,7 @@ export function RoomRow(
 		conv: RoomConv;
 		/** Where a bridged room's channel lives, or null for every other room:
 		 * a fact about the row, said in words and in its label. The bridge's own
-		 * badge on `conv.bridge` names the service; this names where it reaches. */
+		 * badge on `conv.bridge` names the service. This names where it reaches. */
 		bridgedFrom: string | null;
 		unread: number;
 		here: boolean;
@@ -118,12 +146,16 @@ export function RoomRow(
 	},
 ) {
 	const directory = where.name;
+	const feedback = joinRefusalKeys(conv.dir, conv.id);
+	const cooldown = useActionCooldown(feedback);
 	const people = membersHere(useConversationMembers(conv.key));
 	// How the directory serving this room is doing, and empty while it is
 	// connected. A room you cannot reach is a fact about this row, so it is said
 	// here rather than once for a page that may be holding rooms on a directory
 	// with nothing wrong with it.
-	const standing = dirStanding(phase);
+	const progress = useProgress(phase === "connecting" || phase === "reconnecting", PRESENTATION.connection, phase);
+	const standing = phase === "disconnected" || progress ? dirStanding(phase) : "";
+	const joining = useProgress(conv.membership === "joining", PRESENTATION.connection, conv.key);
 	// The row opens the room and carries a second control beside it to leave.
 	// Both are real buttons: an interactive control nested inside another is a
 	// structure no assistive software can read out.
@@ -144,10 +176,9 @@ export function RoomRow(
 	// takes the slot when there is any; otherwise the slot says how many people
 	// are in there. A reader glances at that count to decide where to go next.
 	//
-	// The count is free to show now that nothing sorts by it. It used to order
-	// the list, so a stranger joining anywhere walked the rows out from under the
-	// pointer — but that was the ordering, not the number, and the ordering is
-	// gone.
+	// The count is free to show because nothing sorts by it. Sorting by it would
+	// let a stranger joining anywhere walk the rows out from under the pointer.
+	// That is a property of the ordering, not of the number.
 	const membership = conv.membership === "joined" ? "" : conv.membership === "joining" ? rowJoining : rowNotJoined;
 	const bridgeSaid = conv.bridge !== undefined && bridgedFrom !== null
 		? rowBridged(conv.bridge.badge, bridgedFrom)
@@ -168,10 +199,11 @@ export function RoomRow(
 				className="room-open invite-take"
 				aria-label={said}
 				aria-current={here ? "page" : undefined}
+				disabled={conv.membership !== "joined" && cooldown > 0}
 				onClick={() => onPick(conv)}
 			>
-				<span className="hash" aria-hidden="true">
-					{roomMarkGlyph(roomPreset(conv.policy), 13)}
+				<span className={joining ? "hash room-progress" : "hash"} aria-hidden="true">
+					{joining ? null : roomMarkGlyph(roomPreset(conv.policy), 13)}
 				</span>
 				<span className="rname" title={conv.id}>
 					<span className="rname-text">{conv.id}</span>
@@ -181,7 +213,7 @@ export function RoomRow(
 					? <span className="rcount unread">{unread}</span>
 					: people > 0
 					? <span className="rcount">{people}</span>
-					: conv.membership !== "joined"
+					: conv.membership !== "joined" && (conv.membership !== "joining" || joining)
 					? (
 						<span className="rcount room-state">
 							{conv.membership === "joining" ? rowJoiningStatus : rowRetryStatus}
@@ -213,6 +245,7 @@ export function RoomRow(
 					{standing !== "" && <span className="rwhere-how">{standing}</span>}
 				</Button>
 			)}
+			<ActionFeedback action={feedback} target={{ directory: conv.dir, room: conv.id }} />
 			{canInteract && (
 				<RowClose
 					title={railLeave}
@@ -245,21 +278,24 @@ export function InviteRow(
 		onDrop: (id: string) => void | Promise<void>;
 	},
 ) {
-	const [taking, setTaking] = useState(false);
+	const take = useAsyncAction(async () => {
+		await onTake(invite.id);
+	});
+	const taking = take.busy;
+	const progress = useProgress(taking);
 	const onDir = where.name === null ? "" : " on " + where.name;
 	return (
 		<li className="inviterow" data-dir={where.mark}>
 			<button
 				type="button"
 				className="room-open"
-				aria-label={taking
+				aria-label={progress
 					? rowTakingInvitation(invite.from, invite.label, onDir)
 					: rowTakeInvitation(invite.from, invite.label, onDir)}
-				data-busy={taking || undefined}
+				data-busy={progress || undefined}
 				disabled={taking || !canInteract}
 				onClick={() => {
-					setTaking(true);
-					void onTake(invite.id).finally(() => setTaking(false));
+					void take.run();
 				}}
 			>
 				<span className="hash" aria-hidden="true">
@@ -301,7 +337,12 @@ export function EmptyDirRow(
 	},
 ) {
 	const name = directoryName(dir.id, home);
-	const standing = dirStanding(dir.session);
+	const progress = useProgress(
+		dir.session === "connecting" || dir.session === "reconnecting",
+		PRESENTATION.connection,
+		dir.session,
+	);
+	const standing = dir.session === "disconnected" || progress ? dirStanding(dir.session) : "";
 	return (
 		<li className="dirrow" data-dir={mark}>
 			<button

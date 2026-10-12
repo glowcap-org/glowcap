@@ -1,8 +1,8 @@
 // What is known about the conversation on screen, on its own surface.
 //
 // The title is the way in: a name is something you can ask about, and this is
-// the answer. `/details` opens the same card. It is not the directory's card —
-// that one stays the rail caption's — and it is not Operations. It is the
+// the answer. `/details` opens the same card. It is not the directory's card,
+// that one stays the rail caption's, and it is not Operations. It is the
 // facts this tab already holds about this room or this line: how it is
 // reached, where the session stands, and the rest a reader would open the
 // name to check. The directory's name is the door to that card, the way the

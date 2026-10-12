@@ -20,7 +20,7 @@ import { assert, ok, within } from "./support.ts";
 import { runFinishClosePolicy } from "./finish_close.ts";
 
 export async function run(managed: Runtime): Promise<void> {
-	// A rude TCP probe—connect, say nothing, hang up—is that connection's
+	// A rude TCP probe (connect, say nothing, hang up) is that connection's
 	// failure, not the listener's. The iterator must skip its failed handshake
 	// and keep accepting, so one port scan cannot take down a long-lived server.
 	{
@@ -195,7 +195,7 @@ export async function run(managed: Runtime): Promise<void> {
 
 	// A popped FLUSH may await byte-channel I/O. Host close waits for that
 	// admitted drain to return instead of freeing the action queue under it. This
-	// deliberately uses raw runtime sockets plus Session.establish* so the proof
+	// uses raw runtime sockets plus Session.establish* so the proof
 	// stays on the byte-fed Host seam; a DriverLoop owns its own drain.
 	{
 		const listener = await listenTcp("127.0.0.1", 0);

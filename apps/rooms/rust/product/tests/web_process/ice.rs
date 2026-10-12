@@ -1,4 +1,4 @@
-//! The public /ice path crosses a real TLS issuer; bearer custody stays host.
+//! The public /ice path crosses a real TLS issuer. Bearer custody stays host.
 use super::*;
 use std::sync::Arc;
 use tokio::net::TcpListener;

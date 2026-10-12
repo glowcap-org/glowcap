@@ -28,11 +28,11 @@ const HintListObserver = *const fn (reader: Reader, hints: CompositeList) Error!
 // ── Decode: borrowed codec-neutral view projection (ADR-0026) ────────────────
 //
 // The parent decoder projects the shared `model.view.Body` directly over the
-// frame's words — the codec-neutral shape the engine dispatches on, identical
+// frame's words, the codec-neutral shape the engine dispatches on, identical
 // to the one [`syrup.decodeBody`](../../syrup/decode.zig) produces. Copies nothing:
 // scalar and reference fields read straight from the words, borrowed text/bytes
 // slice into the segment (`byteSlice`), and the unbounded sequences (`Args`,
-// `PositionList`) are reached through inline vtable backings —
+// `PositionList`) are reached through inline vtable backings,
 // `at` re-walks the words lazily, so a nested `list` / `set` / `tagged` arm is
 // itself another backing with no per-node allocation. `toOwned` (on the
 // returned view) materializes.
@@ -48,7 +48,7 @@ const neutral_args_vtable = model.view.Args.VTable{ .len = neutralArgsLen, .at =
 const neutral_positions_vtable = model.view.PositionList.VTable{ .len = neutralPositionsLen, .at = neutralPositionsAt, .next = neutralPositionsNext };
 
 /// Pack a composite (struct-list) pointer field into a backing `Ctx`. A null /
-/// empty list packs a zero count; otherwise the composite tag word supplies the
+/// empty list packs a zero count. Otherwise the composite tag word supplies the
 /// per-element section sizes and element count.
 fn compositeListCtx(reader: Reader, loc: StructLoc, i: u16) Error!model.view.Args.Ctx {
     const clist = (try compositeList(reader, loc, i)) orelse return .{ .bytes = reader.bytes };
@@ -70,7 +70,7 @@ fn primitiveListCtx(reader: Reader, loc: StructLoc, i: u16) Error!model.view.Arg
     // `data_idx + index`, so the pointer must declare eight-byte elements;
     // reject any other size (the encoder always writes `.eight_bytes`). `data_idx`
     // and `count` are untrusted, so prove the run fits the segment up
-    // front — the same bound `ownedU64List` applies — so a consumer that trusts
+    // front, the same bound `ownedU64List` applies, so a consumer that trusts
     // the projected `len()` to size an allocation cannot be amplified past it.
     if (list.count != 0 and list.elem != .eight_bytes) return Error.InvalidPointer;
     const end = std.math.add(usize, list.data_idx, list.count) catch return Error.Truncated;
@@ -144,7 +144,7 @@ pub fn borrowedData(reader: Reader, loc: StructLoc, i: u16) Error![]const u8 {
 
 /// Borrow a model String or Symbol directly from the frame and reject malformed
 /// Unicode at the codec boundary. Validation scans in place and never allocates
-/// or copies; raw ByteArray fields continue to use `borrowedData`.
+/// or copies. Raw ByteArray fields continue to use `borrowedData`.
 pub fn borrowedText(reader: Reader, loc: StructLoc, i: u16) Error![]const u8 {
     const text = try borrowedData(reader, loc, i);
     if (!std.unicode.utf8ValidateSlice(text)) return Error.MalformedFrame;
@@ -189,7 +189,7 @@ fn hintEntryAt(reader: Reader, hl: model.view.HintList, index: usize) Error!mode
 
 /// Borrowed find over the typed entry list: decode entries in place until the
 /// name matches without allocating. Authority-bearing callers validate the hint
-/// map as a dictionary before lookup; this helper is the allocation-free lookup
+/// map as a dictionary before lookup. This helper is the allocation-free lookup
 /// primitive, not the policy.
 fn capnpFindHint(hl: model.view.HintList, name: []const u8) model.view.Error!?model.HintValue {
     const count: usize = @intCast(hl.w2);
@@ -224,7 +224,7 @@ fn capnpValidateHintShape(
     }
 }
 
-/// One frame-header parse, then every entry — the handshake / `toOwned` path.
+/// One frame-header parse, then every entry, the handshake / `toOwned` path.
 fn capnpMaterializeHintList(
     allocator: std.mem.Allocator,
     hl: model.view.HintList,
@@ -337,7 +337,7 @@ pub fn neutralArgument(reader: Reader, loc: StructLoc, comptime observe_hints: ?
         // Unlike the struct arm below, decode does not enforce a set's canonical
         // order or uniqueness here. The struct check is one cheap compare of
         // adjacent raw key bytes; a set's members are whole `Argument`s, so the
-        // equivalent would eagerly encode each element just to compare — the
+        // equivalent would eagerly encode each element just to compare, the
         // work the lazy backing exists to defer. Uniqueness is instead held one
         // layer up: `session/validate/passable.zig`'s set-uniqueness fold walks the
         // full inbound argument tree (every deliver arg and resolve-fulfill
@@ -401,11 +401,11 @@ fn neutralStructEntry(reader: Reader, elem: StructLoc) Error!model.view.StructEn
 /// codec boundary (ADR-0046 / Model.md § Struct): keys must be pairwise
 /// non-Equal, and glowcap's own capnp encoder emits them sorted ascending by
 /// raw key bytes (`canonicalStructOrder`). Decode therefore requires strictly
-/// ascending keys — one comparison of each key against its predecessor, the
+/// ascending keys, one comparison of each key against its predecessor, the
 /// same O(n) refusal the Syrup decoder applies (`sliceStructNeutral`). A
 /// duplicate is never strictly ascending, so this refuses it without the
 /// all-pairs scan a peer could drive to n² over a frame-cap-many struct.
-/// Borrowed slices only, no allocation; width is bounded by the frame cap.
+/// Borrowed slices only, no allocation. Width is bounded by the frame cap.
 fn neutralStructBacking(reader: Reader, loc: StructLoc, i: u16) Error!model.view.StructEntries {
     const clist = (try compositeList(reader, loc, i)) orelse
         return model.view.StructEntries.fromBacking(.{ .bytes = reader.bytes }, &neutral_struct_vtable);

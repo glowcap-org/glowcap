@@ -196,6 +196,7 @@ pub const room_tails = [_]RoomTail{
     .{ .tag = "roster", .trailing = &.{}, .rest = .text, .sender = .room, .text = .any, .effect = .arrive },
     .{ .tag = "join", .trailing = &named_trailing, .rest = null, .sender = .room, .text = .any, .effect = .arrive },
     .{ .tag = "leave", .trailing = &named_trailing, .rest = null, .sender = .room, .text = .any, .effect = .depart },
+    .{ .tag = "offline", .trailing = &.{}, .rest = .text, .sender = .room, .text = .any, .effect = .depart },
     .{ .tag = "typing", .trailing = &typing_trailing, .rest = null, .sender = .room, .text = .empty, .effect = .stay },
     .{ .tag = "away", .trailing = &away_trailing, .rest = null, .sender = .room, .text = .any, .effect = .stay },
     .{ .tag = "seat", .trailing = &seat_trailing, .rest = null, .sender = .room, .text = .any, .effect = .stay },

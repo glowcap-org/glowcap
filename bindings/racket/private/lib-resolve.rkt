@@ -4,7 +4,7 @@
 ;; Language-native cascade: GLOWCAP_LIB_DIR → abi-versioned cache → zig-out →
 ;; bare name (Windows refuses bare DLLs). Mirror of
 ;; bindings/python/glowcap/_lib_resolve.py. The shared cstruct vocabulary stays
-;; in ffi-shared.rkt — this module owns path resolution and ffi-lib only.
+;; in ffi-shared.rkt. This module owns path resolution and ffi-lib only.
 (require ffi/unsafe
          json
          racket/file
@@ -188,7 +188,7 @@
   (define parts (string-split line))
   (define digits? (lambda (value) (regexp-match? #px"^[0-9]+$" value)))
   ;; The owner columns must be numeric. The listing is taken with
-  ;; `--numeric-owner`, and this refuses one that is not — because a tar that
+  ;; `--numeric-owner`, and this refuses one that is not: a tar that
   ;; ignores the flag, or an owner name containing a space, turns one field into
   ;; several and shifts every later column. That shift moves where the member
   ;; name begins, so the name reconstructs wrong, misses the prefix test, and
@@ -339,7 +339,7 @@
 
 ;; Language-native download (curl+tar). HTTPS-only, required SHA256SUMS, extract
 ;; only extract_prefix/. Ships with the package; does not need the monorepo
-;; operator shell helper. Callers pass version/target/cache-lib once — no
+;; operator shell helper. Callers pass version/target/cache-lib once and no
 ;; second walk.
 (define (try-download-into-cache! contract version target cache-lib)
   (define base (or (getenv "GLOWCAP_RELEASE_BASE_URL")

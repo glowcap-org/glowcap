@@ -13,14 +13,12 @@ Canonical home for agent-facing guidance in this Zig repository.
 └── hooks/      # shared hook scripts, see the Hooks table
 ```
 
-The tables below enumerate the contents and `zig build source-check` holds them to
-the directories in both directions, so the tree shows shape only and cannot
-drift behind a file the tables already gate. A named person and a person-named
-slug live in an unpublished persona source, never here; the order is in
+The tables below enumerate the contents, and `zig build source-check` holds
+them to the directories in both directions. A named person or person-named
+slug lives in an unpublished persona source, never here; the order is in
 [`personas/README.md`](personas/README.md).
 
-Tool overlays must point back to canonical rules here rather than duplicating
-guidance:
+Tool overlays point back to the canonical rules here and duplicate nothing:
 
 - `.claude/rules` is one directory symlink to `.agents/rules`.
 - `.cursor/rules/<name>.mdc` is one symlink per rule because Cursor discovers
@@ -34,11 +32,11 @@ guidance:
 - Codex reads `AGENTS.md` and `.agents/skills` directly; `.codex/README.md`
   records that no `.codex/skills` mirror is needed.
 
-`zig build source-check` verifies this topology and every scaffolding claim it can
-reach mechanically, symlink shape, the rule and skill indexes, Markdown links,
-documented build steps, the living-state registry, and more.
-[`tools/check/source_check.zig`](../tools/check/source_check.zig) is the authoritative
-inventory; update it in the same change as any intentional scaffolding move.
+`zig build source-check` verifies this topology and every scaffolding claim it
+can reach mechanically: symlink shape, the rule and skill indexes, Markdown
+links, documented build steps, the living-state registry, and more.
+[`tools/check/source_check.zig`](../tools/check/source_check.zig) is the
+inventory; update it in the same change as any scaffolding move.
 
 ## Rules
 
@@ -54,6 +52,7 @@ inventory; update it in the same change as any intentional scaffolding move.
 | [prerelease](rules/prerelease.md)                   | No compatibility debt yet, so the default verdict is fix the root now, not defer it                    |
 | [project-values](rules/project-values.md)           | Explicit systems design, polished library surface, and no hidden costs                                 |
 | [resilience](rules/resilience.md)                   | Untrusted inbound bytes, parse limits, and layer-owned refusal policy                                    |
+| [rust](rules/rust.md)                               | Rooms Rust and binding shapes a lint cannot see: lifecycle enums, validated replies, and coded refusal lines|
 | [scripts](rules/scripts.md)                         | Placement, interface, verification, and lifecycle for committed helper scripts                         |
 | [tests](rules/tests.md)                             | Test taxonomy and vocabulary: which layer, what authority, what a failure means                        |
 
@@ -64,9 +63,11 @@ inventory; update it in the same change as any intentional scaffolding move.
 | [community-review](skills/community-review/SKILL.md) | OCapN / Goblins community-review preflight |
 | [debugging](skills/debugging/SKILL.md) | A failure is data: evidence before theory, ordered suspects, halved search, a fix that explains it |
 | [file-budget](skills/file-budget/SKILL.md) | Canonical workflow for splitting oversize sources until the closed exception inventory is empty |
+| [zig-error-sets](skills/zig-error-sets/SKILL.md) | Narrowing `anyerror` returns, naming error sets, and breaking inferred-set dependency loops on this toolchain |
 | [glowcap-cli](skills/glowcap-cli/SKILL.md) | Shell CapTP (argv / REPL / listen / `--json`) |
 | [glowcap-mcp](skills/glowcap-mcp/SKILL.md) | In-host CapTP via project MCP |
 | [memory-ledger](skills/memory-ledger/SKILL.md) | Every named wire-path allocation and copy, one entry each, held to its declaration by the gate |
+| [reader-voice](skills/reader-voice/SKILL.md) | Prose people read to use glowcap or run Rooms, in the reader's words and still accurate |
 | [ratchet](skills/ratchet/SKILL.md) | Land a session's lesson at the strongest layer: check, fixture, rule line, or deletion |
 | [rooms-peer](skills/rooms-peer/SKILL.md) | One durable Rooms identity, multiple rooms and DMs, persistent inbox and continuous listening |
 | [rooms-team](skills/rooms-team/SKILL.md) | Multi-persona durable team in a glowcap room |
@@ -83,11 +84,11 @@ shape: [`personas/README.md`](personas/README.md).
 | ------- | ------- |
 | [agentic-lead](personas/agentic-lead.md) | Multi-agent orchestration lead (default rooms-team lead) |
 | [engineering-steward](personas/engineering-steward.md) | Domain-neutral engineering judgment: root fixes, evidence, automation, and economy without lower standards |
-| [first-impression](personas/first-impression.md) | The first code, tab, and recipe are the product — testing scaffolds do not occupy the lead |
-| [fresh-eyes](personas/fresh-eyes.md) | Seasoned engineer, zero OCapN exposure — does the doc teach a newcomer, or is it rehearsed? |
-| [scaffold-rigor](personas/scaffold-rigor.md) | Agent scaffolding sharpness — short skills, gates over folklore |
-| [stability-steward](personas/stability-steward.md) | Support tiers a consumer can plan against — a claim is the evidence that runs for it |
-| [wire-clarity](personas/wire-clarity.md) | Protocol evidence over folklore — CapTP/OCapN seams |
+| [first-impression](personas/first-impression.md) | The first code, tab, and recipe are the product; testing scaffolds do not lead |
+| [fresh-eyes](personas/fresh-eyes.md) | Seasoned engineer, zero OCapN exposure: does the doc teach a newcomer, or is it rehearsed? |
+| [scaffold-rigor](personas/scaffold-rigor.md) | Agent scaffolding sharpness: short skills, gates over folklore |
+| [stability-steward](personas/stability-steward.md) | Support tiers a consumer can plan against: a claim is the evidence that runs for it |
+| [wire-clarity](personas/wire-clarity.md) | Protocol evidence over folklore at CapTP/OCapN seams |
 
 ## Hooks
 

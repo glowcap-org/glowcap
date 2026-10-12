@@ -1,9 +1,9 @@
-//! The in-process transport's public C ABI — `libglowcap_net_transport_inproc`.
+//! The in-process transport's public C ABI, `libglowcap_net_transport_inproc`.
 //!
 //! The socket-free sibling of the TCP transport (`src/c_abi/net_transport/tcp/`): the same
 //! host-driven netlayer boundary, but the two peers run in one process with no
 //! kernel transport. A `GlowcapInprocNetlayer` is a switchboard
-//! (`net.inproc.Network`) plus the one `std.Io` backend its pipes block on; a
+//! (`net.inproc.Network`) plus the one `std.Io` backend its pipes block on. A
 //! listener binds to a *string designator* (not host:port) and a dialer names
 //! that designator. The C listener adds a socketpair wake descriptor for foreign
 //! reactors, but no application bytes flow through it. This is what a binding's
@@ -46,13 +46,13 @@ pub export fn glowcap_inproc_archive_fingerprint() u64 {
 }
 
 /// The netlayer handle owns the in-process switchboard and the one `std.Io`
-/// backend its pipes block on. Created and released explicitly by the host; it
+/// backend its pipes block on. Created and released explicitly by the host. It
 /// must outlive every connection and listener made from it.
 pub const GlowcapInprocNetlayer = opaque {};
-/// One in-process connection carrying one OCapN session. Owned by the caller;
-/// released with `glowcap_inproc_conn_release`.
+/// One in-process connection carrying one OCapN session. Owned by the caller.
+/// Released with `glowcap_inproc_conn_release`.
 pub const GlowcapInprocConn = opaque {};
-/// A bound in-process listener. Owned by the caller; released with
+/// A bound in-process listener. Owned by the caller. Released with
 /// `glowcap_inproc_listener_release`.
 pub const GlowcapInprocListener = opaque {};
 
@@ -70,7 +70,7 @@ const GLOWCAP_ERR_CLOSED = c.GLOWCAP_ERR_CLOSED;
 const GLOWCAP_ERR_IO = c.GLOWCAP_ERR_IO;
 
 /// The annotated symbol inventory (crossing semantics per export) the
-/// binding FFI-table generators reflect from — see `symbols.zig`.
+/// binding FFI-table generators reflect from. See `symbols.zig`.
 pub const symbols = @import("symbols.zig");
 
 /// Copy the calling thread's last inproc-transport error message into `out_buf`,
@@ -78,7 +78,7 @@ pub const symbols = @import("symbols.zig");
 /// carries its own per-thread slot (a separate compiled copy of the shared
 /// leaf's slot), so a `glowcap_inproc_*` call that returns a cause-bearing code
 /// records it here, readable independently of the ocapn archive's. Copies at
-/// most `cap - 1` bytes and always NUL-terminates when `cap > 0`;
+/// most `cap - 1` bytes and always NUL-terminates when `cap > 0`.
 /// `out_buf == NULL` or `cap == 0` queries the length. Returns the full message
 /// length, or 0 when none is set.
 pub export fn glowcap_inproc_last_error(out_buf: ?[*]u8, cap: usize) usize {
@@ -91,7 +91,7 @@ pub export fn glowcap_inproc_clear_last_error() void {
 }
 
 /// The netlayer handle owns the in-process switchboard and the one `std.Io`
-/// backend its pipes block on. Created and released explicitly by the host; it
+/// backend its pipes block on. Created and released explicitly by the host. It
 /// must outlive every connection and listener made from it. `Network` captures
 /// `&self.threaded` via `io()`, so the payload is heap-pinned for that borrow to
 /// stay valid (`create` gives it a stable address).
@@ -128,7 +128,7 @@ const InprocListenerPayload = struct {
 // with `begin`, release a never-installed payload with `abort`, an established
 // one with `destroy`. Buffer caps are the shared leaf's
 // `connection_read_buf_bytes` / `connection_write_buf_bytes`, the same as the
-// TCP connections. Frame read/write choreography is `ConnFrameOps` below — this
+// TCP connections. Frame read/write choreography is `ConnFrameOps` below. This
 // archive keeps the `export fn`s.
 const conn_lifecycle = c.ConnLifecycle(InprocConnPayload);
 const beginConn = conn_lifecycle.begin;
@@ -162,7 +162,7 @@ fn netlayerNewIn(alloc: std.mem.Allocator, slot: *?*GlowcapInprocNetlayer) i32 {
     payload.calls = .{};
     payload.allocator = alloc;
     // `Network.init` captures `payload.threaded.io()`, which borrows
-    // `&payload.threaded` — valid now that the payload has its stable address.
+    // `&payload.threaded`, valid now that the payload has its stable address.
     payload.network = net.inproc.Network.init(alloc, payload.threaded.io());
     slot.* = @ptrCast(payload);
     return GLOWCAP_OK;
@@ -260,7 +260,7 @@ pub export fn glowcap_inproc_listen(
 
 /// Return the listener's borrowed readiness descriptor. Inproc has no transport
 /// fd, so this is its wake channel, nudged when a dial is queued.
-/// Park on it before calling `glowcap_inproc_accept`; the listener owns it.
+/// Park on it before calling `glowcap_inproc_accept`. The listener owns it.
 pub export fn glowcap_inproc_listener_readiness_fd(listener: ?*GlowcapInprocListener, out_fd: ?*i32) i32 {
     c.lastErrorClear();
     const payload = listenerFromOpaque(listener) orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -433,7 +433,7 @@ fn dialErrorToCode(err: net.netlayer.DialError) i32 {
             break :blk GLOWCAP_ERR_IO;
         },
         error.OutOfMemory => GLOWCAP_ERR_INTERNAL,
-        // ConnectionLost is reachable — a listener acquired for the dial can be
+        // ConnectionLost is reachable: a listener acquired for the dial can be
         // torn down before `enqueue`. NetworkUnreachable and TimedOut have no
         // in-memory meaning and never arise for inproc; the shared DialError set
         // only spells them because network transports need them. Surface the

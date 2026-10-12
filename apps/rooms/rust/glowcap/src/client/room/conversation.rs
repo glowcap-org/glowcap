@@ -1,4 +1,4 @@
-//! Conversation calls use membership authority; returned line capabilities
+//! Conversation calls use membership authority. Returned line capabilities
 //! have their own lifetime and can be delegated independently.
 use super::*;
 use crate::client::posted_line::PostedLine;

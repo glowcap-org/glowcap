@@ -11,9 +11,9 @@
 //! advancing the handshake. Apply stays all-or-nothing for every typed protocol
 //! refusal: validation decides them before apply mutates (the
 //! prospective-import cap walk in `validate.zig` exists for exactly this), and
-//! the one refusal raised here — the inbound-answer cap in `installAnswer` —
+//! the one refusal raised here, the inbound-answer cap in `installAnswer`,
 //! fires as an arm's first step, before anything commits. Only a host
-//! allocation failure can interrupt an arm mid-walk; the engine treats that as
+//! allocation failure can interrupt an arm mid-walk. The engine treats that as
 //! fatal to the session, never as state to resume from.
 
 const std = @import("std");
@@ -51,7 +51,7 @@ pub fn applyRecvView(self: *Session, body: model.view.Body, introduced: *const v
 
 /// The one inbound apply body for the kinds both recv representations carry
 /// (`abort` / `deliver` / `resolve` / `start_session`). `anytype` over the
-/// owned `model.Message` and the borrowed `model.view.Body`, exactly like the
+/// owned `model.Message` and the borrowed `model.view.Body`, like the
 /// validate walkers, so the two paths cannot drift. `introduced` is the far-
 /// mention record the validate walk produced over this same message: apply
 /// consumes it instead of re-walking the argument tree, so one inbound
@@ -82,7 +82,7 @@ fn applyRecvShared(self: *Session, message: anytype, introduced: *const validate
             }
             // A canonical `op:resolve` fulfilling with a `far` reference hands
             // us a new import (the resolved capability), install the recorded
-            // mentions exactly as the deliver arm does.
+            // mentions as the deliver arm does.
             installIntroducedImports(self, introduced);
         },
         .start_session => |ss| {
@@ -133,7 +133,7 @@ fn sessionPubkeyBytes(ss: anytype) []const u8 {
 }
 
 /// The verbatim `<ocapn-peer ...>` location bytes, present only on the borrowed
-/// decode view (`?[]const u8`); the owned `model.StartSession` has no such field,
+/// decode view (`?[]const u8`). The owned `model.StartSession` has no such field,
 /// so the owned-apply path reports none.
 fn acceptableLocationRawBytes(ss: anytype) ?[]const u8 {
     return if (comptime @hasField(@TypeOf(ss), "acceptable_location_raw"))
@@ -186,7 +186,7 @@ pub fn applySend(self: *Session, message: model.Message) !void {
         .index => |index| installPreparedOutboundAnswer(self, index.answer),
         .untag => |untag| installPreparedOutboundAnswer(self, untag.answer),
         // A sent `op:resolve` is routed through `applySentResolve` by
-        // `recordSend`, never here — it consumes the resolution (moves it into
+        // `recordSend`, never here, it consumes the resolution (moves it into
         // the answer store) under a single-owner contract `applySend`'s
         // borrow-the-message shape cannot express.
         .resolve => unreachable,
@@ -194,7 +194,7 @@ pub fn applySend(self: *Session, message: model.Message) !void {
             try session.applyGcExportDecrement(&self.imports, gc_export);
             retireReleasedImports(self, gc_export.positions);
         },
-        // Outbound `op:gc-answers` releases a question we asked — decrement
+        // Outbound `op:gc-answers` releases a question we asked, decrement
         // our outbound answers and drop any outbound resolver link we
         // committed for it.
         .gc_answer => |gc_answer| try applyGcAnswerDecrementOutbound(self, gc_answer.positions),
@@ -217,7 +217,7 @@ pub fn applySend(self: *Session, message: model.Message) !void {
         // No send-side table mutation beyond export-retain accounting
         // above: `op:listen` anchors at the engine seam, and `op:abort` records
         // here without closing
-        // — CapTP close (when required) is `Peer.commitAbortOutbound` after the
+        // CapTP close (when required) is `Peer.commitAbortOutbound` after the
         // frame is on `outbound`, so the partner can still take it. Listing
         // them explicitly (rather
         // than `else`) makes a new `model.Message` kind fail to compile until
@@ -235,21 +235,21 @@ fn installPreparedOutboundAnswer(self: *Session, position: model.AnswerPosition)
 }
 
 /// Apply a resolve we are sending. **Consumes `resolve.resolution`**: it is
-/// moved into the inbound answer's store on success, or freed on any failure —
+/// moved into the inbound answer's store on success, or freed on any failure,
 /// the caller never frees it (a resolve has no heap beyond its resolution). The
 /// store becomes the single owner: the queued outbound carrier holds only the
 /// answer position, and `Peer.step` reads the resolution back from the store to
 /// encode (`mod.Outbound.settled_answer`).
 ///
-/// Moving here — not cloning — is what closes the record/emit gap *and* keeps
+/// Moving here, not cloning, is what closes the record/emit gap *and* keeps
 /// the wire path copy-free: the status flip and the stored resolution are one
 /// fact ("this inbound answer is settled, and here is its value"), so they land
 /// together at record time. Storing only when the queued frame later emits split
-/// them, opening a window — as wide as a whole inbound batch, since repeated
-/// `Peer.step` calls drain queued inbound before emitting any outbound — in
-/// which an answer read settled with no resolution on hand; every
+/// them, opening a window, as wide as a whole inbound batch, since repeated
+/// `Peer.step` calls drain queued inbound before emitting any outbound, in
+/// which an answer read settled with no resolution on hand. Every
 /// status-reading consumer (op:listen, projections, pipelined op:deliver) then
-/// had to special-case it. The invariant is now structural: for every inbound
+/// had to special-case it. The invariant is structural: for every inbound
 /// answer, `status != .pending` if and only if a resolution is stored.
 pub fn applySentResolve(self: *Session, resolve: model.Resolve) !void {
     return applySentResolutionNamed(self, .fromWire(resolve.answer), resolve.resolution);
@@ -343,13 +343,13 @@ pub fn applyRecv(self: *Session, message: model.Message, introduced: *const vali
 
 /// Install the imports the validate walk recorded for this message (a
 /// deliver's args or a resolution's fulfill payload). Each recorded mention is
-/// a `<desc:import-object>` naming one of the partner's exports; registering
+/// a `<desc:import-object>` naming one of the partner's exports. Registering
 /// it records the import the session holds. The bootstrap import (0) was
-/// excluded at record time; an already-held position increments its
+/// excluded at record time. An already-held position increments its
 /// wire-delta refcount, so a later `op:gc-exports` releasing the same total
-/// delta balances. Consuming the record — instead of re-walking the argument
-/// tree — is what keeps one inbound message's argument bytes to a single
-/// traversal; the walk that produced it is
+/// delta balances. Consuming the record, instead of re-walking the argument
+/// tree, is what keeps one inbound message's argument bytes to a single
+/// traversal. The walk that produced it is
 /// `session/validate/passable.zig`'s one dual-shape walker.
 fn installIntroducedImports(self: *Session, introduced: *const validate.IntroducedImports) void {
     for (introduced.mentions.items) |import_position| {
@@ -358,7 +358,7 @@ fn installIntroducedImports(self: *Session, introduced: *const validate.Introduc
 }
 
 /// Apply the session's own outbound `op:gc-exports`: each entry spends
-/// retains the session adopted for exactly this release, so the decrement
+/// retains the session adopted for this release, so the decrement
 /// cannot fail. The consequences of a row reaching zero are the caller
 /// release's, unchanged.
 pub fn applySessionImportRelease(self: *Session, gc_export: model.GcExport) void {
@@ -370,7 +370,7 @@ pub fn applySessionImportRelease(self: *Session, gc_export: model.GcExport) void
 }
 
 /// After an outbound release, retire whatever named a position whose import
-/// row is now gone. ADR-0009: a fully-released third-party import can never
+/// row is gone. ADR-0009: a fully-released third-party import can never
 /// receive a relayed resolution, so its imported-promise row (host, listeners,
 /// stored resolution) goes with the import.
 fn retireReleasedImports(self: *Session, positions: []const u64) void {
@@ -388,7 +388,7 @@ fn retireReleasedImports(self: *Session, positions: []const u64) void {
 }
 
 /// Apply `op:gc-answers` to the partner's pipelining ownership. A final
-/// decrement releases and immediately frees the wire name for reuse; an
+/// decrement releases and immediately frees the wire name for reuse. An
 /// already-accepted resolver/listener obligation keeps the answer incarnation
 /// alive under its private row stamp until that notification publishes.
 fn applyGcAnswerDecrementInbound(self: *Session, positions: []const u64) !void {
@@ -416,8 +416,8 @@ fn applyGcAnswerDecrementOutbound(self: *Session, positions: []const u64) Error!
 }
 
 /// Install a pending answer row in the table `direction` names. Inbound rows
-/// and detached accepted consequences share `SessionLimits.max_inbound_answers`;
-/// outbound rows are positions we allocate, bounded by our own sends, so the
+/// and detached accepted consequences share `SessionLimits.max_inbound_answers`.
+/// Outbound rows are positions we allocate, bounded by our own sends, so the
 /// cap is the direction's policy, not a property of which pointer was passed.
 /// Idempotent only for a still-pending inbound row: validation and apply may
 /// meet the same answer during one prepared receive transaction. Outbound rows

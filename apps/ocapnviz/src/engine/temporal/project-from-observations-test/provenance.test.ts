@@ -1,5 +1,5 @@
 /**
- * Derived spans re-derive when observations grow; authored spans
+ * Derived spans re-derive when observations grow. Authored spans
  * keep the times a person wrote. Quiet re-projection keeps the
  * document's object identity so layout does not rebind.
  */
@@ -13,7 +13,7 @@ import { emptyDoc, withEvents } from "./harness.ts";
 
 Deno.test("live: a late-arriving peer-left re-derives the derived span", () => {
 	// Live-mode shape: the join projects first (open-ended span), the
-	// leave arrives on a LATER run. The derived span must pick it up —
+	// leave arrives on a LATER run. The derived span must pick it up,
 	// this is the projection defect that made live peers immortal.
 	const base = withEvents({
 		...emptyDoc(),

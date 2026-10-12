@@ -1,8 +1,8 @@
 //! Ordinary actor hosting needs a Host, with no transport or publication.
 use super::*;
 impl Host {
-	/// Spawn an ordinary actor. The returned reference owns its local root;
-	/// final drop releases it while exports retain their independent roots.
+	/// Spawn an ordinary actor. The returned reference owns its local root.
+	/// Final drop releases it while exports retain their independent roots.
 	/// Turn-time factories use the existing turn spawn transaction.
 	pub fn spawn(
 		&self,
@@ -17,6 +17,11 @@ impl Host {
 			Some(turn) => crate::trampoline::turn_spawn(turn, cell)?,
 			None => {
 				let mut reference = sys::GlowcapReference { id: 0 };
+				// SAFETY: `cell` is the fresh unregistered `ActorCell` that `HostShared::actor_cell` boxed, so nothing
+				// else holds it; the closure makes the one `glowcap_host_spawn` call on `self.shared.raw()`, the Host
+				// handle owned by `HostShared` and proven non-null by `guard_handle` above, and the host's single
+				// thread runs no other access to the cell during it. `trampoline` and `ctx_free` are the binding's
+				// callbacks for an `ActorCell`, and `reference` is a local out-parameter the callee writes.
 				unsafe {
 					register_actor_cell(
 						cell,

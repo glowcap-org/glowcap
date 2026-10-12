@@ -1,14 +1,13 @@
 # Per-language consumer cost
 
 This benchmark asks what a client written in each supported language pays to run
-the same application against one native Zig glowcap host.
+the same application against one Zig glowcap host.
 
 The host and task-board workload stay fixed. The client changes between Deno,
-Python, Rust, Racket, native Zig, and Spritely Goblins as a reference CapTP peer.
-Each row therefore measures a whole consumer stack: runtime, binding, garbage
-collector, and the application written in that language. Results describe one
-machine and one run. The rows mix glowcap's wire cost with that language's
-runtime.
+Python, Rust, Racket, Zig, and Spritely Goblins as a reference CapTP peer.
+Each row measures a whole consumer stack: runtime, binding, garbage collector,
+and the application written in that language. The rows mix glowcap's wire cost
+with that language's runtime, and results describe one machine and one run.
 
 ## Run it
 
@@ -18,18 +17,18 @@ zig build bench-langs -- --smoke       # small counts
 zig build bench-langs -- --client=zig  # one client
 ```
 
-The native Zig host always runs. A normal run includes the Zig client; a
-`--client` filter may select another row instead. Optional rows join when their
+The Zig host always runs. A normal run includes the Zig client, and a
+`--client` filter can select another row instead. Optional rows join when their
 runtimes are on `PATH`, and unavailable clients are reported and skipped.
 
 Reports are written under `zig-out/bench-reports/` with a timestamp:
 
-- a terminal-style text report;
-- a Markdown table and charts;
-- standalone SVG charts for latency, throughput, and cold start.
+- a terminal-style text report
+- a Markdown table and charts
+- standalone SVG charts for latency, throughput, and cold start
 
-Generated reports are not committed. Keep the report with the machine and run
-conditions needed to interpret it.
+Reports are not committed. Keep each with the machine and run conditions it
+needs.
 
 ## What it measures
 
@@ -47,14 +46,12 @@ status. Latency waits after each operation. Throughput addresses dependent calls
 at the unresolved answer, so the four operations travel as one pipelined
 flight.
 
-Memory is an operating-system RSS delta, not a binding-heap or allocation
-measurement. A managed runtime may absorb connection buffers inside an existing
-heap without changing RSS, so compare a row with itself across runs—not against
-a different runtime class.
+Memory is an operating-system RSS delta. A managed runtime can absorb
+connection buffers inside an existing heap without changing RSS, so compare a
+row with itself across runs, not against a different runtime class.
 
-The local-turn `via_host` figure is not a prediction of a future Zig-vat path.
-It measures the existing loopback route through the C host, including wire
-encoding. A future local path could differ in either direction.
+The local-turn `via_host` figure measures the loopback route through the C
+host, including wire encoding.
 
 Read [Methodology and caveats](methodology.md) before comparing results. The
 exact client protocol is in [`contract.md`](contract.md).
@@ -67,7 +64,7 @@ call shape, and loopback transport constant, use the separate
 
 | Path | Role |
 | --- | --- |
-| [`host.zig`](host.zig) | Fixed native Zig task-board host. |
+| [`host.zig`](host.zig) | Fixed Zig task-board host. |
 | [`orchestrator.zig`](orchestrator.zig) | Runs clients, samples processes, and writes reports. |
 | [`contract.md`](contract.md) | NDJSON schema and workload required of every client. |
 | [`clients/`](clients/) | One benchmark client per language. |

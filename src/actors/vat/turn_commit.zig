@@ -3,7 +3,7 @@
 //!
 //! `ingress.zig` stages a send made inside a turn with its admission charged
 //! and its vow minted, outside every queue. A turn that returns successfully
-//! splices the staged sends onto their queues and commits each participant; a
+//! splices the staged sends onto their queues and commits each participant. A
 //! failed turn aborts each participant in reverse before notifying observers
 //! and dropping its local sends.
 

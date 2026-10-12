@@ -24,8 +24,8 @@ Deno.test("the clock readout stays coarse and magnitude-scaled", () => {
 });
 
 Deno.test("a coordinate fact reads at full fidelity, trimmed", () => {
-	// The typed-edit seed must round-trip: committing a rounded seed
-	// used to quantize a pin to integers on focus-then-blur, moving
+	// The typed-edit seed must round-trip: committing a rounded seed would
+	// quantize a pin to integers on focus-then-blur, moving
 	// the peer and cold-recomputing the layout.
 	assertEquals(formatCoord(312.4375), "312.438");
 	assertEquals(formatCoord(-41.5), "-41.5");

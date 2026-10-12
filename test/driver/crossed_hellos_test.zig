@@ -3,8 +3,8 @@
 //! partner, and the registry must steer both sides onto the *same* surviving
 //! session with no coordination beyond a local comparison. The rule is the byte
 //! order of the two Public Identifiers: the side whose identifier is not lower
-//! aborts its inbound; the strictly lower-keyed side aborts its outbound. These
-//! scenarios run the registry's verdict from both seats; the condemnation the
+//! aborts its inbound. The strictly lower-keyed side aborts its outbound. These
+//! scenarios run the registry's verdict from both seats. The condemnation the
 //! verdict drives (the losing connection's typed abort) is pinned by the core
 //! host scenarios and the wire-level three-party test.
 

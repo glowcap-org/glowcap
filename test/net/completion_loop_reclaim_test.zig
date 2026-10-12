@@ -62,6 +62,12 @@ const DeadPeerBackend = struct {
         return port;
     }
 
+    /// A scripted listener binds at `openListener`; nothing pends here; a
+    /// wrapped adapter's pending setup reports through the adapter itself.
+    pub fn listenerPending(_: *@This(), _: Fd) bool {
+        return false;
+    }
+
     pub fn openListener(self: *@This(), port: u16) !Fd {
         _ = self;
         _ = port;
@@ -179,7 +185,7 @@ test "completion loop: a dead peer's read error reclaims the slot and fires on_c
     try std.testing.expectEqual(@as(usize, 1), loop.closed_count);
     try std.testing.expectEqual(@as(usize, 1), CloseWatch.fired);
     // The connection had accepted (transport-opened) before the read error, so
-    // the close reports opened == true — a surfaced vanish, not a refused dial.
+    // the close reports opened == true, a surfaced vanish, not a refused dial.
     try std.testing.expect(CloseWatch.opened);
     try std.testing.expectEqualStrings("ConnectionResetByPeer", CloseWatch.failure_name.?);
 }

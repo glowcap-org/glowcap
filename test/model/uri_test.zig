@@ -271,6 +271,57 @@ test "a byte-array hint value has no URI form" {
     try std.testing.expectError(uri.Error.UnsupportedHintValue, uri.writePeer(allocator, locator));
 }
 
+test "URI rendering allocates only its exact output for peers and both sturdyref profiles" {
+    const hints = [_]model.HintEntry{
+        .{ .name = "text", .value = .{ .string = "a&b=c" } },
+        .{ .name = "count", .value = .{ .integer = -42 } },
+        .{ .name = "flag", .value = .{ .boolean = true } },
+    };
+    const key: [1024]u8 = @splat(0xff);
+    const locator: model.PeerLocator = .{ .transport = "noise-tcp", .designator = &key, .hints = .{ .entries = &hints } };
+    const sturdyref: model.SturdyRef = .{ .peer = locator, .swissnum = "name/with\x00escapes" };
+    for ([_]?model.CaptpVersion{ null, .v1_0, .next }) |profile| {
+        var traffic = std.testing.FailingAllocator.init(std.testing.allocator, .{ .resize_fail_index = 0 });
+        const allocator = traffic.allocator();
+        const output = if (profile) |version|
+            try uri.writeSturdyrefForProfile(allocator, version, sturdyref)
+        else
+            try uri.writePeer(allocator, locator);
+        defer allocator.free(output);
+        try std.testing.expectEqual(@as(usize, 1), traffic.alloc_index);
+        try std.testing.expectEqual(output.len, traffic.allocated_bytes);
+        var expected: [4096]u8 = undefined;
+        const written = if (profile) |version|
+            try uri.writeSturdyrefForProfileBounded(version, sturdyref, &expected)
+        else
+            try uri.writePeerBounded(locator, &expected);
+        try std.testing.expect(written.complete);
+        try std.testing.expectEqualSlices(u8, expected[0..written.len], output);
+    }
+}
+
+test "URI rendering refuses invalid input before allocation and propagates output allocation failure" {
+    var refusing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+    const allocator = refusing.allocator();
+    const locator: model.PeerLocator = .{ .transport = "onion", .designator = "peer" };
+    const invalid: model.PeerLocator = .{ .transport = "a.b", .designator = "peer" };
+    try std.testing.expectError(error.InvalidLocator, uri.writePeer(allocator, invalid));
+    const hints = [_]model.HintEntry{.{ .name = "blob", .value = .{ .bytes = "raw" } }};
+    try std.testing.expectError(error.UnsupportedHintValue, uri.writePeer(allocator, .{
+        .transport = "onion",
+        .designator = "peer",
+        .hints = .{ .entries = &hints },
+    }));
+    try std.testing.expect(!refusing.has_induced_failure);
+    try std.testing.expectError(error.OutOfMemory, uri.writePeer(allocator, locator));
+    for ([_]model.CaptpVersion{ .v1_0, .next }) |profile| {
+        try std.testing.expectError(error.OutOfMemory, uri.writeSturdyrefForProfile(allocator, profile, .{
+            .peer = locator,
+            .swissnum = "name",
+        }));
+    }
+}
+
 test "splitHostPort splits an IPv4 host:port designator" {
     const split = try uri.splitHostPort("127.0.0.1:8080");
     try std.testing.expectEqualStrings("127.0.0.1", split.host);

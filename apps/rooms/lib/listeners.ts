@@ -1,10 +1,10 @@
 // The operator's hand on a directory's listeners, taken as a capability.
 //
 // Like inspect, the listeners object is a second Host publication under an
-// unguessable name (`--admin-listeners`), and holding that name is the whole
-// of the authority. Taking it is the shared operations flow in
-// `operations.ts`; what it answers — the listener rows, `up`, and `down` — is
-// what this module owns. Rust's server side lives under `server/operations`.
+// unguessable name (`--admin-listeners`), and holding that name is the
+// authority. Taking it is the shared operations flow in `operations.ts`. This
+// module owns what it answers: the listener rows, `up`, and `down`. Rust's
+// server side lives under `server/operations`.
 
 import type { Ref, Session } from "@glowcap/runtime";
 import {
@@ -71,12 +71,12 @@ export function listenerOptionsFitTransport(transport: ListenerTransport, option
 	return Object.keys(options).every((name) => allowed.has(name));
 }
 
-/** One transport seat, as the admin capability reports it: the server's own
+/** One transport seat, as the admin capability reports it: the server's
  * catalog entry (name, description, an optional reference page, what an `up`
- * may carry) plus its live state. The set is the server's to name, so an
- * operator surface renders whatever arrives instead of keeping a copy.
- * `serving` marks the listener whose locator the server announced — the one
- * the web relay dials, and the one `down` refuses to take. A standing
+ * may carry) plus its live state. The server names the set, so an operator
+ * surface renders whatever arrives instead of keeping a copy.
+ * `serving` marks the listener whose locator the server announced, the one the
+ * web relay dials and the one `down` refuses to take. A standing
  * `unavailable` sentence means the server already knows an `up` would
  * refuse. */
 
@@ -85,11 +85,11 @@ export const ListenerRowSchema = z.strictObject({
 	description: listenerText,
 	/** A page that explains the technology, or empty. */
 	reference: listenerText,
-	/** What the reference explains, as link text; empty exactly when
+	/** What the reference explains, as link text. Empty exactly when
 	 * `reference` is. */
 	referenceName: listenerText,
 	/** The knobs this seat's `up` accepts: name, value shape, and what a
-	 * blank field means in the server's own words. */
+	 * blank field means in the server's words. */
 	takes: z.array(ListenerUpOptionSchema).check(z.maxLength(32)),
 	/** Why an `up` would refuse today, or empty. */
 	unavailable: listenerText,
@@ -166,10 +166,10 @@ export async function listListeners(session: Session, cap: Ref): Promise<Listene
 	return parseListenerRows(await ask(session, cap, LIST, [], "the listeners capability did not answer"));
 }
 
-/** Bring a listener up on `transport` (a name the server's own list
- * answered), with values for whichever of the seat's declared knobs the
- * caller sets; the rest fall to the server's own defaults. Answers the
- * transport's refreshed seat. */
+/** Bring a listener up on `transport` (a name the server's list answered),
+ * with values for whichever of the seat's declared knobs the caller sets. The
+ * rest fall to the server's defaults. Answers the transport's refreshed
+ * seat. */
 export async function listenerUp(
 	session: Session,
 	cap: Ref,

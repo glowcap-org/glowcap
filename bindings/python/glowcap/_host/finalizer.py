@@ -20,7 +20,7 @@ from .._trampoline import (
 # A finalizer cannot report a native release refusal. Same-thread callback
 # finalization uses the post-turn queue below; any other refusal transfers into
 # this process-level retry owner. Safe Host boundaries claim one finite batch,
-# and interpreter shutdown gets the final attempt. The queue deliberately keeps
+# and interpreter shutdown gets the final attempt. The queue keeps
 # the allocator context alive until native release really succeeds.
 _deferred_finalizer_states: "deque[_HostFinalizerState]" = deque()
 _deferred_finalizer_ids: "set[int]" = set()
@@ -32,7 +32,7 @@ class _HostFinalizerState:
 
     The finalizer owns no Host, Session, loop, or behavior closure. The integer
     trampoline ids are enough to retire the process-global registry after the
-    native Host has stopped calling it; retaining ``context`` keeps a custom
+    native Host has stopped calling it. Retaining ``context`` keeps a custom
     allocator alive until that release completes.
     """
 
@@ -183,7 +183,7 @@ atexit.register(_drain_deferred_finalizer_states)
 
 # Releases the C tier refused inside a behavior callback park here
 # (glowcap_host_session_release / glowcap_host_release are refused mid-turn);
-# the next drain — the head of any kick, or a feed's unwind — runs them once
+# the next drain, the head of any kick, or a feed's unwind, runs them once
 # the enclosing feed unwinds, so a mid-turn close never leaks its C handle.
 # Thread-local, not per-host: a Host finalized inside a turn parks its own
 # release, and a list on the object being finalized would never drain. The

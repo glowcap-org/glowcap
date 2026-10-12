@@ -7,7 +7,7 @@
 ;; Status is carried as bytes, not a Racket symbol: an OCapN symbol round-trips as
 ;; a native symbol on Goblins but as the binding's `sym` struct on glowcap, so a
 ;; symbol result would not compare equal across substrates. Bytes are bytes on
-;; both, keeping the result — and therefore the check — substrate-agnostic.
+;; both, keeping the result, and therefore the check, substrate-agnostic.
 (require "../dispatch.rkt")
 (provide app-name server-build client-prepare result-ok?)
 

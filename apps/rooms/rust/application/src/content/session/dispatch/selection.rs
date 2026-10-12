@@ -26,7 +26,7 @@ impl Dispatch {
 			.ok_or(Refusal)
 	}
 	/// Coordinates only select already held custody. The upstream object still
-	/// authorizes the exact verb; a RoomAccess field does not confer moderation.
+	/// authorizes the exact verb. A RoomAccess field does not confer moderation.
 	pub fn target(&self, intent: &workspace::Intent) -> Result<custody::Coordinate, Refusal> {
 		let (role, slot, generation) = match &self.selection {
 			Selection::Operations(coordinate, kind) => {

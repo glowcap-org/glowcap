@@ -2,14 +2,14 @@
 // control that answers it, and the sentence that qualifies it.
 //
 // Above the control goes what the reader must act on, below it what only
-// informs; the README beside this file argues why. Every field-level refusal
+// informs. The README beside this file argues why. Every field-level refusal
 // on the page comes through here, so this one return is where that order
 // lives.
 //
 // The control is the caller's, because a field is a text input on one line, a
 // select on the next, a textarea or a file picker on the one after, and each
 // carries attributes that belong to what it asks (a locator turns off the
-// keyboard's corrections; a port takes numbers). What is not the caller's is
+// keyboard's corrections. A port takes numbers). What is not the caller's is
 // the wiring around it. A label has to name the control by id, a hint has to
 // be announced with it, a refusal has to be too and has to mark the control
 // invalid, and a form that wires these by hand does some of it and forgets the
@@ -17,7 +17,7 @@
 // This does all of it from three strings.
 //
 // `inline` lays the name to the left of the control for a short list of knobs
-// that would read as a form three times taller stacked; the name column is one
+// that would read as a form three times taller stacked. The name column is one
 // width for the whole list, so the fields line up down it (`--field-name-w`).
 
 import type { ReactNode } from "react";
@@ -28,7 +28,7 @@ export interface FieldWiring {
 	/** The ids the control should announce with itself, or undefined when
 	 * nothing qualifies it. */
 	describedBy: string | undefined;
-	/** The control did not take the value; wired straight onto `aria-invalid`. */
+	/** The control did not take the value. Wired straight onto `aria-invalid`. */
 	invalid: true | undefined;
 }
 

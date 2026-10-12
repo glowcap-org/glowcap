@@ -1,4 +1,5 @@
-import { scrapeTraceSturdyref, tracePortOf, traceUrlOf } from "./viewer.ts";
+import { scrapeTraceSturdyref, tracePortOf } from "./viewer.ts";
+import { tracePublishUrlOf } from "../../lib/trace_view.ts";
 import { spawnOwned, stopOwned } from "../support/children.ts";
 
 const SERVER = Deno.env.get("GLOWCAP_ROOMS_SERVER_BIN") ??
@@ -36,12 +37,10 @@ try {
 		scrapeTraceSturdyref(server.stderr),
 		awaitServerAnnouncement(server.stdout),
 	]);
-	const publishUrl = new URL(traceUrlOf(sturdyref));
-	publishUrl.pathname = "/publish";
 	console.log(JSON.stringify({
 		port: tracePortOf(sturdyref),
 		sturdyref,
-		publish: publishUrl.href,
+		publish: tracePublishUrlOf(sturdyref),
 	}));
 
 	const status = await server.status;

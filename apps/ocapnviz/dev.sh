@@ -5,11 +5,11 @@
 #
 # 1. Vite's "press h + enter to show help" puts stdin in raw mode, so the
 #    kernel stops translating Ctrl-C into SIGINT and vite has to handle the
-#    keystroke itself — which it doesn't always do cleanly through deno's
+#    keystroke itself, which it doesn't always do cleanly through deno's
 #    npm-compat layer.
 # 2. Closing the terminal pane (or restarting the IDE) does not kill vite by
 #    default. If nothing is supervising deno, the kernel reparents it to init
-#    and it runs forever — holding port 5173 hostage so the next `bash dev.sh`
+#    and it runs forever, holding port 5173 hostage so the next `bash dev.sh`
 #    lands on 5174, then 5175, and so on.
 #
 # This script runs deno as a child with stdin from /dev/null and traps
@@ -18,8 +18,8 @@
 # the browser, Ctrl-C kills the dev server cleanly, and closing the terminal
 # does too.
 #
-# If a `deno run -A npm:vite` ever shows `PPID 1` in `ps`, that's a pre-fix
-# orphan — `kill -9 <pid>` and start fresh.
+# If a `deno run -A npm:vite` ever shows `PPID 1` in `ps`, that's an
+# orphan. Run `kill -9 <pid>` and start fresh.
 set -euo pipefail
 cd "$(dirname "$0")"
 

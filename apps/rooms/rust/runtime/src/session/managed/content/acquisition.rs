@@ -1,7 +1,7 @@
 //! Single and bundle imports share exact custody comparison and one graph commit.
 use super::*;
 
-/// The inner refusal proves absence of a commit; the outer operational Result
+/// The inner refusal proves absence of a commit. The outer operational Result
 /// reports malformed input or unavailable content. Intent stays owned inline.
 pub(super) type WorkspacePreparation = std::result::Result<Option<workspace::Intent>, WorkspaceConflict>;
 pub(super) struct WorkspaceConflict;
@@ -69,8 +69,8 @@ enum Request<'a> {
 impl<'a> Request<'a> {
 	/// A bulk ingress admits one codec page's field population. Its temporary
 	/// spine borrows capability and URI occurrences from Call input, and dies at
-	/// callback return. Shared preparation owns every retain across storage waits;
-	/// no runtime authority map or copied URI inventory survives the callback.
+	/// callback return. Shared preparation owns every retain across storage waits.
+	/// No runtime authority map or copied URI inventory survives the callback.
 	fn read(input: Invocation<'a>) -> Result<Self> {
 		if input.verb == "import" {
 			return Entry::read(input.args).map(Self::Single);
@@ -143,7 +143,7 @@ impl<'a> Request<'a> {
 		}
 	}
 	/// Keep serialized intent borrowed in the ingress union. Only workspace
-	/// admission decodes a candidate; single imports decode no workspace.
+	/// admission decodes a candidate. Single imports decode no workspace.
 	/// Neither path adds heap indirection. Preparation and invocation call this
 	/// before requesting saves or changing custody.
 	fn prepare_workspace<R: custody::References, C>(

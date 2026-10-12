@@ -3,7 +3,7 @@
 Each ``_ffi_*`` module declares its own ``ctypes.Structure`` for a C ABI
 struct, because ctypes wants a symbolic declaration rather than a byte-offset
 reader. :func:`pin_struct` is what proves a declaration still describes the
-struct the library actually passes: it compares the declared size, field
+struct the library passes: it compares the declared size, field
 count, field order, field offsets, and per-field widths against
 ``_layouts_gen.LAYOUTS``, which ``zig build gen-binding-ffi-layouts`` reflects
 off the real Zig types. A Zig-side field change therefore moves a row in the

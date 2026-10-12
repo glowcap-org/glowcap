@@ -4,6 +4,7 @@
 
 extern crate alloc;
 
+pub mod admission;
 pub mod bridge;
 pub mod content;
 pub mod directory;

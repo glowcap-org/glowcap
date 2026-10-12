@@ -312,7 +312,7 @@ pub(crate) fn enqueue_outbound(state: &mut Outbound, bytes: &[u8]) -> isize {
 
 /// Start the crate-level close without waiting on the caller's thread. Terminal
 /// state and readiness are published before this runs, so the task only performs
-/// WebRTC teardown; it owns an `Arc` to the connection until that finishes.
+/// WebRTC teardown. It owns an `Arc` to the connection until that finishes.
 pub(crate) fn close_peer_async(peer: &GlowcapWebrtcPeer) {
 	close_shared_async(&peer.shared);
 }

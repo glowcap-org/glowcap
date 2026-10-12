@@ -7,7 +7,7 @@ const std = @import("std");
 const c = @import("c_abi");
 const cdrv = @import("c_abi_driver");
 
-/// The table's I/O never blocks; these helpers retry a refusal within a
+/// The table's I/O never blocks. These helpers retry a refusal within a
 /// finite budget of short sleeps.
 const io_retry_budget = 10_000;
 

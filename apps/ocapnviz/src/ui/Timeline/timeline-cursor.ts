@@ -1,11 +1,11 @@
 /**
- * The Timeline's side of the one cursor rule — `docs/cursor.md`,
+ * The Timeline's side of the one cursor rule, `docs/cursor.md`,
  * for the two surfaces that are not the Stage.
  *
  * The Scrubber and the Overview own DOM hosts stacked above the unified
  * canvas, so each has to write its own element's cursor. What neither may do
  * is decide it. This module turns a pointer position into the `Hit` the
- * interactions vocabulary names, and hands that to `cursorFor` — the same
+ * interactions vocabulary names, and hands that to `cursorFor`, the same
  * function the Stage asks, answering from the same `resolveGesture` a click
  * goes through.
  *
@@ -38,7 +38,7 @@ import { type RowDescriptor, RULER_HEIGHT } from "./row-layout.ts";
 import { canvasPxToT, gutterWidthOf, plotStartXOf, plotWidthOf, type TimelineView } from "./state.ts";
 
 /**
- * Hover title for a gutter eyeball — current stored mode, same verbs as the
+ * Hover title for a gutter eyeball, current stored mode, same verbs as the
  * undo label for setting that mode. Null when the pointer is not on an eye.
  */
 export function eyeballHoverStatus(
@@ -65,7 +65,7 @@ export function eyeballHoverStatus(
 /**
  * The gesture a Timeline host is running, named where it starts.
  *
- * The pointer FSM would hold this; these two hosts still run their own drag
+ * The pointer FSM would hold this. These two hosts still run their own drag
  * loops (§ 13), so each keeps it in a ref from pointerdown to teardown and
  * hands it back here. `verb` is the § 4.5 vocabulary, so the cursor for a
  * running gesture comes out of the same table as the cursor for an offered
@@ -81,7 +81,7 @@ export type HostPoint = { px: number; py: number };
  *
  * Two answers from one walk because they come from one hit test: the surface
  * the cursor describes and the row key the paint pass fills. The zone order
- * is the pointerdown handler's order — seam, gutter, scrub zone, lanes — so
+ * is the pointerdown handler's order, seam, gutter, scrub zone, lanes, so
  * the pointer promises the gesture the press will actually start.
  */
 export function scrubberHoverAt(
@@ -118,7 +118,7 @@ export function scrubberHoverAt(
 		// The ruler band plus the dead space between the last row and it: one
 		// scrub zone, as the pointer host reads it. In Live the feed is
 		// forward-only and the press does nothing, so there is nothing here to
-		// describe — the same answer the left pad gives, where `t` is null.
+		// describe. The same answer the left pad gives, where `t` is null.
 		if (args.disabledScrub || t === null) return NOTHING;
 		return {
 			hit: { surface: "timeline-ruler", t },
@@ -250,7 +250,7 @@ export type OverviewHit = Extract<
  * What the Overview is pointing at.
  *
  * Three zones on the strip: a grip on either end of the visible-window rect,
- * and everything else on the plot, which pans — from inside the rect by
+ * and everything else on the plot, which pans, from inside the rect by
  * dragging it, from outside by jumping it here first. The gutter holds one
  * control, the all-rows eyeball.
  */
@@ -303,7 +303,7 @@ export function overviewHitAt(
  * It reads in both directions, which is why the tool is narrowed here rather
  * than the one rung being suppressed. These hosts never consult the active tool
  * on the way to a click, so a lane click selects under Send Message exactly as
- * it does under Select; narrowing means the Shift preview appears there too,
+ * it does under Select. Narrowing means the Shift preview appears there too,
  * where suppressing the tool's own cursor alone would have left it missing.
  * `cursor.ts` scopes the rung by surface as well, so a third host wiring itself
  * to the ladder is safe without knowing to do this.
@@ -319,7 +319,7 @@ export function timelineCursor(
 		/** The gesture the host is running, or null when it is only hovering. */
 		inFlight: TimelineGesture | null;
 		/** Space, the active tool, and the keys held right now, from the App's
-		 *  one keyboard authority — a modifier pressed over a still pointer
+		 *  one keyboard authority. A modifier pressed over a still pointer
 		 *  changes the next click, so the cursor has to hear about it. */
 		gestureCtx: SurfaceGestureCtx;
 	},

@@ -200,7 +200,7 @@ class _PublicationMixin(HostMixinBase):
 
     def designator(self) -> str:
         """The canonical key designator (64 lowercase hex digits) for this
-        node's identity seed — what a keyed-tcp locator names as its
+        node's identity seed: what a keyed-tcp locator names as its
         designator (ADR-0075)."""
         out = (ctypes.c_ubyte * 64)()
         buf, ptr = _byte_buf(self._seed)
@@ -246,7 +246,7 @@ class _PublicationMixin(HostMixinBase):
         """Publish the exact held reference, preserving its original authority.
 
         The publication owns an independent root until ``remove_durable``.
-        After removal, the same entropy restores the name; live collisions refuse.
+        After removal, the same entropy restores the name. Live collisions refuse.
         """
         entropy_bytes = secrets.token_bytes(_abi.HOST_DURABLE_ENTROPY_LEN) if entropy is None else bytes(entropy)
         if len(entropy_bytes) != _abi.HOST_DURABLE_ENTROPY_LEN:
@@ -277,7 +277,7 @@ class _PublicationMixin(HostMixinBase):
             return False
         _check_host(rc)
         # The alias is gone but the actor is not: its trampoline row moves to
-        # the displaced list, exactly as a replacement displaces one.
+        # the displaced list, as a replacement displaces one.
         prior = self._publications.pop(name, None)
         if prior is not None:
             self._displaced_publications.append(prior)
@@ -288,14 +288,14 @@ class _PublicationMixin(HostMixinBase):
         self, behavior: Behavior, entropy: Optional[bytes] = None
     ) -> str:
         """Publish ``behavior`` under a freshly minted durable swiss name and
-        return that name — the swiss to place in a sturdyref beside this
+        return that name: the swiss to place in a sturdyref beside this
         host's own locator (ADR-0098).
 
         The name is unpredictable, never reassigned, structurally disjoint
         from every mutable alias, and removable only through
         :meth:`remove_durable`. When supplied, ``entropy`` must be exactly
         ``HOST_DURABLE_ENTROPY_LEN`` bytes and restores the same name on a
-        Host reconstructed from the same seed; otherwise this method draws
+        Host reconstructed from the same seed. Otherwise this method draws
         it from the OS RNG."""
         raw = self.raw
         width = _abi.HOST_DURABLE_ENTROPY_LEN
@@ -349,8 +349,8 @@ class _PublicationMixin(HostMixinBase):
     def remove_durable(self, swiss: str) -> bool:
         """Remove a minted durable publication (ADR-0098).
 
-        The old sturdyref misses from now on, while issued refs and deposited
-        gifts keep the exact actor. Returns ``False`` when no such durable
+        After removal the sturdyref misses, while issued refs and deposited
+        gifts keep the actor. Returns ``False`` when no such durable
         name exists."""
         data = swiss.encode()
         buf, ptr = _byte_buf(data)
@@ -400,13 +400,13 @@ class _PublicationMixin(HostMixinBase):
             out_value = out.value
         # The handle is host-owned and lives with the exporter session, so the
         # registry lookup is the whole answer: a pointer with no live row is a
-        # session this binding no longer holds, which reads as no route.
+        # session this binding does not hold, which reads as no route.
         found = self._sessions.get(out_value) if out_value else None
         if found is None and out_value and self._driver_loop is not None:
             # A loop-owned Host redeems inside its own steps (ADR-0112), so
             # the exporter session it dialed exists with no wrapper yet. Wrap
-            # it lazily — the constructor registers it, so a repeat lookup
-            # returns this same object — and the loop stays its release
+            # it lazily, the constructor registers it, so a repeat lookup
+            # returns this same object, and the loop stays its release
             # authority through the transport's back-reference.
             from .._loop import DriverLoop
 

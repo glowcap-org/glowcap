@@ -117,7 +117,7 @@ impl<P: Platform> Opened<P> {
 			.to_owned();
 		scoped.push(':');
 		for byte in &self.anchor().resource.encode()[..33] {
-			write!(&mut scoped, "{byte:02x}").expect("String writing");
+			let _ = write!(&mut scoped, "{byte:02x}");
 		}
 		if scoped.encode_utf16().count() > rooms_application::archive::MAX_ID_BYTES {
 			return Err(loam::refusal("archive recording source exceeds its bound"));
@@ -298,7 +298,11 @@ impl<P: Platform> Sink for Recording<P> {
 			let generation: DocumentText =
 				format!("{}:{:016x}{:016x}", &marker[..82], key.slot(), key.generation()).into();
 			let directory = directory.text().clone();
-			let conversation = selection.history_id().expect("conversation inbox").text().clone();
+			let conversation = selection
+				.history_id()
+				.ok_or_else(|| loam::refusal("conversation inbox is absent"))?
+				.text()
+				.clone();
 			let at = owner.platform.unix_millis().map_err(|e| loam::refusal(e.to_string()))?;
 			let sources = files
 				.iter()
@@ -399,7 +403,7 @@ impl<P: Platform> Recording<P> {
 	}
 }
 
-/// Local uploads retain their exact source; capture never refetches by name.
+/// Local uploads retain their exact source. Capture never refetches by name.
 struct OutgoingFile<P> {
 	host: Host,
 	platform: P,
@@ -431,9 +435,12 @@ impl<P: Platform> Reader for OutgoingFile<P> {
 							.map_err(|e| e.to_string())?,
 					);
 				}
+				let opened = held
+					.as_ref()
+					.ok_or_else(|| "outgoing archive file reader is not opened".to_owned())?;
 				match host
 					.send(
-						held.as_ref().unwrap(),
+						opened,
 						rooms_application::protocol_data::READ,
 						&[(offset as i64).into(), (length as i64).into()],
 					)
@@ -482,9 +489,12 @@ impl<P: Platform> Reader for CallbackFile<P> {
 					let source = Workspace::local(host.clone(), platform.clone(), origin.source().clone());
 					*held = Some(source.file_reader(&blob).await.map_err(|e| e.to_string())?);
 				}
+				let opened = held
+					.as_ref()
+					.ok_or_else(|| "captured file reader is not opened".to_owned())?;
 				let result = host
 					.send(
-						held.as_ref().unwrap(),
+						opened,
 						rooms_application::protocol_data::READ,
 						&[(offset as i64).into(), (length as i64).into()],
 					)

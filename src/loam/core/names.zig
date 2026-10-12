@@ -42,7 +42,7 @@ pub fn of(view: records.View, schemas: []const records.Schema) !?Name {
 }
 
 /// Called inside the backend's atomic batch. The key is immutable even when
-/// the target becomes a tombstone; duplicate names refuse the whole batch.
+/// the target becomes a tombstone. Duplicate names refuse the whole batch.
 pub fn install(kv: anytype, view: records.View, schemas: []const records.Schema) !void {
     const name = (try of(view, schemas)) orelse return;
     const key = name.key();

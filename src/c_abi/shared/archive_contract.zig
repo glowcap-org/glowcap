@@ -15,7 +15,7 @@ pub const Layout = struct {
     Type: type,
     /// Whether a language binding hand-mirrors this struct and therefore needs
     /// generated size/offset pins. Every layout remains part of the archive
-    /// fingerprint; this only controls the binding projection.
+    /// fingerprint. This only controls the binding projection.
     binding_mirror: bool,
 };
 
@@ -159,7 +159,7 @@ fn mixLayout(hash: *u64, comptime entry: Layout) void {
 /// Fingerprint an archive from facts its C consumers can observe: every
 /// exported symbol's reflected function type and crossing annotations, every
 /// public `GLOWCAP_*` value, and every struct in its canonical layout
-/// manifests. Implementation and comment edits deliberately do not perturb
+/// manifests. Implementation and comment edits do not perturb
 /// the value.
 pub fn fingerprint(
     comptime archive_name: []const u8,

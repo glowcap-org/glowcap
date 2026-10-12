@@ -1,4 +1,4 @@
-//! Structured markers on room notifications. This reads metadata only; inbox
+//! Structured markers on room notifications. This reads metadata only. Inbox
 //! admission, attachment custody, and bounded delivery are separate owners.
 use super::ArgumentView;
 

@@ -1,9 +1,9 @@
 //! C projection of one native relay multiplexed runtime.
 //!
 //! The runtime owns scheduling, connections, listeners, and retained failures.
-//! This module owns only caller-view validation and the fixed C callback table;
-//! it translates each runtime outcome exactly once and retains no policy or
-//! mutable state of its own.
+//! This module owns only caller-view validation and the fixed C callback table.
+//! It translates each runtime outcome once and retains no policy or mutable
+//! state.
 
 const std = @import("std");
 

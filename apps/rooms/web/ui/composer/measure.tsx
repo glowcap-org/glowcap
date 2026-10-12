@@ -56,7 +56,7 @@ export function useComposerMeasure(
 	// to leave that much of itself clear, the fade has to be that tall, and the
 	// jump-to-latest button has to sit above it. All three read one number, set
 	// on the root so anything in the page can reach it. The band holds one height
-	// at rest by design, because every row in it reserves its space, but a long
+	// at rest, because every row in it reserves its space, but a long
 	// draft grows the field and the window can be resized under it, so the number
 	// is measured rather than guessed.
 	const fitted = useRef(0);

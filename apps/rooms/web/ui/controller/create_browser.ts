@@ -1,6 +1,7 @@
 // Construct the browser-owned controller: presentation, navigation, and which
 // session this tab answers to.
 
+import { refusalText } from "../../../lib/text/failure.ts";
 import * as store from "../store.ts";
 import * as net from "../page_navigation.ts";
 import { tabIdentity } from "../session/managed/open.ts";
@@ -8,14 +9,15 @@ import { attachedSessionFailureText } from "../session/attached_failure.ts";
 import type { openManagedSession } from "../session/managed/open.ts";
 import type { RoomsPageContext } from "../page.ts";
 import type { RoomsBrowserController } from "./browser.ts";
-import { coverForReload, finishCoveredReload, uncoverReload } from "../boot.ts";
+import { coverForReload, finishCommittedMove, finishCoveredReload, uncoverReload } from "../boot.ts";
+import type { ManagedRoomsSession } from "../session/managed/session.ts";
 import { requestBrowserDataDeletion } from "./browser_data.ts";
 
 export function createRoomsBrowserController(
 	page: RoomsPageContext,
 	navigate: (path: string) => void,
 	addressOfActive: () => string,
-	openWorkspace: () => ReturnType<typeof openManagedSession>,
+	openLocalWorkspace: () => ReturnType<typeof openManagedSession>,
 ): RoomsBrowserController {
 	const backToRooms = <A extends unknown[]>(act: (...args: A) => void) => (...args: A): void => {
 		act(...args);
@@ -25,28 +27,31 @@ export function createRoomsBrowserController(
 	let sharing: Promise<string> | null = null;
 	let conversationGesture = 0;
 	const managed = async () => {
-		return page.managedSession ?? (await openWorkspace()).session;
+		return page.managedSession ?? (await openLocalWorkspace()).session;
 	};
-	const selectLocal = async (chosen: boolean): Promise<string> => {
+	// A move commits when its selection lands. A failure before that point is
+	// the move's own and the page stays; after it, the page leaves.
+	const moveTo = async (uri: string | null, chosen: boolean, toFront: boolean): Promise<string> => {
 		coverForReload();
+		let session: ManagedRoomsSession;
 		try {
-			const session = await managed();
-			await session.selectWorkspace(null);
+			session = await managed();
+			await session.selectWorkspace(uri);
 			if (chosen) localStorage.setItem(chosenKey(), "yes");
 			else localStorage.removeItem(chosenKey());
-			await session.close();
-			finishCoveredReload(!chosen);
-			return "";
 		} catch (error) {
 			uncoverReload();
 			return attachedSessionFailureText(error);
 		}
+		await finishCommittedMove(() => session.close(), toFront);
+		return "";
 	};
+	const selectLocal = (chosen: boolean) => moveTo(null, chosen, !chosen);
 	return {
 		showRail: (shown) => store.showRail(projection, shown),
 		reachFor: backToRooms((act) => net.reachFor(page, act)),
 		showJoinCard: backToRooms(() => {
-			page.managedSession?.navigation.dismissAcquisition();
+			page.managedSession?.openings.dismiss();
 			store.showJoinCard(projection);
 		}),
 		aboutDirectory: (dir, askingLeave) => net.aboutDirectory(page, dir, askingLeave),
@@ -75,14 +80,19 @@ export function createRoomsBrowserController(
 		setHelpTab: (tab) => store.setHelpTab(projection, tab),
 		closeHelp: () => store.closeHelp(projection),
 		openOperations: () => {
-			page.managedSession?.navigation.dismissAcquisition();
+			page.managedSession?.openings.dismiss();
 			store.closeSettings(projection);
 			navigate("/ops");
 		},
 		showActiveConversation: async (selection) => {
 			const gesture = ++conversationGesture;
 			const arrival = globalThis.history?.state?.key;
-			await selection;
+			try {
+				await selection;
+			} catch (error) {
+				store.toast(projection, "failure", refusalText(error));
+				return;
+			}
 			// The operation retains its receipt, but a newer gesture or browser
 			// arrival owns navigation. Acknowledgment must not reopen its view.
 			if (gesture !== conversationGesture || arrival !== globalThis.history?.state?.key) return;
@@ -90,6 +100,10 @@ export function createRoomsBrowserController(
 			// Acknowledging the visible conversation is not a fresh route act.
 			// Re-entering the directory route would cancel its pending room lookup.
 			if (address !== `${location.pathname}${location.search}`) navigate(address);
+		},
+		cancelConversationOpening: () => {
+			conversationGesture++;
+			page.managedSession?.openings.dismiss();
 		},
 		setOpsPane: (pane) => store.setOpsPane(projection, pane),
 		changeLine: (id, text) => store.startChange(projection, id, text),
@@ -108,18 +122,7 @@ export function createRoomsBrowserController(
 		attachRoomsSession: async (uri) => {
 			const current = page.controllerSelection.getSnapshot();
 			if ((current.kind === "attached" || current.kind === "hosted") && current.sturdyref === uri) return "";
-			coverForReload();
-			try {
-				const session = await managed();
-				await session.selectWorkspace(uri);
-				localStorage.setItem(chosenKey(), "yes");
-				await session.close();
-				finishCoveredReload();
-				return "";
-			} catch (error) {
-				uncoverReload();
-				return attachedSessionFailureText(error);
-			}
+			return await moveTo(uri, true, false);
 		},
 		shareRoomsSession: () =>
 			sharing ??= (async () => {

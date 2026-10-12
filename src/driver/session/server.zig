@@ -1,7 +1,7 @@
 //! Owning native listener/server handle and one-call listen constructor.
 //!
 //! Server owns listener admission and one shared-runtime lease. Accepted
-//! Sessions move their own lease into the client handle; stopping admission
+//! Sessions move their own lease into the client handle. Stopping admission
 //! never tears down sessions already yielded to the application.
 
 const std = @import("std");
@@ -19,7 +19,7 @@ const Session = @import("client.zig").Session;
 const SessionOptions = @import("client.zig").SessionOptions;
 const SharedRuntime = @import("shared_runtime.zig").SharedRuntime;
 
-/// The owning hosting half, bound by `listen` — the host twin of `connect`.
+/// The owning hosting half, bound by `listen`. It is the host twin of `connect`.
 /// Every accepted partner shares this server's one host: one identity, one
 /// live-session directory, shared routing. That directory is what lets a give
 /// minted for one partner resolve its still-open gifter session when another
@@ -63,8 +63,8 @@ pub const Server = struct {
     }
 
     /// Replace the complete locator this server advertises on subsequent
-    /// sessions and in handoffs. `listen` installs a listener-derived default;
-    /// deployments use this override when peers should dial an ingress, proxy,
+    /// sessions and in handoffs. `listen` installs a listener-derived default.
+    /// Deployments use this override when peers should dial an ingress, proxy,
     /// externally mapped address, or another adapter-owned route instead.
     /// Already-open sessions retain the snapshot their hello signed.
     pub fn setAdvertisedLocator(self: *Server, locator: model.PeerLocator) !void {
@@ -108,7 +108,7 @@ pub const Server = struct {
     }
 
     /// Publish one Host-Vat actor under `name`. Any accepted Port can discover
-    /// it lazily; exact gifts retain that actor independently of later name
+    /// it lazily. Exact gifts retain that actor independently of later name
     /// changes.
     pub fn publish(self: *Server, name: []const u8, comptime Behavior: type, initial: Behavior) !void {
         try self.ensureOpen();
@@ -118,7 +118,7 @@ pub const Server = struct {
     /// Remove the Host-wide alias `name` (see `HostRuntime.unpublish`): a later
     /// fetch misses on every accepted session, while issued capabilities and
     /// deposited gifts keep the exact actor. A minted durable name is refused
-    /// here; it leaves through `removeDurable` (ADR-0098).
+    /// here. It leaves through `removeDurable` (ADR-0098).
     pub fn unpublish(
         self: *Server,
         name: []const u8,
@@ -131,7 +131,7 @@ pub const Server = struct {
     /// the complete sturdyref URI (`ocapn://…`), allocated with `allocator`
     /// and owned by the caller (ADR-0098): unpredictable, never reassigned,
     /// removable only through `removeDurable`, structurally disjoint from
-    /// every mutable alias. Entropy is drawn here, at the I/O boundary; the
+    /// every mutable alias. Entropy is drawn here, at the I/O boundary. The
     /// sans-io core only ever sees the bytes. `Behavior` is Value-shaped like
     /// every owning-tier behavior.
     pub fn publishDurable(self: *Server, allocator: std.mem.Allocator, comptime Behavior: type, initial: Behavior) ![]u8 {
@@ -150,7 +150,7 @@ pub const Server = struct {
     }
 
     /// Remove a minted durable publication (see `driver_core.Host.removeDurable`):
-    /// the old sturdyref misses from now on, while issued capabilities and
+    /// the old sturdyref misses afterward, while issued capabilities and
     /// deposited gifts keep the exact actor.
     pub fn removeDurable(
         self: *Server,

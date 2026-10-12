@@ -1,5 +1,5 @@
 // The browser-facing mirror of Rooms' versioned, inert Markdown projection.
-// Authored text is parsed by the Rust application; this layer only decodes the
+// Authored text is parsed by the Rust application. This layer only decodes the
 // projection and derives presentation facts from it.
 import { markdownDocument } from "./application.ts";
 import { hasIrcFormatting, type IrcRun, ircRuns } from "./text.ts";

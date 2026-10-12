@@ -1,11 +1,11 @@
 // Configuration and archive selection are revision-checked managed intent.
-// Exported display data carries no authority; imports cannot restore it by ID.
+// Exported display data carries no authority. Imports cannot restore it by ID.
 import type { RoomsPageContext } from "../../page.ts";
 import type { ManagedRoomsSession } from "./session.ts";
 import type { RoomsWorkspaceController } from "../../controller/session.ts";
 import { type Coordinate, fieldKey, type WorkspaceIntent } from "./model.ts";
 import { refusalText } from "../../../../lib/text/failure.ts";
-import { coverForReload, finishCoveredReload, uncoverReload } from "../../boot.ts";
+import { coverForReload, finishCommittedMove, uncoverReload } from "../../boot.ts";
 import { writeSearch } from "../../prefs.ts";
 import { viewPreferences } from "../../view_preferences.ts";
 import { parseRoomsViewState } from "../../../../lib/view_state.ts";
@@ -44,13 +44,12 @@ export function managedWorkspaceActions(
 				const url = new URL(location.href);
 				writeSearch(url, { dm });
 				history.replaceState(null, "", url);
-				await session.close();
-				finishCoveredReload();
-				return true;
 			} catch (error) {
 				uncoverReload();
 				throw error;
 			}
+			await finishCommittedMove(() => session.close());
+			return true;
 		},
 		exportRoomsState: async (includeCapabilities = false) => {
 			if (includeCapabilities) {

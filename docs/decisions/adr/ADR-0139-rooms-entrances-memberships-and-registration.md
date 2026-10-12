@@ -115,7 +115,7 @@ rotation, policy collision rollback, empty-room restoration, shared-session cust
 ## Consequences
 
 Room identity, registration, entrance, membership, moderation, and management have separate owners and lifetimes. A
-public policy change no longer rotates unrelated room authority. A one-shot invitation can be shared as text without
+public policy change does not rotate unrelated room authority. A one-shot invitation can be shared as text without
 becoming a reusable room link.
 
 The server hosts one bounded membership object per seat and one bounded pending object per invitation. Ordinary posts

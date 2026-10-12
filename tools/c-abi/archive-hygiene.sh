@@ -26,11 +26,11 @@ archive_hygiene_check_compressed() {
 	# under one set of tar flags and extracting under another checks nothing.
 	# `--numeric-owner` is half of the defence below. Without it the owner and
 	# group columns are peer-chosen *text*, and text with spaces in it
-	# splits into extra fields — which moves where the member name begins.
+	# splits into extra fields, which moves where the member name begins.
 	listing=$(LC_ALL=C TAR_OPTIONS= tar --numeric-owner "-tv${compression}f" "$tarball") || return 2
-	# Parse the complete listing in one awk process. The old shell loop spawned
-	# `cut` plus `awk` for every member, turning a checked upstream source archive
-	# into minutes of process churn. The grammar and refusal policy are unchanged.
+	# Parse the complete listing in one awk process. Spawning `cut` plus `awk`
+	# per member would turn a checked upstream source archive into minutes of
+	# process churn.
 	if ! violation=$(printf '%s\n' "$listing" | awk -v prefix="$prefix" '
 		function digits(s) { return s ~ /^[0-9]+$/ }
 		function iso_date(s) { return s ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ }

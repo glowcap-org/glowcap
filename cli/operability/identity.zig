@@ -57,9 +57,8 @@ pub fn mapLoadError(err: anyerror) u8 {
 ///
 /// The missing and corrupt cases have already printed something useful by the
 /// time they get here. Everything else is a filesystem refusal, usually a state
-/// directory nobody can write, and it used to reach the caller as a bare code
-/// with no message at all. Worse, callers that reached for the dial mapper
-/// reported it as a *dial* failure, which sends the reader looking at the
+/// directory nobody can write. A bare code with no message, or the dial mapper's
+/// report of it as a *dial* failure, would send the reader looking at the
 /// network for a permissions problem.
 pub fn refuseSecret(io: Io, err: anyerror, path: []const u8) u8 {
     switch (err) {

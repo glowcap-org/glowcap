@@ -258,14 +258,14 @@ export const SESSION_CONTENT = {
 		"noCustody": {
 			group: "custody",
 			label: "None",
-			description: "Can't add, remove or share what the workspace holds.",
+			description: "Can't import keys or links, replace the workspace or manage recovery.",
 			values: [],
 		},
 		"administrator": {
 			group: "custody",
 			label: "Administrator",
 			description:
-				"Can also replace the workspace, manage and share its keys and links, finish interrupted changes and use operator tools.",
+				"Can also replace the workspace, manage and share its keys and links, recover unresolved changes and use operator tools.",
 			values: ["replaceWorkspace", "manageCustody", "shareCustody", "resolvePending", "useOperations"],
 		},
 	},

@@ -1,7 +1,7 @@
 /**
  * Scrubber static paint pipeline: mask, pads, the masked lane stack
  * (`lane-stack-paint.ts`), then ruler chrome. The caller caches this
- * viewport-sized scene; `scrubber-overlay-paint.ts` owns the moving marks.
+ * viewport-sized scene, `scrubber-overlay-paint.ts` owns the moving marks.
  * The Scrubber component orchestrates pointer/keyboard state and
  * calls in here on every tick.
  *
@@ -28,7 +28,7 @@ import { generateTicks, pickTickStep } from "./ticks.ts";
 import { FONT, SIZE, type Theme } from "../tokens.ts";
 
 /** Target pixel pitch between major ticks. Smaller = denser
- *  ladder; the cascade in `ticks.ts` walks up units (s → min → hr
+ *  ladder. The cascade in `ticks.ts` walks up units (s → min → hr
  *  → day → mo → yr) until the actual pitch meets or exceeds this. */
 const TARGET_MAJOR_PX = 90;
 
@@ -37,7 +37,7 @@ export function drawScrubberScene(
 	lanesGfx: Graphics,
 	/** The lane layer above the span labels, holding the keyframe
 	 *  glyphs alone. A diamond marks the moment a span changed, so it
-	 *  has to stay visible where a label runs under it; the label is
+	 *  has to stay visible where a label runs under it. The label is
 	 *  the name of a thing the reader can also read in the gutter,
 	 *  and the diamond is the only mark carrying its moment. */
 	lanesGlyphGfx: Graphics,
@@ -66,7 +66,7 @@ export function drawScrubberScene(
 	/** Vertical scroll offset applied to the lane stack. The ruler
 	 *  is pinned to the bottom and unaffected. */
 	scrollY: number,
-	/** Sub-selection focus — id of the keyframe glyph that should
+	/** Sub-selection focus, id of the keyframe glyph that should
 	 *  receive a halo ring this frame, or null when focus is clear.
 	 *  Independent of the entity-selection halo. */
 	focusedEventId: string | null,
@@ -87,7 +87,7 @@ export function drawScrubberScene(
 	}
 
 	// Mask covers the full lane viewport. Anything `lanesGfx` /
-	// `lanesLabels` paints outside this rect is clipped — that's
+	// `lanesLabels` paints outside this rect is clipped, that's
 	// what lets us render partial rows at top/bottom edges.
 	// The mask matches the row clip exactly, or a row the loop declined to draw
 	// would still have its top few pixels admitted by a taller mask.
@@ -101,13 +101,13 @@ export function drawScrubberScene(
 	const plotWidth = plotWidthOf(width, view);
 	const tToPx = (t: number) => tToCanvasPx(t, width, view);
 	// Row backgrounds (zebra, header tint, hover, drag overlays) are
-	// clamped to the plot's t-content band — they do NOT paint through
+	// clamped to the plot's t-content band. They do NOT paint through
 	// the left/right pads. The pads read as the canvas-color frame
 	// (filled below before lane paint), so the visible strip is:
 	// gutter → pad (canvas) → row bg (plot) → pad (canvas). T-content
 	// (playhead, ticks, spans, glyphs) maps t → canvas px without
 	// clamping; anything outside `[plotX, plotX + plotWidth]` is hidden
-	// by the `laneClip` mask set up above — but a span pill/glyph
+	// by the `laneClip` mask set up above, but a span pill/glyph
 	// overshooting a few px into a pad paints ON TOP of the canvas
 	// fill, so the entity stays visible against the background.
 	const rowBgX = plotX;
@@ -121,7 +121,7 @@ export function drawScrubberScene(
 
 	// 1.5) Solid canvas-color fill over the left/right pads, painted
 	// BEFORE lanes so row bgs/zebra/header tints paint only inside the
-	// plot band and the pads stay pure canvas — i.e. read as part of
+	// plot band and the pads stay pure canvas, i.e. read as part of
 	// the panel background. Spans and glyphs that overshoot into a pad
 	// paint on top, so entities stay legible at the frame edge.
 	{
@@ -161,12 +161,12 @@ export function drawScrubberScene(
 	// bottom-clip. The wheel clamp uses this to compute
 	// `scrollYMax = max(0, contentHeight - lanesViewport)`.
 	//
-	// From `rowStackHeight`, the same walk the rows below are painted from. This
-	// used to step the lanes here instead, reusing the pitch constants but
-	// applying its own rule about which rows exist, and skipping a category that
-	// held nothing. The rows were painted anyway, so a clamp that had left them
-	// out reported nothing to scroll to while the last of them sat clipped under
-	// the ruler — half a row the reader could neither see whole nor scroll into
+	// From `rowStackHeight`, the same walk the rows below are painted from.
+	// Stepping the lanes here instead would reuse the pitch constants but apply
+	// its own rule about which rows exist, skipping a category that holds
+	// nothing. The rows are painted anyway, so a clamp that left them out would
+	// report nothing to scroll to while the last of them sat clipped under the
+	// ruler, half a row the reader could neither see whole nor scroll into
 	// view.
 	// Resolved once for the frame rather than per category inside the paint loop:
 	// the height needs all three lanes before the loop starts, and the loop then
@@ -215,9 +215,9 @@ export function drawScrubberScene(
 		scrollY,
 		lanesMaxY,
 	});
-	// 2.5) Scroll-overflow chevrons in the gutter — passive visual
+	// 2.5) Scroll-overflow chevrons in the gutter, passive visual
 	// cue when rows exist above or below the visible lane viewport.
-	// The Scrubber culls partially-offscreen rows by design (so they
+	// The Scrubber culls partially-offscreen rows (so they
 	// don't bleed into the Overview above or the ruler below), which
 	// means the user has no other signal that more rows exist. A small
 	// ▴/▾ pair centered in the gutter, at the top/bottom of the lane
@@ -229,7 +229,7 @@ export function drawScrubberScene(
 		const chevW = 9;
 		const chevH = 6;
 		if (scrollY > 0.5) {
-			// Top chevron — tip pushed ABOVE the Scrubber's top edge
+			// Top chevron, tip pushed ABOVE the Scrubber's top edge
 			// into the Overview region of the shared Pixi canvas. The
 			// Overview repaints every frame and sits earlier in scene
 			// order so its bg covers the bleed visually; the visible
@@ -237,7 +237,7 @@ export function drawScrubberScene(
 			// the empty top strip of the lane viewport (gutter has no
 			// lane content at y=0 yet because the first row's TOP edge
 			// is at y=0 in layout space, but with scroll>0 the visible
-			// top is empty gutter — the chevron has room).
+			// top is empty gutter, the chevron has room).
 			const tipY = -7;
 			graphics
 				.moveTo(cx - chevW / 2, tipY + chevH)
@@ -247,7 +247,7 @@ export function drawScrubberScene(
 				.fill({ color: colors.textSubtle, alpha: 0.55 });
 		}
 		if (scrollY < scrollYMax - 0.5) {
-			// Bottom chevron — tip pushed DOWN into the ruler band's
+			// Bottom chevron, tip pushed DOWN into the ruler band's
 			// top strip (above the highest tick line at y=height-12).
 			// Ruler ticks paint AFTER the chevron on the same Graphics
 			// so any overlap reads as ticks-over-chevron, which is fine

@@ -1,8 +1,8 @@
 //! A bijective map: every key maps to exactly one value and vice versa, with
 //! both directions kept in lockstep by construction rather than by comment.
 //!
-//! The V1.0 resolver links (ADR-0010) are two such bijections — an outbound
-//! answer's resolver export and an inbound answer's resolver import — each of
+//! The V1.0 resolver links (ADR-0010) are two such bijections, an outbound
+//! answer's resolver export and an inbound answer's resolver import, each of
 //! which was a hand-rolled forward `HashMap` plus its inverse, with the "both
 //! rows appear together and drop together" contract enforced only by prose and
 //! scattered asserted removes. `BiMap` makes that lockstep the type's own
@@ -12,7 +12,7 @@
 const std = @import("std");
 
 /// A one-to-one map between `K` and `V`. `put` evicts any pair sharing the new
-/// key or value so the bijection holds; a lookup or removal names either side.
+/// key or value so the bijection holds. A lookup or removal names either side.
 pub fn BiMap(comptime K: type, comptime V: type) type {
     return struct {
         const Self = @This();
@@ -30,7 +30,7 @@ pub fn BiMap(comptime K: type, comptime V: type) type {
         /// Install `k <-> v`, evicting any existing pair that shares `k` or `v`
         /// so the bijection stays one-to-one. All-or-none: the only fallible
         /// step is the up-front capacity reserve, so a failure leaves the map
-        /// exactly as it was — no half-installed pair survives.
+        /// as it was, no half-installed pair survives.
         pub fn put(self: *Self, allocator: std.mem.Allocator, k: K, v: V) !void {
             try self.ensureUnusedCapacity(allocator, 1);
             // Evict a stale pair sharing the new key or the new value, taking
@@ -76,7 +76,7 @@ pub fn BiMap(comptime K: type, comptime V: type) type {
             return self.forward.count();
         }
 
-        /// Remove the pair keyed by `k` (both directions); returns whether one
+        /// Remove the pair keyed by `k` (both directions). Returns whether one
         /// was present.
         pub fn removeByKey(self: *Self, k: K) bool {
             const old = self.forward.fetchRemove(k) orelse return false;
@@ -86,7 +86,10 @@ pub fn BiMap(comptime K: type, comptime V: type) type {
 
         /// Replace the value paired with an existing key without growing either
         /// backing map. Used for resolver-purpose state transitions where the
-        /// row identity stays live and only its phase changes.
+        /// row identity stays live and only its phase changes. Presence is
+        /// certain because every caller asserts the row with `getByKey` in the
+        /// same dispatch immediately before (see
+        /// `completeRetiredResolverCallback`).
         pub fn replaceValueForKey(self: *Self, k: K, new_value: V) void {
             const old_value = self.forward.get(k) orelse unreachable;
             if (std.meta.eql(old_value, new_value)) return;

@@ -2,7 +2,7 @@
 //
 // A form field is not state. It is an answer, and an answer only makes sense
 // beside the question that was asked. The join card asks "which room, on which
-// directory, under what name", and the honest answer depends entirely on how
+// directory, under what name", and the right answer depends entirely on how
 // the reader got in front of it: following a link to a room is a different
 // question from pressing "add a room" in the rail, and both are different from
 // opening the page cold.
@@ -29,11 +29,11 @@
 /** Where an act came from.
  *
  * Only these three exist because only these three are a reader doing
- * something. A presentation the application caused by itself — bounced back to
+ * something. A presentation the application caused by itself (bounced back to
  * the card by a directory going away, or landing there after leaving the last
- * room — files no act at all, which is the whole of what "no user intent"
+ * room) files no act at all, which is the whole of what "no user intent"
  * means here. Filing one would be the application putting words in the
- * reader's mouth; filing none leaves the last real answer standing, and
+ * reader's mouth. Filing none leaves the last real answer standing, and
  * leaves anything the reader had typed exactly where they left it. */
 import type { RoomPreset } from "./room_policy.ts";
 
@@ -160,7 +160,7 @@ export function settle<T>(
 }
 
 /** The edits that still apply, which are the ones made under the act on the
- * table. An older act's overrides are not cleared when a new act arrives; they
+ * table. An older act's overrides are not cleared when a new act arrives. They
  * simply stop being read, so nothing has to run at the moment of the change. */
 export function current(edits: Edits, act: Act): Edits {
 	return edits.seq === act.seq ? edits : { seq: act.seq };

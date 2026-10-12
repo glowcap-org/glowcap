@@ -1,7 +1,7 @@
 // The one ABI-layout authority the struct marshallers read.
 //
 // JavaScript FFI has no struct types, so the binding reads and writes C structs
-// by byte offset — and those offsets are target-specific: pointers and `usize`
+// by byte offset, and those offsets are target-specific: pointers and `usize`
 // are eight bytes on the dlopen targets and four on wasm32. This module holds
 // the active layout as one object, `L`: the generated 64-bit mirror
 // (`abi.ts`, `zig build gen-ts-abi`) by default, or a layout rebuilt from the

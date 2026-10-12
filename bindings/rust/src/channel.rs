@@ -1,5 +1,5 @@
 //! Embedder-owned transport I/O. Stream adapters retain their reusable read
-//! buffer; packet adapters transfer each received message without flattening it.
+//! buffer. Packet adapters transfer each received message without flattening it.
 use std::{
 	future::poll_fn,
 	io,
@@ -7,7 +7,7 @@ use std::{
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-/// One complete transport message per successful read. `None` means EOF;
+/// One complete transport message per successful read. `None` means EOF.
 /// `Some(Vec::new())` is an actual empty message for the Host to validate.
 /// Pending reads consume nothing. Implementations bound their incoming queue
 /// before allocation and transfer its owned message here without another copy.
@@ -16,9 +16,9 @@ pub trait PacketRead: Unpin {
 }
 
 /// A transport writer accepting one Host-selected packet. The optional prefix
-/// precedes the body; the core leaves it empty for message-framed transports.
-/// `Pending` consumes neither slice. `Ready(Ok(()))` accepts the entire packet;
-/// an error after partial acceptance is terminal. Neither slice may be retained
+/// precedes the body. The core leaves it empty for message-framed transports.
+/// `Pending` consumes neither slice. `Ready(Ok(()))` accepts the entire packet.
+/// An error after partial acceptance is terminal. Neither slice may be retained
 /// after returning. `poll_flush` observes the adapter's bounded backpressure.
 pub trait PacketWrite: Unpin {
 	fn poll_packet(&mut self, cx: &mut Context<'_>, prefix: &[u8], body: &[u8]) -> Poll<io::Result<()>>;
@@ -26,7 +26,7 @@ pub trait PacketWrite: Unpin {
 }
 
 /// The physical I/O retirement barrier. The first poll interrupts the channel's
-/// read/write operations; completion means callbacks and workers are retired.
+/// read/write operations. Completion means callbacks and workers are retired.
 /// Failure must retain a diagnostic when the platform cannot confirm closure.
 /// This owner outlives read/write halves and stays owned by the Host until its
 /// result is observed. Implementations own their platform close deadline.
@@ -35,7 +35,7 @@ pub trait ChannelClose: Unpin {
 }
 
 /// One transport's I/O and retirement authority. Native driver providers use
-/// their own driver lifecycle; this type is for embedder-owned channels.
+/// their own driver lifecycle. This type is for embedder-owned channels.
 pub struct Channel {
 	pub(crate) reader: Reader,
 	pub(crate) writer: Writer,

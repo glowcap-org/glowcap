@@ -2,12 +2,12 @@
 //!
 //! A `noise-tcp` locator names *who* in the designator (an Ed25519 key in
 //! canonical lowercase hex) and *where* in the `direct-addresses` hint (a
-//! `host:port`) — the `keyed-tcp` grammar exactly, under the symbol that
+//! `host:port`), the `keyed-tcp` grammar exactly, under the symbol that
 //! seals the wire (ADR-0107). These units pin the grammar's edges without a
 //! socket: the dial refusals that fire before any I/O (a non-key designator,
 //! a hint-less dial, a malformed hint), and the listener whose designator is
 //! the identity key. The sealed channel itself is the core Host's and is
-//! proved in `test/driver/sealed_channel_test.zig`; the live loopback
+//! proved in `test/driver/sealed_channel_test.zig`. The live loopback
 //! session is `test/driver/noise_tcp_live_test.zig`.
 
 const std = @import("std");

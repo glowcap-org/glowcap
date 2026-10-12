@@ -5,10 +5,7 @@ use rooms_application::content::session::results::Direct;
 fn coordinate() -> Coordinate {
 	Coordinate {
 		role: custody::Role::DirectAccess,
-		key: FieldKey::new(
-			NonZeroU64::new(1).expect("result slot"),
-			NonZeroU64::new(1).expect("result generation"),
-		),
+		key: FieldKey::new(NonZeroU64::MIN, NonZeroU64::MIN),
 	}
 }
 pub(super) fn read(value: &Argument) -> Result<Settlement> {
@@ -55,7 +52,17 @@ pub(super) fn pending(error: &glowcap::Error) -> Option<Settlement> {
 	{
 		return None;
 	}
-	Some(Settlement::data(
-		serde_json::to_string(&Direct::Pending).expect("bounded direct pending result"),
-	))
+	Some(Settlement::data(DIRECT_PENDING.to_owned()))
+}
+/// `Direct::Pending` as serde renders it. The test below holds the two equal.
+const DIRECT_PENDING: &str = r#"{"status":"pending"}"#;
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn the_pending_constant_is_the_serialized_variant() {
+		assert_eq!(serde_json::to_string(&Direct::Pending).unwrap(), DIRECT_PENDING);
+	}
 }

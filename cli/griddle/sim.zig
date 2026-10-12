@@ -2,9 +2,9 @@
 //! schedule.
 //!
 //! The protocol core is sync and does no I/O, and that alone makes this
-//! possible — a peer is a value that takes frames and hands frames
+//! possible. A peer is a value that takes frames and hands frames
 //! back, so a scheduler can own the network entirely and replay it exactly.
-//! Given a seed, this runs a whole conversation and emits a timeline; the
+//! Given a seed, this runs a whole conversation and emits a timeline. The
 //! same seed always produces the same timeline, byte for byte.
 //!
 //! What the seed varies is the *schedule*, not the wire. CapTP rides an
@@ -12,8 +12,8 @@
 //! order they were sent: reordering them would not model a slow network, it
 //! would model a broken one. Each directed link therefore keeps a FIFO, and
 //! the seed chooses only which link advances next. That is the real degree of
-//! freedom a network has — two connections make progress in an order nobody
-//! controls, while each connection stays in order — and exploring it is how a
+//! freedom a network has: two connections make progress in an order nobody
+//! controls while each connection stays in order. Exploring it is how a
 //! seeded run finds interleavings a hand-written test would not think to try.
 //!
 //! The property worth having, and what `test/cli/griddle_cases.zig` holds:
@@ -22,12 +22,12 @@
 //! The same rule decides what an *unreliable* network may mean here. A
 //! reliable ordered transport does not drop or reorder bytes: if it cannot
 //! deliver, it fails the connection. So this simulator models neither loss
-//! nor reordering within a live link — those would model a broken transport
+//! nor reordering within a live link. Those would model a broken transport
 //! rather than a bad network, and would make the protocol answer for a
 //! promise it never made. What a real network does to a reliable link is
 //! delay it and cut it, and those are the two knobs: per-link latency, and
-//! partition. Partition is the honest failure mode, and what it teaches is
-//! the reason `.unbounded` is a hazard — a question sent into a cut link is
+//! partition. Partition is the failure mode that matters here, and what it teaches is
+//! the reason `.unbounded` is a hazard: a question sent into a cut link is
 //! never answered and never refused, so only the caller's own deadline ends
 //! the wait.
 
@@ -61,7 +61,7 @@ const Link = struct {
     /// network the base scenarios use.
     latency: u64 = 0,
     /// A cut link. It carries nothing further, and what it was carrying is
-    /// gone; the peers are not told, because a partition is exactly the
+    /// gone. The peers are not told, because a partition is the
     /// failure nobody is told about until a deadline expires.
     down: bool = false,
     /// The tick this link's last frame was made due, so latency cannot
@@ -75,7 +75,7 @@ const Link = struct {
 };
 
 /// How the network misbehaves. Both knobs are things a reliable transport
-/// genuinely does; see the module note for what is deliberately absent.
+/// does. See the module note for what is absent.
 pub const Weather = struct {
     /// Give each link its own latency, drawn from the seed. Off by default,
     /// so the base scenarios stay the instant network.
@@ -87,7 +87,7 @@ pub const Weather = struct {
 };
 
 /// How many deliveries a run may take before it is treated as a runaway. A
-/// real scenario settles in a handful; this only stops a bug from spinning.
+/// real scenario settles in a handful. This only stops a bug from spinning.
 pub const max_deliveries: usize = 512;
 
 pub const Error = error{
@@ -96,7 +96,7 @@ pub const Error = error{
 };
 
 /// A two-peer conversation under a seeded schedule. Two peers is what the
-/// first scenario needs; the link table is general, so a wider topology is a
+/// first scenario needs. The link table is general, so a wider topology is a
 /// matter of more peers and more links, not a different scheduler.
 pub const Sim = struct {
     gpa: std.mem.Allocator,
@@ -315,7 +315,7 @@ pub const scenario_args = "bootstrap-fetch, crossed-fetch, partitioned-fetch";
 pub const Scenario = enum {
     /// Peer 0 fetches a capability peer 1 published, and the answer settles.
     /// One question at a time, so the links take turns and every seed sees
-    /// the same schedule — the base case.
+    /// the same schedule (the base case).
     bootstrap_fetch,
     /// Both peers publish and both fetch at once, so both links carry traffic
     /// simultaneously and the seed genuinely chooses who advances. This is

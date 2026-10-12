@@ -6,14 +6,14 @@
 //
 // Attaching a session and replacing stored state open cards of their own. A
 // bearer link needs a line to itself and a sentence about what it hands over;
-// durable operations waiting for a decision remain application work, surfaced
-// by the persistent review notice rather than filed as a preference.
+// Operations needing a decision are promoted by the persistent notice. Their
+// retained receipts also stay reachable here after an observation ends.
 
 import { useState } from "react";
 import type { ArchiveTargetView } from "../archive_model.ts";
-import { Button } from "../Button.tsx";
 import { useRoomsController } from "../controller/browser.ts";
 import { CopyField } from "../Copy.tsx";
+import { EntryAct, EntryActs } from "../EntryAct.tsx";
 import { useSessionPaused } from "../hooks.ts";
 import { Icon } from "../icons.tsx";
 import { useOpenModal } from "../modal.ts";
@@ -21,6 +21,7 @@ import { HistorySettings } from "./History.tsx";
 import { SessionDataModal } from "./SessionData.tsx";
 import { SessionMoves } from "./SessionMoves.tsx";
 import { SessionAccessModal } from "./SessionAccess.tsx";
+import { SessionRecoveryModal } from "../panes/SessionRecovery.tsx";
 import { useSessionPermission } from "../hooks.ts";
 import { sharedRoomsSession } from "../../../lib/workspace_view.ts";
 import { sessionShareLinkCopy } from "../../../lib/text/settings.ts";
@@ -41,7 +42,11 @@ import {
 	currentSessionObserve,
 	currentSessionPaused,
 	currentSessionTitle,
-	sessionManageAccessAsk,
+	sessionAccessAct,
+	sessionAccessName,
+	sessionChangesAct,
+	sessionChangesName,
+	sessionDataName,
 } from "../../../lib/text/session_settings.ts";
 
 export function SessionSettings(
@@ -59,6 +64,8 @@ export function SessionSettings(
 	const canAdminister = canReplace && canManageCustody;
 	const [dataOpen, setDataOpen] = useState(false);
 	const [accessOpen, setAccessOpen] = useState(false);
+	const [recoveryOpen, setRecoveryOpen] = useState(false);
+	const canResolve = useSessionPermission("resolvePending");
 	// Read only is what the last arm here means, so a capability carrying nothing
 	// has to be answered before it. While paused, this said the link was read
 	// only, its future state rather than its present one.
@@ -115,24 +122,28 @@ export function SessionSettings(
 						label={sessionShareLinkCopy}
 					/>
 				)}
-				<div className="actions" data-stack-narrow>
-					<Button
+				<EntryActs>
+					{canResolve && (
+						<EntryAct
+							name={sessionChangesName}
+							id="sessionChangesOpen"
+							act={sessionChangesAct}
+							onClick={(event) => openModalFrom(event.currentTarget, () => setRecoveryOpen(true))}
+						/>
+					)}
+					<EntryAct
+						name={sessionAccessName}
 						id="sessionAccessOpen"
-						type="button"
-						variant="quiet"
+						act={sessionAccessAct}
 						onClick={(event) => openModalFrom(event.currentTarget, () => setAccessOpen(true))}
-					>
-						{sessionManageAccessAsk}
-					</Button>
-					<Button
+					/>
+					<EntryAct
+						name={sessionDataName}
 						id="sessionDataOpen"
-						type="button"
-						variant="quiet"
+						act={canAdminister ? currentSessionExportOrReset : currentSessionExport}
 						onClick={(event) => openModalFrom(event.currentTarget, () => setDataOpen(true))}
-					>
-						{canAdminister ? currentSessionExportOrReset : currentSessionExport}
-					</Button>
-				</div>
+					/>
+				</EntryActs>
 			</div>
 			{
 				/* Where messages live sits with where the session lives: one tab
@@ -147,6 +158,7 @@ export function SessionSettings(
 			)}
 			<SessionMoves sessionKind={controller.kind === "none" ? "local" : controller.kind} />
 			<SessionAccessModal open={accessOpen} onClose={() => setAccessOpen(false)} />
+			<SessionRecoveryModal open={recoveryOpen} onClose={() => setRecoveryOpen(false)} dismissWhenEmpty={false} />
 			<SessionDataModal
 				open={dataOpen}
 				sharedSession={sharedSession}

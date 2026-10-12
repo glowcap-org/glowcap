@@ -17,6 +17,10 @@ type ReleaseFn = unsafe fn(usize) -> i32;
 type CloseFn = unsafe fn(usize);
 
 fn call_release(release: ReleaseFn, raw: usize) -> Result<()> {
+	// SAFETY: `release` is `release_native` in production and a counting stub in the tests, and `raw` is the address of
+	// the `GlowcapIrohNetlayer` its owner passed in; `NetlayerRelease::start` and `fallback` reach this call only after
+	// moving the phase to `RELEASE_RUNNING`, so the release runs at most once and this frame is the handle's last
+	// owner.
 	match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe { release(raw) })) {
 		Ok(code) => check_iroh(code),
 		Err(_) => Err(Error::with_detail(
@@ -119,6 +123,9 @@ impl NetlayerRelease {
 				if let Some(task) = lock_iroh(&self.task, "iroh-release-task-lock-poison").take() {
 					task.abort();
 				}
+				// SAFETY: `close` is `close_native` in production, and `raw` is the address of the
+				// `GlowcapIrohNetlayer` this `NetlayerRaw` is dropping; this frame holds the `RELEASE_RUNNING` claim,
+				// so no release has run yet, and `close` is a shutdown lever that does not free the handle.
 				unsafe { close(raw) };
 				if let Err(error) = call_release(release, raw) {
 					*lock_iroh(&self.failure, "iroh-release-failure-lock-poison") = Some(error.clone());
@@ -164,12 +171,13 @@ pub(super) struct NetlayerRaw {
 
 // SAFETY: sharing `&NetlayerRaw` across threads only exposes reads of the raw
 // pointer *value*, which is trivially safe. Concurrent *FFI use* of the endpoint
-// behind it — the dispatcher's `drain_ready` on the reactor thread versus the
-// public handle's accessors/`close` on a caller thread — is defined because the
+// behind it, the dispatcher's `drain_ready` on the reactor thread versus the
+// public handle's accessors/`close` on a caller thread, is defined because the
 // sidecar endpoint behind `glowcap_iroh_netlayer_*` is internally synchronized:
 // iroh's `Endpoint` is `Send + Sync` and the readiness queue is mutex-guarded.
 // The `Arc` only keeps the handle alive and moves its release across threads.
 unsafe impl Send for NetlayerRaw {}
+// SAFETY: as the `Send` impl above; the same reasoning covers sharing `&NetlayerRaw` across threads.
 unsafe impl Sync for NetlayerRaw {}
 
 impl NetlayerRaw {
@@ -181,6 +189,9 @@ impl NetlayerRaw {
 	}
 
 	pub(super) fn close(&self) {
+		// SAFETY: `self.raw` is the `GlowcapIrohNetlayer` handle this `NetlayerRaw` owns; its only caller, `release`,
+		// runs this before starting the one native release, and `close_native` is a shutdown lever callable while other
+		// owners still hold the handle.
 		unsafe { close_native(self.raw as usize) };
 	}
 
@@ -195,8 +206,8 @@ impl NetlayerRaw {
 	}
 
 	/// Drop this construction reference without closing the endpoint. Valid
-	/// only once another owner holds its own native reference — the driver's
-	/// provider lease, retained when the package was registered — because the
+	/// only once another owner holds its own native reference, the driver's
+	/// provider lease, retained when the package was registered, because the
 	/// endpoint keeps running on that reference alone. The one native release
 	/// still runs exactly once, and the `Drop` fallback afterwards sees a
 	/// finished release and sends no close.

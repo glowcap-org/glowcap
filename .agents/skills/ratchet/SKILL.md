@@ -9,19 +9,19 @@ description: >-
 
 # Ratchet — land the lesson
 
-[agent-scaffolding](../../rules/agent-scaffolding.md) defines the ratchet:
-every session ends by asking what it learned that the scaffolding did not
-already teach, and the lesson lands before the session does. This skill is
-the landing procedure.
+[agent-scaffolding](../../rules/agent-scaffolding.md) defines the ratchet: a
+session ends by asking what it learned that the scaffolding did not teach, and
+the lesson lands before the session does. This skill is the landing
+procedure.
 
 ## 1. Name the lesson
 
 One sentence: the mistake a future agent could repeat, or the move that
-worked and is not yet taught. If it does not fit in one sentence, it is a
-topic, not a lesson; split it.
+worked and is not yet taught. A lesson that needs more than one sentence is a
+topic; split it.
 
 Check the existing owner first. If it already teaches or enforces the lesson,
-report that and add nothing. The review is required; a new rule is not.
+report that and add nothing. The review is required, a new rule is not.
 
 ## 2. Choose the strongest layer
 
@@ -51,11 +51,11 @@ not yet written; when the check lands, the sentence shrinks to a pointer.
   state is a `pub fn check…` in the owning module, called from the driver.
 - **Validate the check against the defect it claims to catch.** Introduce the
   violation, watch the owning check fail for that reason, then restore the
-  correct behavior and require a pass. A check that has never fired has proven
-  nothing — the same discipline
-  [tests](../../rules/tests.md) demands of a new property target.
+  correct behavior and require a pass. A check that has never fired proves
+  nothing, the same discipline [tests](../../rules/tests.md) demands of a new
+  property target.
 - Checks pay rent too: prefer one general check to fifty string bans, and
-  retire stale tombstones per agent-scaffolding's "The gate accretes too."
+  retire stale tombstones (see agent-scaffolding's budget).
 
 ## 4. Landing a rule or skill edit
 
@@ -68,14 +68,13 @@ not yet written; when the check lands, the sentence shrinks to a pointer.
   equals the directory name, plus a row in the [index](../../README.md).
 - The budget binds every addition: find the sentence the new line displaces
   or compresses before writing it, and put it in the rule that owns the
-  surface, never a new grab-bag rule.
+  surface, not a new grab-bag rule.
 
 ## 5. Prune
 
-Half the ratchet is removal. Retire prose a landed check now holds (shrink
-it to a pointer at the check), tombstones whose rename shipped everywhere,
-and hedged lines a sharper one replaced. A deletion is a full-fledged
-landing, not maintenance deferred.
+Retire prose a landed check now holds (shrink it to a pointer at the check),
+tombstones whose rename shipped everywhere, and hedged lines a sharper one
+replaced. A deletion is a landing.
 
 ## Verify
 

@@ -101,9 +101,9 @@ async def _listen_surfaces_bound_port() -> None:
 
 
 async def _rude_probe_cannot_close_the_listener() -> None:
-    """A rude TCP probe — connect, say nothing, hang up — is that connection's
+    """A rude TCP probe, connect, say nothing, hang up, is that connection's
     failure, not the listener's. The Server's iterator must skip the failed
-    handshake and keep accepting; without the skip, one port scan takes a
+    handshake and keep accepting. Without the skip, one port scan takes a
     long-lived server down."""
     server = await tcp.listen("127.0.0.1", 0)
     published = asyncio.Event()
@@ -139,7 +139,7 @@ async def _supplied_host_tcp_listener_ownership() -> None:
     """A supplied TCP Host is the exact wrapper adopted by the driver.
 
     Closing the listener seals admission but does not release the yielded
-    session; the final Host close happens only after that session closes.
+    session. The final Host close happens only after that session closes.
     """
     supplied = Host()
     server = await tcp.listen("127.0.0.1", 0, host=supplied)

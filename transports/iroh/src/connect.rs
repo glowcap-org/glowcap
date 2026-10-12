@@ -36,7 +36,7 @@ enum DialEntry {
 
 /// The bounded text of one failed dial: iroh's own account of the fault,
 /// kept beside the code that classifies it. A descriptive failure allocates
-/// one fixed-size block rather than growing a `String`; code-only failures
+/// one fixed-size block rather than growing a `String`. Code-only failures
 /// allocate nothing. Text past the bound is dropped at the last whole UTF-8
 /// sequence that fits, and a caller's copy into a smaller buffer truncates the
 /// same way, so a consumer may treat the bytes as a string on either side.
@@ -107,13 +107,13 @@ impl std::fmt::Write for DialText {
 
 /// Why one dial failed: the classification every caller branches on, and the
 /// text only a diagnostic reads. It lives in the endpoint's dial table from
-/// completion until `finish_connect` removes the row, and dies with it; the
+/// completion until `finish_connect` removes the row, and dies with it. The
 /// blocking dial never stores one, handing the text straight to its caller.
 pub(crate) struct DialFailure {
 	code: i32,
 	// Most classifications need no prose. Keep the comparatively large bounded
 	// diagnostic off the async state machine and allocate it only for failures
-	// that actually have transport detail to retain.
+	// that have transport detail to retain.
 	text: Option<Box<DialText>>,
 }
 
@@ -232,11 +232,18 @@ pub(crate) unsafe fn parse_target(
 	{
 		return Err(DIAL_INVALID);
 	}
+	// SAFETY: `node_id` is non-null and `node_id_len` fits in `isize` (both checked above), and this function's
+	// `# Safety` contract has the caller keep `node_id_len` readable bytes at `node_id` live for the call; the slice is
+	// borrowed only while `from_utf8` validates it, and `EndpointId::from_str` copies it into an owned id.
 	let id_str =
 		std::str::from_utf8(unsafe { std::slice::from_raw_parts(node_id, node_id_len) }).map_err(|_| DIAL_INVALID)?;
 	let id = EndpointId::from_str(id_str).map_err(|_| DIAL_INVALID)?;
 	let mut addr = EndpointAddr::new(id);
 	if addr_hints_len > 0 {
+		// SAFETY: `addr_hints_len` is nonzero here, so the check above leaves `addr_hints` non-null and its length
+		// within `isize`; the `# Safety` contract has the caller keep `addr_hints_len` readable bytes at `addr_hints`
+		// live for the call, and the slice is borrowed only while `from_utf8` validates it and the loop below parses
+		// owned `SocketAddr` values from it.
 		let hints = std::str::from_utf8(unsafe { std::slice::from_raw_parts(addr_hints, addr_hints_len) })
 			.map_err(|_| DIAL_INVALID)?;
 		for hint in hints.split(',') {
@@ -284,7 +291,7 @@ pub(crate) fn connect_failure_code(error: &ConnectError) -> i32 {
 }
 
 /// Establish the QUIC connection and its one bidirectional stream, or say
-/// exactly why not. The code classifies; the text is iroh's own account, or
+/// exactly why not. The code classifies. The text is iroh's own account, or
 /// for a local deadline the deadline itself.
 async fn dial_raw(
 	ep: Endpoint,
@@ -359,7 +366,7 @@ pub(crate) fn endpoint_dials(ep: &GlowcapIrohEndpoint) -> Option<&Arc<DialState>
 
 /// Deliberately blocking convenience for the explicit blocking resident. The
 /// evented backend and public ABI use start/finish/cancel below. The failure
-/// text is handed to the caller's buffer directly; nothing is retained.
+/// text is handed to the caller's buffer directly. Nothing is retained.
 ///
 /// # Safety
 /// `ep` must be a live endpoint handle. Target pointers must address their
@@ -380,7 +387,13 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_connect_blocking(
 		if ep.is_null() {
 			return Err(DIAL_INVALID.into());
 		}
+		// SAFETY: `ep` is non-null (checked above) and, per this function's `# Safety` contract, a live endpoint handle
+		// from `glowcap_iroh_sidecar_endpoint_new` that the caller does not free during the call; the shared borrow
+		// ends with this closure.
 		let ep = unsafe { &*ep };
+		// SAFETY: the `# Safety` contract has the caller keep `node_id` and `addr_hints` readable for their declared
+		// lengths through the call, which is what `parse_target` requires; it returns an owned `EndpointAddr`, so
+		// nothing borrows those bytes afterward.
 		let addr = unsafe { parse_target(node_id, node_id_len, addr_hints, addr_hints_len) }?;
 		let raw = ep.rt.block_on(dial_raw(ep.ep.clone(), addr, ep.connect_timeout))?;
 		make_conn(ep, raw).ok_or(DialFailure::code_only(DIAL_LOST))
@@ -391,6 +404,8 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_connect_blocking(
 		Err(_) => (std::ptr::null_mut(), Some(DialFailure::code_only(DIAL_LOST))),
 	};
 	if !out_code.is_null() {
+		// SAFETY: `out_code` is non-null (checked on the line above) and the `# Safety` contract requires every
+		// non-null output pointer to be writable for one `i32`.
 		unsafe { *out_code = failure.as_ref().map_or(DIAL_OK, |failure| failure.code) };
 	}
 	report_text(failure.as_ref(), out_text, out_text_cap, out_text_len);
@@ -398,7 +413,7 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_connect_blocking(
 }
 
 /// Admit one outbound dial without blocking. Borrowed target bytes are parsed
-/// before return; the endpoint owns the Tokio task and terminal result. The
+/// before return. The endpoint owns the Tokio task and terminal result. The
 /// bounded request table returns `DIAL_BUSY` without minting an event when full.
 ///
 /// # Safety
@@ -417,7 +432,12 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_start_connect(
 		if ep.is_null() || request_id == 0 {
 			return Err(DIAL_INVALID);
 		}
+		// SAFETY: `ep` is non-null (checked above) and, per this function's `# Safety` contract, a live endpoint handle
+		// from `glowcap_iroh_sidecar_endpoint_new` that the caller does not free during the call; the shared borrow
+		// ends with this closure, and the spawned task clones `ep.ep` rather than keeping the reference.
 		let ep = unsafe { &*ep };
+		// SAFETY: as `glowcap_iroh_sidecar_connect_blocking` above, for `node_id` and `addr_hints`; the parsed
+		// `EndpointAddr` is owned, so the spawned dial task holds none of the caller's bytes.
 		let addr = unsafe { parse_target(node_id, node_id_len, addr_hints, addr_hints_len) }?;
 		let dials = endpoint_dials(ep).ok_or(DIAL_LOST)?.clone();
 		{
@@ -481,7 +501,12 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_finish_connect(
 		if ep.is_null() || out_conn.is_null() {
 			return Err(DIAL_INVALID.into());
 		}
+		// SAFETY: `out_conn` is non-null (checked above) and the `# Safety` contract requires it writable for one
+		// `*mut GlowcapIrohConn`; this clears it so a failed call leaves null.
 		unsafe { *out_conn = std::ptr::null_mut() };
+		// SAFETY: `ep` is non-null (checked above) and, per this function's `# Safety` contract, a live endpoint handle
+		// from `glowcap_iroh_sidecar_endpoint_new` that the caller does not free during the call; the shared borrow
+		// ends with this closure.
 		let ep = unsafe { &*ep };
 		let Some(dials) = ep.dials.get() else {
 			return Err(DIAL_INVALID.into());
@@ -498,6 +523,8 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_finish_connect(
 			}
 		};
 		let conn = make_conn(ep, terminal?).ok_or(DialFailure::code_only(DIAL_LOST))?;
+		// SAFETY: as the clearing write above, `out_conn` is non-null and writable; `conn` is the owned handle
+		// `make_conn` just boxed, and this write transfers it to the caller.
 		unsafe { *out_conn = conn };
 		Ok(())
 	}));
@@ -511,7 +538,7 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_finish_connect(
 }
 
 /// Cancel one admitted dial. The pending-to-canceled winner emits the request's
-/// sole terminal event; canceling an already-terminal request is idempotent.
+/// sole terminal event. Canceling an already-terminal request is idempotent.
 ///
 /// # Safety
 /// `ep` must be null or a live endpoint handle. Null is refused.
@@ -524,6 +551,9 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_cancel_connect(
 		if ep.is_null() || request_id == 0 {
 			return DIAL_INVALID;
 		}
+		// SAFETY: `ep` is non-null (checked above) and, per this function's `# Safety` contract, a live endpoint handle
+		// from `glowcap_iroh_sidecar_endpoint_new` that the caller does not free during the call; the shared borrow
+		// ends with this closure.
 		let ep = unsafe { &*ep };
 		match ep.dials.get() {
 			Some(dials) if dials.cancel(request_id) => DIAL_OK,
@@ -557,7 +587,7 @@ async fn accept_one(ep: &GlowcapIrohEndpoint) -> Option<AcceptedRaw> {
 /// stream, returning an owned connection handle or null with an exact dial code.
 /// Timeout is distinct from endpoint close so the resident can retry only the
 /// former. A negative timeout is invalid. This is the resident listener's
-/// private bounded primitive; it never arms or drains the endpoint readiness
+/// private bounded primitive. It never arms or drains the endpoint readiness
 /// queue.
 ///
 /// # Safety
@@ -576,6 +606,9 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_accept_timeout(
 		if ep.is_null() || timeout_ms < 0 {
 			return Err(DIAL_INVALID);
 		}
+		// SAFETY: `ep` is non-null (checked above) and, per this function's `# Safety` contract, a live endpoint handle
+		// from `glowcap_iroh_sidecar_endpoint_new` that the caller does not free during the call; the shared borrow
+		// ends with this closure, and its `block_on` returns before then.
 		let ep = unsafe { &*ep };
 		ep.rt.block_on(async {
 			match tokio::time::timeout(
@@ -595,6 +628,8 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_accept_timeout(
 		Ok(Err(code)) => (std::ptr::null_mut(), code),
 		Err(_) => (std::ptr::null_mut(), DIAL_LOST),
 	};
+	// SAFETY: `out_code` is non-null (the function returns early otherwise) and the `# Safety` contract requires it
+	// writable for one `i32`.
 	unsafe {
 		*out_code = code;
 	}

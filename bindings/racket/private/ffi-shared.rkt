@@ -124,7 +124,8 @@
    [relay_url _pointer] [relay_url_len _size]
    [register_url _pointer] [register_url_len _size]
    [trust _uint32]
-   [trust_pem _pointer] [trust_pem_len _size])
+   [trust_pem _pointer] [trust_pem_len _size]
+   [relay_alias_url _pointer] [relay_alias_url_len _size])
   #:malloc-mode 'atomic-interior)
 (define-cstruct _GlowcapArgument
   ([kind _uint32] [boolean _uint32] [integer _int64] [float64 _double]

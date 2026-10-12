@@ -1,5 +1,5 @@
 /**
- * Gesture router — cross-surface mutual exclusion.
+ * Gesture router, cross-surface mutual exclusion.
  *
  * Problem: in a multi-surface app (Stage + Timeline + UI chrome),
  * an interaction that starts on one surface MUST NOT bleed into a
@@ -10,8 +10,8 @@
  *
  * Solution: one process-wide `GestureRouter`. A surface takes a
  * `SurfaceLease` from it and claims through that lease when a
- * gesture starts; the lock persists until the lease releases. A
- * capture-phase listener on `document` watches `pointerdown` — if
+ * gesture starts. The lock persists until the lease releases. A
+ * capture-phase listener on `document` watches `pointerdown`, if
  * the event hits a surface other than the active claimant,
  * propagation is stopped before any handler downstream can react.
  * `preventDefault` is NEVER called: text-selection, native scroll,
@@ -29,11 +29,11 @@
  * `holdPointerForModal`, because "which surface may be pressed
  * right now" is the same question for a dialog as for a drag.
  *
- * Tags are opaque strings; convention is one tag per logical
+ * Tags are opaque strings. Convention is one tag per logical
  * surface ("stage", "timeline", "ui-resize", ...). The router
- * compares by string equality; it does not interpret hierarchy.
- * A tag names a KIND of surface, not an instance — two scrub
- * inputs share one tag — so a tag can never stand in for the
+ * compares by string equality. It does not interpret hierarchy.
+ * A tag names a KIND of surface, not an instance, two scrub
+ * inputs share one tag, so a tag can never stand in for the
  * proof that a particular claimant holds the lock. That proof is
  * the granted `ActiveGesture` object itself, which lives inside
  * the lease that was granted it and is compared by identity.
@@ -45,7 +45,7 @@ export type SurfaceTag = string;
 
 /** A granted claim. Identity is the proof: the router drops the
  *  lock only when handed back the exact object it granted, so a
- *  surface cannot end a gesture it did not start — not even
+ *  surface cannot end a gesture it did not start, not even
  *  another instance of its own kind, which the tag alone cannot
  *  tell apart. */
 export type ActiveGesture = {
@@ -72,7 +72,7 @@ export class GestureRouter {
 	#registered = new Set<HTMLElement>();
 
 	/** Mark `element` as owning surface `tag`. Returns an
-	 *  unregister fn — call on unmount. Multiple calls with
+	 *  unregister fn, call on unmount. Multiple calls with
 	 *  different tags on the same element overwrite. */
 	register(element: HTMLElement, tag: SurfaceTag): () => void {
 		element.dataset[SURFACE_DATASET_KEY] = tag;
@@ -100,7 +100,7 @@ export class GestureRouter {
 	}
 
 	/** Take a lease for surface `tag`. This is the only route to
-	 *  the gesture lock — see `SurfaceLease`. One lease per surface
+	 *  the gesture lock, see `SurfaceLease`. One lease per surface
 	 *  instance, held for that instance's lifetime. */
 	lease(tag: SurfaceTag): SurfaceLease {
 		return new SurfaceLease(this, tag);
@@ -117,7 +117,7 @@ export class GestureRouter {
 		};
 	}
 
-	/** Test seam — drop every registration and the active lock. */
+	/** Test seam, drop every registration and the active lock. */
 	reset(): void {
 		for (const el of this.#registered) {
 			if (el.dataset[SURFACE_DATASET_KEY] !== undefined) {
@@ -173,8 +173,8 @@ export class SurfaceLease {
 	}
 
 	/** Take the gesture lock and mark `element` as this surface for
-	 *  the root guard. `false` when a claim is already live — on
-	 *  another surface, or on another instance of this one — and
+	 *  the root guard. `false` when a claim is already live, on
+	 *  another surface, or on another instance of this one, and
 	 *  then `element` is left untagged, which is what the guard
 	 *  should see: this surface is not the one driving. */
 	claim(element: HTMLElement, pointerId: number): boolean {
@@ -188,7 +188,7 @@ export class SurfaceLease {
 
 	/** The pointer this surface's live claim was granted to, or
 	 *  `null` when it holds none. The single answer to "is a drag
-	 *  in progress on this surface" — a handler that keeps its own
+	 *  in progress on this surface". A handler that keeps its own
 	 *  second copy of that fact will disagree with this one. */
 	pointer(): number | null {
 		return this.#claim?.pointerId ?? null;
@@ -222,7 +222,7 @@ const guardedDocs = new WeakSet<Document>();
  *  a gesture is active, the listener stops propagation of any
  *  pointer-down whose target lies on a foreign surface (different
  *  tag from the active claimant, or unregistered). Idempotent per
- *  document; subsequent calls return the original uninstaller. */
+ *  document. Subsequent calls return the original uninstaller. */
 export function installRootGuard(
 	doc: Document = globalThis.document,
 	router: GestureRouter = gestureRouter,
@@ -314,7 +314,7 @@ export function holdPointerForModal(
 /**
  * How a gesture ended, for a surface that could not see it end.
  *
- * `finished` — the reader let go. A `pointerup` delivered over other chrome or
+ * `finished`, the reader let go. A `pointerup` delivered over other chrome or
  * off the document, a capture loss, or a move that arrived with no button held
  * because the up went missing. The gesture ran its course, so whatever it had in
  * flight is what the reader meant by it.
@@ -324,7 +324,7 @@ export function holdPointerForModal(
  * crossed the drag threshold finishes and still commits nothing, since there was
  * never anything in flight to commit.
  *
- * `cancelled` — the gesture was taken away. The system claimed the pointer, the
+ * `cancelled`, the gesture was taken away. The system claimed the pointer, the
  * window lost focus, or the surface left the tree mid-drag. Nobody finished
  * anything, and there is nothing to commit.
  *
@@ -337,7 +337,7 @@ export function holdPointerForModal(
  *
  * A surface with nothing to revert may ignore this and end the same way for
  * both. A scrub input has already applied every value it passed through, so its
- * whole teardown is closing the brackets it opened; only a surface that holds
+ * whole teardown is closing the brackets it opened. Only a surface that holds
  * something back until the release has a decision to make.
  */
 export type GestureEndReason = "finished" | "cancelled";
@@ -376,7 +376,7 @@ export type GestureEndSource = {
  * gesture exactly as the watch does before it stops watching: the
  * lock coming back is not the gesture ending, and a surface that
  * hears only the first leaves its own drag standing. That standing
- * drag is what a host feels — the scrub input that never fires
+ * drag is what a host feels, the scrub input that never fires
  * `onScrubEnd` leaves the edit transaction it opened at drag start
  * open, and the engine records history only at depth zero, so from
  * that moment nothing in the app is undoable. Every surface here
@@ -384,7 +384,7 @@ export type GestureEndSource = {
  * says it once instead of five hosts each remembering to.
  *
  * The disposer is therefore the entire teardown a React effect
- * needs — see `useGestureSurface`, whose effect returns it.
+ * needs, see `useGestureSurface`, whose effect returns it.
  *
  * The phantom-move watch listens in the capture phase and the ends
  * in the bubble phase, and the difference is load-bearing. A
@@ -445,7 +445,7 @@ export function watchGestureEnd(
 		source.removeEventListener("pointermove", onMove, { capture: true });
 		source.removeEventListener("blur", onBlur);
 		// A held claim means a gesture is still in flight, so the surface
-		// hears the same cancellation a blur would have given it — the
+		// hears the same cancellation a blur would have given it, the
 		// surface is going away under the pointer, which is as far from a
 		// reader finishing a gesture as this watch ever gets. With none
 		// held there is nothing to interrupt and `release` is

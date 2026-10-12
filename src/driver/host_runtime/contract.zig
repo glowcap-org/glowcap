@@ -1,5 +1,5 @@
 //! Public construction and ownership vocabulary for the native HostRuntime.
-//! Runtime mechanics consume these values; this leaf owns no I/O or state.
+//! Runtime mechanics consume these values. This leaf owns no I/O or state.
 
 const std = @import("std");
 
@@ -46,11 +46,11 @@ pub fn Vocabulary(
         /// Options for the owning HostRuntime and its connect/listen views.
         /// Protocol admission and steady-state transport staging are separate:
         /// a large frame may assemble once in bounded spill without making
-        /// every live wire retain `frame_cap` bytes. There is deliberately no
-        /// peer-verification switch; the application tier always verifies.
+        /// every live wire retain `frame_cap` bytes. There is no
+        /// peer-verification switch. The application tier always verifies.
         ///
         /// Wait budgets have no implicit default because an accidental
-        /// infinite wait can strand a process. Callers that intentionally
+        /// infinite wait can strand a process. Callers that
         /// accept no deadline spell `.unbounded` at construction.
         pub const Options = struct {
             frame_cap: usize = default_frame_cap,
@@ -76,7 +76,7 @@ pub fn Vocabulary(
             /// ownership is gone. Explicit close barriers return their failure.
             unhandled_failure: ?FailureObserver = null,
             /// Which face drives the runtime. The native blocking tier is the
-            /// default; a step-driven embedder chooses `.stepped` here, with
+            /// default. A step-driven embedder chooses `.stepped` here, with
             /// its recipients, and the readiness set exists from `init` on.
             drive: lifecycle.DriveOptions = .blocking,
         };
@@ -89,7 +89,7 @@ pub fn Vocabulary(
             handshake: Budget,
             listener_setup: Budget = .{ .ms = default_listener_setup_ms },
             settle: Budget,
-            /// As `Options.drive`; the loop archive adopts a Host stepped.
+            /// As `Options.drive`. The loop archive adopts a Host stepped.
             drive: lifecycle.DriveOptions = .blocking,
         };
 

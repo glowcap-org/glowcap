@@ -22,13 +22,13 @@ snapshots and portable exports.
 
 `session::bridge_secrets::BridgeSecrets` owns a bounded private credential
 document. Credential rows are scoped to the actual directory and bridge.
-Process storage enforces private file and directory modes; browser storage
+Process storage enforces private file and directory modes. Browser storage
 retains credentials under its session storage owner. A snapshot or export
 contains intent and recovery witnesses, never a secret value.
 
 Managed bridge dispatch retains the exact origin and source. Credential
 acquisition stages secret custody before committing dependent intent. Refusal
-recovers the preceding custody; tokens and witnesses fence an older response
+recovers the preceding custody. Tokens and witnesses fence an older response
 against a newer answer. The retention owner prunes only unreferenced scopes
 while preserving admitted staging and recovery.
 
@@ -40,7 +40,7 @@ when that custody is unavailable.
 
 The [session guide](../../rooms/session.md#discovery-signaling-archives-and-bridge-secrets)
 owns production composition. Secret retention relies on the storage owner's
-permissions and origin boundary; it provides no additional encrypted vault.
+permissions and origin boundary. It provides no additional encrypted vault.
 
 ## Evidence
 

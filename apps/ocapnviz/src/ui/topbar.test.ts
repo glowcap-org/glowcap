@@ -4,10 +4,8 @@
  * A recording cannot outlive the connection it is recording, so every
  * act that leaves Live ends it. There are two: the mode toggle's other
  * two cells, and Open, which replaces the buffer and lands in Play.
- * Both used to do it as a side effect of a click that promised
- * something else — the toggle stopped and claimed the capture on its
- * way out — and both now refuse and name the controls that actually
- * end a recording.
+ * Both refuse and name the controls that end a recording, rather than ending it
+ * as a side effect of a click that promised something else.
  *
  * The claim worth testing is that the refusal is visible. A disabled
  * control with no tooltip is a dead end, which is the failure mode
@@ -108,7 +106,7 @@ Deno.test("recording holds both ways out of the buffer, and not Save", () => {
 		);
 	}
 	// Save reads the document and disturbs nothing, so a capture is no
-	// reason to refuse it — and it is how a reader keeps work anyway.
+	// reason to refuse it, and it is how a reader keeps work anyway.
 	assertEquals(held["Save"]!.props.disabled, undefined);
 
 	const free = saveOpen(false);

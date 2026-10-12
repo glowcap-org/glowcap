@@ -3,7 +3,7 @@ id: ADR-0059
 status: accepted
 date: 2026-06-13
 tags: [architecture, build, c-abi, packaging, netlayer, transport, bindings]
-decision: "The C ABI ships as composable archives linked a la carte: shared OCapN vocabulary, one Host application surface, one generic driver, and self-contained transport provider packages. Archives export only their own family and share values by header layout; there is no umbrella library or export-less net archive."
+decision: "The C ABI ships as composable archives linked a la carte: shared OCapN vocabulary, one Host application surface, one generic driver, and self-contained transport provider packages. Archives export only their own family and share values by header layout. There is no umbrella library or export-less net archive."
 supersedes: []
 superseded_by: []
 amends: []
@@ -15,15 +15,15 @@ amended_by: [ADR-0096, ADR-0112, ADR-0122, ADR-0123]
 ## Context
 
 A single umbrella library made every consumer carry every transport and made
-optional sidecars part of the core link contract. That shape also encouraged
-bindings to treat one artifact as the owner of protocol values, Host behavior,
-driver execution, and transport policy. Those concerns have different
-dependencies and different deployment owners.
+optional sidecars part of the core link contract. It also encouraged bindings to
+treat one artifact as the owner of protocol values, Host behavior, driver
+execution, and transport policy, concerns with different dependencies and
+deployment owners.
 
-The C boundary still needs one shared vocabulary. Locators, sturdyrefs, frames,
-arguments, contexts, error codes, and provider tables must have one layout in
-every archive. Sharing that layout does not require a common implementation
-library or a second runtime owner.
+The C boundary needs one shared vocabulary. Locators, sturdyrefs, frames,
+arguments, contexts, error codes, and provider tables have one layout in every
+archive. Sharing that layout does not require a common implementation library or
+a second runtime owner.
 
 ## Decision
 
@@ -46,7 +46,7 @@ compiled into the archive that uses them and remain local symbols. There is no
 
 The driver starts with zero transports. A transport archive returns one
 `GlowcapTransportProvider` package containing every profile it owns. The driver
-copies the generic execution tables after retaining the package lease; it does
+copies the generic execution tables after retaining the package lease. It does
 not name a concrete transport or reconstruct transport-specific locators. A
 provider owns dialing, listening, readiness, locator canonicalization, and
 transport policy. The Host owns CapTP state and sealed-channel policy selected
@@ -58,9 +58,9 @@ linking an OCapN implementation into its own behavior. `GlowcapSturdyRef`
 remains a separate value because its swiss bytes carry authority a locator does
 not.
 
-ABI structures keep `abi_version` and `struct_size` validation at version 1.
-Those fields make malformed crossings fail closed and establish the versioning
-mechanism; prerelease does not preserve aliases or invent compatibility history.
+ABI structures keep `abi_version` and `struct_size` validation at version 1, so
+malformed crossings fail closed. Prerelease preserves no aliases and no
+compatibility history.
 
 ## Composition
 
@@ -78,14 +78,14 @@ mirror of the provider set.
 
 Archives that share opaque Host and actor owners are built together from the
 same compilation inputs. Private layout compatibility across different builds
-is not supported; matching public ABI fingerprints alone do not establish it.
+is not supported. Matching public ABI fingerprints alone do not establish it.
 Within that composition, callbacks cannot use a function-table address as a
 protocol identity or exchange unqualified Zig error ordinals. Opaque local
 delivery uses a stable adapter protocol token and checks its actual Vat owner.
 Handlers catch errors in their producing compilation and carry immutable
 diagnostic text. A private error-domain identity permits typed near-call errors
 only within that compilation. Foreign failures preserve their text for queued
-and served answers; clone callbacks express their sole failure as null.
+and served answers. Clone callbacks express their sole failure as null.
 
 ## Consequences
 
@@ -103,24 +103,22 @@ and served answers; clone callbacks express their sole failure as null.
 
 ## Alternatives Considered
 
-**Keep one umbrella library.** Rejected because optional transports and
-sidecars become dependencies of every consumer, and one artifact obscures
-ownership rather than providing composition.
+**Keep one umbrella library.** Rejected: optional transports and sidecars
+become dependencies of every consumer, and one artifact obscures ownership.
 
-**Publish a common `libglowcap_net` implementation archive.** Rejected because
-the proposed archive had no public consumer contract. Making private Zig
-internals into an exported C ABI would freeze an extra boundary solely to avoid
-some local code duplication. Provider packages already give the driver the
-only runtime seam it needs.
+**Publish a common `libglowcap_net` implementation archive.** Rejected: the
+archive would have no public consumer contract, and exporting private Zig
+internals as a C ABI would freeze an extra boundary only to avoid some local
+code duplication. Provider packages already give the driver its runtime seam.
 
-**Teach the driver each concrete transport.** Rejected because every new
+**Teach the driver each concrete transport.** Rejected: every new
 transport would change the generic archive and every binding. Provider metadata
 and execution tables keep concrete policy behind the owning package.
 
 **Let each binding implement transport execution.** Rejected for native
-archive-backed transports because it duplicates readiness, lifecycle, and
-locator policy in every runtime. Bindings retain byte-fed adapters for channels
-their runtime genuinely owns, including browser Web APIs.
+archive-backed transports: it duplicates readiness, lifecycle, and locator
+policy in every runtime. Bindings keep byte-fed adapters for channels their
+runtime owns, including browser Web APIs.
 
 ## Evidence
 

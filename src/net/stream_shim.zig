@@ -5,7 +5,7 @@
 //! scaffolding around those byte sources is identical: recover the concrete
 //! stream from `&interface` by field offset, fill the first writable slice,
 //! keep any overflow in the reader's buffer, and drain buffered and vectored
-//! writes through one write-all primitive. `Shim` owns that scaffolding once; a
+//! writes through one write-all primitive. `Shim` owns that scaffolding once. A
 //! transport brings only its byte source as the `Source` type. (tcp does not
 //! ride this: its stream is `std.Io.net.Stream`, which carries its own
 //! reader/writer.)
@@ -19,7 +19,7 @@
 //!   writes the whole slice or fails.
 //! - `fn flush(self: Source) std.Io.Writer.Error!void` runs once at the end of
 //!   every drain, so a source whose faults surface out-of-band (a QUIC
-//!   connection that died under the writes) reports them; a source with no
+//!   connection that died under the writes) reports them. A source with no
 //!   flush step makes it a no-op.
 
 const std = @import("std");
@@ -38,7 +38,7 @@ pub fn Shim(comptime Source: type) type {
             interface: Io.Reader,
             source: Source,
 
-            /// The vtable-wired reader over `source`; `buffer` is caller-owned
+            /// The vtable-wired reader over `source`. `buffer` is caller-owned
             /// and borrowed for the reader's life.
             pub fn init(source: Source, buffer: []u8) Reader {
                 return .{
@@ -76,7 +76,7 @@ pub fn Shim(comptime Source: type) type {
             interface: Io.Writer,
             source: Source,
 
-            /// The vtable-wired writer over `source`; `buffer` is caller-owned
+            /// The vtable-wired writer over `source`. `buffer` is caller-owned
             /// and borrowed for the writer's life.
             pub fn init(source: Source, buffer: []u8) Writer {
                 return .{

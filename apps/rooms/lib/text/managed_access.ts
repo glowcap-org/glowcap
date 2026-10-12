@@ -1,4 +1,4 @@
-// Copy for explicit session use and independently held management.
+// Copy for explicit session use and separately held management.
 export const managedAccessText = {
 	"title": "Session access",
 	"heldTitle": "Access",
@@ -157,3 +157,4 @@ export const statusTag: Record<"active" | "paused" | "revoked" | "uninspected", 
 };
 export const currentPermissions = (permissions: readonly string[]): string =>
 	`Current permissions: ${permissions.join(", ") || "none"}.`;
+export const currentLabel = (label: string): string => `Current name: ${label || managedAccessText.unlabelled}.`;

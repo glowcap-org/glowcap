@@ -11,13 +11,13 @@ interface ToastItem {
 }
 
 /**
- * Non-blocking toasts for collision / validation / not-found errors —
+ * Non-blocking toasts for collision / validation / not-found errors,
  * the codes the user can act on inline without losing context. Sits
- * top-right. `internal` and `import` are intentionally NOT toasted —
+ * top-right. `internal` and `import` are NOT toasted,
  * those go to the modal because the user needs to acknowledge.
  *
- * Auto-dismiss after 6s; user can dismiss earlier. At most 4 visible
- * at once; older ones drop off the bottom.
+ * Auto-dismiss after 6s. User can dismiss earlier. At most 4 visible
+ * at once. Older ones drop off the bottom.
  */
 export function ErrorToast() {
 	const [toasts, setToasts] = useState<ToastItem[]>([]);

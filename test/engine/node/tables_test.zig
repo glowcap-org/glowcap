@@ -154,7 +154,7 @@ test "ActionFifo preserves order across compaction, and a drain keeps its reserv
 test "a reservation survives the drain that happens before it is spent" {
     const allocator = std.testing.allocator;
     // The host reserves action-queue capacity when it mints a vow, so the
-    // settle that fires later can push without a failure path — a settled vow
+    // settle that fires later can push without a failure path, a settled vow
     // with no completion is unrepresentable. The embedder drains the queue
     // between those two moments, every time, because that is the documented
     // loop. A drain that shed capacity would leave the infallible push writing
@@ -517,7 +517,7 @@ test "every registration gets its own export range, owned and adopted alike" {
     // Two sessions counting exports from the same place name different objects
     // with the same number, so a capability offered to the wrong one resolves
     // silently instead of being refused. The node is what holds many sessions,
-    // so it is what hands out the ranges — there is no register verb that
+    // so it is what hands out the ranges. There is no register verb that
     // enrols a session without numbering it, and no posture that can carry or
     // overwrite a range.
     var node = engine.Node.init(allocator, @as([32]u8, @splat(0x71)));

@@ -1,4 +1,4 @@
-//! Owner-local receipt transitions. Shared access authorizes invocation; these
+//! Owner-local receipt transitions. Shared access authorizes invocation. These
 //! operations bind it to the original held source and immutable effect intent.
 use super::custody::{EffectReceipt, EffectReceipts, Outcome, References};
 use crate::{fields::Text, session::state::OperationId};
@@ -60,7 +60,7 @@ where
 
 /// Install a new unresolved receipt in the candidate graph. Only terminal
 /// receipts may leave the bounded replay window. Staging/commit belongs to
-/// Loam; this transition cannot activate an external effect.
+/// Loam. This transition cannot activate an external effect.
 pub fn reserve<R: References>(
 	receipts: &mut EffectReceipts<R>,
 	receipt: EffectReceipt<R>,
@@ -102,7 +102,7 @@ where
 /// and its reservations are freed. A receipt whose executor remains retained
 /// cannot be released, because that executor could resume and settle a receipt nobody
 /// holds. Like an evicted receipt, the operation ID must never be submitted
-/// again; release itself never dispatches anything.
+/// again. Release itself never dispatches anything.
 pub fn release<R: References>(
 	receipts: &mut EffectReceipts<R>,
 	operation: &OperationId,
@@ -145,7 +145,7 @@ where
 		.0
 		.iter_mut()
 		.find(|receipt| &receipt.operation == operation)
-		.expect("inspected receipt");
+		.ok_or(Refusal::Unknown)?;
 	if !matches!(receipt.outcome, Outcome::Unresolved) {
 		return if receipt.outcome == outcome {
 			Ok(false)

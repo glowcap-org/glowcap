@@ -65,7 +65,7 @@ impl FailureScope {
 /// Context diagnostics are an ordered, bounded audit trail. They do not
 /// duplicate failures returned by an API, raised by a callback owner, or held
 /// by a close barrier. `dropped_before` reports records evicted before this
-/// claim; `secondary_count` preserves the number of consequences while the
+/// claim. `secondary_count` preserves the number of consequences while the
 /// first consequence remains typed in `secondary_*`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FailureEvent {

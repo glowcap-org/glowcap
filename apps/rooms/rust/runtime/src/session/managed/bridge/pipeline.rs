@@ -59,7 +59,7 @@ impl Pipeline {
 		let result = self
 			.pending
 			.as_mut()
-			.expect("owned bridge observation")
+			.ok_or_else(|| loam::refusal("bridge observation is not owned"))?
 			.completed()
 			.await?;
 		if !matches!(result, EffectResult::Unknown(_)) {
@@ -121,7 +121,7 @@ impl Pipeline {
 						self.intent.request.bridge.action.as_str().into(),
 						self.answers
 							.as_ref()
-							.expect("private target answers")
+							.ok_or_else(|| loam::refusal("bridge target answers are not held"))?
 							.encode()
 							.map_err(|_| loam::refusal("invalid bridge target answers"))?
 							.into(),
@@ -134,7 +134,7 @@ impl Pipeline {
 							Prepared::Complete(outcome) => Ok(Some(outcome)),
 							_ => unreachable!("acknowledgment has no acquisition"),
 						},
-						EffectResult::Unsent(_) => Ok(Some(Settlement::absent())),
+						EffectResult::Unsent(error) => Ok(Some(Settlement::refused(&error))),
 						EffectResult::Unknown(error) => Err(error),
 						EffectResult::Pending => unreachable!("completed bridge observation"),
 					};

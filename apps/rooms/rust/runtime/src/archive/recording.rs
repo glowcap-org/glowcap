@@ -35,7 +35,7 @@ pub struct Recorded {
 	pub files: FileRecording,
 }
 /// Attachment work performed by this recording. Metadata-only writes can still
-/// preserve matching blobs already stored in the archive; they fetch no sources.
+/// preserve matching blobs already stored in the archive. They fetch no sources.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FileRecording {
 	NoFiles,
@@ -47,7 +47,7 @@ pub enum MetadataReason {
 	PendingCaptures,
 	PendingBytes,
 	BackendUnsupported,
-	/// The source stopped answering before every byte arrived; the line is
+	/// The source stopped answering before every byte arrived. The line is
 	/// kept the way its room keeps it, with the file named and its bytes gone.
 	SourceFailed(String),
 }
@@ -70,7 +70,7 @@ pub struct Recording {
 
 /// Input authority for recording. Reuse admitted media whenever available.
 /// If media admission refused, the archive may independently admit the original
-/// received capabilities under its own capture budget; no empty-file success
+/// received capabilities under its own capture budget. No empty-file success
 /// substitutes for that refusal.
 pub enum Files {
 	Retained(Vec<crate::files::media_files::FileView>),
@@ -82,7 +82,7 @@ pub enum Files {
 
 /// Turn a completed archive write into the one issue its producer owns, as
 /// the sentence a person reads in the session's issue list. The line write,
-/// attachment capture, and standing write are separate outcomes; none may
+/// attachment capture, and standing write are separate outcomes. None may
 /// disappear merely because the primary record committed.
 pub fn completion_issue(result: Result<Recorded, Error>) -> Option<String> {
 	match result {
@@ -107,7 +107,7 @@ pub fn completion_issue(result: Result<Recorded, Error>) -> Option<String> {
 }
 
 /// Synchronous recording admission. The implementation owns capture, ordered
-/// persistence, archive selection and erasure; observers only receive a receipt.
+/// persistence, archive selection and erasure. Observers only receive a receipt.
 pub trait Recorder {
 	fn record(
 		&self,

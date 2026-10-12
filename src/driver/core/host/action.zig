@@ -1,7 +1,7 @@
-//! The embedder-facing host action queue: the payload shapes, how their
-//! owned bytes are released, and the queue verbs themselves — the borrowed
-//! and owned pops, the reservation ceiling, and the drain-resume. `Host`
-//! owns the FIFO storage; this module owns everything done to it.
+//! The embedder-facing host action queue: the payload shapes, how their owned
+//! bytes are released, and the queue verbs themselves (the borrowed and owned
+//! pops, the reservation ceiling, and the drain-resume). `Host` owns the FIFO
+//! storage. This module owns everything done to it.
 
 const std = @import("std");
 
@@ -55,21 +55,21 @@ pub fn retainFailureMessage(allocator: std.mem.Allocator, message: []const u8) R
 
 /// What the embedder must do next. `Host.nextAction` pops borrowed: a
 /// completion's value views are host-owned and stay valid until the next
-/// `Host.nextAction` call, which frees them — the same borrow contract
+/// `Host.nextAction` call, which frees them. This is the borrow contract
 /// `engine.Node.nextAction` carries for node-level actions. `Host.takeAction`
 /// pops owned instead: the caller adopts the payload and frees it with
 /// `Host.freeAction` (or moves it into a durable owner first).
 ///
-/// `dial` carries the logical ticket and stable route index; the dial view
+/// `dial` carries the logical ticket and stable route index. The dial view
 /// lives on the node pending row (`Host.pendingDial` / C
 /// `glowcap_host_pending_dial`).
 pub const HostAction = union(enum) {
     /// Dial the exporter named by this attempt's active pending-dial view with
-    /// this host's identity, then report
-    /// `exporterDialed(ticket, route_index, conn)` — or
-    /// `dialFailed(ticket, route_index, reason)` if the path refuses. A failed
-    /// path may produce another DIAL for the same ticket; the Host/Node owns
-    /// ranking and fallback while the embedder executes only exact attempts.
+    /// this host's identity, then report `exporterDialed(ticket, route_index,
+    /// conn)`, or `dialFailed(ticket, route_index, reason)` if the path
+    /// refuses. A failed path may produce another DIAL for the same ticket. The
+    /// Host/Node owns ranking and fallback while the embedder executes only
+    /// exact attempts.
     dial: struct { ticket: engine.Node.PendingId, route_index: usize },
     /// Stop one previously delivered `dial` effect. The executor interrupts
     /// and joins its physical operation, then calls `Host.dialCancelled`.
@@ -80,13 +80,13 @@ pub const HostAction = union(enum) {
     /// The host is done with this session: flush any queued terminal frame,
     /// then tear its transport down and release it. This covers condemned
     /// sessions and exporter sessions opened solely for a failed handoff
-    /// redemption. Without this action a byte-fed embedder has no way to
-    /// learn a session died inside the pump; `condemned` alone only refuses
-    /// future verbs.
+    /// redemption. Without this action a byte-fed embedder has no way to learn
+    /// a session died inside the pump. `condemned` alone only refuses future
+    /// verbs.
     close: engine.PeerHandle,
     /// Draw 32 bytes of gift-id entropy and feed them back through
-    /// `provideGiftId(ticket, bytes)`. Entropy is a host effect like dialing;
-    /// the sans-io host never generates it.
+    /// `provideGiftId(ticket, bytes)`. Entropy is a host effect like dialing.
+    /// The sans-io host never generates it.
     need_gift_id: struct { ticket: u64 },
     /// A fulfilled completion owns its Value storage and every capability
     /// occurrence until the action is freed. Projection grants the consumer
@@ -102,11 +102,11 @@ pub const HostAction = union(enum) {
     },
     /// A host vow with no in-process listener settled broken: `message` is
     /// host-owned with the same until-next-`nextAction` lifetime. An empty
-    /// reason stays empty; failure to retain a nonempty reason is represented
-    /// by a process-static allocation diagnostic. `peer_handle`
-    /// is null when the vow rode no session at all — a select-or-dial enliven
-    /// whose dial never opened one (ADR-0098). A break carries no value, so
-    /// every drain routes it by `vow_id` alone.
+    /// reason stays empty. Failure to retain a nonempty reason is represented
+    /// by a process-static allocation diagnostic. `peer_handle` is null when
+    /// the vow rode no session at all, such as a select-or-dial enliven whose
+    /// dial never opened one (ADR-0098). A break carries no value, so every
+    /// drain routes it by `vow_id` alone.
     failed: struct {
         peer_handle: ?engine.PeerHandle,
         vow_id: u64,
@@ -115,8 +115,8 @@ pub const HostAction = union(enum) {
     },
     /// The finite Host scheduler yielded with internal work remaining and no
     /// ordinary action available to wake the next drain. A reactor-backed
-    /// embedder returns to its scheduler before starting the next drain turn;
-    /// no I/O or session belongs to this action.
+    /// embedder returns to its scheduler before starting the next drain turn.
+    /// No I/O or session belongs to this action.
     resume_work,
 };
 
@@ -128,7 +128,7 @@ pub fn freePayload(self: *Host, action: HostAction) void {
 }
 
 /// Aggregate teardown already retired Session/Node/Vat authority. Reclaim only
-/// storage at that barrier; issuing live capability effects there is invalid.
+/// storage at that barrier. Issuing live capability effects there is invalid.
 pub fn freeStorage(allocator: std.mem.Allocator, action: HostAction) void {
     switch (action) {
         .settled => |s| {
@@ -172,7 +172,7 @@ pub fn nextAction(self: *Host) HostError!?HostAction {
 }
 
 /// Whether another action drain can run now. Parked vows and outstanding
-/// network replies alone are not runnable work; querying never drives a turn.
+/// network replies alone are not runnable work. Querying never drives a turn.
 pub fn hasRunnableWork(self: *const Host) bool {
     return self.retry_last_action or self.actions.peek() != null or
         (!self.resume_pump_refused and host_pump.hasInternalWork(self));
@@ -211,10 +211,11 @@ pub fn peekAction(self: *Host) HostError!?HostAction {
     return null;
 }
 
-/// Pop the next embedder action, owned: the caller adopts the payload and
-/// frees it with `freeAction` — or moves it into a durable owner first,
-/// which is how an embedder parks a completion with zero copies. Leaves the `nextAction` borrow untouched, so the two pops
-/// compose. Refused under the latch like `nextAction`.
+/// Pop the next embedder action, owned: the caller adopts the payload and frees
+/// it with `freeAction` or moves it into a durable owner first, which is how an
+/// embedder parks a completion with zero copies. Leaves the `nextAction` borrow
+/// untouched, so the two pops compose. Refused under the latch like
+/// `nextAction`.
 pub fn takeAction(self: *Host) HostError!?HostAction {
     try self.refuseReentry();
     if (self.retry_last_action) {
@@ -286,10 +287,10 @@ pub fn resumeWorkForActionDrain(self: *Host) HostError!void {
     if (self.actions.peek() != null) return;
     // A refused pump stands down until the pressure could have moved (a new
     // drain pass, or the embedder taking outbound bytes). Without this, a
-    // session whose refusal cannot clear inside this pass — its connection is
-    // closing, so no flush the pass executes can drain it — re-feeds the pass
-    // one flush wake per pump, and the drain never returns to the reactor
-    // whose completions would retire that very connection.
+    // session whose refusal cannot clear inside this pass (its connection is
+    // closing, so no flush the pass executes can drain it) re-feeds the pass
+    // one flush wake per pump, and the drain never returns to the reactor whose
+    // completions would retire that very connection.
     if (self.resume_pump_refused) return;
     host_pump.finishVerb(self) catch |err| switch (err) {
         error.OutOfMemory => return HostError.OutOfMemory,
@@ -302,9 +303,9 @@ pub fn resumeWorkForActionDrain(self: *Host) HostError!void {
             self.resume_pump_refused = true;
             // Standing down preserves liveness only if the drain comes back:
             // wake it once, deduplicated, so the retry runs at the reactor's
-            // cadence instead of never. The refused work is not lost either
-            // way — the dirty FIFO still holds it, and a reaped or drained
-            // connection is what finally moves it.
+            // cadence instead of never. The refused work is not lost: the dirty
+            // FIFO still holds it, and a reaped or drained connection is what
+            // finally moves it.
             // best-effort: a wake that cannot reserve its slot loses only the
             // wake; the next Host verb resumes the same dirty FIFO.
             pump_schedule.queueResumeAction(self) catch {};

@@ -1,5 +1,5 @@
 //! Stable attachment routing over one Host and Store. The embedding
-//! registers each restoration owner; stored strong edges retain its dependencies
+//! registers each restoration owner. Stored strong edges retain its dependencies
 //! even before that owner is registered during restart.
 const std = @import("std");
 const h = @import("attachment.zig");

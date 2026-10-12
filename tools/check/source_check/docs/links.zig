@@ -241,7 +241,7 @@ fn lineNumberAt(contents: []const u8, at: usize) usize {
 
 /// The Markdown surfaces and Zig comment lines this repository owns must not
 /// carry dangling bracketed code spans (see `danglingReferenceColumn`).
-/// `bindings/rust` is deliberately exempt: rustdoc resolves the form there, so
+/// `bindings/rust` is exempt: rustdoc resolves the form there, so
 /// in Rust doc comments it is a real link. Vendored trees under `upstream/`
 /// are not ours to fix and are skipped.
 pub fn checkDanglingReferenceLinks(
@@ -349,9 +349,9 @@ fn checkDanglingRefsInZigFile(
 }
 
 /// Returns the column of the first dangling bracketed code span on `line`, or
-/// null. The shape — a square bracket opening directly onto a backtick span and
+/// null. The shape: a square bracket opening directly onto a backtick span and
 /// closing right after it, with no link target, reference definition, or
-/// reference label following — is rustdoc's intra-doc link syntax, which
+/// reference label following, is rustdoc's intra-doc link syntax, which
 /// nothing in this repository resolves: GitHub renders it as literal brackets
 /// and Zig doc comments render it as dead text. A backtick directly before the
 /// opening bracket means the bracket is itself inside a code span (a literal

@@ -22,7 +22,6 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     UV_TOOL_BIN_DIR=/usr/local/bin \
     UV_PYTHON_INSTALL_DIR=/usr/local/uv/python \
     ZIG_GLOBAL_CACHE_DIR=/home/vscode/.cache/glowcap/tool/zig \
-    PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/ms-playwright \
     PLTUSERHOME=/opt/glowcap-racket-userhome \
     CLAUDE_CONFIG_DIR=/home/vscode/.claude \
     CURSOR_CONFIG_DIR=/home/vscode/.cursor \
@@ -79,29 +78,31 @@ RUN groupadd --gid 1000 vscode \
 ENV GLOWCAP_DEVCONTAINER_DIR=/usr/local/share/glowcap-devcontainer
 # The image keeps the same layout the checkout has, so a path that works in
 # one works in the other: the pinned versions, the shell library, the
-# installers with their patches. Everything else in this directory stays in
-# the checkout, which is mounted.
+# installers with their patches, and the managed-tool runtime. Everything
+# else in this directory stays in the checkout, which is mounted.
 COPY .devcontainer/pins.sh \
      .devcontainer/checksums.sh \
      "${GLOWCAP_DEVCONTAINER_DIR}/"
 COPY .devcontainer/lib/ "${GLOWCAP_DEVCONTAINER_DIR}/lib/"
 COPY .devcontainer/image/ "${GLOWCAP_DEVCONTAINER_DIR}/image/"
+COPY .devcontainer/tools/ "${GLOWCAP_DEVCONTAINER_DIR}/tools/"
 
 RUN bash "${GLOWCAP_DEVCONTAINER_DIR}/image/zig.sh" \
  && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/zls.sh" \
  && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/rust.sh" \
  && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/js-toolchains.sh" \
- && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/claude-code.sh" \
- && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/cursor-agent.sh" \
- && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/opencode.sh" \
- && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/codex.sh" \
  && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/python.sh" \
  && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/serena.sh" \
- && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/racket-goblins.sh"
+ && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/racket-goblins.sh" \
+ && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/tool-links.sh"
 
+# Managed tools (the AI harnesses) are not image content: the image links
+# the checkout's dispatcher onto PATH and downloads nothing. First use fills
+# the shared host cache through .devcontainer/tools, and a harness update
+# never rebuilds this image.
 # Browser application builds use the compiler matching the locked library.
 # Keep this layer separate so application lock changes do not reinstall the
-# language toolchains or agent tools above.
+# language toolchains above.
 COPY apps/rooms/rust/Cargo.lock "${GLOWCAP_DEVCONTAINER_DIR}/rooms-Cargo.lock"
 RUN bash "${GLOWCAP_DEVCONTAINER_DIR}/image/rust-wasm.sh"
 

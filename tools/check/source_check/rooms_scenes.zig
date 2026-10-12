@@ -3,7 +3,7 @@
 //! A browser proof is assembled from scenes: named phases kept beside the
 //! proofs in `apps/rooms/test/page/`, with the shared fixtures they stand on in
 //! `apps/rooms/test/support/`. A scene nobody calls is the one kind of proof
-//! failure that looks exactly like success — the suite is green, the file is
+//! failure that looks exactly like success, the suite is green, the file is
 //! there, and the thing it was written to watch is unwatched. One landed that
 //! way and stood for hours before anybody noticed.
 //!
@@ -20,8 +20,8 @@
 //! if that ever hides something real.
 //!
 //! It says only that: nothing is dead. A scene that *is* called can still prove
-//! nothing — waiting on a condition an earlier step already met is the shape
-//! that bit us the other way — and no static rule sees that. Read the failure
+//! nothing: waiting on a condition an earlier step already met is the shape
+//! that bit us the other way, and no static rule sees that. Read the failure
 //! as "this is unreachable", never as "the scenes are covered".
 
 const std = @import("std");

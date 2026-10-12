@@ -8,12 +8,12 @@ use glowcap::{
 pub mod joining;
 
 /// Route inspection keeps the binding's detailed diagnostic off every success
-/// stack frame. Invalid input is ordinary absence; exceptional ABI/resource
+/// stack frame. Invalid input is ordinary absence. Exceptional ABI/resource
 /// failures pay one allocation to retain that diagnostic intact.
 pub type Result<T> = std::result::Result<T, Box<glowcap::Error>>;
 
 /// Explicit acquisition of the public directory entry, or the exact supplied
-/// capability. Formatting supplies a recipe only; the Host must still fetch it.
+/// capability. Formatting supplies a recipe only. The Host must still fetch it.
 pub fn directory_recipe(route: &str) -> glowcap::Result<String> {
 	match glowcap::parse_sturdyref(route, CaptpVersion::V1_0) {
 		Ok(_) => return Ok(route.to_owned()),
@@ -39,7 +39,7 @@ fn directory_locator(value: &str) -> glowcap::Result<Locator> {
 pub struct CheckpointRoutes;
 
 /// Application-facing address facts. Inspection uses the substrate's locator
-/// parser without creating a Host; none of these strings conveys a live grant.
+/// parser without creating a Host. None of these strings conveys a live grant.
 pub struct Address {
 	pub authority: String,
 	pub address: String,
@@ -105,7 +105,7 @@ const FALLBACK_ORDER: [&str; 4] = [
 
 /// Compose the identity-first location a Rooms host may advertise from every
 /// listener it holds. Key-proving listeners whose designator is the host key
-/// establish the identity; baseline listeners remain weak fallbacks. One
+/// establish the identity. Baseline listeners remain weak fallbacks. One
 /// proving route without added reachability stays a concrete locator, so
 /// `None` says to advertise the caller's own listener.
 pub fn identity_route(host_key: &str, locators: &[String]) -> Option<Locator> {

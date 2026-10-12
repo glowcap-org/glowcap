@@ -8,8 +8,8 @@
  * the session was born with, so a session whose end a signed handoff attached
  * at t=3500 reported "attached to Bob" beside "nothing proved this".
  *
- * They run the whole path a live capture takes — observations in,
- * `projectFromObservations`, then the resolver — because that is where the
+ * They run the whole path a live capture takes, observations in,
+ * `projectFromObservations`, then the resolver, because that is where the
  * pair has to survive: the endpoint tracks are re-derived from the stream on
  * every projection run, so a value that drops half of itself in the index
  * drops it for good.
@@ -24,7 +24,7 @@
  * One defect ESCAPED, and it is worth knowing: fabricating a backing inside
  * `SESSION_TRAJECTORY[side].read` changed nothing here, because the projection
  * builds each keyframe from the observation directly and `read` is not on this
- * path at all — it serves the trajectory ROW, which shows the peer alone. A
+ * path at all, it serves the trajectory ROW, which shows the peer alone. A
  * green run here says nothing about what a row displays.
  */
 
@@ -116,7 +116,7 @@ Deno.test("before the moment the end is loose, and says nothing backed it", () =
 
 Deno.test("the end keeps its claim across the attachment", () => {
 	// The claim is stated once, when the session opens, and attaching does not
-	// restate it — so it comes off the genesis end at every moment. An end that
+	// restate it. So it comes off the genesis end at every moment. An end that
 	// lost its claim the instant it attached would erase what the far side had
 	// said of itself.
 	const doc = captureWith(attributed(3500, "verified-handoff"));
@@ -194,7 +194,7 @@ const latecomer = (t: number): TimelineEvent[] => [
 Deno.test("a session born with a loose end runs from its own open", () => {
 	// The end was there and unoccupied from t=1000, and somebody arrived at it
 	// at t=3500. Dating the end from that arrival dates the SESSION from it, so
-	// the 2500ms everyone observed would vanish — and it would vanish only once
+	// the 2500ms everyone observed would vanish, and it would vanish only once
 	// the attribution had arrived, which is why a recording and the live feed
 	// that produced it disagreed about the same moment.
 	const doc = captureWith(...latecomer(3500));

@@ -3,8 +3,8 @@
 // A real headless Chromium is the browser peer (the offerer). It creates a
 // reliable, ordered RTCDataChannel to the native Rust peer
 // (`glowcap-webrtc-datachannel-probe`, the answerer over the `webrtc` crate),
-// and this focused phase-1 harness ferries the signaling — the SDP offer/answer
-// and trickled ICE candidates — between the two out of band, over the probe's
+// and this focused phase-1 harness ferries the signaling, the SDP offer/answer
+// and trickled ICE candidates, between the two out of band, over the probe's
 // stdio. The capability-routed signaling shape is covered by
 // `webrtc-signaling-captp`; stdio exists here only to bring the channel up so
 // the byte path itself can be proven.
@@ -13,9 +13,9 @@
 // replies. The proof asserts BOTH directions: the native peer reports it
 // received the browser's bytes (its `native_recv`/`result` line), and the
 // browser reports it received the native peer's reply (its resolved verdict).
-// This de-risks the whole transport in this environment — the `webrtc` crate,
+// This de-risks the whole transport in this environment, the `webrtc` crate,
 // the browser RTCDataChannel API, ICE on loopback in a headless container, and
-// the DTLS channel — before any Zig, C ABI, or engine integration exists.
+// the DTLS channel, before any Zig, C ABI, or engine integration exists.
 //
 // Signaling is relay-less: no STUN, no TURN. Both peers gather loopback/host
 // candidates on the same host and connect directly. The native peer includes

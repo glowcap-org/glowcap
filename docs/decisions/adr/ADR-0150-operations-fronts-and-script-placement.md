@@ -12,12 +12,12 @@ amended_by: [ADR-0175]
 
 # ADR-0150 Operations fronts and script placement
 
-The deployment-front choice in this historical record is amended by
-[ADR-0175](ADR-0175-product-installation-and-rooms-deployment.md). The
-current public owner is the installed Zig CLI; the former private shell front
-and its source-only preparation flow are no longer part of the product.
-The sections below preserve the decision as it stood on 2026-09-12; references
-to that shell front are historical, not current commands or paths.
+[ADR-0175](ADR-0175-product-installation-and-rooms-deployment.md) amends the
+deployment-front choice in this historical record. The public owner is the
+installed Zig CLI, and the private shell front and its source-only preparation
+flow are not part of the product. The sections below preserve the decision as of
+2026-09-12, and references to that shell front are not current commands or
+paths.
 
 ## Context
 
@@ -33,12 +33,12 @@ the two-machine shape of a redeploy: prepare in the devcontainer, start on the
 Docker host. A contributor who cloned the public tree could not see that
 shape at all, because the only front that named it was not in the tree.
 
-Two pulls were in play. Centralizing everything into one root script is easy
-to find and impossible to keep honest, because one file then speaks for the
+Two pulls were in play. Centralizing everything into one root script is easy to
+find and impossible to keep accurate, because one file then speaks for the
 toolchain, for Docker, for Tailscale, and for a maintainer's own machine, and
-every reader pays for the parts that are not theirs. Leaving each script
-where it grew is easy to write and impossible to discover, because the
-next person searches for an entry point and finds six.
+every reader pays for the parts that are not theirs. Leaving each script where
+it grew is easy to write and impossible to discover, because the next person
+searches for an entry point and finds six.
 
 ## Decision
 
@@ -64,7 +64,7 @@ front:
   `compose` pass-through for what no verb names. Destructive verbs confirm,
   name their custody unit, and are the only place volume names are spelled.
 - **The direction between them.** An operations front calls `zig build` for
-  the toolchain half; the build graph never calls an operations front, and
+  the toolchain half. The build graph never calls an operations front, and
   never names the deployment directory at all. A step that needed the front
   would be a build that depends on a machine, and a front that ran `cargo` or
   `deno` itself would be a second copy of the build. `source-check` holds
@@ -85,15 +85,15 @@ front:
   never reaches into `.local/` except for the one state directory a developer
   launch keeps there.
 
-There is no root `./ops`. A root front would have to speak for every surface
-at once, which is the shape this record refuses.
+There is no root `./ops`, because a root front would have to speak for every
+surface at once.
 
 ### Committed script contract
 
-A committed script is a maintained program with one caller and one effect. It
-is not the default answer to a command that was convenient once. Before adding
-one, name the repeated behavior, the public or internal interface that calls
-it, and why the effect does not belong in an existing program or script.
+A committed script is a maintained program with one caller and one effect.
+Before adding one, name the repeated behavior, the public or internal interface
+that calls it, and why the effect does not belong in an existing program or
+script.
 
 Every script carries the contract its boundary needs:
 
@@ -121,7 +121,7 @@ one.
 
 ## Scope (what this does not decide)
 
-The site's own hosting is not a deployable this repository ships; it has no
+The site's own hosting is not a deployable this repository ships. It has no
 front. The Rooms demos under `apps/rooms/demos/` are proofs, not operations,
 and stay wired to their `zig build` steps. A second deployable would get its
 own front beside itself, not a verb on the Rooms one.
@@ -140,13 +140,13 @@ own front beside itself, not a verb on the Rooms one.
 
 ## Consequences
 
-`apps/rooms/web/deploy/ops` is the Rooms deployment's front, and the README,
-the site's operations page, and the maintainer's tooling all route through
-it; `up.sh` and `compose.sh` are gone. `rooms-web` is one step with
-`-Dtransport`, and `rooms-dev` takes the same option.
-`zig build ocapnviz-dev` joins `rooms-dev` as a developer launch and the
-ocapnviz README leads with it. `tools/README.md` points here so the next
-script lands with an owner, caller, contract, and verification.
+`apps/rooms/web/deploy/ops` is the Rooms deployment's front, and the README, the
+site's operations page, and the maintainer's tooling all route through it.
+`up.sh` and `compose.sh` do not exist. `rooms-web` is one step with
+`-Dtransport`, and `rooms-dev` takes the same option. `zig build ocapnviz-dev`
+joins `rooms-dev` as a developer launch and the ocapnviz README leads with it.
+`tools/README.md` points here so the next script lands with an owner, caller,
+contract, and verification.
 
 ## Evidence and gate
 
@@ -157,7 +157,7 @@ scripts the gate may reach. `checkOpsFrontsCallZigOnly` in
 `tools/check/source_check/project_shape/ops_fronts.zig` holds the direction:
 the build graph names no deployment directory, and the front runs no build
 tool and no `zig` verb but `build`. The deployment front is exercised by hand
-on a Docker host; `./ops doctor` reports the machine's half without touching
+on a Docker host. `./ops doctor` reports the machine's half without touching
 state.
 
 ## Notes

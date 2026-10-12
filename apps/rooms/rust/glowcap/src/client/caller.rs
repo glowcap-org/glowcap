@@ -34,7 +34,7 @@ impl<D: Deadline> Caller<D> {
 		.map_err(Error::from)
 	}
 	/// Files may come from a third peer or a local managed facade. The Host
-	/// routes the actual capability; retaining the remote client still keeps
+	/// routes the actual capability. Retaining the remote client still keeps
 	/// its delivering connection alive without guessing a blob's exporter.
 	pub fn call_reference(
 		&self,

@@ -77,7 +77,7 @@ pub const Append = struct {
     }
 
     /// Prepare the child-index path before staging a resource append. A model
-    /// miss is driven through Read; directory faults use this append's completion.
+    /// miss is driven through Read. Directory faults use this append's completion.
     pub fn prepareResource(self: *Append, parent: ?core.ResourceId) !read.Step {
         if (self.directory.family != .resource or self.directory.count != 4) return error.WrongPhase;
         try self.view.prepareHistory();

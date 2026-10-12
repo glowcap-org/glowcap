@@ -166,7 +166,7 @@ test "libglowcap_host: rejected recursive projection releases every reference oc
     // Two wire occurrences of the same import surround a handoff-receive arm.
     // A receive is an exporter bootstrap request, never an application value,
     // so the whole projection fails and neither reference occurrence may
-    // survive as invisible Host or import authority. Error is intentionally
+    // survive as invisible Host or import authority. Error is
     // not this sentinel: it is a first-class fulfilled value.
     try cd.testing.importObject(pair.a, 7);
     try cd.testing.importObject(pair.a, 7);
@@ -320,7 +320,7 @@ test "libglowcap_host: a 64-byte seed gives every session its own signing key" {
     // ADR-0097 at the byte-fed tier. The core draws no entropy, so the
     // embedder supplies a session-key root after the durable identity in the
     // one seed buffer, and each session then signs with its own key. A
-    // durable-only 32-byte seed is refused — CapTP session keys must not
+    // durable-only 32-byte seed is refused, CapTP session keys must not
     // silently reuse the identity seed.
     const crypto = glowcap.foundation.crypto;
 
@@ -519,5 +519,5 @@ test "libglowcap_host: one PartnerIdentity reports session key, durable name, an
 // The C wrapper over driver_core.planDial: the transport dispatch,
 // designator validation, host:port resolution, and reachability decision the
 // bindings share instead of re-expressing. The pure logic is exhaustively
-// tested in test/driver/dial_plan_test.zig; these lock the C marshalling — the
+// tested in test/driver/dial_plan_test.zig; these lock the C marshalling, the
 // posture-policy mapping, the borrowed views, and the typed error code.

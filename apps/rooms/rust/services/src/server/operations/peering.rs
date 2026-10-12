@@ -1,7 +1,7 @@
 //! The peering capability: another directory's holder hands this server a
 //! room under a name, the room resolves outside the turn, and from then on
 //! the directory lists it and hands the same capability to whoever enters.
-//! The lease answered back is the authority to take the listing down; the
+//! The lease answered back is the authority to take the listing down. The
 //! publisher's session ending takes every listing it made down with it.
 use super::super::{
 	answer,
@@ -189,7 +189,7 @@ fn lease(shared: Shared, id: String) -> impl FnMut(&str, &[Argument]) -> Result<
 }
 
 /// Take one publication out: a live one is announced closed and its room
-/// let go; a pending one tells its lease why it never became ready.
+/// let go. A pending one tells its lease why it never became ready.
 pub(crate) fn forget(state: &mut State, id: &str) {
 	if let Some(ready) = state.peering_ready.remove(id) {
 		// tolerant: a lease no longer waiting hears nothing.

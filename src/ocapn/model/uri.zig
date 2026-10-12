@@ -1,17 +1,17 @@
-//! Turning an OCapN locator into an `ocapn://` URI and back — the out-of-band
+//! Turning an OCapN locator into an `ocapn://` URI and back, the out-of-band
 //! bootstrap form the OCapN `Locators` spec defines.
 //!
-//! A peer URI is `ocapn://<designator>.<transport>[?k=v&…]`; a sturdyref adds
-//! `/s/<swiss-num>` before any query. This is how a peer address — a `tcp`
+//! A peer URI is `ocapn://<designator>.<transport>[?k=v&…]`. A sturdyref adds
+//! `/s/<swiss-num>` before any query. This is how a peer address, a `tcp`
 //! host/port, an `onion` service id, a self-authenticating key on any
-//! netlayer — is handed out of band to bootstrap a session, the same format the
+//! netlayer, is handed out of band to bootstrap a session, the same format the
 //! reference suite and Goblins exchange.
 //!
-//! Parsing uses the allocation-free OCapN URI-shape reader; percent-decoding
+//! Parsing uses the allocation-free OCapN URI-shape reader. Percent-decoding
 //! uses `std.Uri.percentDecodeInPlace`. OCapN-specific splits (last-dot
 //! transport, `/s/` sturdyref, query key=value pairs on percent-encoded form)
 //! live here. A V1.0 sturdyref's swiss number is unpadded base64url, matching
-//! Goblins; `next` keeps the current draft's RFC 3986-escaped raw string.
+//! Goblins. `next` keeps the current draft's RFC 3986-escaped raw string.
 //!
 //! Query hints carry no wire type system, so parsing always yields `string`
 //! hint values. Writing a typed `HintValue` is a write-side convenience: an
@@ -57,8 +57,8 @@ pub const validatePercentEncoding = uri_shape.validatePercentEncoding;
 pub const ParseAllocationBound = struct { bytes: usize, allocations: usize };
 
 /// Bounds successful owned sturdyref parsing without parsing or allocating.
-/// Component strings partition the URI. Percent decoding may copy twice;
-/// escaped baseline Swiss bytes can additionally require a decoded buffer.
+/// Component strings partition the URI. Percent decoding may copy twice.
+/// Escaped baseline Swiss bytes can additionally require a decoded buffer.
 /// Hint spine growth follows ArrayList's public capacity policy, assuming
 /// every resize requires a fresh allocation, including its final owned slice.
 pub fn parseAllocationBound(uri_bytes: usize, hints: usize) !ParseAllocationBound {
@@ -263,7 +263,7 @@ pub const HostPort = struct {
 };
 
 /// The first entry of a comma-separated `direct-addresses` hint, trimmed.
-/// A `keyed-tcp` hint carries the address(es) to dial; an implementation that
+/// A `keyed-tcp` hint carries the address(es) to dial. An implementation that
 /// published several picks the first. Returns a sub-slice of `hint` (empty when
 /// the first entry is empty or the hint is only separators).
 pub fn firstDirectAddress(hint: []const u8) []const u8 {
@@ -271,9 +271,9 @@ pub fn firstDirectAddress(hint: []const u8) []const u8 {
     return std.mem.trim(u8, hint[0..comma], " \t");
 }
 
-/// Split a `host:port` designator — the address grammar a socket transport's
+/// Split a `host:port` designator, the address grammar a socket transport's
 /// locator designator carries. The split is on the **last** colon, so a
-/// bracketed IPv6 literal such as `[::1]:9000` keeps its address intact; the
+/// bracketed IPv6 literal such as `[::1]:9000` keeps its address intact. The
 /// brackets are stripped from the returned host, the form a host resolver
 /// expects. The port must be a decimal `u16` and the host must be non-empty.
 /// This is the one definition of that grammar: the native TCP netlayer and the
@@ -335,25 +335,6 @@ pub fn connectHostPort(
 pub const BoundedWrite = struct {
     len: usize,
     complete: bool,
-};
-
-const ListSink = struct {
-    allocator: std.mem.Allocator,
-    out: *std.ArrayList(u8),
-
-    fn appendSlice(self: *ListSink, bytes: []const u8) Error!void {
-        self.out.appendSlice(self.allocator, bytes) catch return error.OutOfMemory;
-    }
-
-    fn append(self: *ListSink, byte: u8) Error!void {
-        self.out.append(self.allocator, byte) catch return error.OutOfMemory;
-    }
-
-    fn appendBase64UrlNoPad(self: *ListSink, bytes: []const u8) Error!void {
-        const encoder = std.base64.url_safe_no_pad.Encoder;
-        const encoded = self.out.addManyAsSlice(self.allocator, encoder.calcSize(bytes.len)) catch return error.OutOfMemory;
-        _ = encoder.encode(encoded, bytes);
-    }
 };
 
 const CountSink = struct {
@@ -423,12 +404,11 @@ const BoundedSink = struct {
     }
 };
 
+/// Render a peer URI into one exactly sized allocation. The caller owns the
+/// returned bytes. Measurement validates before allocating. Filling uses the
+/// same writer and borrows the locator only for this call.
 pub fn writePeer(allocator: std.mem.Allocator, locator: model.PeerLocator) Error![]u8 {
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(allocator);
-    var sink: ListSink = .{ .allocator = allocator, .out = &out };
-    try writeInto(&sink, locator, .v1_0, null);
-    return try out.toOwnedSlice(allocator);
+    return writeOwned(allocator, locator, .v1_0, null);
 }
 
 pub fn measurePeer(locator: model.PeerLocator) Error!usize {
@@ -472,11 +452,27 @@ pub fn writeSturdyrefForProfile(
     profile: model.CaptpVersion,
     sturdyref: model.SturdyRef,
 ) Error![]u8 {
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(allocator);
-    var sink: ListSink = .{ .allocator = allocator, .out = &out };
-    try writeInto(&sink, sturdyref.peer, profile, sturdyref.swissnum);
-    return try out.toOwnedSlice(allocator);
+    return writeOwned(allocator, sturdyref.peer, profile, sturdyref.swissnum);
+}
+
+/// One output allocation for locator emission, including handoff dial routes.
+/// Count and fill share `writeInto`, keeping URI spelling and ownership equal
+/// across the owned and caller-buffer APIs. The cost is the returned URI's
+/// exact length, with no growth copies or spare capacity.
+fn writeOwned(
+    allocator: std.mem.Allocator,
+    locator: model.PeerLocator,
+    profile: model.CaptpVersion,
+    swissnum: ?[]const u8,
+) Error![]u8 {
+    var count: CountSink = .{};
+    try writeInto(&count, locator, profile, swissnum);
+    const bytes = try allocator.alloc(u8, count.len);
+    errdefer allocator.free(bytes);
+    var fill: BoundedSink = .{ .buf = bytes };
+    try writeInto(&fill, locator, profile, swissnum);
+    std.debug.assert(fill.complete and fill.len == bytes.len);
+    return bytes;
 }
 
 pub fn measureSturdyrefForProfile(
@@ -570,14 +566,20 @@ fn appendPercentEncoded(
     s: []const u8,
     comptime safe: fn (u8) bool,
 ) Error!void {
-    const hex = "0123456789ABCDEF";
-    for (s) |c| {
-        if (safe(c)) {
-            try sink.append(c);
-        } else {
-            try sink.append('%');
-            try sink.append(hex[c >> 4]);
-            try sink.append(hex[c & 0xf]);
-        }
+    if (comptime @TypeOf(sink.*) == CountSink) {
+        var escaped: usize = 0;
+        for (s) |c| escaped += @intFromBool(!safe(c));
+        try sink.advance(std.math.add(usize, s.len, std.math.mul(usize, escaped, 2) catch
+            return error.OutOfMemory) catch return error.OutOfMemory);
+        return;
     }
+    const hex = "0123456789ABCDEF";
+    var start: usize = 0;
+    for (s, 0..) |c, index| {
+        if (safe(c)) continue;
+        if (index > start) try sink.appendSlice(s[start..index]);
+        try sink.appendSlice(&.{ '%', hex[c >> 4], hex[c & 0xf] });
+        start = index + 1;
+    }
+    if (start < s.len) try sink.appendSlice(s[start..]);
 }

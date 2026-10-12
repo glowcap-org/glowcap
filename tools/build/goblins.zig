@@ -165,7 +165,7 @@ pub fn register(ctx: Context) Registered {
     _ = liveDriver(ctx, .{ .exe_name = "glowcap-goblins-gc", .source = "interop/goblins_interop/gc_driver.zig", .step_name = "goblins-gc", .description = "Live Goblins GC in both directions, including remote reclamation after capability and answer release with the owning Session open (needs racket + goblins)", .posture = .{ .deterministic = 30 } });
 
     // Per-binding Goblins clients (interop / handoff / gift) register with the
-    // root's shared `binding_families` table — same emitter as the iroh and
+    // root's shared `binding_families` table, same emitter as the iroh and
     // keyed-tcp families.
 
     // Cross-implementation benchmark: one shared Racket application run on
@@ -184,25 +184,25 @@ pub fn register(ctx: Context) Registered {
     // the client language swapped per row (Zig, Rust, Deno, Python, the Racket
     // binding, and Goblins as the reference CapTP peer). It answers "what does a
     // consumer in language X pay to run this app over the same glowcap host and
-    // wire" — NOT a language leaderboard, and distinct from the substrate
+    // wire", NOT a language leaderboard, and distinct from the substrate
     // comparison above. Never gated; the orchestrator spawns and tears down a
     // fresh host per client row. The host and Zig client are always built (and
     // run in whatever `-Doptimize` mode is passed, like the other benches);
     // other rows join when their runtimes are on PATH. Forward `-- <args>`
     // (e.g. `--smoke`, `--client=zig`); `-Dport=N` pins the host port. The
-    // orchestrator is itself a native glowcap executable — no Racket on the
-    // driving path — so the Zig-only smoke runs with nothing else installed.
+    // orchestrator is itself a native glowcap executable, no Racket on the
+    // driving path, so the Zig-only smoke runs with nothing else installed.
     // Racket joins only as two client rows (the binding and the Goblins
     // reference), each skipped with a note when its runtime is absent.
     //
     // The host and Zig client are pinned to ReleaseFast regardless of
     // `-Doptimize`, because the Rust row always builds `--release` and the
     // interpreters always run optimized: a fair cross-language comparison needs
-    // the Zig rows optimized too, so a plain `zig build bench-langs` is honest
+    // the Zig rows optimized too, so a plain `zig build bench-langs` is accurate
     // without remembering `-Doptimize=ReleaseFast`. The pin only holds through
     // `fast_lib_mod`: optimize mode is per-module, so importing `lib_mod` here
     // would run Debug glowcap under a ReleaseFast main. The orchestrator is
-    // glue — its own speed never enters a measured number — so it tracks
+    // glue, its own speed never enters a measured number, so it tracks
     // `-Doptimize`.
     const langs_host_exe = common.glowcapExecutable(b, ctx.fast_lib_mod, ctx.target, .ReleaseFast, "glowcap-langs-host", "bench/langs/host.zig");
     const langs_zig_client_exe = common.glowcapExecutable(b, ctx.fast_lib_mod, ctx.target, .ReleaseFast, "glowcap-langs-client-zig", "bench/langs/clients/zig_bench.zig");

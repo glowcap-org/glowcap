@@ -1,5 +1,5 @@
 #lang racket/base
-;; captp-demo.rkt — two Goblins peers chatting over real CapTP, in-process.
+;; captp-demo.rkt: two Goblins peers chatting over real CapTP, in-process.
 ;;
 ;; Demonstrates that this Vat is CapTP-capable. Two independent Goblins
 ;; "machines" (each with its own vat, netlayer, and `mycapn` router) run
@@ -15,7 +15,7 @@
 ;; What this does NOT yet do:
 ;;   - Speak to a non-Goblins peer (the netlayer is in-process).
 ;;   - Hook into the kernel loop's KERI / Episode / transparency-log
-;;     machinery — this is a CapTP-shape demo, not a kernel demo.
+;;     machinery: this is a CapTP-shape demo, not a kernel demo.
 ;;   - Authenticate / authorize beyond CapTP's own session keys.
 
 (require goblins

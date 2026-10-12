@@ -53,7 +53,7 @@ test "griddle: the same seed replays the same timeline byte for byte" {
 }
 
 test "griddle: a different seed schedules the links differently" {
-    // Not every seed pair differs — the scheduler makes a handful of choices,
+    // Not every seed pair differs, the scheduler makes a handful of choices,
     // so collisions are ordinary. What must be true is that *some* seed
     // reorders the run; a simulator whose seed changed nothing would explore
     // exactly one interleaving forever.
@@ -73,7 +73,7 @@ test "griddle: a different seed schedules the links differently" {
 
 test "griddle: every schedule answers every question" {
     // The invariance half. Whatever order the seed chose, both crossed
-    // fetches are answered — the outcome is a property of the protocol, not
+    // fetches are answered, the outcome is a property of the protocol, not
     // of the schedule that carried it.
     const gpa = std.testing.allocator;
     var seed: u64 = 0;
@@ -146,7 +146,7 @@ test "griddle: latency delays a link without reordering it" {
 
     // Both still finish: latency is not failure.
     try std.testing.expect(std.mem.indexOf(u8, delayed, "\"detail\":\"both-answered\"") != null);
-    // And it genuinely took longer — the last tick is higher.
+    // And it took longer, the last tick is higher.
     try std.testing.expect(delayed.len >= instant.len);
     try std.testing.expect(std.mem.indexOf(u8, delayed, "\"sim_t_ns\":0,") != null);
 }

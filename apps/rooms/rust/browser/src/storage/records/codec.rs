@@ -1,5 +1,5 @@
-//! IndexedDB record envelopes and keys. Keys remain JSON strings;
-//! record payloads reuse the shared tuple grammar, including BigInt fields.
+//! IndexedDB record envelopes and keys. Keys remain JSON strings.
+//! Record payloads reuse the shared tuple grammar, including BigInt fields.
 use super::super::{
 	Error,
 	value::{self, Stored, Values},

@@ -1,4 +1,4 @@
-//! Persistent immutable collections — actor-support for vat time-travel.
+//! Persistent immutable collections, actor-support for vat time-travel.
 //!
 //! A persistent actor (see `actors/vat/mod.zig`, ADR-0060) produces its next state
 //! with `Turn.become` instead of mutating `self`, so a vat snapshot can
@@ -6,12 +6,12 @@
 //! rebuilding it every turn would make `become` O(size). `PersistentMap` closes
 //! that: an immutable hash array mapped trie (HAMT) whose updates copy only the
 //! path to the changed leaf and share every untouched subtree by reference, so a
-//! `put` is O(log n) and the prior version — and any snapshot that holds it —
+//! `put` is O(log n) and the prior version, and any snapshot that holds it,
 //! stays valid and untouched (ADR-0061).
 //!
 //! Nodes are reference-counted. The count is non-atomic because the vat is
 //! single-threaded, and an immutable trie is acyclic, so a plain count frees
-//! correctly with no collector — the same reasoning as the vat's `StateBox`.
+//! correctly with no collector, the same reasoning as the vat's `StateBox`.
 //! `put`, `remove`, and `deinit` are the only operations that move a refcount.
 //!
 //! Scope (ADR-0061): one map keyed by `u64`, values stored by value. It is a
@@ -64,8 +64,8 @@ pub fn PersistentMap(comptime V: type) type {
             bitmap: u64,
             /// Inline slot count of the trailing storage. `popCount(bitmap)`
             /// equals it at every construction site today, but the free is
-            /// sized from this stored byte — store enough metadata to free
-            /// correctly — never recomputed from the bitmap.
+            /// sized from this stored byte, store enough metadata to free
+            /// correctly, never recomputed from the bitmap.
             capacity: u8,
 
             /// The compact slot array in this node's trailing storage.
@@ -149,7 +149,7 @@ pub fn PersistentMap(comptime V: type) type {
         }
 
         /// A new map with `key` bound to `value`, sharing every untouched subtree
-        /// with `self` (their refcounts rise). Both maps stay valid; both must be
+        /// with `self` (their refcounts rise). Both maps stay valid. Both must be
         /// `deinit`-ed. O(log n) freshly-allocated nodes.
         pub fn put(self: Self, key: u64, value: V) std.mem.Allocator.Error!Self {
             const root = self.root orelse {
@@ -203,7 +203,7 @@ pub fn PersistentMap(comptime V: type) type {
 
         /// A fresh same-shape copy of `node` (same bitmap and slot count) with the
         /// slot at `pos` replaced by `slot`, every surviving sibling shared and
-        /// retained. The old slot at `pos` is neither retained nor released here;
+        /// retained. The old slot at `pos` is neither retained nor released here.
         /// `slot` is installed owning whatever refcount the caller handed it. The
         /// one same-size path-copy spine `nodePut` and `nodeRemove` share. The only
         /// fallible step is the allocation, before `slot` is installed, so a caller
@@ -332,7 +332,7 @@ pub fn PersistentMap(comptime V: type) type {
         /// it). Nodes are not canonicalized on the way down: a branch may shrink to
         /// a single entry, or to none, at any level, not only the root.
         /// `get`/`len`/`remove` stay correct over such a node, and `deinit` frees
-        /// it; the only cost is a little wasted depth, never a leak or a wrong
+        /// it. The only cost is a little wasted depth, never a leak or a wrong
         /// answer.
         fn nodeRemove(
             allocator: std.mem.Allocator,
@@ -367,10 +367,10 @@ pub fn PersistentMap(comptime V: type) type {
 
         /// A fresh copy of `node` with the slot at `pos` (chunk `bit`) dropped,
         /// sharing the surviving children. Remove does not canonicalize, so at any
-        /// level this can leave a node holding a single slot, or none — a two-leaf
+        /// level this can leave a node holding a single slot, or none, a two-leaf
         /// node whose other leaf a later remove also drops becomes empty in place,
         /// not collapsed into its parent. `get`, `len`, `remove`, and `deinit` are
-        /// all written to tolerate empty and single-entry interior nodes; the only
+        /// all written to tolerate empty and single-entry interior nodes. The only
         /// cost is a little wasted depth, bounded by the ~11-level key ceiling.
         fn dropSlot(allocator: std.mem.Allocator, node: *Node, pos: usize, bit: u64) std.mem.Allocator.Error!*Node {
             const old = node.children();

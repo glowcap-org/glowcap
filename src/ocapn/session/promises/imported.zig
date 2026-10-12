@@ -5,11 +5,11 @@
 //! promise hosted on a *third* peer. Its resolution reaches us as a relayed
 //! resolution (forwarded by the introducing session), not a direct settlement
 //! callback. `op:listen` on the corresponding proxy export installs a
-//! listener here; the relay fires it. These mirror the answer-side pipelining
+//! listener here. The relay fires it. These mirror the answer-side pipelining
 //! substrate in `pipeline.zig`, keyed on import position instead of answer
 //! position.
 //! The row type (`ImportedPromise`) and its storage (`imported_promises`) live
-//! on `Session`; these helpers are aliased back into that namespace.
+//! on `Session`. These helpers are aliased back into that namespace.
 
 const std = @import("std");
 const model = @import("model");
@@ -24,9 +24,9 @@ const ListenerEntry = session.ListenerEntry;
 
 /// Root `import_position` at a third-party `host`, registering the import (so it
 /// validates as a reference) and marking it handoff-imported. Idempotent for
-/// the same host; a re-root with a different host is `Error.HostMismatch`.
-/// `host` is interned in `key_arena` (session-lifetime; shared across rows that
-/// name the same introducing host — never N gpa dupes of one designator).
+/// the same host. A re-root with a different host is `Error.HostMismatch`.
+/// `host` is interned in `key_arena` (session-lifetime, shared across rows that
+/// name the same introducing host, never N gpa dupes of one designator).
 pub fn installThirdPartyImport(self: *Session, import_position: model.ImportPosition, host: []const u8) !void {
     if (findImportedPromise(self, import_position)) |existing| {
         if (existing.host) |known| {
@@ -53,7 +53,7 @@ pub fn installThirdPartyImport(self: *Session, import_position: model.ImportPosi
 
 /// Roll back a freshly installed third-party import that never became
 /// observable. The row and its single import retain were created together by
-/// `installThirdPartyImport`; listeners or a resolution would prove the caller
+/// `installThirdPartyImport`. Listeners or a resolution would prove the caller
 /// crossed the publication boundary and make this operation invalid.
 pub fn abandonUnsharedThirdPartyImport(self: *Session, import_position: model.ImportPosition) void {
     const row = self.imported_promises.getPtr(import_position) orelse unreachable;
@@ -98,7 +98,7 @@ pub fn installImportedPromiseListener(self: *Session, import_position: model.Imp
 /// whether it was stored (`false` = moot, dropped). `row_id` is the row
 /// identity the relay was queued against: a mismatch means that row was torn
 /// down (GC co-eviction) and a *different* third-party promise re-registered at
-/// this position, so the stale relay is moot and fires nothing — the same
+/// this position, so the stale relay is moot and fires nothing, the same
 /// row-identity guard `resolveStoreChecked` gives the `settled_answer` and
 /// `listener_fire` carriers over this store (a queued carrier reading a store by
 /// position must prove the row is the instance it was accounted against).
@@ -126,7 +126,7 @@ pub fn recordRelayedResolution(self: *Session, import_position: model.ImportPosi
 /// Hand the caller the listeners registered on third-party import
 /// `import_position`, leaving the import's listener list empty. Returns an
 /// empty slice for an unknown import or no listeners. The caller owns the
-/// returned slice and frees it with `allocator`; the entries are POD.
+/// returned slice and frees it with `allocator`. The entries are POD.
 pub fn takeImportedPromiseListeners(self: *Session, import_position: model.ImportPosition) ![]ListenerEntry {
     const entry = findImportedPromise(self, import_position) orelse return &.{};
     return cell_ops.takeListeners(&entry.cell, self.allocator);
@@ -158,7 +158,7 @@ pub fn importedPromiseStoredResolution(
 
 /// Find one stored relayed resolution whose previously installed listeners
 /// still need carriers. This state exists only when terminal settlement had to
-/// commit under allocator or outbound pressure; ordinary settlement detaches
+/// commit under allocator or outbound pressure. Ordinary settlement detaches
 /// and reserves every listener before recording the store.
 pub fn pendingImportedPromiseFire(self: *Session) ?model.ImportPosition {
     var it = self.imported_promises.iterator();
@@ -203,7 +203,7 @@ pub const prepareSettlingMove = settling.prepareSettlingMove;
 pub const commitSettlingMove = settling.commitSettlingMove;
 
 /// The identity stamp of the live third-party imported-promise row at
-/// `import_position`, or null when absent — the imported-promise twin of
+/// `import_position`, or null when absent, the imported-promise twin of
 /// `inboundAnswerRowId`, captured when a relayed resolution is queued and
 /// re-checked at drain so a released-and-re-registered position can never
 /// satisfy a stale relay.

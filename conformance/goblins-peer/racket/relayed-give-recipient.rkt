@@ -1,5 +1,5 @@
 #lang racket/base
-;; relayed-give-recipient.rkt — Goblins Carol, the third party in the
+;; relayed-give-recipient.rkt: Goblins Carol, the third party in the
 ;; relayed-give proof (`zig build goblins-relayed-give`). She asks glowcap for a
 ;; greeter, is answered with a promise living on a vat she has never spoken to,
 ;; and the settlement of that promise carries a `desc:handoff-give`.
@@ -7,7 +7,7 @@
 ;; What makes this different from `gift-recipient.rkt` is where the give arrives.
 ;; There, the introduction settles to a capability, so the give rides an answer
 ;; Carol asked for. Here the introduction settles to a promise, so Goblins
-;; subscribes to that promise — `op:listen` — and the give arrives in the fire.
+;; subscribes to that promise, `op:listen`, and the give arrives in the fire.
 ;; Goblins then redeems it without being asked: `incoming-post-unmarshall!`
 ;; recognizes a signed give wherever one appears in an incoming value, dials the
 ;; exporter, and withdraws. So the whole chain is transparent to the code below,
@@ -79,8 +79,8 @@
 
    ;; Ask only once the introducer is live. A partial listener fires at every
    ;; step of a promise chain, and pipelining `get-greeter` onto the unresolved
-   ;; enliven adds a step of its own — the local question promise becoming the
-   ;; remote one — which would report `LISTENING` before glowcap had even been
+   ;; enliven adds a step of its own, the local question promise becoming the
+   ;; remote one, which would report `LISTENING` before glowcap had even been
    ;; asked. Sending to a settled reference leaves exactly one step, the one
    ;; this proof is about.
    (on (<- mycapn 'enliven introducer-sturdyref)

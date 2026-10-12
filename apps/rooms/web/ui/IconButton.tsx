@@ -1,12 +1,13 @@
+import { ControlProgress, useProgress } from "./presentation.ts";
 // The one rooms control whose meaning is carried by an interface icon.
 //
 // Callers choose three independent facts: size is touch/layout geometry,
 // variant is how much surface the control draws, and tone is its semantic or
-// contextual colour. The component owns everything easy to drift — reset,
+// contextual colour. The component owns everything easy to drift, reset,
 // icon size, shape, tooltip, accessible name, focus, hover, pressed, and
 // disabled treatment. Buttons that carry their meaning in words are the
-// separate family next door in `Button.tsx`, and content-as-controls — a room
-// row, a message act — are neither.
+// separate family next door in `Button.tsx`, and content-as-controls (a room
+// row, a message act) are neither.
 
 import type { ComponentPropsWithRef } from "react";
 import { Icon, type IconName } from "./icons.tsx";
@@ -23,7 +24,7 @@ export type IconButtonProps =
 		label: string;
 		size?: IconButtonSize;
 		/** Glyph size inside the control. Leave this off to take the size
-		 * step; pass it only when a glyph has to disagree with that step. */
+		 * step. Pass it only when a glyph has to disagree with that step. */
 		iconSize?: number;
 		variant?: IconButtonVariant;
 		tone?: IconButtonTone;
@@ -58,22 +59,26 @@ export function IconButton({
 	...button
 }: IconButtonProps) {
 	const classes = ["icon-button", className].filter(Boolean).join(" ");
+	const progress = useProgress(busy);
 	return (
-		<button
-			{...button}
-			type={type}
-			className={classes}
-			data-size={size}
-			data-variant={variant}
-			data-tone={tone}
-			data-shape={shape}
-			data-busy={busy || undefined}
-			disabled={disabled || busy}
-			aria-label={label}
-			title={title ?? label}
-		>
-			<Icon name={icon} size={iconSize ?? iconSizes[size]} />
-			{badge !== undefined && <span className="icon-button-badge" aria-hidden="true">{badge}</span>}
-		</button>
+		<>
+			<button
+				{...button}
+				type={type}
+				className={classes}
+				data-size={size}
+				data-variant={variant}
+				data-tone={tone}
+				data-shape={shape}
+				data-busy={progress || undefined}
+				disabled={disabled || busy}
+				aria-label={label}
+				title={title ?? label}
+			>
+				<Icon name={icon} size={iconSize ?? iconSizes[size]} />
+				{badge !== undefined && <span className="icon-button-badge" aria-hidden="true">{badge}</span>}
+			</button>
+			<ControlProgress active={progress} label={label} />
+		</>
 	);
 }

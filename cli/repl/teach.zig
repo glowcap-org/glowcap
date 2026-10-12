@@ -56,7 +56,7 @@ pub const Progress = struct {
 
     /// The one-line gloss to print after `verb` succeeded, or null when this
     /// session has already shown it. A workbench teaches a verb the first time
-    /// it works; the opt-in walkthrough (`guide`) repeats it every time.
+    /// it works. The opt-in walkthrough (`guide`) repeats it every time.
     pub fn glossOnce(self: *Progress, verb: []const u8) ?[]const u8 {
         const text = gloss(verb);
         if (self.guide_active) return text;
@@ -88,7 +88,7 @@ pub const Progress = struct {
         }
     }
 
-    /// Lab `tour …` — user engaged the CapTP instrument.
+    /// Lab `tour …`: user engaged the CapTP instrument.
     pub fn noteTour(self: *Progress) void {
         self.has_tables = true;
     }

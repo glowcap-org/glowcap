@@ -17,6 +17,8 @@ pub type GlowcapLoamRequirementFn =
 	unsafe extern "C" fn(*mut c_void, *const GlowcapLoamInvocation, *mut GlowcapLoamRequirement) -> i32;
 pub type GlowcapLoamInvokeFn =
 	unsafe extern "C" fn(*mut c_void, *mut GlowcapLoamCall, *const GlowcapLoamInvocation) -> i32;
+pub type GlowcapLoamForwardFn =
+	unsafe extern "C" fn(*mut c_void, *mut GlowcapLoamCall, *const u8, usize, *const u8, usize, usize) -> i32;
 pub type GlowcapLoamReferencesFn =
 	unsafe extern "C" fn(*mut c_void, *mut GlowcapLoamReferences, *const GlowcapLoamInvocation) -> i32;
 pub type GlowcapLoamEntropyFn = unsafe extern "C" fn(*mut c_void, *mut u8, usize) -> i32;
@@ -996,9 +998,10 @@ pub struct GlowcapLoamContent {
 	pub references: Option<GlowcapLoamReferencesFn>,
 	pub dependent_requirement: Option<GlowcapLoamRequirementFn>,
 	pub graph: *const GlowcapLoamGraph,
+	pub admit_forward: Option<GlowcapLoamForwardFn>,
 }
 #[cfg(not(target_arch = "wasm32"))]
-const _: () = assert!(core::mem::size_of::<GlowcapLoamContent>() == 80);
+const _: () = assert!(core::mem::size_of::<GlowcapLoamContent>() == 88);
 #[cfg(target_arch = "wasm32")]
 const _: () = assert!(core::mem::size_of::<GlowcapLoamContent>() == crate::sys::layouts_gen::GLOWCAPLOAMCONTENT_SIZE);
 #[cfg(not(target_arch = "wasm32"))]
@@ -1063,6 +1066,13 @@ const _: () = assert!(core::mem::offset_of!(GlowcapLoamContent, graph) == 72);
 #[cfg(target_arch = "wasm32")]
 const _: () =
 	assert!(core::mem::offset_of!(GlowcapLoamContent, graph) == crate::sys::layouts_gen::GLOWCAPLOAMCONTENT_GRAPH_OFF);
+#[cfg(not(target_arch = "wasm32"))]
+const _: () = assert!(core::mem::offset_of!(GlowcapLoamContent, admit_forward) == 80);
+#[cfg(target_arch = "wasm32")]
+const _: () = assert!(
+	core::mem::offset_of!(GlowcapLoamContent, admit_forward)
+		== crate::sys::layouts_gen::GLOWCAPLOAMCONTENT_ADMIT_FORWARD_OFF
+);
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct GlowcapLoamGraphSchema {
@@ -1343,7 +1353,7 @@ const _: () = assert!(
 #[cfg(target_arch = "wasm32")]
 pub use crate::sys::layouts_gen::LOAM_ARCHIVE_FINGERPRINT;
 #[cfg(not(target_arch = "wasm32"))]
-pub const LOAM_ARCHIVE_FINGERPRINT: u64 = 16039683410332576438;
+pub const LOAM_ARCHIVE_FINGERPRINT: u64 = 12669128613106933256;
 #[cfg(not(target_arch = "wasm32"))]
 pub const LOAM_LMDB_ARCHIVE_FINGERPRINT: u64 = 11360050748746901026;
 pub const GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED: i32 = -40;

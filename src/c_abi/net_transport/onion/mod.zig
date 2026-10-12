@@ -1,7 +1,7 @@
 //! Stable C facade for the native onion provider archive.
 //!
 //! The facade owns opaque-handle validation, construction, teardown, and the
-//! fixed C surface. `provider/` projects the generic stream-provider contract;
+//! fixed C surface. `provider/` projects the generic stream-provider contract.
 //! `framed/` projects blocking managed-frame handles. Tor control, SOCKS, onion
 //! service lifecycle, and socket policy remain in `net.onion`.
 
@@ -124,8 +124,8 @@ pub export fn glowcap_onion_netlayer_release(
     );
 }
 
-// The façade exports the symbols; the framed owner supplies their complete
-// implementation. These are deliberately mechanical projections.
+// The facade exports the symbols. The framed owner supplies their
+// implementation, so these are mechanical projections.
 pub export fn glowcap_onion_connect(
     netlayer: ?*GlowcapOnionNetlayer,
     service_id: ?[*]const u8,

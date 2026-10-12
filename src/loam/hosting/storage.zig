@@ -73,7 +73,7 @@ pub fn completeRead(owner: *h.Attachment, ticket: core.Ticket, result: core.Read
         if (prepared) |index| {
             const op = &owner.operations[index];
             if (err == error.StaleCompletion) {
-                @import("calls.zig").reprepare(owner, op);
+                @import("drive.zig").reprepare(owner, op);
                 return;
             }
             op.failure = err;
@@ -160,7 +160,7 @@ fn finish(owner: *h.Attachment, failure: ?anyerror) void {
 /// Submit a transaction the embedding staged directly (outside any call)
 /// through the owned write lane, so its terminal outcome runs the same
 /// publication-retirement fence as call-driven writes. The caller staged via
-/// `store.begin()` and staging helpers; this prepares and claims the lane.
+/// `store.begin()` and staging helpers. This prepares and claims the lane.
 pub fn submit(owner: *h.Attachment) !core.Ticket {
     try owner.topLevel();
     if (owner.writing != null) return error.Busy;

@@ -40,7 +40,31 @@ pub(super) fn snapshot(shared: &Shared) -> Result<Argument, String> {
 		journal: &journal,
 		irc: &irc,
 	};
-	let rows = inspect::snapshot(&view, |name| state.steward_link(name));
+	let mut rows = inspect::snapshot(&view, |name| state.steward_link(name));
+	let (retained, counters) = state.admission.statistics();
+	rows.push(rooms_application::server::operations::inspect::Row {
+		kind: "admission",
+		name: "process-local work budgets".into(),
+		note: format!(
+			"{}; retained {retained}; admitted {}; refused {}; coalesced {}; capacity {}",
+			state.admission.settings.summary(),
+			counters.admitted,
+			counters.refused,
+			counters.coalesced,
+			counters.capacity
+		),
+	});
+	for class in rooms_application::admission::CLASSES {
+		let counts = counters.classes[class as usize];
+		rows.push(rooms_application::server::operations::inspect::Row {
+			kind: "admission",
+			name: class.name().into(),
+			note: format!(
+				"admitted {}; refused {}; coalesced {}",
+				counts.admitted, counts.refused, counts.coalesced
+			),
+		});
+	}
 	Ok(Argument::List(
 		rows.into_iter()
 			.map(|row| {

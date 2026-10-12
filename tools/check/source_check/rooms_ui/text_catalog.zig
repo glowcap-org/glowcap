@@ -3,7 +3,7 @@
 //! sentences, template literals and visible JSX text, including multiple lines.
 //! Reader-facing props also cover short labels without sentence punctuation.
 //!
-//! The sentence heuristic is deliberately narrow to keep false positives
+//! The sentence heuristic is narrow to keep false positives
 //! from obscuring real prose. Comments and throw/log lines are outside the
 //! reader-text boundary. Component specimens have explicit exemptions below.
 //!
@@ -42,7 +42,7 @@ fn isExempt(path: []const u8) bool {
 ///
 /// Two or more words, and not one of the shapes that merely look like prose:
 /// a URL or locator, a format placeholder, or a run of words that is really a
-/// class list. The test is cheap on purpose: this check catches the author who
+/// class list. The test is cheap: this check catches the author who
 /// reached for a literal out of habit, and adjudicating English is not its job.
 fn looksSpoken(value: []const u8) bool {
     if (value.len < 8) return false;
@@ -53,8 +53,14 @@ fn looksSpoken(value: []const u8) bool {
     if (std.mem.indexOfAny(u8, value, "=[") != null) return false;
     if (isPascalList(value)) return false;
     if (isPathData(value)) return false;
-    // A selector or a media query starts with its own punctuation.
-    if (value[0] == '.' or value[0] == '#' or value[0] == '(') return false;
+    // A selector or a media query starts with its own punctuation, and no
+    // selector has a space right after its opening mark. A sentence that
+    // opens with a rendered mark does: `#${room} is already live here.`
+    // reads `# is already live here.` once its holes are cut, and that
+    // space is what tells it apart from `#boot .boot-mark`.
+    if (value[0] == '.' or value[0] == '#' or value[0] == '(') {
+        if (value.len < 2 or value[1] != ' ') return false;
+    }
     var spaces: usize = 0;
     var sentence = false;
     for (value, 0..) |c, i| {
@@ -68,8 +74,8 @@ fn looksSpoken(value: []const u8) bool {
     return sentence;
 }
 
-/// A short visible label. The sentence arm above intentionally ignores these
-/// because the same shape is common in program identifiers; JSX text and
+/// A short visible label. The sentence arm above ignores these
+/// because the same shape is common in program identifiers, JSX text and
 /// named reader-facing props provide the context that makes one a product
 /// word instead.
 fn looksLabel(value: []const u8) bool {
@@ -349,4 +355,20 @@ pub fn checkRoomsTextCatalog(
             .{ui_dir},
         );
     }
+}
+
+test "a sentence that opens with a rendered mark is prose; selector shapes are not" {
+    // `#${room} is already live here. …` reads like this once its hole is cut:
+    // the mark, then a space, then words. It is prose and must be flagged.
+    try std.testing.expect(looksSpoken(
+        "# is already live here. Turn off Private to open it, or choose another name for a new private room.",
+    ));
+    // None of these has a space right after the opening mark, which no real
+    // selector or media query does. The first also carries `[`, judged by the
+    // expression rule; the others hang on the mark rule above.
+    try std.testing.expect(!looksSpoken("#, Btn, [data-menu-in=\"\"]"));
+    try std.testing.expect(!looksSpoken("(max-width: 820px)"));
+    try std.testing.expect(!looksSpoken("#boot .boot-mark"));
+    // The ordinary sentence verdict is unchanged.
+    try std.testing.expect(looksSpoken("Something went wrong. Try again later."));
 }

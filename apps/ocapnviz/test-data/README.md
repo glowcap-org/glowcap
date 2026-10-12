@@ -55,6 +55,19 @@ SwiftShader on the CPU, which costs about twelve times what a GPU does on the
 same document, so a headless timing measures software rendering rather than the
 app.
 
-What they have measured so far is under the performance item in
-[`ocapnviz-backlog.md`](../../../docs/planning/ocapnviz-backlog.md), which is
-where a claim about the app's speed belongs.
+This file is where a claim about the app's speed belongs. On an M3 Max
+browser, `the-kids-masterpiece.json` holds 8.3ms a frame idle of long tasks.
+`deno task stress-tests` writes larger copies. With the stage fitted so nothing
+is culled:
+
+| entities | frame p50 | frames over 33ms |
+| --- | --- | --- |
+| 173 (kids masterpiece) | 8.3ms | none |
+| 692 | 9.9ms | none |
+| 1,384 | 19.0ms | 4 of 73 |
+| 2,768 | 34.5ms | 21 of 42 |
+
+Playback restrokes and bulk layout work have regression checks on this corpus.
+Whether GPU tessellation needs more work waits on a new measurement on the
+reporting machine's real GPU, tracked in the
+[open obligations](../../../docs/roadmap.md#open-obligations-from-retired-plans).

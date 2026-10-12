@@ -9,7 +9,7 @@
 // goes quiet. With no chunk in either direction, the relay's idle timer (set low
 // through `GLOWCAP_RELAY_IDLE_MS` for this proof) must fire and close the
 // WebSocket. If it does not, the client's socket stays open past the ceiling and
-// the harness fails — catching a runtime that dropped the idle timeout.
+// the harness fails, which catches a runtime that dropped the idle timeout.
 
 import { fail, kill, parseHarnessArgs, readToken, spawnRelay } from "./relay_harness_common.ts";
 
@@ -51,7 +51,7 @@ try {
 	}
 
 	// The relay sends nothing but the idle close, so the next read landing before
-	// the ceiling — a close frame or EOF — means the idle timeout fired. Nothing
+	// the ceiling (a close frame or EOF) means the idle timeout fired. Nothing
 	// landing means the relay held the idle session open, which fails the clause.
 	const start = Date.now();
 	const closed = await Promise.race([

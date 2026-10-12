@@ -1,5 +1,5 @@
 /* Block Markdown inside messages. Inline code, links, mentions, quotes, and
-   spoilers remain bubble vocabulary; this sheet owns the document structures
+   spoilers remain bubble vocabulary. This sheet owns the document structures
    that can nest or overflow. */
 .bubble p {
 	margin: 0 0 0.45rem;

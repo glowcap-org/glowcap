@@ -2,11 +2,11 @@
 //! sibling of `endpoint_loopback_test`. It proves the `glowcap_inproc_*` handles
 //! drive a real handshake + bootstrap fetch when the *host* owns the peer and
 //! shuttles frames itself, with two peers in one process wired by in-process
-//! pipes. The transport itself has no fd; the C listener adapter adds one
+//! pipes. The transport itself has no fd. The C listener adapter adds one
 //! `WakeChannel` so foreign runtimes can park a reactor without blocking it.
 //!
 //! The peers are `engine.Peer`s driven through the public Zig boundary
-//! (`recvStreamPrefix` / `takeOutbound`); the only thing under test that is new
+//! (`recvStreamPrefix` / `takeOutbound`). The only thing under test that is new
 //! is the C inproc-endpoint surface bridging bytes to that boundary on a string
 //! designator instead of a host:port.
 

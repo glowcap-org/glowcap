@@ -19,7 +19,7 @@ pub struct Registration {
 }
 
 /// The receipt owns the exact connection-lived lease. Acquisition confirms
-/// lease creation; readiness is observed separately through that same lease.
+/// lease creation. Readiness is observed separately through that same lease.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Publication {

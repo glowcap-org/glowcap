@@ -1,11 +1,11 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-empty-click-probe.ts — Empty-stage click semantics
+ * playwright-empty-click-probe.ts: Empty-stage click semantics
  * by modifier. Symmetric with the entity-click matrix:
  *
  *   plain        → clear everything (no target = nothing to keep)
- *   shift        → no-op (shift means "add"; nothing to add)
- *   shift+option → no-op (means "remove"; nothing to remove)
+ *   shift        → no-op (shift means "add", nothing to add)
+ *   shift+option → no-op (means "remove", nothing to remove)
  */
 import { chromium } from "playwright";
 

@@ -96,7 +96,7 @@ fn deadErrdeferLines(gpa: std.mem.Allocator, contents: []const u8, out: *std.Arr
 }
 
 /// If `start` opens a function declaration, the index one past the line that
-/// ends its header (the line carrying the opening brace); otherwise null.
+/// ends its header (the line carrying the opening brace). Otherwise null.
 fn functionHeaderEnd(lines: []const []const u8, start: usize) ?usize {
     const first = std.mem.trimStart(u8, lines[start], " \t");
     const is_fn = std.mem.startsWith(u8, first, "fn ") or

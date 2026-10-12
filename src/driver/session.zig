@@ -2,8 +2,8 @@
 //!
 //! The public surface stays here while its private subjects live under the
 //! session directory: client session ownership, shared runtime leasing, and
-//! server admission. All three ride the same driver_core.Host and HostRuntime;
-//! this split introduces no second runtime or protocol authority.
+//! server admission. All three ride the same driver_core.Host and HostRuntime.
+//! This split introduces no second runtime or protocol authority.
 
 const client = @import("session/client.zig");
 const server = @import("session/server.zig");

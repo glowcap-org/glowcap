@@ -252,7 +252,7 @@ impl LoopShared {
 		}
 	}
 
-	/// Bind one listener on an added transport; accepted sessions arrive
+	/// Bind one listener on an added transport. Accepted sessions arrive
 	/// through [`LoopShared::accept`].
 	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay"))]
 	pub(crate) async fn listen(self: &Rc<Self>, transport: &str, designator: &str) -> Result<u64> {

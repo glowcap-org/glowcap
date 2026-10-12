@@ -100,8 +100,8 @@ pub enum Conditional {
 	/// A checked import adds ManageCustody. Existing intent may only select an
 	/// already retained exact field without this extra permission.
 	ImportsAuthority,
-	/// A result containing file bytes adds ReadFile to the session projection;
-	/// the exact upstream file/history scope remains an additional check.
+	/// A result containing file bytes adds ReadFile to the session projection.
+	/// The exact upstream file/history scope remains an additional check.
 	ReturnsFiles,
 	/// Replacing attachments requires Upload as well as exact line edit rights.
 	UploadsFiles,
@@ -171,7 +171,7 @@ pub const fn method(method: Method) -> Option<Requirements> {
 }
 
 /// Exhaustive over the same enums used by Route::parse. LinkRoom is a plan
-/// builder operation and is deliberately absent from the dispatched grammar.
+/// builder operation and is absent from the dispatched grammar.
 pub const fn command(route: Route) -> Option<Requirements> {
 	use Target::*;
 	let (workspace, targets, conditional): (&'static [Permission], &'static [Target], &'static [Conditional]) =

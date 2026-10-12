@@ -3,7 +3,7 @@ id: ADR-0151
 status: accepted
 date: 2026-09-13
 tags: [rooms, rust, runtime, errors, ownership]
-decision: "Rooms runtime owners return one typed failure vocabulary; policy refusal, storage, owner retirement, CapTP, runtime operations, worker exit, and cleanup remain distinct until a product boundary renders them."
+decision: "Rooms runtime owners return one typed failure vocabulary. Policy refusal, storage, owner retirement, CapTP, runtime operations, worker exit, and cleanup remain distinct until a product boundary renders them."
 supersedes: []
 superseded_by: []
 amends: [ADR-0148]
@@ -15,10 +15,10 @@ amended_by: []
 ## Context
 
 The shared Rooms runtime supervises durable session commands, grant commands,
-directories, rooms, direct conversations, and archives. These owners used to
-return `String`. A caller that received one could show it, but could not decide
-whether retrying was appropriate or whether storage recovery, owner retirement,
-or a policy refusal had occurred without interpreting prose.
+directories, rooms, direct conversations, and archives. These owners returned
+`String`. A caller that received one could show it, but could not decide whether
+retrying was appropriate or whether storage recovery, owner retirement, or a
+policy refusal had occurred without interpreting prose.
 
 The session service already had a typed dispatch error, but placing the shared
 vocabulary there inverted the dependency for every owner below the service.
@@ -55,11 +55,11 @@ other effects that do not belong to the shared runtime.
 
 ## Consequences
 
-Local and embedding callers can branch on failure class without matching
-message text. Storage sources retain their concrete diagnostics through
+Local and embedding callers can branch on failure class without matching message
+text. Storage sources retain their concrete diagnostics through
 `std::error::Error::source`, while the runtime crate stays independent of the
-native and browser adapters. Adding another runtime failure class now changes
-one enum and its edge projections.
+native and browser adapters. Adding a runtime failure class changes one enum and
+its edge projections.
 
 ## Evidence and gate
 

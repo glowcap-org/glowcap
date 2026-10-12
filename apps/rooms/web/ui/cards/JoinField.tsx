@@ -1,6 +1,6 @@
 // A join-form field: one box, a prefix that looks like a preview, and the text.
 //
-// The prefix is the control — a directory mark that opens held locators, a hash
+// The prefix is the control: a directory mark that opens held locators, a hash
 // that becomes a lock when the room is private, a picture of you that will one
 // day set one. Hover and press live on that mark so the field reads as a name
 // beside an identity, not as a box with a button stuck to its side.
@@ -18,7 +18,7 @@ export function JoinField(
 }
 
 /** The mark at the start of a join field. Geometry and interaction are the icon
- * button family's; the contents are whatever that field is about. */
+ * button family's. The contents are whatever that field is about. */
 export function JoinPrefix({
 	label,
 	className,

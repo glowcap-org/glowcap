@@ -13,12 +13,12 @@ thing.
 The core bounds inbound frames, nesting, and partner-driven session tables.
 A deployment still has to:
 
-- choose the channel it needs: `tcp`, `keyed-tcp`, and `keyed-relay` carry
-  cleartext CapTP; iroh, WebRTC, `noise-tcp`, `noise-relay`, and `onion` encrypt
-  the session bytes;
-- provide sound entropy for identity seeds and protect long-lived secrets;
-- set finite handshake and settlement deadlines (`.unbounded` waits forever);
-- enforce application authorization, rate limits, and request deadlines.
+- Choose the channel it needs: `tcp`, `keyed-tcp`, and `keyed-relay` carry
+  cleartext CapTP. iroh, WebRTC, `noise-tcp`, `noise-relay`, and `onion` encrypt
+  the session bytes.
+- Provide sound entropy for identity seeds and protect long-lived secrets.
+- Set finite handshake and settlement deadlines (`.unbounded` waits forever).
+- Enforce application authorization, rate limits, and request deadlines.
 
 ## Reporting a vulnerability
 
@@ -26,9 +26,9 @@ A deployment still has to:
 privately through a GitHub security advisory or email
 [security@glowcap.org](mailto:security@glowcap.org). Include:
 
-- the module, codec, netlayer, or wire shape at risk;
-- the invariant you believe is broken;
-- a protocol scenario, trace, or written argument that reproduces the problem.
+- The module, codec, netlayer, or wire shape at risk.
+- The invariant you believe is broken.
+- A protocol scenario, trace, or written argument that reproduces the problem.
 
 This is a one-person project, so acknowledgement is best-effort within seven
 days. Reports of broken protocol invariants take priority.
@@ -86,17 +86,17 @@ The optional native `wss` carrier compiles a private, minimal Mbed TLS release.
 version, release URL, archive-size ceiling, and SHA-256 authority. Updating it
 is a security-sensitive dependency change:
 
-1. select an upstream-supported official release and read its security and
-   migration notes, including the bundled TF-PSA-Crypto version;
-2. update the version and archive digest together, then review the extracted
+1. Select an upstream-supported official release and read its security and
+   migration notes, including the bundled TF-PSA-Crypto version.
+2. Update the version and archive digest together, then review the extracted
    directory allowlist, the compiled source inventory in
    `tools/build/mbedtls.zig`, and both minimal configuration headers under
-   `src/net/tls/` for newly required or newly reachable code;
-3. run `zig build native-tls-build` and `zig build check`, then run the static
+   `src/net/tls/` for newly required or newly reachable code.
+3. Run `zig build native-tls-build` and `zig build check`, then run the static
    and shared packaging checks on every supported native platform. The native
    TLS check must retain exact success, hostname, CA, expiry, alert, malformed
-   record, truncation, close-notify, and symbol-isolation evidence;
-4. update `LICENSE-THIRD-PARTY`, build-step documentation, and the public pin
+   record, truncation, close-notify, and symbol-isolation evidence.
+4. Update `LICENSE-THIRD-PARTY`, build-step documentation, and the public pin
    description in the same change. Never silently float the release or accept
    an unverified archive.
 

@@ -6,7 +6,7 @@ const names = @import("names.zig");
 const collection = @import("collection.zig");
 
 /// The immutable batch and its bytes stay at stable addresses until evaluation
-/// retires. Only get may return RecordUnloaded; writes must synchronously consume
+/// retires. Only get may return RecordUnloaded. Writes must synchronously consume
 /// their borrows. A resume keeps scalars and batch-owned views, never a backend
 /// row borrow. Earlier emissions remain in the same atomic KV transaction.
 /// Fixed cursor state replaces repeated fingerprint/validation/write passes.

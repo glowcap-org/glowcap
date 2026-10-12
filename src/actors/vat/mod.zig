@@ -2,7 +2,7 @@
 //!
 //! This is glowcap's Goblins-shaped actor model, expressed in native Zig. It is
 //! where local actors meet the OCapN engine. A Vat owns local actors and queued
-//! turns; one or more Ports own session-specific wire names and route remote
+//! turns. One or more Ports own session-specific wire names and route remote
 //! sends. You drive it
 //! explicitly. It owns no I/O and no scheduler thread, so it stays in the same
 //! sync, no-I/O core as the engine it rides on.
@@ -12,9 +12,9 @@
 //! Its mutable `self` *is* its state: where Goblins returns a fresh behavior via
 //! `bcom`, a Zig actor assigns its own fields. It is the same "become" idea,
 //! expressed through Zig's ordinary mutable state. A mutable actor's turn is
-//! not transactional: `self` mutations are not rolled back on a handler error —
+//! not transactional: `self` mutations are not rolled back on a handler error,
 //! the caller still sees the break, but writes made before the failure persist.
-//! Use the persistent flavor for all-or-nothing turns; its staged `become` is
+//! Use the persistent flavor for all-or-nothing turns. Its staged `become` is
 //! discarded when the handler errors.
 //!
 //! Ownership at the handler boundary is *turn-scoped*. The `Message` a handler
@@ -26,12 +26,12 @@
 //! that arena and resets it when its next top-level turn begins, so a handler
 //! never frees its own reply and never leaks one. Or a mutable handler can
 //! *transfer* an owned byte field to the vat with `turn.moveOut`, an O(1)
-//! hand-off where copying the buffer onto the arena would be O(len); the vat
+//! hand-off where copying the buffer onto the arena would be O(len). The vat
 //! then owns the bytes and frees them on the same schedule as the arena. In
 //! every case the reply is valid until the vat's next top-level turn: within
 //! that window the vat clones it for the local vow's listener or clones it
 //! onto the wire (the one clone in `peer.sendCopying`). To keep a value beyond
-//! your turn, store it in `self` or copy it; never return storage that ends
+//! your turn, store it in `self` or copy it. Never return storage that ends
 //! before the turn does. A `Resolution` delivered to a listener follows the
 //! same rule. It is valid only for that listener call, so a listener that keeps
 //! it copies first.
@@ -47,7 +47,7 @@
 //!   * `Vat.near` is the synchronous near-call (`$`). It runs an actor's handler
 //!     immediately and returns its value. It is legal only for a local ref in the
 //!     same vat, exactly as Goblins forbids `$` to a far ref.
-//!   * `Port.send` is eventual send (`<-`). A local ref queues a Vat turn; a far
+//!   * `Port.send` is eventual send (`<-`). A local ref queues a Vat turn. A far
 //!     ref sends `op:deliver` over that Port. Either way it returns a `Vow`.
 //!
 //! A `Vow` is observed with `Vat.on` and has no matching `off`. A listener fires
@@ -57,7 +57,7 @@
 //!
 //! The unified `Ref` can name a local actor or a far object, and a `Vow`
 //! can settle from a local turn or from a wire answer. Location-transparent
-//! sends enter through a session `Port`; bare `Vat.send` is local-only. The
+//! sends enter through a session `Port`. Bare `Vat.send` is local-only. The
 //! engine stays focused on codecs and authority. The vat sits above it and
 //! imports the engine, never the reverse.
 //!
@@ -66,7 +66,7 @@
 //! A vat can `snapshot` its local actor heap and later `restore` it, Goblins's
 //! `snapshot-whactormap` shaped in Zig (ADR-0060). Each actor's state lives behind
 //! a refcounted `StateBox`, so a snapshot shares state pointers rather than copying
-//! bytes — O(objects), no per-byte clone — and the count is non-atomic because a
+//! bytes, O(objects), no per-byte clone, and the count is non-atomic because a
 //! vat is single-threaded. The feature pays nothing when unused: a non-snapshotting
 //! actor's box stays `refs == 1` and the turn path costs one extra pointer hop.
 //!
@@ -85,14 +85,14 @@
 //!     the pointer a live snapshot shares (shallow immutability: an interior
 //!     pointer the actor owns is still its own to keep unmutated). Because the
 //!     value is never mutated in place, the snapshot shares it with no
-//!     copy-on-write — full Goblins parity.
+//!     copy-on-write, full Goblins parity.
 //! An actor that is neither cloneable nor persistent makes `snapshot` fail with
 //! `NotSnapshottable`, so a silent partial snapshot is impossible.
 //!
 //! Time-travel is **local only.** A snapshot captures local actor state and
 //! it never touches `peer`, `exports`, far listeners, or the turn
 //! arenas. A restore rewinds no remote peer, and far references in restored state
-//! are copied as data — their wire meaning is engine-owned and forward-only. Both
+//! are copied as data, their wire meaning is engine-owned and forward-only. Both
 //! `snapshot` and `restore` require quiescence (no turn or drive in flight, empty
 //! queue), else `NotQuiescent`.
 
@@ -134,7 +134,7 @@ const releaseBox = boxed.releaseBox;
 /// Reserve the retired-box slots already-committed lifetime operations will
 /// consume without allocation: one for every live actor, plus any actor rows
 /// and staged becomes the caller is about to add. `releaseActor`, Port teardown,
-/// and frame unwind are deliberately infallible; their capacity is escrowed at
+/// and frame unwind are infallible. Their capacity is escrowed at
 /// the earlier fallible spawn/become seam instead of losing reclamation to OOM.
 pub fn reserveRetirementCapacity(
     self: *Vat,
@@ -156,25 +156,25 @@ pub const Ref = union(enum) {
     /// An actor in this vat. `near` and `send` run its turns here.
     local: u64,
     /// A partner-hosted object the Port's peer holds as an import. `Port.send`
-    /// routes to it as an `op:deliver`; `near` and bare `Vat.send` refuse it.
+    /// routes to it as an `op:deliver`. `near` and bare `Vat.send` refuse it.
     far: model.FarRef,
 };
 
-/// A handle to the eventual result of a send — the vow of E/Goblins:
+/// A handle to the eventual result of a send, the vow of E/Goblins:
 /// unsettled until the turn runs or the partner resolves, observed with
 /// `Vat.on` for local vows or `Port.on` for far vows.
 pub const Vow = union(enum) {
-    /// Result of a local send; settled by `Vat.drive`. A resolver vow
+    /// Result of a local send. Settled by `Vat.drive`. A resolver vow
     /// (`Vat.spawnVow`, ADR-0102) shares this arm and namespace and is
     /// settled by `Vat.fulfillVow` / `Vat.breakVow` instead.
     local: u64,
-    /// Result of a far send; the outbound answer position the partner resolves.
+    /// Result of a far send. The outbound answer position the partner resolves.
     far: model.AnswerPosition,
 };
 
 /// Which settlement namespace a freshly minted vow will occupy. Exposed so
 /// adapters can reserve the matching one-shot listener slot before they commit
-/// the send that creates the vow; the reservation makes listener installation
+/// the send that creates the vow. The reservation makes listener installation
 /// infallible after that semantic commit.
 pub const VowLocation = std.meta.Tag(Vow);
 
@@ -222,7 +222,7 @@ pub const Resolution = union(enum) {
 };
 
 /// A settlement a host tier feeds `Vat.settleFar`: the two arms a redeemed
-/// world can carry. It is `Resolution` minus `give` — the executor above the
+/// world can carry. It is `Resolution` minus `give`, the executor above the
 /// vat redeems every give before the vat sees one, and this type holds that
 /// contract structurally. The payload is borrowed for the listener call,
 /// exactly as `Resolution`'s is.
@@ -241,7 +241,7 @@ pub const Give = struct {
     /// The give's exporter location as a dialable `ocapn://…` URI, or empty
     /// when the location is not dialable.
     exporter_locator_uri: []const u8,
-    /// The recipient session key the give is addressed to; the withdraw must
+    /// The recipient session key the give is addressed to. The withdraw must
     /// sign with its secret half.
     recipient_key: []const u8,
 };
@@ -285,14 +285,14 @@ pub const TurnBreak = struct { port: *Port, answer: model.AnswerPosition };
 /// One single-threaded container of local objects, the Goblins-shaped layer
 /// above the engine. Spawn objects, near-call them with `near` (`$`),
 /// eventual-send to local objects with `send` (`<-`), and `drive` queued turns
-/// to completion; attach Ports for session-scoped far sends. Sync and no-I/O
+/// to completion. Attach Ports for session-scoped far sends. Sync and no-I/O
 /// by contract (ADR-0036). Everything spawned or queued lives on the vat's
 /// allocator and arenas, freed in `deinit`.
 pub const Vat = struct {
     allocator: std.mem.Allocator,
     /// Destructors may release capabilities to sibling actors. Once teardown
     /// owns every actor, those root updates are redundant and the actor table
-    /// may already be draining; make them terminal no-ops instead of mutating
+    /// may already be draining. Make them terminal no-ops instead of mutating
     /// the table under its own deinitialization walk.
     tearing_down: bool = false,
     actors: std.AutoHashMapUnmanaged(u64, Cell) = .{},
@@ -311,18 +311,18 @@ pub const Vat = struct {
     spare_chunk: ?*QueueChunk = null,
     listeners: std.AutoHashMapUnmanaged(u64, Listener) = .{},
     /// One installed callback identity for Vat-owned forwarding contexts.
-    /// Native archives compile distinct function addresses; retaining this
+    /// Native archives compile distinct function addresses. Retaining this
     /// address costs one word per Vat, avoiding a tag on every listener and
     /// allowing exact teardown and iterative settlement across code images.
     forward_listener: @FieldType(Listener, "func"),
     /// Local vows whose turns are still pending. Fair ingress rotation can
-    /// settle vow ids out of global numeric order, so the old FIFO high-water
-    /// mark is unsound; this index makes late-listener refusal independent of
+    /// settle vow ids out of global numeric order, so a FIFO high-water
+    /// mark is unsound. This index makes late-listener refusal independent of
     /// scheduling order.
     pending_local_vows: std.AutoHashMapUnmanaged(PendingLocalVowKey, void) = .{},
     /// Resolver id → the local vow it settles (ADR-0102). A row is consumed
     /// by the first settle attempt, so the map holds exactly the live settle
-    /// authorities; freed with the vat. Ids start at 1 so 0 stays unminted
+    /// authorities. Freed with the vat. Ids start at 1 so 0 stays unminted
     /// for adapter tiers that want a null sentinel.
     resolver_vows: std.AutoHashMapUnmanaged(u64, u64) = .{},
     next_resolver: u64 = 1,
@@ -337,7 +337,7 @@ pub const Vat = struct {
     // private node type, so a correct one would need fragile internals or a
     // bespoke arena, both disproportionate to a debug-only aid.
     /// Per-turn scratch the vat hands each handler as `turn.arena`. A handler's
-    /// reply and scratch live here; the vat reclaims the whole arena when its next
+    /// reply and scratch live here. The vat reclaims the whole arena when its next
     /// outermost turn begins (when `turn_depth` returns to 0 and rises again), so a
     /// reply stays valid until then and no handler frees or leaks its own reply.
     turn_arena: std.heap.ArenaAllocator,
@@ -346,7 +346,7 @@ pub const Vat = struct {
     /// pulling it out from under the call in flight.
     turn_depth: u32 = 0,
     /// Nesting depth of in-flight `drive` calls. A listener may open a nested
-    /// drive; the runnable ring is Vat-owned so nested drives continue from the
+    /// drive. The runnable ring is Vat-owned so nested drives continue from the
     /// fair rotation point rather than re-running the active turn.
     drive_depth: u32 = 0,
     /// The running outermost turn's staged local sends, per ingress (ADR-0191).
@@ -368,14 +368,14 @@ pub const Vat = struct {
     /// Nesting depth of in-flight far-resolve settles. A far listener can
     /// re-enter `serve` (a driver pump: `BlockingSession.step` then `drainEvents`),
     /// and the nested settle must not reset the arena the outer listener's
-    /// value still lives in; only the return to depth 0 resets it.
+    /// value still lives in. Only the return to depth 0 resets it.
     settle_depth: u32 = 0,
     next_actor: u64 = 1,
     next_vow: u64 = 1,
     /// Reply bytes handlers moved to the vat via `Turn.moveOut`, awaiting free.
     /// They share the turn arena's lifetime: the vat frees them when its next
     /// outermost turn begins, so a moved reply stays valid for the caller until
-    /// then — with no copy, since the handler already owned the bytes.
+    /// then, with no copy, since the handler already owned the bytes.
     moved_replies: std.ArrayList([]const u8) = .empty,
     /// State boxes a `become` has swapped out of their actor, awaiting their
     /// last reference to drop. Held to the same boundary as `moved_replies`,
@@ -383,7 +383,7 @@ pub const Vat = struct {
     /// state it ran as, and that reply stays valid until the vat's next
     /// outermost turn. The frame that installs a become can sever its own
     /// reply, but not one an *earlier* frame of the same actor already handed
-    /// back to a caller still running; that frame has closed. Freeing the box
+    /// back to a caller still running. That frame has closed. Freeing the box
     /// here instead of at the install makes both replies outlive it.
     /// Capacity also escrows one unused slot per live actor. That makes
     /// last-root release and destructor/frame unwind allocation-free: the row
@@ -456,7 +456,7 @@ pub const Vat = struct {
     }
 
     /// Enroll a freshly minted `box` as the next actor and return its local ref.
-    /// The one registration tail `spawn` and `spawnHosted` share; it adopts the
+    /// The one registration tail `spawn` and `spawnHosted` share. It adopts the
     /// box (releasing it if the table insert fails, so the caller never frees a
     /// box it handed over).
     fn registerBox(self: *Vat, box: *StateBox) Error!Ref {
@@ -475,12 +475,12 @@ pub const Vat = struct {
 
     /// Spawn a *hosted* actor (ADR-0071): its state and behavior live outside
     /// the vat, behind `hosted.ctx`, reached through the callbacks in
-    /// `HostedActor`. This is the C-ABI hosting path a non-Zig consumer uses;
-    /// the actor is otherwise ordinary — it is delivered to, driven, sent to,
+    /// `HostedActor`. This is the C-ABI hosting path a non-Zig consumer uses.
+    /// The actor is otherwise ordinary. It is delivered to, driven, sent to,
     /// and listened on exactly like a native one, and its `handle` gets the full
     /// `Turn`. Like `spawn`, mints no export (bind it with `Port.bindExport` to
-    /// reach it). `hosted.free`, if set, runs on every outcome — including a failed
-    /// spawn, which frees `ctx` before returning the error — so the caller never
+    /// reach it). `hosted.free`, if set, runs on every outcome, including a failed
+    /// spawn, which frees `ctx` before returning the error, so the caller never
     /// double-frees. The box carries no `clone`, so a vat holding a hosted actor
     /// is not snapshottable (`snapshot` returns `NotSnapshottable`).
     pub fn spawnHosted(self: *Vat, hosted: HostedActor) Error!Ref {
@@ -490,7 +490,7 @@ pub const Vat = struct {
     /// Roll back a freshly spawned actor that failed before any export binding
     /// or application reference became observable. The caller must hold the
     /// exact `Ref` returned by `spawn`/`spawnHosted` and call this only on that
-    /// operation's unwind; actor ids remain monotonic and are not reused.
+    /// operation's unwind. Actor ids remain monotonic and are not reused.
     pub fn discardFreshActor(self: *Vat, actor: Ref) void {
         const id = switch (actor) {
             .local => |local| local,
@@ -540,8 +540,8 @@ pub const Vat = struct {
         if (self.actors.getPtr(id)) |cell| cell.roots += 1;
     }
 
-    /// Release one explicit root (ADR-0101). The last root retires the row —
-    /// immediately when the actor is idle, or at its running frame's unwind —
+    /// Release one explicit root (ADR-0101). The last root retires the row,
+    /// immediately when the actor is idle, or at its running frame's unwind,
     /// and parks the box until the next outermost-turn boundary, the borrowed
     /// reply's lifetime. Tolerant of an absent row, like `retainActor`.
     pub fn releaseActor(self: *Vat, id: u64) void {
@@ -553,10 +553,10 @@ pub const Vat = struct {
     }
 
     /// The synchronous near-call (`$`): run `target`'s handler now and return its
-    /// value. Legal only for a local ref; a far ref must be reached with
+    /// value. Legal only for a local ref. A far ref must be reached with
     /// `Port.send`.
     /// The returned `Argument` is borrowed from the actor's state or the message
-    /// (see the module header) and is valid only as long as both are; a caller
+    /// (see the module header) and is valid only as long as both are. A caller
     /// that keeps it copies first.
     pub fn near(self: *Vat, target: Ref, msg: Message) anyerror!model.Argument {
         return self.nearFromIngress(.local, target, msg);

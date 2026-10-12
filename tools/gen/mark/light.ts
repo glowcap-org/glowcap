@@ -8,7 +8,7 @@
 // it except by asking the light where it is.
 //
 // The color is measured the same way, off the pixels inside that cut, so the
-// still lit mark is painted in the color the shader actually emits rather than
+// still lit mark is painted in the color the shader emits rather than
 // a teal picked to look right.
 
 import { area, contours, deviation, pathData, resampleByTurn, smooth, toCubics } from "./contour.ts";
@@ -26,7 +26,7 @@ const CORE_LIFT = 0.5;
 const NIGHT: [number, number, number] = [0x21 / 255, 0x19 / 255, 0x11 / 255];
 
 /** The fit the cores take. The brim's line is a few pixels tall at this
- * sampling, so the anchors run short and the smoothing is light; anything
+ * sampling, so the anchors run short and the smoothing is light. Anything
  * smaller than `minArea` is a speck the cut caught at the edge of the
  * transition, not a lamp. */
 const FIT = { minArea: 300, spacing: 1.1, turn: 0.38, soften: 2 };

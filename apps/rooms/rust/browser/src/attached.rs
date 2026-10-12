@@ -1,5 +1,5 @@
 //! One production managed workspace shares a continuously driven browser Host.
-//! IndexedDB owns session authority; transports and file displays stay here.
+//! IndexedDB owns session authority. Transports and file displays stay here.
 mod connections;
 mod driver;
 mod file_display;
@@ -52,7 +52,12 @@ impl Environment {
 		let prepared = managed::Prepared::open(tab, platform.clone()).await?;
 		Ok((platform, prepared))
 	}
-	async fn open(platform: Platform, prepared: managed::Prepared, trouble: TroubleReporter) -> Result<Self> {
+	async fn open(
+		platform: Platform,
+		prepared: managed::Prepared,
+		trouble: TroubleReporter,
+		admission: rooms_application::admission::Settings,
+	) -> Result<Self> {
 		let host = Host::from_seed_with_options(prepared.seed(), rooms_glowcap::host_options())
 			.map_err(|error| error.to_string())?;
 		let managed_signaling = Rc::new(managed::signaling::Routes::default());
@@ -87,7 +92,7 @@ impl Environment {
 			managed_signaling,
 			trouble,
 		};
-		match managed::Owner::open(&environment, prepared).await {
+		match managed::Owner::open(&environment, prepared, admission).await {
 			Ok(owner) => environment.managed = Some(owner),
 			Err(error) => return Err(retain(Err(error), environment.close().await).unwrap_err()),
 		}

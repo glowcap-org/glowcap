@@ -4,8 +4,8 @@ use serde::Deserialize;
 pub(super) const BODY_LIMIT: usize = 64 * 1024;
 
 /// Known providers take the bounded metadata path before Rooms considers a
-/// full page. Each endpoint is the provider's documented oEmbed service;
-/// arbitrary pages never choose a second host.
+/// full page. Each endpoint is the provider's documented oEmbed service.
+/// Arbitrary pages never choose a second host.
 ///
 /// Endpoint references:
 /// - <https://developers.google.com/youtube/v3/guides/implementation/oembed>
@@ -23,6 +23,7 @@ pub(super) fn endpoint(target: &str) -> Option<String> {
 	} else {
 		return None;
 	};
+	#[expect(clippy::expect_used, reason = "a literal `provider_endpoints_parse` parses")]
 	let mut endpoint = url::Url::parse(provider.endpoint()).expect("fixed oEmbed endpoint");
 	{
 		let mut query = endpoint.query_pairs_mut();
@@ -99,6 +100,13 @@ mod tests {
 			assert_eq!(endpoint.query_pairs().find(|(key, _)| key == "url").unwrap().1, target);
 		}
 		assert!(endpoint("https://youtube.com.evil.example/watch?v=x").is_none());
+	}
+
+	#[test]
+	fn provider_endpoints_parse() {
+		for provider in [Provider::YouTube, Provider::Reddit, Provider::Vimeo] {
+			assert!(url::Url::parse(provider.endpoint()).is_ok());
+		}
 	}
 
 	#[test]

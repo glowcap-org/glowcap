@@ -2,8 +2,8 @@
 //
 // One answer for rooms and direct lines alike, because the flag is the same
 // promise either way: somebody is about to say something. A peer that goes
-// quiet without sending the "off" is ordinary — a closed tab, a dropped
-// connection — so nothing here trusts the far side to end what it started, and
+// quiet without sending the "off" is ordinary (a closed tab, a dropped
+// connection) so nothing here trusts the far side to end what it started, and
 // every flag carries its own expiry.
 
 import * as store from "./store.ts";

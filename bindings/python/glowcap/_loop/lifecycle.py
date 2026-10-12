@@ -124,7 +124,7 @@ class _LifecycleMixin(DriverLoopMixinBase):
         """Wake every parked close driver. Called after any path that steps
         the loop or drains its events ran work, and after a close verb that
         may install a new deadline. Over-signaling is harmless because the
-        drivers re-check progress; a missed source is a hang."""
+        drivers re-check progress. A missed source is a hang."""
         self._loop_activity.set()
 
     def _step_wait_ms(self) -> int:

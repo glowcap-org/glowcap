@@ -1,6 +1,6 @@
 /**
  * Shared host the Scrubber pointer adapters read. Scrubber owns the
- * Pixi-facing refs; the hook fills the rest each render.
+ * Pixi-facing refs. The hook fills the rest each render.
  */
 
 import type { MutableRefObject, RefObject } from "react";
@@ -20,7 +20,7 @@ export type OrderedEntities = Record<
 	readonly string[]
 >;
 
-/** Live snapshot the paint loop also writes; pointer adapters only read it. */
+/** Live snapshot the paint loop also writes. Pointer adapters only read it. */
 export type ScrubberPointerLive = {
 	view: TimelineView;
 	events: readonly TimelineEvent[];

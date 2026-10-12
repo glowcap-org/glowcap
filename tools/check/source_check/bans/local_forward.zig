@@ -4,7 +4,7 @@ const bans = @import("../bans.zig");
 const Ban = bans.Ban;
 
 /// Local Forward chase policy is actor/Host turn vocabulary. The C ABI and
-/// generated binding constants project it; they do not own the literal cap.
+/// generated binding constants project it. They do not own the literal cap.
 pub const hop_cap_rows: []const Ban = &.{
     .{
         .where = .{ .file = "src/driver/core/vocab.zig" },

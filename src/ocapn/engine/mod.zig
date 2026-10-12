@@ -38,7 +38,7 @@ pub const handoff_names = @import("handoff_names.zig");
 pub const listen = @import("listen.zig");
 /// Lowering node-local foreign-import tokens to their wire reference at the
 /// outbound chokepoint (ADR-0069). A node hands the application synthetic far
-/// tokens; the peer swaps each back to its wire reference in `send`, so a token
+/// tokens. The peer swaps each back to its wire reference in `send`, so a token
 /// never leaks onto the wire.
 pub const lower = @import("lower.zig");
 pub const node_services = @import("node_services.zig");
@@ -97,7 +97,7 @@ pub const testing = if (builtin.is_test) struct {
 pub const PeerHandle = @import("peer_handle.zig").PeerHandle;
 pub const pairing = @import("pairing.zig");
 pub const pipeline = @import("pipeline.zig");
-/// Outbound queue carriers and encode helpers; `FireTarget` is re-exported here
+/// Outbound queue carriers and encode helpers. `FireTarget` is re-exported here
 /// for `pipeline` and binding docs that name `engine.FireTarget`.
 pub const FireTarget = outbound.FireTarget;
 pub const StoreTarget = outbound.StoreTarget;
@@ -113,7 +113,7 @@ pub const AnswerTarget = session.AnswerTarget;
 
 /// Encode a verbatim `<ocapn-peer …>` Syrup record carrying hint entries, so a
 /// gifter can name an exporter reachable only by a dial hint (an iroh exporter's
-/// direct addresses). Decode materializes a structural `PeerLocator`; redeem
+/// direct addresses). Decode materializes a structural `PeerLocator`. Redeem
 /// URI projection reads that peer (`handoff_recipient.exporterLocatorUri`).
 /// Surfaced here so the C ABI builds a give location without reaching past the
 /// engine into the codec.
@@ -121,14 +121,14 @@ pub const encodePeerLocatorRecord = codec.signed.encodeLocatorRecord;
 pub const encodePeerLocatorViewRecord = hello.encodePeerLocatorViewRecord;
 
 /// Parse a verbatim `<ocapn-peer …>` Syrup record into an owned `PeerLocator`.
-/// The matching decode of `encodePeerLocatorRecord`; the C ABI's
+/// The matching decode of `encodePeerLocatorRecord`. The C ABI's
 /// `set_exporter_location` boundary uses this so a URI (or any non-record)
 /// fails loud instead of being spliced into a signed give.
 pub const readLocatorOwned = codec.signed.readLocatorOwned;
 pub const readLocatorView = codec.signed.readLocatorView;
 
 /// Decode a borrowed body view from an encoded frame under the session's
-/// negotiated CapTP version — the same wire projection `Event.wireView`
+/// negotiated CapTP version, the same wire projection `Event.wireView`
 /// performs on an inbound frame. Surfaced so the host tier can inspect an
 /// outbound frame it drained without reaching past the engine into the codec.
 pub const decodeBodyView = codec.dispatch.decodeBodyForProfile;
@@ -141,7 +141,7 @@ pub const frameShape = codec.dispatch.frameShape;
 /// one authoritative value rather than re-deriving the magic `0`.
 pub const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
 
-/// Session resource bounds; re-exported so the driver C ABI can mirror the
+/// Session resource bounds. Re-exported so the driver C ABI can mirror the
 /// default frame cap without a direct `session` import.
 pub const SessionLimits = session.SessionLimits;
 
@@ -167,10 +167,10 @@ pub const isDurableSwiss = session.Session.isDurableSwiss;
 pub const DurablePin = peer_identity.DurablePin;
 
 /// What authenticated the durable identity a partner advertised (ADR-0105).
-/// Derived from the evidence one session actually holds, never from its
+/// Derived from the evidence one session holds, never from its
 /// transport symbol: same transport name, different code realizing the
 /// connection, different answer. `Peer.partnerDurableProvenance` is the one
-/// derivation; `driver_core.vocab.DurableProvenance` aliases this type so the
+/// derivation. `driver_core.vocab.DurableProvenance` aliases this type so the
 /// byte-fed tier, the trace, and the C ABI all read one verdict.
 pub const DurableProvenance = peer_identity.DurableProvenance;
 
@@ -185,7 +185,7 @@ fn frameByteLen(frame: *const foundation.Frame) usize {
 /// The caller-owned CapTP engine: one peer per session, no I/O, no hidden
 /// scheduler. The host feeds inbound frames (`recvBorrowed` / `feedOwned`),
 /// advances the peer with `step`, drains `outbound`, and reads surfaced
-/// events; everything the peer queues is allocated on its `allocator` and
+/// events. Everything the peer queues is allocated on its `allocator` and
 /// freed in `deinit`.
 pub const Peer = struct {
     allocator: std.mem.Allocator,
@@ -209,18 +209,18 @@ pub const Peer = struct {
     pending_send_reservations: usize = 0,
     outbound: Queue(foundation.Frame, frameByteLen),
     /// One shared ceiling for staged messages plus encoded frames. A standalone
-    /// Peer is deliberately unlimited; Hosts install their explicit high-water
+    /// Peer is unlimited. Hosts install their explicit high-water
     /// at the negotiating seam.
     outbound_budget: usize = std.math.maxInt(usize),
     events: Queue(events.Queued, null),
     /// This session's gift and handoff-count authority. A cross-session
     /// withdrawal reaches a sibling's deposits only through the live-session
-    /// resolver; the Vat does not own protocol transcript state.
+    /// resolver. The Vat does not own protocol transcript state.
     gift_registry: bootstrap.gifts.GiftRegistry = .{},
     /// Inbound `withdraw-gift`s grouped by exact scheduler dependency because
     /// the deposit travels on a different session and can arrive second. The
-    /// grouping makes a deposit retry only its own waits, never all 4096 rows;
-    /// each row still owns the exact verified receive and its accepted replay
+    /// grouping makes a deposit retry only its own waits, never all 4096 rows.
+    /// Each row still owns the exact verified receive and its accepted replay
     /// count. `pending_withdraw_count` is bounded by
     /// `SessionLimits.max_pending_withdraws`.
     pending_withdraws: std.AutoHashMapUnmanaged(
@@ -229,7 +229,7 @@ pub const Peer = struct {
     ) = .empty,
     pending_withdraw_count: usize = 0,
     /// Variable bytes retained by parked receives. The fixed certificate subset
-    /// lives inline; only exact gift ids count here, and their aggregate may not
+    /// lives inline. Only exact gift ids count here, and their aggregate may not
     /// exceed this session's already-configured frame cap.
     pending_withdraw_bytes: usize = 0,
     /// One exact Node wake at a time. Host consumes scheduler changes one at a
@@ -242,7 +242,7 @@ pub const Peer = struct {
     local_delivery_depth: usize = 0,
     /// When set, an inbound `op:start-session` is admitted only if its location
     /// signature verifies against the claimed `session_pubkey` over the canonical
-    /// `<my-location …>` bytes (ADR-0006), at the engine boundary — the session
+    /// `<my-location …>` bytes (ADR-0006), at the engine boundary, the session
     /// core still runs no crypto. A failure projects an
     /// `InvalidStartSessionSignature` abort and the session never opens.
     /// `initNegotiating` turns this on: a peer doing a real keyed handshake
@@ -255,8 +255,8 @@ pub const Peer = struct {
     /// A Vat turn's far sends are being held retractable (ADR-0194).
     provisional: bool = false,
     /// Stored relayed settlements whose listener carriers could not be
-    /// prepared at the terminal commit. Nonzero makes `step` retry one row;
-    /// the imported-promise table itself is the authority, so row teardown can
+    /// prepared at the terminal commit. Nonzero makes `step` retry one row.
+    /// The imported-promise table itself is the authority, so row teardown can
     /// leave this count conservatively high and the next scan repairs it.
     pending_imported_fire_retries: u32 = 0,
     /// What this session knows about durable identity at the other end: the
@@ -271,17 +271,17 @@ pub const Peer = struct {
     ///
     /// Nothing outside this file names this field. Reads go through
     /// `demandedPartnerKey`, `verifiedChannelKey`, and
-    /// `partnerDurableProvenance`; writes go through the two verbs below,
+    /// `partnerDurableProvenance`. Writes go through the two verbs below,
     /// so those two are the whole story. `source-check`'s
     /// `checkDurablePinWriters` holds both halves.
     durable_pin: DurablePin = .{},
-    /// The typed cause of the most recent local dispatch failure — read it
-    /// through `lastAbort`. Overwritten on each failure; never reset on
+    /// The typed cause of the most recent local dispatch failure, read it
+    /// through `lastAbort`. Overwritten on each failure. Never reset on
     /// success, so it stays readable after the error has propagated.
     last_abort: ?AbortInfo = null,
     /// The node-installed composition link: outbound token lowering, exact
     /// local-object projection, and live gifter-session resolution. Set only
-    /// for a peer registered under a `Node`; a standalone peer leaves it null.
+    /// for a peer registered under a `Node`. A standalone peer leaves it null.
     /// See `lower.zig`.
     node_services: ?NodeServices = null,
 
@@ -393,7 +393,7 @@ pub const Peer = struct {
     pub const answerForDeliver = peer_references.answerForDeliver;
     pub const finishPendingEnliven = peer_references.finishPendingEnliven;
 
-    /// Owned relayed settlement; `peer/settlement.zig` owns store/fire policy.
+    /// Owned relayed settlement. `peer/settlement.zig` owns store/fire policy.
     pub const applyRelayedResolution = peer_settlement.applyRelayedResolution;
 
     /// Terminal-relay variant whose recipient store cannot be deferred.
@@ -429,44 +429,44 @@ pub const Peer = struct {
 /// is a withdrawal from it. One kilobyte is the committed ceiling, so half a
 /// million idle sessions stay under 0.5 GiB of inline state and the heap-warmed
 /// footprint stays the number the ladder's step 2 quotes. The runtime half of the
-/// budget — the heap a warmed session grows — is held by
+/// budget, the heap a warmed session grows, is held by
 /// `test/engine/footprint_budget_test.zig`. Crossing this ceiling is not a build
-/// failure to route around; it is a design event that raises the budget here, in
+/// failure to route around. It is a design event that raises the budget here, in
 /// the ladder, and in the vision, together, with the bytes justified.
 ///
 /// The most recent 24 of these bytes are two deliberate purchases. Sixteen are
 /// the stream scan, bought by giving two others back: Every byte-stream consumer reaches the decoder
 /// through `recvStreamPrefix`, so holding the scan here serves the completion
-/// loop, the byte-fed host, the blocking pump, and the C ABI from one place —
+/// loop, the byte-fed host, the blocking pump, and the C ABI from one place,
 /// where holding it per consumer served two of them and charged a Bridge
 /// connection twice, once in its `Conn` slot and again in its `HostSession`
 /// shell, for a frame only one of the two ever framed. The other eight are the
 /// end of the session's export range. The allocator is monotonic and counts
 /// positions ever minted rather than live ones, so without a far end a
 /// long-lived session that mints and releases walks into the next session's
-/// range and silently starts naming its objects — the whole hazard the ranges
+/// range and silently starts naming its objects, the whole hazard the ranges
 /// exist to remove. Eight bytes buys a typed refusal instead.
 ///
 /// The most recent eight are the import table's enrolled-token side, one word
-/// for a map that is only allocated once a session actually enrolls a
+/// for a map that is only allocated once a session enrolls a
 /// capability under a node-unique token (ADR-0069). Most sessions never do, so
 /// the ordinary session pays the word and nothing else. It is held on
 /// the import row rather than in a node-side memo so it is forgotten when the
-/// import is released; a token that outlived its row would name whatever
+/// import is released. A token that outlived its row would name whatever
 /// capability the partner put at that position next.
 ///
 /// The most recent eight are the low end of the session's export range. The
 /// high end alone stops the allocator being dragged past the range, which is
-/// the half that kills a session outright; it says nothing about a position
+/// the half that kills a session outright. It says nothing about a position
 /// from *below* the range, which names an object this session does not host
 /// just as surely. Half a check is what leaves a class of bug alive to be
-/// rediscovered, and this class — a name used in a namespace that is not its
-/// own — is the one this core has paid for most.
+/// rediscovered, and this class, a name used in a namespace that is not its
+/// own, is the one this core has paid for most.
 /// ADR-0105 added storage for two distinct durable-key facts: the target a dial
 /// named and the far end the byte-channel realizer verified. A
 /// byte-transparent relay can make those different parties, so one slot cannot
 /// represent both without confusing a target requirement with evidence.
-/// Weighed deliberately: identity is
+/// Identity is
 /// per-session state by design, the second key is paid only in the struct (the
 /// keys are fixed-width and nothing here allocates), and the warmed 2 KiB
 /// per-session ceiling in `docs/ladder.md` step 2 still holds
@@ -485,10 +485,10 @@ pub const Peer = struct {
 ///
 /// It is still a ceiling and not an equality, unlike the `Conn` slot overhead
 /// in `src/net/completion/loop/state.zig`. That one measures a *difference* between
-/// two sizes on whatever target is building, which is stable across targets;
-/// this one measures a whole struct full of pointers and `usize`s, and
+/// two sizes on whatever target is building, which is stable across targets.
+/// This one measures a whole struct full of pointers and `usize`s, and
 /// `wasm32` (the sans-io core under `zig build cross-check`) makes it
-/// genuinely smaller, as does a fast build. So no single number is the
+/// smaller, as does a fast build. So no single number is the
 /// measurement on every target and mode, and an equality here would fail the
 /// narrow ones.
 pub const peer_session_struct_budget_bytes = 1176;

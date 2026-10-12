@@ -7,7 +7,7 @@ const month = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$/;
 const digits = /^\d+$/;
 const clockOrYear = /^(\d{2}:\d{2}(:\d{2})?|\d{4})$/;
 // The owner columns must be numeric. The listing is taken with
-// `--numeric-owner`, and this refuses one that is not — because a tar that
+// `--numeric-owner`, and this refuses one that is not: a tar that
 // ignores the flag, or an owner name containing a space, turns one field into
 // several and shifts every later column. That shift moves where the member name
 // begins, so the name reconstructs wrong, misses the prefix test, and the member
@@ -17,7 +17,7 @@ const numericOwner = /^\d+\/\d+$/;
 // The whole line is parsed, including any " -> target" tail. Stripping that
 // tail first would truncate a regular file whose own name contains " -> ",
 // and the traversal check would then run on a prefix of the name tar
-// actually extracts. Link entries need no strip: they are refused for their
+// extracts. Link entries need no strip: they are refused for their
 // kind, whatever their name parses to.
 function memberName(line: string): { kind: string; name: string } | null {
 	const parts = line.trim().split(/\s+/);

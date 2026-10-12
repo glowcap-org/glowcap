@@ -1,10 +1,10 @@
-//! The byte-fed host tier's public C ABI — `libglowcap_host` (ADR-0072).
+//! The byte-fed host tier's public C ABI, `libglowcap_host` (ADR-0072).
 //!
 //! One `GlowcapHost` is the multi-session CapTP **host** for an embedder that
 //! owns its own loop, sockets, and entropy: it wraps `driver_core.Host`, so
-//! everything the node decides — where a token routes, which exporter a give
-//! withdraws from, when a served reply becomes a signed give — runs inside the
-//! library, and the embedder's whole job is moving bytes and answering the
+//! everything the node decides (where a token routes, which exporter a give
+//! withdraws from, when a served reply becomes a signed give) runs inside the
+//! library, and the embedder's job is moving bytes and answering the
 //! action queue. Inbound transport packets enter through
 //! `glowcap_host_session_feed_packet` (or the narrower frame/byte-stream
 //! verbs), outbound packets leave through `glowcap_host_session_take_packet`,
@@ -17,19 +17,19 @@
 //! whose `ticket` is the vow id, so one drain routes every outcome and there
 //! is no listener to register before the bytes that settle it.
 //!
-//! One thread (or one green-thread scheduler) drives one host; nothing here
-//! locks. The one callback — a behavior answering a deliver — fires on the
+//! One thread (or one green-thread scheduler) drives one host. Nothing here
+//! locks. The one callback, a behavior answering a deliver, fires on the
 //! thread executing the enclosing `glowcap_host_*` call. Inside it the
 //! enqueueing verbs are legal (send/tell, vow verbs, turn verbs, gc release,
 //! exporter location) and are encoded and pumped when the enclosing call
-//! unwinds; the host-driving verbs (feed, feed_bytes, feed_packet,
+//! unwinds. The host-driving verbs (feed, feed_bytes, feed_packet,
 //! resume_feed, take_packet, take_outbound, next_action,
 //! the dial/gift completions, open, publish/spawn,
 //! fetch/enliven, break_far_vows, transport_closed, release) are refused with
 //! `GLOWCAP_ERR_INVALID_ARGUMENT`.
 //!
 //! This is a *separate archive* from `libglowcap_ocapn` (ADR-0059): it imports
-//! the shared vocabulary leaf (`c_abi_shared` — frame/argument types, codes,
+//! the shared vocabulary leaf (`c_abi_shared`: frame/argument types, codes,
 //! allocation, the per-thread last-error slot) plus the `driver_core` and
 //! `actors` layers it bridges, so it exports only the `glowcap_host_*` family
 //! and shares no core symbol with the ocapn archive. The family reads for its
@@ -47,14 +47,14 @@
 //! leaves, so the header generator and the binding mirrors see the whole ABI
 //! from one place. The exports themselves are split by responsibility:
 //! `host.zig` owns host lifecycle, the pure dial/accept planners, the action
-//! queue, host-wide publish, GC, and the last-error slot; `locators.zig` owns
-//! the identity-designator helper and advertised-locator admission; and
-//! `embedding.zig` owns the Zig-only driver transfer bridge;
-//! `session/lifecycle.zig` owns open/close/release; `session/pump.zig` owns the
-//! session byte and packet pump; `session.zig` owns publish/spawn, fetch/enliven,
-//! send/tell/vows, and abort diagnostics; `turn.zig` owns the turn-time verbs;
-//! `pump.zig` owns the optional `glowcap_host_pump_drain` convenience;
-//! and `common.zig` holds the internal glue those leaves share (the `Instance`
+//! queue, host-wide publish, GC, and the last-error slot. `locators.zig` owns
+//! the identity-designator helper and advertised-locator admission. And
+//! `embedding.zig` owns the Zig-only driver transfer bridge.
+//! `session/lifecycle.zig` owns open/close/release. `session/pump.zig` owns the
+//! session byte and packet pump. `session.zig` owns publish/spawn, fetch/enliven,
+//! send/tell/vows, and abort diagnostics. `turn.zig` owns the turn-time verbs.
+//! `pump.zig` owns the optional `glowcap_host_pump_drain` convenience.
+//! And `common.zig` holds the internal glue those leaves share (the `Instance`
 //! state, the behavior bridge, marshalling, and the error projection).
 
 pub const std_options = @import("c_abi_shared").library_options;
@@ -67,8 +67,8 @@ const engine = @import("engine");
 const model = @import("model");
 const driver_core = @import("driver_core");
 
-// The shared C-ABI vocabulary leaf — types, codes, allocation, the last-error
-// slot — not the ocapn root, so this archive pulls none of the ocapn family's
+// The shared C-ABI vocabulary leaf (types, codes, allocation, the last-error
+// slot), not the ocapn root, so this archive pulls none of the ocapn family's
 // exports (ADR-0059 companion split).
 const shared = @import("c_abi_shared");
 
@@ -146,17 +146,17 @@ pub const GlowcapContext = shared.GlowcapContext;
 // ── Handles ──────────────────────────────────────────────────────────────────
 
 /// A byte-fed multi-session CapTP host: one identity, one routing/redeem
-/// authority, many sessions. Created with `glowcap_host_new`; released with
+/// authority, many sessions. Created with `glowcap_host_new`. Released with
 /// `glowcap_host_release`.
 /// The structs the wasm32 layout descriptor reports and the TypeScript
 /// `WASM_LAYOUT_STRUCTS` manifest names, in one canonical order.
-/// This table is the single authority both consumers read — the wasm
+/// This table is the single authority both consumers read: the wasm
 /// module's `glowcap_wasm_abi_layout` walks it to emit offsets, and
-/// `tools/gen/binding/ts_abi.zig` walks it to emit the manifest — so a
+/// `tools/gen/binding/ts_abi.zig` walks it to emit the manifest, so a
 /// struct added to the ABI cannot reach one mirror and miss the other
 /// (the drift that once shipped a page demanding a layout the wasm
 /// module didn't carry). Append-only: a new struct is one new row at
-/// the end; it never renumbers an earlier index a JS decoder holds.
+/// the end. It never renumbers an earlier index a JS decoder holds.
 pub const WasmLayoutSpec = struct {
     /// Constant prefix in the mirrors (`<prefix>_SIZE`,
     /// `<prefix>_<FIELD>_OFF`) and the string the descriptor's
@@ -285,24 +285,24 @@ pub const GlowcapHostTurn = opaque {};
 /// `glowcap_host_dialed` / `glowcap_host_dial_failed`.
 pub const GLOWCAP_HOST_ACTION_DIAL: u32 = 0;
 /// `GlowcapHostAction.kind`: outbound transport packets may be ready on
-/// `session`; drain the session's transport output until WOULD_BLOCK and write it.
+/// `session`. Drain the session's transport output until WOULD_BLOCK and write it.
 pub const GLOWCAP_HOST_ACTION_FLUSH: u32 = 1;
 /// `GlowcapHostAction.kind`: draw 32 random bytes and feed them back through
 /// `glowcap_host_provide_gift_id` with this action's `ticket`.
 pub const GLOWCAP_HOST_ACTION_NEED_GIFT_ID: u32 = 2;
 /// `GlowcapHostAction.kind`: the vow `ticket` names settled fulfilled with
-/// `value`; route the outcome to whatever awaits that vow.
+/// `value`. Route the outcome to whatever awaits that vow.
 pub const GLOWCAP_HOST_ACTION_SETTLE: u32 = 3;
 /// `GlowcapHostAction.kind`: the vow `ticket` names settled broken with
-/// `message`; route the outcome to whatever awaits that vow.
+/// `message`. Route the outcome to whatever awaits that vow.
 pub const GLOWCAP_HOST_ACTION_FAIL: u32 = 4;
 /// `GlowcapHostAction.kind`: the host retired `session`. Drain and write any
 /// queued terminal frame, then close its transport and release the connection.
-/// A condemned session carries an abort; redeem-only cleanup closes quietly.
+/// A condemned session carries an abort. Redeem-only cleanup closes quietly.
 pub const GLOWCAP_HOST_ACTION_CLOSE: u32 = 5;
 /// `GlowcapHostAction.kind`: the finite host scheduler yielded with internal
 /// work remaining. Return to the embedder scheduler before continuing
-/// `glowcap_host_next_action`; this carries no session, ticket, or I/O request.
+/// `glowcap_host_next_action`. This carries no session, ticket, or I/O request.
 pub const GLOWCAP_HOST_ACTION_RESUME: u32 = 6;
 /// `GlowcapHostAction.kind`: interrupt and join the external dial named by
 /// `ticket`, then acknowledge it through `glowcap_host_dial_cancelled`.
@@ -320,7 +320,7 @@ pub const GLOWCAP_HANDSHAKE_TIMEOUT_MS: u64 = @intCast(driver_core.default_hands
 
 /// Default accepted connections held across handshaking plus ready-but-unclaimed
 /// sessions by a high-level binding listener. This is capacity, not eager
-/// allocation; callers may tune it for their service.
+/// allocation. Callers may tune it for their service.
 pub const GLOWCAP_DEFAULT_PENDING_ACCEPTS: usize = 128;
 
 /// Default OCapN handshakes one high-level binding listener drives at once.
@@ -339,7 +339,7 @@ pub const GLOWCAP_DISCOVERY_DIAL_RETRY_MS: u64 = driver_core.discovery_retry_ms;
 pub const GLOWCAP_DISCOVERY_DIAL_MAX_ATTEMPTS: u32 = driver_core.discovery_max_attempts;
 
 /// Bound on one turn's synchronous local `Forward` chase (caretaker over
-/// attenuator). Hop N+1 breaks the answer instead of spinning; the wire path
+/// attenuator). Hop N+1 breaks the answer instead of spinning. The wire path
 /// defers each hop onto a fresh turn so it needs no matching cap. Mirrored by
 /// every binding's trampoline / vat.
 pub const GLOWCAP_MAX_LOCAL_FORWARD_HOPS: usize = driver_core.max_local_forward_hops;
@@ -347,9 +347,9 @@ pub const GLOWCAP_MAX_LOCAL_FORWARD_HOPS: usize = driver_core.max_local_forward_
 /// One embedder effect popped from `glowcap_host_next_action`. `kind` selects
 /// the live fields: DIAL and CANCEL_DIAL carry `ticket` and `route_index`
 /// (DIAL borrows the pending view with `glowcap_host_pending_dial`). FLUSH and
-/// CLOSE carry `session`;
+/// CLOSE carry `session`.
 /// NEED_GIFT_ID carries `ticket`. SETTLE carries the settled vow id in
-/// `ticket` and the fulfilled value in `value`; FAIL carries the vow id in
+/// `ticket` and the fulfilled value in `value`. FAIL carries the vow id in
 /// `ticket`, the typed failure code in `result`, and the failure reason in
 /// `message`/`message_len`. Every popped byte
 /// view and `value`'s sub-structure are host-owned and valid until the next
@@ -370,12 +370,12 @@ pub const GlowcapHostAction = extern struct {
 /// One shared arm callback for `GlowcapHostPumpHooks`: flush, close,
 /// need_gift_id, complete (SETTLE/FAIL), and dial. Return `GLOWCAP_OK` or a
 /// real `GLOWCAP_ERR_*`. A non-OK return means the arm committed no externally
-/// visible effect; the drain preserves this exact action as the first action of
+/// visible effect. The drain preserves this exact action as the first action of
 /// its next call. Return `GLOWCAP_OK` after taking responsibility for the
 /// action, even when later asynchronous work may fail. When `out_progressed`
 /// is non-null, set it to 1 if the
 /// arm counts as quiescence progress (gift-id answered, dial parked, settle
-/// routed); leave 0 for a handled notice that a sibling shuttle already
+/// routed). Leave 0 for a handled notice that a sibling shuttle already
 /// covers (typical empty FLUSH). `action` views are host-owned until the next
 /// `glowcap_host_next_action` (this drain pops internally).
 pub const GlowcapHostPumpArmFn = *const fn (
@@ -387,7 +387,7 @@ pub const GlowcapHostPumpArmFn = *const fn (
 
 /// Opt-in embedder hooks for `glowcap_host_pump_drain` (ADR-0072 fifth
 /// amendment). NULL arm pointers skip that kind (no error, no progress). The
-/// pull-queue remains normative — this struct is a convenience wrapper's
+/// pull-queue remains normative. This struct is a convenience wrapper's
 /// callback surface, not a replacement for `glowcap_host_next_action`.
 pub const GlowcapHostPumpHooks = extern struct {
     ctx: ?*anyopaque,
@@ -401,7 +401,7 @@ pub const GlowcapHostPumpHooks = extern struct {
 // ── Callbacks ────────────────────────────────────────────────────────────────
 
 /// A hosted object's behavior, invoked on each deliver. `verb`/`args` are
-/// borrowed for the call; each `GlowcapReference` leaf is nevertheless one
+/// borrowed for the call. Each `GlowcapReference` leaf is nevertheless one
 /// application retain and must eventually be returned with
 /// `glowcap_host_ref_release`. Copying its `{ id }` bytes does not create
 /// another retain. The vat copies
@@ -409,7 +409,7 @@ pub const GlowcapHostPumpHooks = extern struct {
 /// stay valid across the return (point them at your `ctx` or a buffer you own,
 /// not a callback stack local). Any non-OK return settles the answer broken
 /// with a generic reason. Inside the callback the enqueueing host verbs and
-/// the `glowcap_host_turn_*` verbs (with this `turn` only) are legal; the
+/// the `glowcap_host_turn_*` verbs (with this `turn` only) are legal. The
 /// host-driving verbs are refused.
 pub const GlowcapHostBehavior = *const fn (
     ctx: ?*anyopaque,
@@ -556,7 +556,7 @@ pub const glowcap_host_turn_break = turn.glowcap_host_turn_break;
 pub const glowcap_host_pump_drain = pump.glowcap_host_pump_drain;
 
 /// The annotated symbol inventory (crossing semantics per export) the
-/// binding FFI-table generators reflect from — see `symbols.zig`.
+/// binding FFI-table generators reflect from. See `symbols.zig`.
 pub const symbols = @import("symbols.zig");
 
 pub const contract_layouts = [_]shared.archive_contract.Layout{
@@ -580,7 +580,7 @@ pub fn glowcap_host_archive_fingerprint() callconv(.c) u64 {
 }
 
 /// Zig-facing one-loop drain helpers over `glowcap_host_next_action`
-/// (ADR-0072 fifth amendment). Not a C export — the pull-queue stays
-/// normative; bindings and tests thin onto this instead of hand-rolling
+/// (ADR-0072 fifth amendment). Not a C export. The pull-queue stays
+/// normative. Bindings and tests thin onto this instead of hand-rolling
 /// the action switch.
 pub const embedder_pump = @import("embedder_pump.zig");

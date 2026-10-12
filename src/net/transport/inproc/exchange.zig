@@ -12,7 +12,7 @@
 //! and works across threads. A link's rings and ends are guarded by the link's
 //! lock and a sink's queue by the sink's lock. Locks are taken in the order
 //! exchange, link, sink. The wake channel's send never blocks, so a nudge may
-//! run under either lock; that is what keeps a sink alive while it is
+//! run under either lock. That is what keeps a sink alive while it is
 //! signaled, because its owner detaches every end under the link lock before
 //! freeing it.
 
@@ -79,7 +79,7 @@ pub const Exchange = struct {
     }
 
     /// Dial `designator` from `sink`, whose connection row is `row`. The
-    /// returned end is open and writable; the listener accepts the other.
+    /// returned end is open and writable. The listener accepts the other.
     pub fn connect(self: *Exchange, designator: []const u8, sink: *Sink, row: u32) !*End {
         const link = try Link.create(self.allocator, self.ring_bytes);
         link.ends[0].sink = sink;
@@ -109,7 +109,7 @@ pub const Exchange = struct {
 pub const Listener = struct {
     designator: []u8,
     sink: *Sink,
-    /// Dialed links not yet accepted, oldest first; guarded by `sink.lock`.
+    /// Dialed links not yet accepted, oldest first. Guarded by `sink.lock`.
     stash_head: ?*Link = null,
     stash_tail: ?*Link = null,
     stash_len: usize = 0,
@@ -155,7 +155,7 @@ const Ring = struct {
 };
 
 /// One end of a link. `sink`, `row` and `closed` are guarded by the link's
-/// lock; `queued`, `prev` and `next` by the sink's lock.
+/// lock. `queued`, `prev` and `next` by the sink's lock.
 pub const End = struct {
     link: *Link,
     sink: ?*Sink = null,

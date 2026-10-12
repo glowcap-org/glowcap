@@ -17,7 +17,7 @@ pub const Error = error{
     /// The partner selected an extension transport whose designation semantics
     /// are unknown to this node.
     UnknownTransportSemantics,
-    /// A streamed inbound frame exceeded `SessionLimits.max_frame_bytes`.
+    /// An inbound frame exceeded `SessionLimits.max_frame_bytes`.
     FrameTooLarge,
     /// Staged messages plus encoded frames reached the outbound waterline.
     /// This is local backpressure: no protocol state was discarded, and the

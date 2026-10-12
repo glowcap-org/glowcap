@@ -88,10 +88,10 @@ Deno.test("IRC reader fails closed on an overlong or truncated peer", async () =
 });
 
 Deno.test("IRC reader fails closed on a line that is not valid UTF-8", async () => {
-	// The framer decodes with `fatal: true` on purpose: the bridge and front
+	// The framer decodes with `fatal: true`: the bridge and front
 	// speak UTF-8 to the rooms side, so a non-UTF-8 IRC line is refused at the
 	// edge rather than smuggled in as replacement characters. The invalid byte
-	// rides an otherwise well-formed line, so only the fatal decode rejects it —
+	// rides an otherwise well-formed line, so only the fatal decode rejects it,
 	// a lenient decode would parse `PING :\uFFFD` and let it through.
 	const bytes = new Uint8Array([...new TextEncoder().encode("PING :"), 0xff, 0x0d, 0x0a]);
 	const readable = new ReadableStream<Uint8Array>({

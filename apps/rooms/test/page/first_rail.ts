@@ -11,8 +11,8 @@ import { railQuestions } from "./filter_form.ts";
 
 export async function run(tab: Page): Promise<void> {
 	// ── One directory draws the rail it always drew ──────────────────────
-	// Everything about several directories — the line on a row saying which
-	// directory it is on, the color it wears — arrives only when there is more
+	// Everything about several directories, the line on a row saying which
+	// directory it is on, the color it wears, arrives only when there is more
 	// than one to tell apart. With one, a reader must get exactly what they got
 	// before any of it existed, and this is the moment to say so: this tab holds
 	// the directory that served the page and nothing else, and it will hold a
@@ -50,7 +50,7 @@ export async function run(tab: Page): Promise<void> {
 		alone.colored !== 0 && `${alone.colored} rows wear a directory's color with nothing to tell apart`,
 		alone.heads !== 2 && `the rail has ${alone.heads} section headings rather than its two`,
 		// The one piece of chrome the rail has gained since this inventory was
-		// written, counted here deliberately rather than left out of it. One
+		// written, counted here rather than left out of it. One
 		// control, on the rooms heading, because how much of the rail a reader
 		// is looking at is one question and not one per list. Two would be the
 		// scoping this control does not have, and none would mean a reader on

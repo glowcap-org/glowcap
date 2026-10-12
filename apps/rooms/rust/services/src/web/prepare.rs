@@ -81,7 +81,8 @@ impl Preparation {
 			if let Some(owner) = &mut owner {
 				owner.relocate(destination).await?;
 			}
-			let scratch = output.join(Temporary::plan()?.file_name().expect("temporary leaf"));
+			let planned = Temporary::plan()?;
+			let scratch = output.join(planned.file_name().ok_or("temporary path names no leaf")?);
 			let (scratch, cleanup) = Temporary::create(scratch).await?;
 			let pointer = scratch.join("current");
 			let current = output.join("current");
@@ -104,7 +105,7 @@ impl Preparation {
 		};
 		match publishing {
 			Ok(path) => cleanup.map(|()| path),
-			Err(error) => Err(crate::cleanup::combine(Err(error), cleanup).expect_err("preparation failed")),
+			Err(error) => Err(crate::cleanup::failed(error, cleanup)),
 		}
 	}
 }

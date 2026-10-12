@@ -1,6 +1,7 @@
 import type { Page } from "playwright";
 import { fail } from "./harness.ts";
 import { OPERATIONS_CAPABILITIES } from "../../lib/boot_caps.ts";
+import { capabilityUriLabel } from "../../lib/text/settings.ts";
 
 export async function savedCapabilityNames(tab: Page): Promise<string[]> {
 	const wasOpen = await tab.locator("#settingsTitle").isVisible();
@@ -15,7 +16,7 @@ export async function savedCapabilityNames(tab: Page): Promise<string[]> {
 	return names;
 }
 
-export async function addCapability(tab: Page, toggle: string, swiss: string): Promise<void> {
+export async function addCapability(tab: Page, toggle: string, uri: string): Promise<void> {
 	// The value card stacks over Settings, like every other settings card:
 	// Settings stays open underneath rather than closing and reopening.
 	await tab.evaluate(() => {
@@ -28,15 +29,19 @@ export async function addCapability(tab: Page, toggle: string, swiss: string): P
 		}).observe(settings, { attributes: true, attributeFilter: ["open"] });
 	});
 	await tab.click(toggle);
-	await tab.waitForSelector("#capabilityValueSwiss");
+	await tab.waitForSelector("#capabilityValueUri");
+	// The field takes the whole URI the server prints; it once asked for a
+	// swiss number and refused one.
+	const named = (await tab.textContent('label[for="capabilityValueUri"]'))?.trim();
+	if (named !== capabilityUriLabel) fail(`the capability value field is labeled ${JSON.stringify(named)}`);
 	const nested = await tab.evaluate(() =>
 		document.getElementById("holdingsPanel")?.closest("dialog")?.contains(
 			document.getElementById("capabilityValueTitle"),
 		) === true
 	);
 	if (!nested) fail("the capability value card did not open over Settings");
-	await tab.fill("#capabilityValueSwiss", swiss);
-	await tab.press("#capabilityValueSwiss", "Enter");
+	await tab.fill("#capabilityValueUri", uri);
+	await tab.press("#capabilityValueUri", "Enter");
 	await tab.waitForSelector("#capabilityValueTitle", { state: "detached" });
 	await tab.waitForSelector("#holdingsPanel", { state: "visible" });
 	if (await tab.evaluate(() => (globalThis as { settingsClosed?: boolean }).settingsClosed === true)) {
@@ -67,8 +72,8 @@ export async function saveCapabilitySet(tab: Page): Promise<void> {
 	});
 }
 
-export async function takeCapability(tab: Page, toggle: string, swiss: string): Promise<void> {
-	await addCapability(tab, toggle, swiss);
+export async function takeCapability(tab: Page, toggle: string, uri: string): Promise<void> {
+	await addCapability(tab, toggle, uri);
 	await saveCapabilitySet(tab);
 }
 

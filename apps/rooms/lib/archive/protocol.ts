@@ -1,11 +1,11 @@
 // The member-owned Rooms archive capability (ADR-0129).
 //
 // This is application protocol, not a storage engine. An archive is one
-// ordinary object whose storage verbs are `put` and `read`; `narrow` mints a
+// ordinary object whose storage verbs are `put` and `read`. `narrow` creates a
 // monotonically scoped forwarding facet without touching storage. Browser
-// IndexedDB and the standalone peer implement the same backend seam. Every
-// value here can cross either Rooms wire profile; no binding-local object shape
-// participates in the contract.
+// IndexedDB and the standalone peer implement the same backend boundary. Every
+// value here can cross either Rooms wire profile, and no binding-local object
+// shape participates in the contract.
 
 import { type Argument, type Behavior, currentSession, Ref, type Session } from "@glowcap/runtime";
 import { ask } from "../ask.ts";
@@ -49,13 +49,13 @@ export { ARCHIVE_LIST_SHARES, ARCHIVE_REVOKE_SHARE, ARCHIVE_SHARE } from "./dura
 /** Largest page one read can answer in a single CapTP turn. */
 import { MAX_ARCHIVE_READ } from "./limits.ts";
 export { MAX_ARCHIVE_READ } from "./limits.ts";
-/** Fresh forwarding actors one caller session may mint over its lifetime.
- * Released facets do not refill the budget: actor churn is still work and
- * consumes monotonic export positions even when no occurrence remains live. */
+/** Fresh forwarding actors one caller session may create over its lifetime.
+ * Released facets do not refill the budget, because actor churn is still work
+ * and consumes monotonic export positions even when no occurrence remains live. */
 export const MAX_ARCHIVE_FACETS_PER_SESSION = 256;
 
 // The record itself, and the one validator behind every form of it, live in
-// `record.ts` so a reader with no session can hold one; the verbs stay here.
+// `record.ts` so a reader with no session can hold one. The verbs stay here.
 export {
 	type ArchiveCoordinates,
 	type ArchiveLine,
@@ -373,8 +373,8 @@ export async function readArchive(
 
 /** Read one bounded current account across as many valid wire pages as it
  * needs. A peer may keep appending while this walk runs, so the resident-record
- * ceiling is also the per-walk allocation ceiling; reaching it with more still
- * promised is a refusal rather than an unbounded chase. */
+ * ceiling is also the per-walk allocation ceiling, and reaching it with more
+ * still promised is a refusal and not an unbounded chase. */
 export async function readAllArchiveRecords(
 	session: Session,
 	archive: Ref,

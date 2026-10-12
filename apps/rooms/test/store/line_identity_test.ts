@@ -1,5 +1,5 @@
 // A live room generation owns its line numbers. Retained text survives a room
-// ending; those mutation names do not, because the next generation starts its
+// ending. Those mutation names do not, because the next generation starts its
 // counter at one again.
 
 /// <reference lib="dom" />

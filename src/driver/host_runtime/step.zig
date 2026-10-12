@@ -68,7 +68,7 @@ pub fn stepSession(self: *HostRuntime, session: *driver_core.HostSession, timeou
 
 /// One host-wide pump step (ADR-0112): apply the settle mailbox, drain actions,
 /// wait up to `timeout_ms` for any ready source, service it, and drain again.
-/// Null means the wait ended with nothing to service; `.idle` means a source
+/// Null means the wait ended with nothing to service. `.idle` means a source
 /// was serviced without a counted frame. A resident feed reports through its
 /// sinks, while a wire closure surfaces through the close observer. When work
 /// remains only in userland buffers, the step posts the readiness wake so a
@@ -131,8 +131,8 @@ pub fn stepAnyOwned(self: *HostRuntime, timeout_ms: i32, goal: StepGoal) !?net.P
 /// Keep core-owned close barriers executable after a provider violates its
 /// contract without making another operational call through that provider.
 /// Only mailbox settles, monotonic deadlines, and release callbacks remain
-/// live. The wake posted by close initiation is consumed here explicitly;
-/// leaving it unread would turn accidental busy-spinning into liveness.
+/// live. The wake posted by close initiation is consumed here explicitly.
+/// Leaving it unread would turn accidental busy-spinning into liveness.
 pub fn stepAfterTerminalFailure(self: *HostRuntime, timeout_ms: i32, goal: StepGoal, failure: OperationFailure) !?net.Progress {
     if (!terminalCleanupPending(self)) return failure.cause;
     drainReadinessWake(self);
@@ -196,7 +196,7 @@ pub fn terminalCleanupPending(self: *HostRuntime) bool {
 }
 
 /// Preserve readiness when work already left the kernel's observable buffers.
-/// Only a parked embedder can be stranded by such work; the blocking face
+/// Only a parked embedder can be stranded by such work. The blocking face
 /// re-derives its wait set on every entry.
 pub fn nudgeIfWorkRemains(self: *HostRuntime) void {
     const rs = switch (self.drive) {

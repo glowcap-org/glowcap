@@ -1,5 +1,5 @@
 /**
- * Cancel: a drag in flight emits drag-cancel; a press that never
+ * Cancel: a drag in flight emits drag-cancel. A press that never
  * dragged emits nothing.
  */
 

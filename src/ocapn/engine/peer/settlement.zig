@@ -2,7 +2,7 @@
 //!
 //! A relayed resolution bypasses `send`, so this module owns its complete
 //! lower-validate-store-fire transaction. Session remains the resolution
-//! authority; Peer retains only the bounded retry count for a store that had
+//! authority. Peer retains only the bounded retry count for a store that had
 //! to commit after the source fire became terminal.
 
 const std = @import("std");
@@ -22,7 +22,7 @@ const Peer = engine.Peer;
 /// Application-supplied foreign-import tokens are lowered here because this
 /// path bypasses `send`'s ordinary lowering chokepoint (ADR-0069).
 /// `Node.RelayRecipient.adopt` is the production caller and supplies the
-/// enrollment-stamped `row_id`; the node tests pin that a routing token is
+/// enrollment-stamped `row_id`. The node tests pin that a routing token is
 /// emitted as its wire import position rather than leaking onto the wire.
 pub fn applyRelayedResolution(
     self: *Peer,

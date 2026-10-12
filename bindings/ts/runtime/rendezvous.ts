@@ -1,9 +1,9 @@
 // The accepting half of the cold-dial rendezvous (ADR-0088 capability 5). A
-// peer that opens no listening socket — a browser tab, or any process behind a
-// NAT that declines a listener — cannot be dialed. Instead it registers its
+// peer that opens no listening socket (a browser tab, or any process behind a
+// NAT that declines a listener) cannot be dialed. Instead it registers its
 // authenticated identity and a held inbound socket at a relay; a peer that redeems an
 // introduction naming that identity is bridged onto the held socket, and the
-// keyed or Noise handshake runs end to end between them — the relay parses
+// keyed or Noise handshake runs end to end between them. The relay parses
 // nothing and holds no capability. The relay half is `@glowcap/relay`'s
 // `Rendezvous`; this is the accepting side, runtime-neutral over the
 // `WebSocket` global.
@@ -11,7 +11,7 @@
 // `serveRendezvous` keeps a small pool of registration sockets, each parked in
 // the accept handshake reading its socket until a dialer's bytes arrive through
 // the bridge (a registration accept has no read deadline, so an idle
-// registration simply waits). When one is bridged and its session opens, the
+// registration waits). When one is bridged and its session opens, the
 // host's publications answer it and the pool replenishes, so the peer can be
 // cold-dialed again.
 //
@@ -19,14 +19,15 @@
 // `keyed-relay` locator carries its relay route in its `rendezvous-relay`
 // hint, and the redeemer follows that hint. `@glowcap/relay`'s explicit
 // connector opens the hinted WebSocket and drives
-// `Session.establishDialedLocator` — the mirror of the `establishAccepted`
-// this module parks on — and its native provider package carries the same
+// `Session.establishDialedLocator` (the mirror of the `establishAccepted`
+// this module parks on), and its native provider package carries the same
 // dial inside the driver loop. Keeping the redeeming side on that one
 // locator-carried route is what lets the conformance proof pin a single
 // cold-dial mechanism rather than a raw dial-by-designator convenience
 // beside it.
 
 import type { Host } from "./host.ts";
+import type { Timer } from "./timer.ts";
 import { retainSecondaryFailure } from "./errors.ts";
 import { Session } from "./session.ts";
 import { TRANSPORT_KEYED_RELAY, TRANSPORT_NOISE_RELAY } from "./locator.ts";
@@ -52,7 +53,7 @@ const REPLENISH_BACKOFF_MS = 1_000;
 /** A running rendezvous registration. `stop` is an idempotent barrier: it
  * cancels pending retries, closes registration sockets, and joins their
  * establishment work. Sessions already accepted belong to the Host and are
- * deliberately not closed with the listener. */
+ * not closed with the listener. */
 export interface RendezvousHandle {
 	/** The complete locator installed on the Host and advertised to peers. */
 	readonly locator: Locator;
@@ -115,7 +116,7 @@ export function serveRendezvous(
 	const pending = new Map<WebSocket, WebSocketByteChannel>();
 	const registrations = new Set<Promise<void>>();
 	const accepted = new Set<Promise<void>>();
-	const retries = new Set<number>();
+	const retries = new Set<Timer>();
 	let readyState: "pending" | "ready" | "stopped" = "pending";
 	const readyWaiters: Array<{ resolve(): void; reject(error: Error): void }> = [];
 
@@ -140,7 +141,7 @@ export function serveRendezvous(
 		const timer = setTimeout(() => {
 			retries.delete(timer);
 			registerOne();
-		}, delay) as unknown as number;
+		}, delay);
 		retries.add(timer);
 	};
 

@@ -1,7 +1,7 @@
 //! Bounded custody of the media a conversation's lines carry. Each line's
-//! selection leases its files from one pool; a file shared by sibling lines
+//! selection leases its files from one pool. A file shared by sibling lines
 //! expires only after its final selection retires. Actors borrow this owner
-//! weakly; selections never keep their line actors alive through a Host cycle.
+//! weakly. Selections never keep their line actors alive through a Host cycle.
 use crate::{
 	Error,
 	files::media_files::{FileView, MediaFiles, PreviousFile, Selection},

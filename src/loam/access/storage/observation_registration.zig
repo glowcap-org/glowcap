@@ -165,8 +165,8 @@ pub const Registration = opaque {
         return backing(self).stage(publications, null);
     }
     /// Runtime observations borrow an explicitly supplied trusted marker. One
-    /// optional cancellation owns stale-context preparation through commit;
-    /// no population-sized allocation or permanent runtime index is added.
+    /// optional cancellation owns stale-context preparation through commit.
+    /// No population-sized allocation or permanent runtime index is added.
     pub fn initLifetime(operation: *op.Operation, target: ?core.ResourceId, key: [32]u8, lifetime: Lifetime) !*Registration {
         const store = op.state(operation).binding.owner.store;
         if (lifetime.marker.store != store.metadata.store or lifetime.revision == 0) return error.InvalidRecord;

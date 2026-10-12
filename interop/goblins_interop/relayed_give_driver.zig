@@ -7,7 +7,7 @@
 //! Here the introduction is a promise living on a vat the recipient has never
 //! spoken to, so the give arrives in a *listener fire* instead. That position
 //! rested on glowcap's own tests until this step. This scenario asks a real
-//! Goblins vat to read a give specifically from a listener fulfillment; the
+//! Goblins vat to read a give specifically from a listener fulfillment. The
 //! recursive container evidence lives in the binding gifter matrix.
 //!
 //! Topology (TCP loopback):

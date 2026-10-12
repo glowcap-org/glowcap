@@ -23,7 +23,7 @@ const handshake = @import("../../support/handshake.zig");
 const fixtures = @import("../../support/completion_loop_fixtures.zig");
 
 /// The shared completion-loop fixtures own the peer factory and the outbound
-/// drains; this backend adds only the cross-arm schedule on top of them.
+/// drains. This backend adds only the cross-arm schedule on top of them.
 pub const startSession = fixtures.startSession;
 pub const makeServerPeer = fixtures.makeServerPeer;
 pub const drainOutboundBytes = fixtures.drainOutboundBytes;
@@ -32,12 +32,12 @@ pub const drainOutboundStreamBytes = fixtures.drainOutboundStreamBytes;
 // ── End to end: a quiet partner hears a cross-armed frame ────────────────────
 
 /// A scripted backend with test-controlled phases. Sends are held at submit
-/// (the kernel-borrow shape); an idle `poll` releases the oldest held send
+/// (the kernel-borrow shape). An idle `poll` releases the oldest held send
 /// only while `hold_sends` is false. A recv finds its chunk immediately when
-/// one is scripted; with the script exhausted it stays pending (delivered by
+/// one is scripted. With the script exhausted it stays pending (delivered by
 /// a later idle poll once the test appends a chunk) or completes as a clean
 /// EOF once `eof_when_exhausted` is set. An idle poll with nothing to do
-/// returns `error.ScriptParked` — each test phase ends there deliberately.
+/// returns `error.ScriptParked`, each test phase ends there.
 pub const CrossArmBackend = struct {
     pub const Fd = i32;
 
@@ -104,6 +104,10 @@ pub const CrossArmBackend = struct {
     pub const ListenerAddress = u16;
     pub fn listenerAddress(_: *@This(), _: Fd) !ListenerAddress {
         return 1;
+    }
+    /// A scripted listener binds at `openListener`; nothing pends.
+    pub fn listenerPending(_: *@This(), _: Fd) bool {
+        return false;
     }
     pub fn listenerPort(address: ListenerAddress) ?u16 {
         return address;

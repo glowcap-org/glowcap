@@ -38,6 +38,9 @@ const ScriptBackend = struct {
     refuse_next_send: bool = false,
     close_first: bool = false,
     stall_control_connect: bool = false,
+    /// A deadline to expire the moment this poll hands back a borrowed
+    /// receive, after the turn's own deadline check has already passed.
+    expire_on_borrowed_poll: ?*i64 = null,
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -163,9 +166,23 @@ const ScriptBackend = struct {
         return null;
     }
 
+    /// A scripted listener binds at `openListener`; nothing pends here. The
+    /// onion adapter's own publish conversation reports through its row.
+    pub fn listenerPending(_: *const ScriptBackend, _: Fd) bool {
+        return false;
+    }
+
+    pub fn waitBoundMs(_: *const ScriptBackend, requested_ms: i32) i32 {
+        return requested_ms;
+    }
+
     pub fn poll(self: *ScriptBackend, out: []completion.Completion, _: i32) !usize {
         const n = @min(out.len, self.ready.items.len);
         @memcpy(out[0..n], self.ready.items[0..n]);
+        if (self.expire_on_borrowed_poll) |deadline| for (out[0..n]) |comp| if (comp.borrowed.active()) {
+            deadline.* = 0;
+            self.expire_on_borrowed_poll = null;
+        };
         const rest = self.ready.items.len - n;
         std.mem.copyForwards(completion.Completion, self.ready.items[0..rest], self.ready.items[n..]);
         self.ready.shrinkRetainingCapacity(rest);
@@ -210,6 +227,23 @@ fn openDial(backend: *Backend, connect_ud: u64) !Backend.Fd {
     const connected = try waitFor(backend, connect_ud);
     try std.testing.expectEqual(@as(i32, 0), connected.result);
     return fd;
+}
+
+/// Open the onion listener and drive its pending publish conversation to a
+/// live service, collecting the runtime's ready seat on the way.
+fn publishListener(backend: *Backend, ready_ud: u64) !Backend.Fd {
+    const fd = try backend.openListener(.{ .onion = 0 });
+    try std.testing.expect(backend.listenerPending(fd));
+    try backend.submitListenReady(ready_ud, fd);
+    var turns: usize = 0;
+    while (turns < 1024) : (turns += 1) {
+        if (try pollOne(backend)) |comp| {
+            if (comp.user_data != ready_ud) return error.UnexpectedCompletion;
+            try std.testing.expectEqual(@as(i32, 0), comp.result);
+            return fd;
+        }
+    }
+    return error.CompletionTimeout;
 }
 
 fn closeDial(backend: *Backend, fd: Backend.Fd, close_ud: u64) !void {
@@ -392,13 +426,14 @@ test "onion completion publishes backend listener metadata and holds control lif
     backend.inner.max_send_bytes = 1;
     defer backend.deinit();
 
-    const listener_fd = try backend.openListener(.{ .onion = 0 });
+    const listener_fd = try publishListener(&backend, 500);
     const address = try backend.listenerAddress(listener_fd);
     try std.testing.expectEqualSlices(u8, service_id, &address.onion);
     try std.testing.expect(Backend.listenerPort(address) == null);
     try std.testing.expect(std.mem.indexOf(u8, backend.inner.sent_bytes.items, "127.0.0.1:4242") != null);
     try std.testing.expectEqual(@as(usize, 0), backend.inner.closed_fds.items.len);
 
+    try std.testing.expect(!backend.listenerPending(listener_fd));
     const stable_id = address.onion;
     try backend.submitClose(501, listener_fd);
     try std.testing.expectEqual(@as(usize, 1), backend.inner.closed_fds.items.len);
@@ -418,8 +453,87 @@ test "onion completion bounds control setup and drains the timed-out operation" 
     });
     defer backend.deinit();
 
-    try std.testing.expectError(error.ControlSetupTimedOut, backend.openListener(.{ .onion = 0 }));
+    const fd = try backend.openListener(.{ .onion = 0 });
+    try std.testing.expect(backend.listenerPending(fd));
+    try backend.submitListenReady(600, fd);
+    const ready = try waitFor(&backend, 600);
+    try std.testing.expect(ready.result < 0);
+    try std.testing.expectEqual(error.ControlSetupTimedOut, ready.failure.?);
     try std.testing.expect(backend.control_fd == null);
     try std.testing.expect(backend.inner.pending_connect_ud == null);
+    try std.testing.expect(!backend.listenerPending(fd));
+    try std.testing.expect((try pollOne(&backend)) == null);
+}
+
+test "onion completion returns a borrowed reply that lands past the setup deadline" {
+    const chunks = [_][]const u8{"250 OK\r\n"};
+    var backend = initBackend(std.testing.allocator, &chunks);
+    defer backend.deinit();
+
+    const fd = try backend.openListener(.{ .onion = 0 });
+    try backend.submitListenReady(640, fd);
+    // The deadline passes while the inner wait produces the reply, so the
+    // record reaches the conversation already expired and still carrying
+    // its borrowed buffer.
+    backend.inner.expire_on_borrowed_poll = &backend.listener.setup.?.deadline_ms;
+    const ready = try waitFor(&backend, 640);
+    try std.testing.expect(ready.result < 0);
+    try std.testing.expectEqual(error.ControlSetupTimedOut, ready.failure.?);
+    try std.testing.expectEqual(@as(usize, 1), backend.inner.recycled_tokens.items.len);
+    try std.testing.expect(!backend.listenerPending(fd));
+    try std.testing.expect(backend.control_fd == null);
+    try std.testing.expect((try pollOne(&backend)) == null);
+}
+
+test "onion completion closes a listener whose setup is still running" {
+    var backend = Backend.initOnion(std.testing.allocator, .{
+        .allocator = std.testing.allocator,
+        .stall_control_connect = true,
+    }, .{
+        .socks = .socks,
+        .control = .control,
+    });
+    defer backend.deinit();
+
+    const fd = try backend.openListener(.{ .onion = 0 });
+    try backend.submitListenReady(610, fd);
+    try backend.submitClose(611, fd);
+    const ready = try waitFor(&backend, 610);
+    try std.testing.expect(ready.result < 0);
+    try std.testing.expectEqual(error.ListenerClosed, ready.failure.?);
+    const closed = try waitFor(&backend, 611);
+    try std.testing.expectEqual(@as(i32, 0), closed.result);
+    try std.testing.expect(backend.control_fd == null);
+    try std.testing.expect(backend.inner.pending_connect_ud == null);
+    try std.testing.expect(!backend.listenerPending(fd));
+    try std.testing.expect((try pollOne(&backend)) == null);
+}
+
+test "onion completion answers a late ready seat with the settled outcome" {
+    const control_reply = "250-ServiceID=" ++ service_id ++ "\r\n250 OK\r\n";
+    const chunks = [_][]const u8{ "250 OK\r\n", control_reply };
+    var backend = initBackend(std.testing.allocator, &chunks);
+    defer backend.deinit();
+
+    const fd = try publishListener(&backend, 620);
+    try backend.submitListenReady(621, fd);
+    const again = try waitFor(&backend, 621);
+    try std.testing.expectEqual(@as(i32, 0), again.result);
+    try std.testing.expect(!backend.listenerPending(fd));
+    try backend.submitClose(622, fd);
+    _ = try waitFor(&backend, 622);
+}
+
+test "onion completion fails the publish when the control connection refuses" {
+    const chunks = [_][]const u8{ "250 OK\r\n", "500 Bogus\r\n" };
+    var backend = initBackend(std.testing.allocator, &chunks);
+    defer backend.deinit();
+
+    const fd = try backend.openListener(.{ .onion = 0 });
+    try backend.submitListenReady(630, fd);
+    const ready = try waitFor(&backend, 630);
+    try std.testing.expect(ready.result < 0);
+    try std.testing.expectEqual(error.ControlRefused, ready.failure.?);
+    try std.testing.expect(!backend.listenerPending(fd));
     try std.testing.expect((try pollOne(&backend)) == null);
 }

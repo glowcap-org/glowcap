@@ -40,7 +40,7 @@ const headingMono = {
  *  reader just selected.
  *
  *  `mono` picks the face. A name a person chose reads in the sans face
- *  the rest of the chrome uses; a string the network chose reads in the
+ *  the rest of the chrome uses. A string the network chose reads in the
  *  mono face every unproven token wears here.
  *
  *  `title` is what a reader gets on hover, which matters because the
@@ -85,7 +85,7 @@ export const placeholder = {
 // 78px is the widest key the app renders today, `CAPTP VERSION`, measured
 // at the key's own 9px uppercase face with its tracking. A longer key
 // wraps, visibly, rather than silently widening its own group back out of
-// alignment — a wrap is a defect somebody sees, and a group half a
+// alignment. A wrap is a defect somebody sees, and a group half a
 // character out of step is not.
 const KEY_COL_W = 78;
 
@@ -114,7 +114,7 @@ export const fieldValueStyle = {
 
 // One layout line of a value, and the panel's vertical rhythm.
 //
-// A field row used to be as tall as whatever it happened to hold: one
+// A field row must not be as tall as whatever it happens to hold: one
 // control's worth where the value was a control, one line of text where
 // it was text. That reads as uneven padding under the last row of a
 // panel, because what the eye measures is the gap to the ink, not the
@@ -131,23 +131,23 @@ export const fieldLineStyle = {
 	minWidth: 0,
 } satisfies CSSProperties;
 
-// A note under a value — the clamp hint, today. Its own block so it
+// A note under a value. The clamp hint, today. Its own block so it
 // starts a line of its own whatever the value above it was.
 export const fieldNoteStyle = {
 	marginTop: 2,
 	minWidth: 0,
 } satisfies CSSProperties;
 
-/** Inner box of a labeled field group — the actual recessed
+/** Inner box of a labeled field group. The actual recessed
  *  rectangle. Title sits OUTSIDE / above the box (see
- *  `FieldGroup`); the box itself only holds the kv content so
+ *  `FieldGroup`). The box itself only holds the kv content so
  *  the title doesn't compete with the field rows for visual
  *  weight. */
 export const fieldGroupBox = PANEL;
 
 /** Stack a `groupTitle` label above the `fieldGroupBox`. Same
  *  idiom as `subSection` / `subSectionLabel` further down the
- *  Inspector — gives the panel one consistent shape: small-caps
+ *  Inspector, gives the panel one consistent shape: small-caps
  *  label, then recessed content block. */
 export const fieldGroup = {
 	display: "flex",
@@ -167,8 +167,8 @@ export const subSectionLabel = {
 } satisfies CSSProperties;
 
 /** Small-caps header sitting above a `fieldGroupBox`. It IS
- * `subSectionLabel` — one visual rhythm in the Inspector, "stacked
- * rectangles, each with its own title" — inset by the box's own padding
+ * `subSectionLabel`, one visual rhythm in the Inspector, "stacked
+ * rectangles, each with its own title", inset by the box's own padding
  * so the title lines up with the field keys under it. Two spellings of
  * that typography is how a panel comes to have two sizes of heading. */
 export const groupTitle = {
@@ -192,7 +192,7 @@ export const keyStyle = {
 // This is the face for a SHORT token: a codec, a side letter, a time. A
 // long opaque string goes through `Identifier` instead, which elides its
 // middle and keeps the whole value on hover. The clamp here is the
-// backstop for a value that turns out longer than its author expected —
+// backstop for a value that turns out longer than its author expected,
 // it clips rather than pushing the panel open, which is the failure a
 // reader can at least see and hover.
 export const valueMono = {
@@ -209,7 +209,7 @@ export const valueMono = {
 	whiteSpace: "nowrap",
 } satisfies CSSProperties;
 
-// A value that is a sentence rather than a token — an explanation
+// A value that is a sentence rather than a token, an explanation
 // the reader needs in words. Sits beside `valueMono` in the same
 // key/value grid, so it wraps and reads as prose while mono values
 // stay tabular.
@@ -221,7 +221,7 @@ export const valueText = {
 
 // A value that is a name a person chose, such as a peer's label. Sans
 // face because it is a word rather than a token, and clipped at its end
-// because a name reads left to right — the head is the part that
+// because a name reads left to right. The head is the part that
 // identifies it. An opaque string goes to `Identifier` instead, which
 // keeps both ends.
 export const valueName = {
@@ -237,8 +237,8 @@ export const valueName = {
 // Shapes echo the static `heading` / mono-value styles so the
 // display ↔ edit transition doesn't shift the panel.
 //
-// Only typography. The box — corner, inset, surface, bevel, hover,
-// focus — is `.ocv-input`'s in controls.css, and an inline copy of any of
+// Only typography. The box, corner, inset, surface, bevel, hover,
+// focus, is `.ocv-input`'s in controls.css, and an inline copy of any of
 // it would beat the class and freeze it. These two carried a corner and
 // an inset each, which is how one field sat its text 6px in, its
 // neighbour 8px, and the dropdown under them 10px.
@@ -258,7 +258,7 @@ export const inlineMonoInput = {
 } satisfies CSSProperties;
 
 // Inspector enum-field `<select>`. Only overrides the kv-grid
-// geometry — chevron, surface fill, hover, focus all live in
+// geometry, chevron, surface fill, hover, focus all live in
 // `.ocv-select` so chevron rendering can stay theme-aware (the
 // class swaps an accent-stroked SVG per `[data-theme]`, which an
 // inline `background-image: url(currentColor…)` cannot do because
@@ -274,7 +274,7 @@ export const inlineSelectInput = {
 	fontSize: SIZE.sm,
 	width: "100%",
 	// No padding here. `.ocv-select` already sets the inset a dropdown wants,
-	// chevron room included, and an inline value beats the class — which is how
+	// chevron room included, and an inline value beats the class, which is how
 	// a dropdown came to sit its text 6px in beside a top-bar one at 10px. Same
 	// height, different rhythm, which is what reads as inconsistent.
 } satisfies CSSProperties;
@@ -291,7 +291,7 @@ export const linkRowList = {
 	gap: SPACE.xs,
 } satisfies CSSProperties;
 
-// Selection-membership badge — small uppercase tag rendered to the
+// Selection-membership badge, small uppercase tag rendered to the
 // LEFT of the row's right-side meta. The visual signal "this is
 // also in your selection" without leaning entirely on color.
 export const linkRowSelectedBadge = {
@@ -324,7 +324,7 @@ export const linkRowName = {
  *  ends with.
  *
  *  It does not shrink. A row has one thing that gives way when the panel
- *  narrows and it is the name on the left, which ellipsizes; a status
+ *  narrows and it is the name on the left, which ellipsizes. A status
  *  badge is two or three words that mean nothing broken apart, and left
  *  to shrink it wraps and takes the row's height with it. "Not yet
  *  joined" set three lines tall beside a one-line name is what this
@@ -356,9 +356,8 @@ export const linkRowMeta = {
 export const ROW_H = CONTROL.height;
 
 // A time and the controls docked beside it. No height of its own: the
-// field's line owns the row's rhythm, and this used to be the one place
-// that happened to carry it, which is why a time row stood taller than
-// every other read-only row in the panel.
+// field's line owns the row's rhythm, so a time row stands as tall as every
+// other read-only row in the panel.
 export const endRowStyle = {
 	display: "flex",
 	alignItems: "center",
@@ -382,7 +381,7 @@ export const endRowScrubStyle = {
 	flex: 1,
 } satisfies CSSProperties;
 
-// A worded button in one of these rows — "Insert @playhead" and its
+// A worded button in one of these rows, "Insert @playhead" and its
 // siblings. It holds its width against the scrub input beside it and
 // reads at the panel's size rather than the chrome's; the box is
 // `.ocv-btn`'s.
@@ -393,10 +392,10 @@ export const endRowButtonStyle = {
 } satisfies CSSProperties;
 
 // The ✕ / pin that ends one of these rows. Square is `.ocv-btn.is-icon`
-// at the call site — the same square the top bar's icon buttons take —
+// at the call site, the same square the top bar's icon buttons take,
 // and all this adds is the push that docks it against the row's right
-// edge. It used to spell the square itself, out of the row height, and
-// so was a second answer to "how big is an icon button".
+// edge. It does not spell the square itself, which would be a second answer to
+// "how big is an icon button".
 //
 // The bordered face, not the ghost one. Ghost belongs to the top bar,
 // where a row of glyphs sits on chrome; in a pane of labels and values a

@@ -1,7 +1,7 @@
 //! The cross-language application demos beside rooms: the tasks board, the
 //! tools (delegation/attenuation/revocation) demo, and the accountability
 //! application with its three-party attribution test. The native clients
-//! compile under `check`; the demos are siblings that need deno.
+//! compile under `check`. The demos are siblings that need deno.
 
 const std = @import("std");
 const common = @import("common.zig");
@@ -52,8 +52,8 @@ pub fn register(
     runtime_gate.add(tasks_app_test_step);
 
     // The tools capability showcase: an AI-tool-harness shaped demo. A Deno
-    // coordinator hands an agent capabilities to tools — attenuated to read-only,
-    // and revocable — and each agent proves delegation, attenuation, and
+    // coordinator hands an agent capabilities to tools, attenuated to read-only,
+    // and revocable, and each agent proves delegation, attenuation, and
     // revocation over an OCapN session on the `tcp` netlayer. The coordinator and agent are different languages
     // on the wire, so the capability trio is real, not in-process. It needs `deno`
     // (which hosts the coordinator and runs the orchestrator); Python, Racket,
@@ -64,8 +64,8 @@ pub fn register(
     tools_agent_exe.root_module.addImport("demo_usage", demo_usage_mod);
     check_step.dependOn(&tools_agent_exe.step);
 
-    // The showcase's thesis — attenuation refuses the unsafe verb, revocation
-    // severs the handle — is pure coordinator logic, so it is pinned hermetically
+    // The showcase's thesis, attenuation refuses the unsafe verb, revocation
+    // severs the handle, is pure coordinator logic, so it is pinned hermetically
     // here rather than only by the off-gate cross-language demo (needs deno).
     const tools_app_test = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
         "deno", "test", "apps/tools/deno/capabilities_test.ts",

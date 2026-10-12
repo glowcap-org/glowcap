@@ -86,8 +86,8 @@ pub fn checkAdrFrontmatter(
 
 /// ADR replacement and amendment links are graph edges, not independent prose.
 /// A one-sided edge makes the older record lie about whether its substance is
-/// still living guidance, which is how vocabulary-only amendments were
-/// previously mislabeled as full supersessions.
+/// still living guidance, and vocabulary-only amendments get mislabeled as full
+/// supersessions.
 pub fn checkAdrRelations(
     io: std.Io,
     gpa: std.mem.Allocator,

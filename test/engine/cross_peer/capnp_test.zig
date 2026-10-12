@@ -46,7 +46,7 @@ test "a binding-originated give carries typed fields over a Cap'n Proto session,
     // fields empty, so a Cap'n Proto session (which does not understand
     // `raw_signed`) shipped an empty give.
     const gifter_secret = crypto.SecretKey.fromSeed(repeated(32, 0x51));
-    // `pairedWithCodec` is the deliberately unsigned fixture path: both
+    // `pairedWithCodec` is the unsigned fixture path: both
     // handshake halves carry the zero session key. The give still has to name
     // that actual recipient session rather than an unrelated synthetic key.
     const recipient_pub_key = repeated(32, 0);

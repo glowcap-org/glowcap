@@ -18,7 +18,7 @@ pub fn line_bytes(text: &str) -> usize {
 }
 
 /// A browser receives only Rooms' inert document projection. Authored source
-/// remains the wire and archive value; parsing failure is represented inside
+/// remains the wire and archive value. Parsing failure is represented inside
 /// the document as literal text rather than crossing this boundary as a lost
 /// message.
 #[wasm_bindgen(js_name = markdownDocument)]

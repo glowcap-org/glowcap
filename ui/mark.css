@@ -1,13 +1,13 @@
 /* The glowcap mark as the documentation site draws it in masks, and the
    logotype lockup the site and rooms share. Rooms draws its mark with a
    shader (apps/rooms/web/ui/mark_gpu_live.ts) and takes only the lockup from
-   here; this drawing is what a browser with no device to run that shader on
+   here. This drawing is what a browser with no device to run that shader on
    gets instead, and it is the same mushroom because it was traced from it. */
 
 /* The still mark is four flat tones stacked back to front, each a mask in
    ui/tokens.css painted its own themed colour here. It stands where the shader
    does not run, so it carries no play of its own beyond a bloom under the
-   pointer; the light and its beats belong to the shader. */
+   pointer. The light and its beats belong to the shader. */
 .icon-mark {
 	position: relative;
 	display: block;
@@ -15,7 +15,7 @@
 	overflow: visible;
 	/* Colour belongs to the mark, and it is the colour of the light. In dark
 	   that light is teal and the mushroom glows teal from inside its amber
-	   rim, the brand's two colours in one object; in light it burns out to
+	   rim, the brand's two colours in one object. In light it burns out to
 	   white, because nothing teal is brighter than cream. `--mark-light`
 	   carries that. A wrapping control stays a neutral toggle: hover and held
 	   state are the button's. */
@@ -101,7 +101,7 @@
    the same thing the stroked glyphs beside it do, so it takes the control's
    colour in every state the control has and cannot drift out of step with the
    row. The mask is fitted inside the glyph's square box, which letterboxes a
-   drawing wider than it is tall; that is wanted, since the box the row agrees
+   drawing wider than it is tall. That is wanted, since the box the row agrees
    on is the row's, not the mushroom's. */
 .mark-glyph {
 	display: block;
@@ -127,14 +127,14 @@
 }
 
 /* The logotype lockup: "glowcap" and an optional small-caps product name, one
-   drawn unit. Every metric here is a fixed pixel, on purpose. Borrowing
+   drawn unit. Every metric here is a fixed pixel. Borrowing
    the global type ramp would let each ramp tweak silently knock the caps off
-   glowcap's lowercase body. A logotype is not typography; it is
+   glowcap's lowercase body. A logotype is not typography. It is
    a drawing whose parts may never move relative to each other. Colours stay
-   tokens so the lockup themes; sizes, gaps, and the optical lift do not.
+   tokens so the lockup themes. Sizes, gaps, and the optical lift do not.
    The caps size is tuned against the title's x-height band by eye and pinned
    by the rooms browser proof. Rooms' rail and boot screen, and the site
-   header, take the class; a new home does too, never a copy of these numbers. */
+   header, take the class. A new home does too, never a copy of these numbers. */
 .wordmark {
 	display: flex;
 	align-items: baseline;
@@ -167,6 +167,6 @@
 	text-transform: uppercase;
 	color: var(--accent-ink);
 	/* Baseline-true: the caps share glowcap's baseline, feet level, the
-	   classic logotype seat. Every lifted variant — centred on the x-height
-	   band, then a half pixel under it — still read as floating. */
+	   classic logotype seat. Every lifted variant, centred on the x-height
+	   band, then a half pixel under it, still read as floating. */
 }

@@ -1,6 +1,6 @@
 //! The completion loop's wake seam: an initial submission failure is
 //! transactional and exact, a rearm failure escapes the loop with its cause,
-//! and shutdown cancels an idle armed recv — or a racing ready wake — before
+//! and shutdown cancels an idle armed recv, or a racing ready wake, before
 //! backend teardown, running no handler.
 //! The completion loop's cross-connection outbound arm (`Loop.armOutbound`):
 //! a hook serving connection A that enqueued sends on connection B's peer

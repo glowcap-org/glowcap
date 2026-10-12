@@ -1,18 +1,18 @@
 # Multi-home routes `[glowcap-next]`
 
-Anchors: [ADR-0125](../decisions/adr/ADR-0125-identity-route-multihome.md);
-OCapN Locators and Netlayers specifications (which define the single-location
-baseline these diagrams extend); [upstream watch](../upstream-watch.md) for the
-extension's standing. Nothing on this page is pinned-draft behavior: every
-flow is gated behind `glowcap-next` negotiation, and a baseline or Goblins
-session never sees this vocabulary.
+These flows extend the single-location baseline of the OCapN Locators and
+Netlayers specifications
+([ADR-0125](../decisions/adr/ADR-0125-identity-route-multihome.md)). They run
+only after both peers negotiate `glowcap-next`, so a baseline or Goblins session
+never sees them. [Upstream watch](../upstream-watch.md) tracks the extension's
+standing.
 
 ## MH-1: The `id` locator
 
 An `id` locator names a peer by a durable public key instead of by one
 transport address. Routes live in hints, which the Netlayers draft already
 excludes from peer identity. `via` carries the ordered routes that must prove
-the outer key; `alt-locators` carries weak fallbacks that redeem a signed gift
+the outer key. `alt-locators` carries weak fallbacks that redeem a signed gift
 without ever establishing the identity. Route URIs are percent-encoded inside
 the hint value and separated by `|`, with the count and byte size bounded
 before any allocation.
@@ -41,7 +41,7 @@ its key is only a dial target.
 Route vocabulary is a named `glowcap-next` feature. A first hello carries
 none of it, because the sender does not yet know what the partner accepts.
 Only after both signed hellos advertise the feature does the settled session
-admit it; a hello that carries an `id` route outside such an offer is malformed.
+admit it. A hello that carries an `id` route outside such an offer is malformed.
 
 ```mermaid
 sequenceDiagram
@@ -59,7 +59,7 @@ sequenceDiagram
 A signed give crosses two sessions: the exporter's and the recipient's. Route
 vocabulary survives only in their intersection. A recipient that did not
 negotiate it receives one concrete route on a transport it demonstrably
-participates in, or the give is refused; it is never handed experimental
+participates in, or the give is refused. It is never handed experimental
 vocabulary to ignore.
 
 ```mermaid
@@ -76,8 +76,8 @@ flowchart TD
 
 ## MH-4: Dialing an `id` bundle
 
-No physical `id` session exists. The generic dial planner refuses the symbol;
-only the pending-dial expansion resolves it into concrete routes. Source order
+No physical `id` session exists. The generic dial planner refuses the symbol.
+Only the pending-dial expansion resolves it into concrete routes. Source order
 is the explicit rank: Node races at most the first two strong routes, refills
 that bounded window in order, and accepts the first proved completion. It
 cancels every still-running loser. Weak fallbacks begin one at a time only

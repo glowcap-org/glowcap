@@ -1,5 +1,5 @@
 #lang racket/base
-;; A byte-transparent relay in Racket — the fourth-runtime reference for the
+;; A byte-transparent relay in Racket: the fourth-runtime reference for the
 ;; ADR-0086 relay contract, proving the contract is language-neutral and not a
 ;; TypeScript shape with a doc wrapper.
 ;;
@@ -38,8 +38,8 @@
 
 (struct exn:fail:relay exn:fail (primary secondary) #:transparent)
 
-;; The iroh binding loads on demand, only when a `?locator=` dial actually needs
-;; it, so a TCP-only relay never loads iroh — matching the Deno, Python, and Rust
+;; The iroh binding loads on demand, only when a `?locator=` dial needs
+;; it, so a TCP-only relay never loads iroh, matching the Deno, Python, and Rust
 ;; relays, which each defer their iroh import to the locator path. A relay serves
 ;; many connections at once, so it reaches the companion through
 ;; `iroh-companion.rkt`, which loads it exactly once however many arrive together.
@@ -56,14 +56,14 @@
 
 ;; A raw TCP byte channel as a `byte-channel`: `read` blocks and returns eof on
 ;; close, `write` flushes (which blocks under the socket's send-buffer
-;; backpressure) — the same shape `dial-locator-for-relay` returns so the pump is
+;; backpressure). It is the same shape `dial-locator-for-relay` returns, so the pump is
 ;; transport-agnostic.
 (define (open-tcp-channel host port)
   (define-values (in out) (tcp-connect host port))
   (define read-buf (make-bytes READ-CHUNK))
   (byte-channel
    ;; `read-bytes-avail!` returns as soon as any bytes arrive (up to the buffer),
-   ;; never blocking for a full buffer — a whole handshake reply forwards at once
+   ;; never blocking for a full buffer. A whole handshake reply forwards at once
    ;; rather than waiting for a full relay read chunk a small session never sends.
    (lambda ()
      (define n (read-bytes-avail! read-buf in))

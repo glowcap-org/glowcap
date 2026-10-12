@@ -47,9 +47,9 @@ test "a warmed local settle window costs zero gpa allocations" {
         try vat.drive();
     }
 
-    // The exact contract: the settle window — `drive` running the queued
+    // The exact contract: the settle window, `drive` running the queued
     // turn, `settleLocal` cloning the fulfilled bytes for the listener, the
-    // listener call, chunk reclamation, and the settlement-arena reset — is
+    // listener call, chunk reclamation, and the settlement-arena reset, is
     // bump-only.
     // The queued message is read from the chunk arena, the handler's reply
     // lives in the warmed turn arena, and the settle clone lands in the
@@ -132,7 +132,7 @@ test "a common-arity far send pays exactly the sendCopying clone, no scratch spi
     defer port.deinit(&vat);
     const remote: actors.Ref = .{ .far = model.FarRef.object(5) };
 
-    // Seven args — the widest arity the stack buffer carries with a verb.
+    // Seven args, the widest arity the stack buffer carries with a verb.
     const args = [7]model.Argument{
         .{ .bytes = "payload" }, .{ .integer = 1 }, .{ .integer = 2 },
         .{ .integer = 3 },       .{ .integer = 4 }, .{ .integer = 5 },
@@ -150,13 +150,13 @@ test "a common-arity far send pays exactly the sendCopying clone, no scratch spi
     }
 
     // The exact contract: a ≤7-arg far send costs only `sendCopying`'s
-    // boundary clone of the message — (1) the owned args spine, (2) the verb
+    // boundary clone of the message, (1) the owned args spine, (2) the verb
     // symbol dupe, (3) the bytes payload dupe; the six integer args are POD
     // and the far target/no-answer carry no heap. The verb-splice scratch
-    // spine rides `farDeliverTo`'s stack buffer, so it no longer appears
+    // spine rides `farDeliverTo`'s stack buffer, so it does not appear
     // here. Each send is measured alone and the queue drained between them
     // (encoding outside the window), because the engine's steady-queue bound
-    // keeps only one queued message's slot warm — queue growth on
+    // keeps only one queued message's slot warm, queue growth on
     // back-to-back sends is engine footprint policy, not vat scratch.
     const sends = 4;
     var send_allocs: usize = 0;
@@ -198,7 +198,7 @@ test "a persistent become turn costs exactly one gpa allocation, the merged bloc
     // Warm the turn arena so the measured turn's `beginTurn` reset retains.
     _ = try vat.near(actor, .{ .verb = "increment" });
 
-    // The exact contract: one near-call turn that becomes allocates once —
+    // The exact contract: one near-call turn that becomes allocates once,
     // `makeBox`'s single `Boxed` block carrying the `StateBox` header and the
     // next state side by side. Installing the become frees the old block;
     // frees are not allocations, so the box/state merge shows up here as

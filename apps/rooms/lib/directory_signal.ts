@@ -3,9 +3,9 @@
 // One row per active dial. `onSignalCandidate` creates it before ICE gathering
 // starts, so early local candidates can wait on `offerReady` instead of racing
 // the directory's exchange admission. `Directory` owns the session and the
-// local-ref table; this table owns only the exchanges.
+// local-ref table. This table owns only the exchanges.
 
-import { currentSession, Ref, retainSecondaryFailure } from "@glowcap/runtime";
+import { type Behavior, currentSession, Ref, retainSecondaryFailure } from "@glowcap/runtime";
 import type { Session } from "@glowcap/runtime";
 import { hasCapabilityArguments, throwAfterReleasingCapabilities } from "./argument_custody.ts";
 import { MAX_SIGNAL_CANDIDATE, MAX_SIGNAL_ID, MAX_SIGNAL_SDP, SIGNAL_EXCHANGE_TIMEOUT_MS, utf8Fits } from "./limits.ts";
@@ -98,7 +98,7 @@ export class DirectorySignaling {
 				reject: settle(reject),
 			};
 		});
-		// tolerant: the caller awaits `answer` and receives its refusal; this
+		// tolerant: the caller awaits `answer` and receives its refusal. This
 		// handler only keeps a refusal that lands before the await from
 		// surfacing as an unhandled rejection.
 		void answer.catch(() => {});
@@ -124,7 +124,7 @@ export class DirectorySignaling {
 	}
 
 	/** Trickle one ICE candidate. The offering side supplies its designator key
-	 * and waits for admission to resolve it to an exchange id; the answering
+	 * and waits for admission to resolve it to an exchange id. The answering
 	 * side already supplies the id it received with the offer. */
 	async signalCandidate(key: string, ice: string): Promise<void> {
 		const row = this.#signals.get(key);
@@ -186,20 +186,11 @@ export class DirectorySignaling {
 				rejectOfferReady = reject;
 			});
 			// tolerant: an offerer or answerer that needs this exchange's id awaits
-			// `offerReady` and receives its rejection there. A row nobody ever
-			// waits on has nobody to tell, and its loss is an exchange nobody
-			// used; this handler only covers the window before a waiter arrives.
+			// `offerReady` and receives its rejection there. A row nobody waits on
+			// has nobody to tell, and its loss is an exchange nobody used. This
+			// handler only covers the window before a waiter arrives.
 			void offerReady.catch(() => {});
-			const fresh: SignalRow = {
-				reply: null as unknown as Ref,
-				offerReady,
-				resolveOfferReady,
-				rejectOfferReady,
-				offerStarted: false,
-				answer: null,
-				sink: null as ((ice: string) => void) | null,
-			};
-			fresh.reply = this.session.spawn((verb, args) => {
+			const handleVerb: Behavior = (verb, args) => {
 				const caller = this.sessionFor();
 				if (caller == null) throw new Error("a signaling reply is reachable only during a session turn");
 				if (hasCapabilityArguments(args)) {
@@ -253,7 +244,16 @@ export class DirectorySignaling {
 					return null;
 				}
 				throw new Error(`signaling reply has no method ${verb}`);
-			});
+			};
+			const fresh: SignalRow = {
+				reply: this.session.spawn(handleVerb),
+				offerReady,
+				resolveOfferReady,
+				rejectOfferReady,
+				offerStarted: false,
+				answer: null,
+				sink: null,
+			};
 			this.#signals.set(designator, fresh);
 			row = fresh;
 		}

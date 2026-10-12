@@ -1,6 +1,6 @@
 // Command vocabulary: kinds, powers, and what running one comes to.
 //
-// The catalog and the parser both need these; neither owns them.
+// The catalog and the parser both need these. Neither owns them.
 
 import type { Conv } from "../types.ts";
 
@@ -22,7 +22,7 @@ export interface HeldDirectory {
 	standing: string;
 	/** What it advertises: room name to how many are in it. */
 	rooms: ReadonlyMap<string, number | null>;
-	/** The rooms on it this tab is actually in, named as a reader would hear them. */
+	/** The rooms on it this tab is in, named as a reader would hear them. */
 	joined: readonly string[];
 	connected: boolean;
 }
@@ -38,7 +38,7 @@ export interface HeldDirectory {
  * A tab act that needs a handle this window may not hold returns `null` when
  * it used it, or the sentence naming what was missing. The catalog is the
  * only result the composer reads. Asynchronous powers resolve after the effect
- * completes and reject on failure; these powers do not explain a missing
+ * completes and reject on failure. These powers do not explain a missing
  * handle into the log. Granted acts that share one missing-handle meaning
  * across adapters return a boolean, and the catalog names it. */
 export type CommandResult<T> = T | Promise<T>;
@@ -55,7 +55,7 @@ export interface CommandPowers {
 	joinRoom(name: string): CommandResult<string | null>;
 	/** Take up a room link: redeem it and enter what it opens. The link is the
 	 * whole of the authority. `label` is what to call it here when the reader
-	 * said one; empty means ask the room what it is called. `null` when the
+	 * said one. Empty means ask the room what it is called. `null` when the
 	 * link was taken up. A sentence when the link is not a room entry, or this
 	 * tab does not hold what it needs. */
 	joinLink(link: string, label: string): CommandResult<string | null>;
@@ -82,15 +82,15 @@ export interface CommandPowers {
 	 * capability, as an older room leaves it. */
 	setTopic(text: string): CommandResult<boolean>;
 	/** Say you have stepped away, or `""` that you are back. Written at whichever
-	 * of the three levels this reader's standing already comes from — the room,
-	 * the directory, or them — so a command never quietly overrules a room they
+	 * of the three levels this reader's standing already comes from (the room,
+	 * the directory, or them) so a command never quietly overrules a room they
 	 * set apart. False when there is no room membership to say it about. */
 	setAway(reason: string): CommandResult<boolean>;
 	/** Hand the room this was typed in to a member: the live reference crosses
 	 * the direct line to them as a handoff, and they may take it up or not.
 	 * Nothing durable is minted anywhere. That distinguishes it from `roomLink`.
 	 * False when there is no room membership to hand over, or when
-	 * `nick` is this reader — they already hold the room. */
+	 * `nick` is this reader. They already hold the room. */
 	invite(nick: string): CommandResult<boolean>;
 	/** Ask a member to leave the room this was typed in, through the room's
 	 * steward capability. The room answers that capability only to the
@@ -98,7 +98,7 @@ export interface CommandPowers {
 	 * comes back in the conversation. False when this is not a room. */
 	kick(nick: string): CommandResult<boolean>;
 	/** Claim, show, or take this room's durable steward capability. With no
-	 * sturdyref, claim it if unissued or show the one this tab holds; with one,
+	 * sturdyref, claim it if unissued or show the one this tab holds, with one,
 	 * validate and take that exact room's handed-over authority. */
 	steward(link?: string): CommandResult<boolean>;
 	/** The name this conversation's directory granted this reader, or empty
@@ -136,7 +136,7 @@ export interface CommandPowers {
 /** What running a command comes to.
  *
  * `say` and `action` hand text back to the send path rather than sending it
- * themselves, so one place still owns what reaches a room — a command cannot
+ * themselves, so one place still owns what reaches a room: a command cannot
  * post something the ordinary path would have refused. */
 export type CommandOutcome =
 	/** Handled here. Nothing goes to the room. */
@@ -161,8 +161,8 @@ export interface Command {
 	 *
 	 * Enter is the send key, and the completion list borrows it only while it
 	 * still has something to offer. Once a whole command is typed, a command
-	 * that needs an argument keeps Enter — the reader is mid-thought and the
-	 * accepted row leaves them at the argument — and one that needs nothing
+	 * that needs an argument keeps Enter, the reader is mid-thought and the
+	 * accepted row leaves them at the argument, and one that needs nothing
 	 * gives it back, so `/delete` and Enter withdraws a line instead of costing
 	 * a second keystroke for a row that says what is already on screen. Tab
 	 * accepts either way.
@@ -183,18 +183,18 @@ export interface Command {
 	 * and `/edit` and `/delete` are granted per line rather than per membership,
 	 * so a reader holds them by having spoken.
 	 *
-	 * A command naming a grant nothing ever answers with is simply never held,
+	 * A command naming a grant nothing ever answers with is never held,
 	 * so every named grant must correspond to a capability the conversation can
 	 * actually hand over. */
 	grant?: string;
 	/** Where this command can succeed. Absent means any conversation this tab
 	 * can type in. `"room"` means it would refuse in a direct line or a
 	 * directory, and offering it there would only teach the refusal. A reader
-	 * who wants it goes to a room; those other lists do not advertise the
+	 * who wants it goes to a room. Those other lists do not advertise the
 	 * detour. */
 	place?: "room";
 	/** What an `@name` after this command completes against. Absent means the
-	 * people in the conversation being typed in — a mention reaches somebody
+	 * people in the conversation being typed in: a mention reaches somebody
 	 * present. `"reachable"` means the directory's direct-message set instead,
 	 * because the command's target is somebody to bring in or open a line to,
 	 * who is by definition often not here: `/invite` and `/msg` want the people
@@ -202,7 +202,7 @@ export interface Command {
 	 * names (`here`, `room`) follow the mention path and stay off this list. */
 	targets?: "reachable";
 	/** What the words after this command complete as, when they are not a
-	 * person. `"room"` is a listed room name, written without `#` — `/link`
+	 * person. `"room"` is a listed room name, written without `#`, `/link`
 	 * and `/join` take one. Absent means nothing after the name is a room. */
 	argument?: "room";
 	/** Other spellings that reach it. IRC clients have carried some of these for
@@ -214,6 +214,6 @@ export interface Command {
 /** Which kind of conversation the reader is typing in.
  *
  * Completing and `/help` share this so a command that would refuse here is not
- * offered here. A direct line is not a room with a missing roster; a
+ * offered here. A direct line is not a room with a missing roster. A
  * directory is not a chat. They are different places. */
 export type CommandHere = "room" | "direct" | "directory";

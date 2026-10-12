@@ -1,7 +1,7 @@
 //! Peer verbs over Session-owned capability and answer namespaces.
 //!
-//! These projections let actors and adapters stay above the protocol tables;
-//! allocation, grant state, imports, answers, and enliven markers remain
+//! These projections let actors and adapters stay above the protocol tables.
+//! Allocation, grant state, imports, answers, and enliven markers remain
 //! authoritative in Session.
 
 const model = @import("model");
@@ -26,7 +26,7 @@ pub fn reserveExport(self: *Peer, id: u64) !void {
     return self.session_state.reserveExport(model.ExportPosition.from(id));
 }
 
-/// Allocate the next export reservation; first marshal or `exportObject`
+/// Allocate the next export reservation. First marshal or `exportObject`
 /// grants it to the partner.
 pub fn exportNextObject(self: *Peer) !u64 {
     return (try self.session_state.allocateExport()).int();

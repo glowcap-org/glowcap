@@ -132,8 +132,8 @@ pub fn typedBehavior(
 
 pub const IntroducerCtx = struct { widget: c.GlowcapReference };
 
-/// The gifter's introducer: replies with the foreign capability it fetched;
-/// the host's own origination turns that reply into a signed give.
+/// The gifter's introducer: replies with the foreign capability it fetched.
+/// The host's own origination turns that reply into a signed give.
 pub fn introducerBehavior(
     ctx: ?*anyopaque,
     turn: ?*cd.GlowcapHostTurn,
@@ -153,7 +153,7 @@ pub fn introducerBehavior(
 pub const CaretakerCtx = struct { target_ref: c.GlowcapReference };
 
 /// A forwarding proxy: "poke" forwards this turn's call (and answer) to the
-/// wrapped local object; "kick" pokes it twice through the turn's own send and
+/// wrapped local object. "kick" pokes it twice through the turn's own send and
 /// tell verbs and replies void itself.
 pub fn caretakerBehavior(
     ctx: ?*anyopaque,
@@ -186,7 +186,7 @@ pub const FactoryCtx = struct {
 };
 
 /// A served factory: "make" spawns a fresh widget mid-turn (the turn-time
-/// spawn) and replies with its NEAR reference; "deny" refuses with a
+/// spawn) and replies with its NEAR reference. "deny" refuses with a
 /// caller-supplied diagnostic through turn_break instead of a bare non-OK.
 pub fn factoryBehavior(
     ctx: ?*anyopaque,

@@ -1,4 +1,4 @@
-//! 07 — A card that survives a restart.
+//! 07: A card that survives a restart.
 //!
 //! Loam keeps an object and its state across a restart. This chapter stores
 //! one task card in LMDB and moves it. Then it shuts everything down (the
@@ -7,7 +7,7 @@
 //!
 //! The card is a sleepy actor. Its state is one record, and its behavior is a
 //! plain function from that record and a call to a reply. Loam decides what to
-//! read and write; `call` below plays the storage worker that does it, and the
+//! read and write, `call` below plays the storage worker that does it, and the
 //! reply arrives only after the write commits. The
 //! [Loam page](https://jimisaacs.github.io/glowcap/loam/) explains the model.
 //!
@@ -37,7 +37,7 @@ const limits: core.Store.Limits = .{
 const store_id: core.StoreId = @fromBackingInt(7);
 const behaviors = [_]hosting.Behavior{.{ .schema = card_schema, .invoke = card }};
 
-/// The card's whole behavior. `move` proposes new state; it counts only once
+/// The card's whole behavior. `move` proposes new state. It counts only once
 /// Loam commits it, so the code does no I/O of its own.
 fn card(call_state: *hosting.Call, state: core.RecordView, verb: []const u8, args: []const driver.Value) !driver.Value {
     if (args.len != 0) return error.InvalidArguments;
@@ -116,7 +116,7 @@ fn newHost(allocator: std.mem.Allocator, io: std.Io) !driver.Host {
     return driver.Host.init(allocator, durable_seed, session_root, driver.Host.Options.withFrameCap(4096));
 }
 
-/// Commit the staged transaction. The backend does the write; Loam decides
+/// Commit the staged transaction. The backend does the write, Loam decides
 /// what it contains and installs the result.
 fn commit(store: *core.Store, db: *Lmdb) !void {
     const ticket = try store.prepare();

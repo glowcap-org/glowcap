@@ -131,7 +131,7 @@ export async function run(tab: Page): Promise<void> {
 	// At rest, which takes saying twice: the pointer sent away and the keyboard
 	// let go. Earlier checks left the pointer parked on a row and focus on the
 	// caption it pressed, and either one swaps that caption's ink for the teal a
-	// link wears — hover changes its ground too. What came back was an interactive
+	// link wears, hover changes its ground too. What came back was an interactive
 	// state wearing a resting state's name, and its numbers said nothing about the
 	// rail a reader is looking at.
 	await tab.mouse.move(0, 0);
@@ -139,7 +139,7 @@ export async function run(tab: Page): Promise<void> {
 	for (const appearance of ["light", "dark"] as const) {
 		await tab.evaluate((t) => document.documentElement.setAttribute("data-theme", t), appearance);
 		// Settled first. Changing the appearance re-renders the rail, and a rail
-		// arriving runs a two-tenths fade that starts at nothing — so a reading
+		// arriving runs a two-tenths fade that starts at nothing, so a reading
 		// taken straight after the switch is of a half-drawn panel, and it lands
 		// near one to one however the colours are set. That is what a colour bug
 		// looks like from here, and it does not move when you fix colours.

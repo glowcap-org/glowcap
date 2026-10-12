@@ -2,6 +2,8 @@
 /// <reference lib="dom" />
 import { assert, assertEquals } from "../assert.ts";
 import type { ActivityPage } from "../../web/ui/session/managed/model.ts";
+import type { RoomInfo } from "../../lib/directory_publications.ts";
+import type { Presence } from "../../lib/room/presence.ts";
 import { initializeApplication } from "../support/application.ts";
 import { ROOM_SENDER } from "../../lib/protocol_data.ts";
 
@@ -15,6 +17,9 @@ await initializeApplication();
 
 const { fixture, room, direct } = await import("./managed_projection/fixture.ts");
 await import("./managed_projection/lifetimes.ts");
+await import("./managed_projection/commits.ts");
+await import("./managed_projection/notices.ts");
+await import("./managed_projection/delivery.ts");
 
 Deno.test("managed occupancy changes visibility and keeps the independent seat live", () => {
 	const row = room();
@@ -122,6 +127,9 @@ Deno.test("managed membership warns once when entering under an ignored name of 
 	try {
 		f.current.intent.directories[0].assignedNick = "Ada";
 		f.current.intent.ignored = ["ada"];
+		const row = f.current.intent.conversations[0];
+		assert(row.kind === "room", "room fixture");
+		row.seat = "accepted-seat";
 		f.apply();
 		const key = f.selected().key;
 		f.page.projection.set({ activeKey: null });
@@ -185,44 +193,6 @@ Deno.test("managed authority changes preserve selection, history and a newer loc
 		f.close();
 	}
 });
-
-for (const change of ["kind", "directory", "name", "publication"] as const) {
-	Deno.test(`managed ${change} replacement retires old conversation state under a reused ID`, () => {
-		const f = fixture();
-		try {
-			const before = f.selected();
-			store.deliver(
-				f.page.projection,
-				before.key,
-				store.chatItem(f.page.projection, "bo", "old identity", false),
-			);
-			f.stage("old recipient draft");
-			const row = f.current.intent.conversations[0];
-			assert(row.kind === "room", "managed projection contract");
-			if (change === "kind") f.current.intent.conversations = [direct()];
-			if (change === "name") row.name = "another room";
-			if (change === "publication") {
-				row.publicEntry = { access: "directory-access" };
-				row.publication = "another-publication";
-			}
-			if (change === "directory") {
-				row.directory = "another-directory";
-				f.current.intent.directories.push({
-					...f.current.intent.directories[0],
-					id: row.directory,
-					home: false,
-				});
-			}
-			f.apply();
-			const after = f.selected();
-			assertEquals(after.persistId, before.persistId);
-			assertEquals(store.historyOf(f.page.projection, after.key), []);
-			assertEquals(store.draftFor(f.page.projection, after.key).text, f.current.intent.conversations[0].draft);
-		} finally {
-			f.close();
-		}
-	});
-}
 
 Deno.test("managed direct route replacement cannot inherit the previous peer history", () => {
 	const f = fixture(direct());
@@ -297,12 +267,20 @@ Deno.test("managed discovery establishes directory liveness and ignores stale pu
 	try {
 		const id = dirId("directory");
 		assertEquals(f.page.projection.get().dirs.get(id)?.reached, false);
-		const entry = { id: "current", name: "garden", kind: "foreign", origin: "elsewhere", offers: "offers" };
+		const entry: RoomInfo = {
+			id: "current",
+			name: "garden",
+			kind: "foreign",
+			count: null,
+			origin: "elsewhere",
+			proof: "authenticated",
+			offers: "participant",
+		};
 		f.projection.activity({
 			cursor: "snapshot",
 			event: {
 				target: { kind: "discovery", id },
-				notice: { kind: "discoverySnapshot", snapshot: { rooms: [entry], peers: [], truncated: false } },
+				notice: { kind: "discoverySnapshot", snapshot: { rooms: [entry], peers: [], omitted: 0 } },
 			},
 		});
 		assertEquals(f.page.projection.get().dirs.get(id)?.session, "connected");
@@ -310,7 +288,10 @@ Deno.test("managed discovery establishes directory liveness and ignores stale pu
 			cursor: "closed",
 			event: {
 				target: { kind: "discovery", id },
-				notice: { kind: "discoveryChanged", event: { kind: "closed", entry: { ...entry, id: "old" } } },
+				notice: {
+					kind: "discoveryChanged",
+					event: { kind: "closed", name: entry.name, count: null, entry: { ...entry, id: "old" } },
+				},
 			},
 		});
 		assertEquals(store.liveRoom(f.page.projection, id, "garden")?.id, "current");
@@ -323,7 +304,7 @@ Deno.test("managed state-only room activity updates presence and facts without d
 	const f = fixture();
 	try {
 		const row = f.selected();
-		const event = (presence: unknown) => ({
+		const event = (presence: Presence): ActivityPage => ({
 			cursor: "presence",
 			event: {
 				target: { kind: "room" as const, id: row.persistId },

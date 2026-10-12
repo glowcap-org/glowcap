@@ -29,7 +29,7 @@ pub fn Machine(
             }
 
             /// A requested close is graceful only while the wire is still open
-            /// and no close frame has gone out; every other entry into
+            /// and no close frame has gone out. Every other entry into
             /// `closing` retires the socket without the handshake.
             pub fn onClosing(_: *Backend, _: *Platform, c: *RelayConn, how: inner_leg.Closing) void {
                 c.close.graceful = switch (how) {
@@ -62,7 +62,7 @@ pub fn Machine(
                 Access.refuseExternalSendWith(backend, c, cause, phase);
             }
 
-            /// A send in flight borrows `ws_out`; its completion resumes the
+            /// A send in flight borrows `ws_out`. Its completion resumes the
             /// close through `advance` once that borrow retires.
             pub fn startClose(backend: *Backend, _: *Platform, c: *RelayConn) void {
                 if (!c.pending.get(.send)) advance(backend, c);

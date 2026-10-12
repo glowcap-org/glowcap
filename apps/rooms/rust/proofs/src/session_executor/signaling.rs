@@ -188,7 +188,7 @@ pub(super) async fn run() {
 					.unwrap();
 				registration.ready().await.unwrap();
 				// Observation failure is not authority loss. The same registration
-				// remains charged until its feeds and source checks actually recover.
+				// remains charged until its feeds and source checks recover.
 				platform.refuse_observation.set(true);
 				owner.replace_workspace(&intent).await.unwrap();
 				while !matches!(registration.status(), Some(Err(_))) {

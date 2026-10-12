@@ -74,6 +74,7 @@ impl Prepared {
 		platform: Platform,
 		limits: Limits,
 		live_capacity: u32,
+		admission: rooms_application::admission::Settings,
 		report: impl Fn(&str, &glowcap::Error) + 'static,
 	) -> Result<Opened<Platform>> {
 		let reply_bytes =
@@ -106,6 +107,8 @@ impl Prepared {
 			)
 			.await?;
 		let configured = async {
+			// Install policy before credential recovery starts any session feed.
+			opened.session().configure_admission(admission)?;
 			// Credential retention starts the session feeds. Install their failure
 			// owner before admitting that worker, including on a cold reopen.
 			opened.session().on_trouble(report)?;
@@ -135,7 +138,7 @@ async fn persist(database: Database, key: String, expected: Bootstrap, bootstrap
 	operation.wait().await.map_err(storage)
 }
 /// One fixed Rust buffer copies to the Uint8Array supplied to IndexedDB. Its
-/// existing terminal transaction owner retains the browser serialization; no
+/// existing terminal transaction owner retains the browser serialization. No
 /// capability inventory or variable metadata allocation accompanies this row.
 fn row(key: &str, bootstrap: Bootstrap) -> std::result::Result<JsValue, Error> {
 	let object = js_sys::Object::new();

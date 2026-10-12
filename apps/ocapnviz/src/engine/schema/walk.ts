@@ -25,7 +25,7 @@ export const ENTITIES_KEY = {
 
 /** A site where an event references a target entity. The field name is
  *  type-erased to `string` because the call site aggregates across
- *  every event kind — the precise per-kind narrowing isn't useful when
+ *  every event kind. The precise per-kind narrowing isn't useful when
  *  the consumer needs to act uniformly. */
 export type EventRefSite = {
 	readonly event: TimelineEvent;
@@ -123,14 +123,14 @@ export function findDocIndexRefs(
 
 /** Throw if `doc` still has any ref to `(kind, id)` via class-2
  * (entity-to-entity) or class-3 (doc-index). Used by cascadeRewrite as
- * a post-pass straggler check — if it fires, an edge declaration is
+ * a post-pass straggler check, if it fires, an edge declaration is
  * missing in `ENTITY_EDGES` / `DOC_INDEX_EDGES`. `label` identifies the
  * call site.
  *
  * Class-1 (observation events in doc.recording.sources) is
- * intentionally excluded: observations are an immutable append-only
+ * excluded: observations are an immutable append-only
  * history that cascade operations never mutate. A rekey leaves the old
- * id in observation payloads and that is correct — the observation
+ * id in observation payloads and that is correct, the observation
  * faithfully records what the simulator saw at that moment. */
 export function assertNoRefsTo(
 	label: string,

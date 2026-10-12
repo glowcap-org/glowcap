@@ -36,17 +36,17 @@ to each other.
 
 The session assigns wire positions to those references and rejects positions
 the other peer was never given. A new session begins with one bootstrap
-capability; any directory or lookup service is reached through that object, not
+capability. Any directory or lookup service is reached through that object, not
 through a global object namespace.
 
 Remote calls return promises. A caller may send the next operation to a promise
-before its answer arrives; CapTP forwards that operation when the promise
+before its answer arrives. CapTP forwards that operation when the promise
 settles. This is *promise pipelining*, and it can turn a chain of dependent calls
 into one network flight.
 
 CapTP also supports three-party handoff. If Alice holds a capability to Carol's
 object and wants Bob to have it, Alice introduces them. Bob redeems that
-introduction with Carol and receives a direct capability; Alice does not remain
+introduction with Carol and receives a direct capability. Alice does not remain
 as a proxy.
 
 glowcap handles this under its session API. The call awaiting the introduced
@@ -90,7 +90,7 @@ wire.
 | reference | A name for an object: *near* in your vat, *far* across a session. |
 | export / import | The session-table positions for an object on its owning and receiving sides. |
 | promise | An OCapN passable reference representing an eventual fulfillment or break. |
-| vow | In Goblins, a passable eventual reference. glowcap's `Vow` is instead a local host/actor-layer observation and send-result handle over an OCapN promise; it is not the passable reference or its wire position. |
+| vow | In Goblins, a passable eventual reference. glowcap's `Vow` is instead a local host/actor-layer observation and send-result handle over an OCapN promise. It is not the passable reference or its wire position. |
 | answer position | The sender-chosen CapTP session slot (`desc:answer`) used to pipeline sends against a promise. |
 | promise pipelining | Calling through a promise before it settles so dependent calls share a flight. |
 | bootstrap object | The one well-known capability available when a session opens. |
@@ -100,6 +100,6 @@ wire.
 | designator | The netlayer-defined part of a peer locator that, together with the transport, distinguishes the peer's location. It is conventionally self-authenticating but need not be: examples are a public key, onion service id, iroh node id, or cleartext TCP `host:port`. Hints say how to reach it but are not identity. |
 | handoff | A signed three-party introduction that moves a capability without keeping the introducer as proxy. |
 | give | The signed introduction presented to the exporting peer during handoff. |
-| netlayer | The locator-selected OCapN channel contract. glowcap realizes some netlayers as per-stream `net.Connection` values and others through multiplexed residents; [known limitations](boundaries.md) says what each shipped profile proves. |
+| netlayer | The locator-selected OCapN channel contract. glowcap realizes some netlayers as per-stream `net.Connection` values and others through multiplexed residents. [Known limitations](boundaries.md) says what each shipped profile proves. |
 | codec | A wire encoding for the message model. glowcap ships Syrup and Cap'n Proto. |
 | Syrup | The S-expression-shaped binary encoding used by OCapN and Goblins. |

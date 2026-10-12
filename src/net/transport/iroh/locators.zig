@@ -15,7 +15,7 @@ pub const transport_profile = known_transport.metadata();
 pub const transport_name = transport_profile.symbol;
 
 /// How an endpoint becomes reachable, chosen explicitly when the resident is
-/// created — there is no default, so enabling relays or a discovery service is
+/// created. There is no default, so enabling relays or a discovery service is
 /// always the host's visible decision, never a hidden implementation detail.
 /// The values mirror `GLOWCAP_IROH_REACH_*` in the sidecar header.
 pub const Reachability = enum(u32) {
@@ -26,7 +26,7 @@ pub const Reachability = enum(u32) {
     /// The number-0 relays plus DNS/pkarr discovery: a peer is dialable by id
     /// alone over the public internet, with hole-punching and NAT traversal.
     discovery = 1,
-    /// DNS/pkarr discovery without relays — direct addresses are published and
+    /// DNS/pkarr discovery without relays, direct addresses are published and
     /// resolved, but there is no relay fallback.
     discovery_no_relay = 2,
     /// An in-process shared address book: endpoints publish and resolve by id
@@ -45,7 +45,7 @@ pub fn resolvesById(reachability: Reachability) bool {
 /// addresses (the string `glowcap_iroh_sidecar_endpoint_direct_addrs` produces).
 /// A `direct` endpoint runs no relay or lookup service, so a dial without this
 /// hint cannot reach its partner and `DialResolver.resolve` / `dialRawConn` refuse
-/// such a locator with `error.InvalidAddress` instead of timing out; an endpoint
+/// such a locator with `error.InvalidAddress` instead of timing out. An endpoint
 /// with a discovery posture resolves the partner by id, so the hint is optional
 /// there. The name
 /// itself is the transport-neutral vocabulary in `net.netlayer` (keyed TCP
@@ -56,7 +56,7 @@ pub const hint_direct_addresses = net.netlayer.hint_direct_addresses;
 /// Maximum direct-address hint bytes one endpoint may publish.
 pub const max_direct_address_bytes: usize = 64 * 1024;
 
-/// An endpoint id is an Ed25519 public key printed as lowercase hex — the one
+/// An endpoint id is an Ed25519 public key printed as lowercase hex, the one
 /// canonical key-designator spelling, owned by
 /// `foundation.crypto.PeerKey.toDesignator`: `Resident.nodeId` produces it, and
 /// `DialResolver.resolve` refuses any other shape with `error.InvalidAddress`.
@@ -64,7 +64,7 @@ pub const node_id_len = crypto.PeerKey.designator_len;
 
 /// Build an iroh locator for an endpoint that resolves node ids through its
 /// configured reachability services. The designator is borrowed and the
-/// discovery form intentionally carries no direct-address hint.
+/// discovery form carries no direct-address hint.
 pub fn locator(designator: []const u8) model.PeerLocator {
     return .{
         .transport = transport_name,
@@ -75,7 +75,7 @@ pub fn locator(designator: []const u8) model.PeerLocator {
 
 /// Build an iroh locator with caller-provided direct socket addresses. The
 /// returned locator borrows `designator`, `direct_addresses`, and
-/// `hint_storage`; keep all three alive until the dial path has copied or
+/// `hint_storage`. Keep all three alive until the dial path has copied or
 /// retained the locator.
 pub fn locatorWithDirectAddresses(
     designator: []const u8,
@@ -115,7 +115,7 @@ pub fn resolveConnectTarget(
     };
 }
 /// Admit a replacement publication for one active iroh endpoint. The endpoint
-/// identity is immutable; direct-address hints may change as reachability does.
+/// identity is immutable. Direct-address hints may change as reachability does.
 pub fn validateListenerLocator(
     expected_designator: []const u8,
     candidate: model.PeerLocator,

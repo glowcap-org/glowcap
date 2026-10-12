@@ -2,7 +2,7 @@
 
 The binding core knows only these two seams. Transport modules construct
 providers for the native driver or connectors for an embedder-owned byte
-channel; this module never names a concrete transport.
+channel. This module never names a concrete transport.
 """
 
 from __future__ import annotations
@@ -77,7 +77,7 @@ class Connector:
     """One explicit byte-fed transport realization.
 
     The callback is transport-owned and receives the shared Host, the complete
-    locator, and the handshake budget. It returns an established Session; the
+    locator, and the handshake budget. It returns an established Session. The
     generic dialer does not inspect or reinterpret the locator.
     """
 

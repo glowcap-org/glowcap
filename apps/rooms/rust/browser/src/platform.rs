@@ -90,6 +90,9 @@ impl rooms_glowcap::client::Tasks for Platform {
 	}
 }
 impl rooms_glowcap::client::Deadline for Platform {
+	fn monotonic_millis(&self) -> u64 {
+		u64::try_from(self.now().as_millis()).unwrap_or(u64::MAX)
+	}
 	async fn within<T>(&self, milliseconds: u64, work: impl Future<Output = T>) -> Option<T> {
 		tokio::select! {
 			biased;

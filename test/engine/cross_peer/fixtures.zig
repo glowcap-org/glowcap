@@ -67,7 +67,7 @@ pub const GifterSessionFixture = struct {
     }
 };
 
-/// A deliberately permissive resolver: it returns a live gifter session no
+/// A permissive resolver: it returns a live gifter session no
 /// matter what side or session name the give carried. The resolver seam is
 /// application-supplied, so the engine must not trust it to have established
 /// the fixed widths production resolution guarantees.
@@ -123,7 +123,7 @@ pub const RejectingVerifier = struct {
 
 /// A real Ed25519 verifier that routes each handoff certificate to the right key,
 /// the production shape ADR-0009 describes. A `desc:handoff-receive` payload is
-/// verified with the recipient key; any other (`desc:handoff-give`) with the
+/// verified with the recipient key. Any other (`desc:handoff-give`) with the
 /// gifter's session key. It distinguishes them by the leading record label, since
 /// a receive record carries its own label before the give it embeds.
 pub const RoutingVerifier = struct {

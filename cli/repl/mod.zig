@@ -1,4 +1,4 @@
-//! Interactive CapTP lab — line mode or libvaxis TUI; alias of `dial --repl`.
+//! Interactive CapTP lab in line mode or libvaxis TUI, an alias of `dial --repl`.
 const std = @import("std");
 const Ctx = @import("../ctx.zig").Ctx;
 const exit_codes = @import("../exit_codes.zig");

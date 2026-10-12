@@ -1,5 +1,5 @@
 #lang racket/base
-;; rooms-dm.rkt — direct messages in a glowcap rooms chat, held by a real
+;; rooms-dm.rkt: direct messages in a glowcap rooms chat, held by a real
 ;; Spritely Goblins vat.
 ;;
 ;; A room introduces two members and then gets out of the way: the message
@@ -99,8 +99,8 @@
 ;; into the conversation that had been theirs.
 (define (dm-forget member peer registration-id) ($ member 'forget peer registration-id))
 
-;; Hand this member one `notify` the room pushed on some *other* inbox — a
-;; watcher's, say — so a caller that already has its own room callback does not
+;; Hand this member one `notify` the room pushed on some *other* inbox, a
+;; watcher's, say, so a caller that already has its own room callback does not
 ;; need a second registration to hear about members arriving and leaving. The
 ;; member's own register inbox reaches this directly.
 (define (dm-notify member event name registration-id [opening #f]) ($ member 'heard event name registration-id opening))

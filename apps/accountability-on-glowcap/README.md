@@ -16,13 +16,13 @@ zig build accountability
 ```
 
 It needs no additional runtime. The command creates signed records and Merkle
-roots under `.data/`. That directory is generated and gitignored.
+roots under `.data/`, which is generated and gitignored.
 
 ## What happens
 
 1. The caller creates an identity from its first signing key, then rotates to
    the next key it had already committed to.
-2. The caller records its intent and sends a signed request, together with the
+2. The caller records the attempt and sends a signed request, together with the
    key-event history needed to check it.
 3. The host derives the claimed identity from that history, validates each key
    change, and requires the request to use the current key.

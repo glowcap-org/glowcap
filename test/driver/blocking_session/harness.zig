@@ -24,7 +24,7 @@ const ip = std.Io.net;
 
 pub const frame_cap = 4096;
 
-/// Session options for a real loopback dial. The budgets are finite on purpose:
+/// Session options for a real loopback dial. The budgets are finite:
 /// an unbounded CapTP wait against a partner that goes quiet does not fail the
 /// suite, it wedges the test binary, which reads as a hang rather than a bug.
 pub const dial_opts: driver.SessionOptions = .{

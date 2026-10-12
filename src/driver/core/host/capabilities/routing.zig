@@ -23,10 +23,10 @@ pub const RoutedSend = struct { session: *HostSession, target: actors.Ref };
 
 pub const ApplicationTarget = struct { ref: capability.Ref, session: ?*HostSession };
 
-/// Application delivery needs no caller-selected session. A pending give
-/// queues on its introducing session, which owns redemption authority. Once
-/// fulfilled, follow the retained target to its actual local or foreign home.
-/// These are borrowed identities; admission uses the existing promise queue.
+/// Application delivery needs no caller-selected session. A pending give queues
+/// on its introducing session, which owns redemption authority. Once fulfilled,
+/// follow the retained target to its actual local or foreign home. These are
+/// borrowed identities. Admission uses the existing promise queue.
 pub fn applicationTarget(self: *Host, ref: capability.Ref) !ApplicationTarget {
     self.assertOwner();
     var current = ref;
@@ -69,7 +69,7 @@ pub fn routeSend(
 }
 
 /// Resolve one opaque Host capability to the actor/session that owns it.
-/// `object_only` is the send/tell target gate; listen callers pass false.
+/// `object_only` is the send/tell target gate. Listen callers pass false.
 pub fn routeCapability(
     self: *Host,
     session: *HostSession,
@@ -104,10 +104,10 @@ pub fn routeCapability(
     };
 }
 
-/// Raw/model callers have no Host capability retain to transfer into a
-/// delayed inline-Passable transaction. Refuse cross-session references at
-/// this tier; owning `Value` verbs retain and stage them explicitly. The scan
-/// is the validation pass itself, not a preflight for another traversal.
+/// Raw/model callers have no Host capability retain to transfer into a delayed
+/// inline-Passable transaction. Refuse cross-session references at this tier.
+/// Owning `Value` verbs retain and stage them explicitly. The scan is the
+/// validation pass itself, not a preflight for another traversal.
 pub fn validateRoutedArguments(
     self: *Host,
     session: *HostSession,
@@ -132,8 +132,8 @@ pub fn routeTurnTarget(
 }
 
 /// Resolve an opaque target for one already-admitted inbound turn. A turn may
-/// reach a local actor or a capability homed on its own ingress session;
-/// crossing to a sibling session would detach the answer from its causal Port.
+/// reach a local actor or a capability homed on its own ingress session.
+/// Crossing to a sibling session would detach the answer from its causal Port.
 pub fn routeTurnCapability(
     self: *Host,
     session: *HostSession,

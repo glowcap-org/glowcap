@@ -38,7 +38,10 @@ impl Store {
 		schemas: &[Schema],
 		limits: Limits,
 	) -> Result<Self> {
+		// SAFETY: `glowcap_loam_archive_fingerprint` takes no arguments and returns a constant of the linked archive;
+		// there is no handle or pointer to keep alive.
 		if unsafe { ffi::glowcap_loam_archive_fingerprint() } != ffi::LOAM_ARCHIVE_FINGERPRINT
+			// SAFETY: as the first fingerprint call above, for the LMDB archive.
 			|| unsafe { ffi::glowcap_loam_lmdb_archive_fingerprint() } != ffi::LOAM_LMDB_ARCHIVE_FINGERPRINT
 		{
 			return Err(invalid("Loam archive contract mismatch"));
@@ -48,6 +51,10 @@ impl Store {
 		let mut storage = core::ptr::null_mut();
 		let mut store = core::ptr::null_mut();
 		check(
+			// SAFETY: `path` is a `&str` borrowed from the caller's `Path`, `identity` is a `[u8; 16]` array, and
+			// `schemas` is the local `Vec` of schema views built above, all live for the whole call; the callee copies
+			// the limits and schemas (header). `&limits.raw()` is a temporary that lives to the end of this statement,
+			// and `storage` and `store` are local out-parameters the callee writes, null on refusal.
 			unsafe {
 				ffi::glowcap_loam_lmdb_open(
 					path.as_ptr(),
@@ -83,6 +90,9 @@ impl Store {
 			.as_ref()
 			.copied()
 			.ok_or_else(|| invalid("there is no retained creation result"))?;
+		// SAFETY: `self.inner.storage` is this `StoreInner`'s `GlowcapLoamLmdb` handle from `glowcap_loam_lmdb_open`,
+		// released only by `StoreInner::close`, which nulls it afterward; the callee refuses a null handle with a
+		// status rather than reading it, and the call takes no other pointer.
 		let rc = unsafe { ffi::glowcap_loam_lmdb_recover(self.inner.storage.get()) };
 		if rc == crate::sys::OK || rc == ffi::GLOWCAP_LOAM_ERR_UNCHANGED {
 			self.inner.pending_creation.borrow_mut().take();

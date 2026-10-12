@@ -22,7 +22,7 @@ const RoomsPageReactContext = createContext<RoomsPageContext | null>(null);
 export const RoomsProjectionProvider = RoomsProjectionContext.Provider;
 
 /** The page itself, beside its projection, for the few controls that read
- * something the store deliberately does not hold: a bearer string. */
+ * something the store does not hold: a bearer string. */
 export const RoomsPageProvider = RoomsPageReactContext.Provider;
 
 export function useRoomsProjection(): PageProjection {
@@ -139,8 +139,8 @@ function listFor(query: string): MediaQueryList {
 }
 
 /** Whether a media query matches, kept current. Private: the exported hooks
- * below name the two questions this page actually asks, so no caller can pass a
- * query that changes between renders — which this would silently ignore. */
+ * below name the two questions this page asks, so no caller can pass a
+ * query that changes between renders, which this would silently ignore. */
 function useMediaQuery(query: string): boolean {
 	const listen = useCallback((onChange: () => void) => {
 		const list = listFor(query);
@@ -160,7 +160,7 @@ export function useCoarsePointer(): boolean {
 /** Put something away when a click lands outside it.
  *
  * `within` is a selector naming the thing and whatever opens it, and it is
- * containment rather than identity on purpose: the click usually lands on an
+ * containment rather than identity: the click usually lands on an
  * icon *inside* the toggle, so testing the target itself would close the panel
  * in the same click that opened it. */
 export function useDismissOnClickOutside(

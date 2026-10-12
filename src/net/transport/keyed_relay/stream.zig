@@ -35,7 +35,7 @@ pub const CloseProgress = connection.CloseProgress;
 // --- The pinned connection stream ------------------------------------------
 
 /// How many bytes the socket-facing reader and writer each buffer. Sized for
-/// the upgrade response and frame headers with room for payload batching; the
+/// the upgrade response and frame headers with room for payload batching. The
 /// CapTP-facing steady state is the caller's `Buffers`, not this.
 const inner_buf_bytes = 2048;
 const staged_control_bytes = max_header_len + max_control_payload;
@@ -50,7 +50,7 @@ const ShimT = stream_shim.Shim(WsSource);
 
 /// One dialed or registered relay socket, pinned so the reader/writer
 /// interfaces hold a stable address for the `Connection`'s life (ADR-0043).
-/// Carries the WebSocket decode state across reads — including across the
+/// Carries the WebSocket decode state across reads, including across the
 /// parked-listener wait, whose control-frame handling consumes headers before
 /// `accept` hands the stream over. Freed through the connection's transport
 /// handle, or by the listener that still owns it.
@@ -68,13 +68,13 @@ pub const RelayStream = struct {
     read_closed: bool,
     close_sent: bool,
     failure: ?foundation.FailureChain,
-    /// Mask keys per outbound frame. Seeded once from the host entropy; RFC
+    /// Mask keys per outbound frame. Seeded once from the host entropy. RFC
     /// 6455 wants masks an intermediary cannot predict, not a secret.
     mask_rng: std.Random.DefaultCsprng,
 
     /// Pin a stream over a connected socket. The WebSocket upgrade has not run
-    /// yet; `upgrade` drives it. On error the caller still owns the carrier
-    /// lease and `stream`; on success this value adopts both.
+    /// yet. `upgrade` drives it. On error the caller still owns the carrier
+    /// lease and `stream`. On success this value adopts both.
     pub fn create(
         allocator: std.mem.Allocator,
         carrier: carrier_runtime.Lease,
@@ -97,8 +97,8 @@ pub const RelayStream = struct {
     /// Re-pin a listener-owned registration stream under the accepted peer.
     /// The concrete std.Io interfaces contain pointers into their enclosing
     /// RelayStream, so allocator transfer is reconstruction, not a struct move.
-    /// Upgrade and control writes are normally flushed before this boundary;
-    /// reconstruct both buffers anyway so correctness does not depend on that
+    /// Upgrade and control writes are normally flushed before this boundary.
+    /// Reconstruct both buffers anyway so correctness does not depend on that
     /// scheduling invariant.
     pub fn moveToAllocator(rs: *RelayStream, allocator: std.mem.Allocator) std.mem.Allocator.Error!*RelayStream {
         if (rs.allocator.ptr == allocator.ptr and rs.allocator.vtable == allocator.vtable) return rs;
@@ -152,7 +152,7 @@ pub const RelayStream = struct {
     }
 
     /// Copy only payload bytes the inner socket reader already owns. This is
-    /// the readiness-to-accept handoff, so it deliberately bypasses the shim's
+    /// the readiness-to-accept handoff, so it bypasses the shim's
     /// generic fill operation: even a future change to `readSome` cannot turn
     /// an acceptable listener into a blocking accept.
     fn primeConnectionReader(rs: *RelayStream) void {
@@ -231,7 +231,7 @@ pub const RelayStream = struct {
 
     /// The byte-source read: streams data-frame payload, answers pings, and
     /// surfaces a close frame or a frame-boundary EOF as a clean end. Mid-frame
-    /// truncation and every protocol violation are `ReadFailed` — fail closed.
+    /// truncation and every protocol violation are `ReadFailed`, fail closed.
     pub fn readSome(rs: *RelayStream, dest: []u8) Io.Reader.Error!usize {
         var written: usize = 0;
         while (written < dest.len) {
@@ -365,7 +365,7 @@ pub const RelayStream = struct {
     /// Advance the frame state machine to the next data frame, blocking:
     /// handle control frames in place, set `remaining` on a data header, and
     /// report whether one arrived (`false` is a clean end: a close frame, or
-    /// EOF on a frame boundary). The parked listener never calls this — its
+    /// EOF on a frame boundary). The parked listener never calls this, its
     /// non-blocking sibling is `probeParked`.
     pub fn nextDataFrame(rs: *RelayStream) FrameError!bool {
         const r = rs.source.reader;
@@ -433,8 +433,8 @@ pub const RelayStream = struct {
 
     /// Apply one frame whose bounded control body is already available: a data frame hands its
     /// payload count to `remaining`, a ping is answered in place, a pong is
-    /// drained, a close marks the stream. Both frame loops — the blocking
-    /// `nextDataFrame` and the parked `probeParked` — dispatch through this
+    /// drained, a close marks the stream. Both frame loops, the blocking
+    /// `nextDataFrame` and the parked `probeParked`, dispatch through this
     /// one arm set, so an opcode fix cannot land in one loop and miss the
     /// other. The reads block only when the caller allows it: the parked
     /// path passes a borrow from bytes it already proved buffered.
@@ -479,7 +479,7 @@ pub const RelayStream = struct {
     }
 
     /// One masked client frame: header, then the payload XOR-copied into the
-    /// socket writer's buffer — the single copy masking requires.
+    /// socket writer's buffer, the single copy masking requires.
     pub fn writeFrame(rs: *RelayStream, opcode: OutgoingOpcode, bytes: []const u8) Io.Writer.Error!void {
         const w = rs.source.writer;
         var mask: [4]u8 = undefined;
@@ -578,9 +578,9 @@ pub const RelayStream = struct {
 const ParkVerdict = enum { idle, data_pending, closed };
 
 /// Advance the parked stream past the control frames the buffer completely
-/// holds — answering pings — without ever issuing a blocking read. A partial
+/// holds, answering pings, without ever issuing a blocking read. A partial
 /// header (or a control frame whose payload has not fully arrived) stays
-/// buffered as `idle`; the socket poll fires again when the rest lands. A data
+/// buffered as `idle`. The socket poll fires again when the rest lands. A data
 /// frame header hands its payload count to the connection-facing reader.
 fn probeParked(rs: *RelayStream) FrameError!ParkVerdict {
     if (rs.read_closed) return .closed;

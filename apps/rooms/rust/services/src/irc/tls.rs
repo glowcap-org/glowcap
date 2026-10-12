@@ -77,7 +77,7 @@ fn loopback(host: &str) -> bool {
 pub(super) trait Stream: AsyncRead + AsyncWrite + Unpin {}
 impl<T: AsyncRead + AsyncWrite + Unpin> Stream for T {}
 
-/// Shared trust configuration; loading the system store runs off the LocalSet.
+/// Shared trust configuration. Loading the system store runs off the LocalSet.
 #[derive(Clone)]
 pub struct Tls(TlsConnector);
 impl Tls {

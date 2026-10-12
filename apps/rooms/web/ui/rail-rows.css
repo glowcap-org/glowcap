@@ -11,7 +11,7 @@
    closes a direct line came to rest a whole line above the row it ends. */
 
 /* The row is a container, and the button inside it is what opens the thing named
-   on it; on the one you are reading, a second button sits beside it to leave.
+   on it. On the one you are reading, a second button sits beside it to leave.
    Nesting one inside the other would be a control within a control, which no
    assistive software can announce.
 
@@ -19,7 +19,7 @@
    badge's own slot rather than a slot of its own: the row gives up no width to
    hold it, and no name is cut short to make space for a mark that is not
    showing. Sharing the cell is also what puts that mark on the line the badge
-   is on rather than on the row's full height — the same point until a directory
+   is on rather than on the row's full height: the same point until a directory
    caption adds a second line, and eight pixels apart after it. Arithmetic here
    would restate the row's padding and its line height and drift the next time
    either moved. */
@@ -36,11 +36,22 @@
 	color: var(--ink);
 	transition: background-color .12s ease;
 }
+
+#roomList .join-refusal-row {
+	padding: 0.65rem;
+	gap: 0.5rem;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+#roomList li > .action-feedback {
+	grid-column: 1;
+	padding: 0.4rem 0.65rem;
+}
 /* The bar marking the row being read. Its height is the row's, less a little at
    each end, rather than a number of its own: a row is one line tall until it
    names its directory and then it is two, and a fixed bar that read as half the
    height of a short row read as a third of a tall one. Stated once for both
-   lists — each says only what color it is — because two copies of a geometry is
+   lists, each says only what color it is, because two copies of a geometry is
    how the two rails come to disagree.
 
    A real bar rather than an inset shadow, which would follow the pill's corner
@@ -86,9 +97,45 @@
 	cursor: pointer;
 	color: inherit;
 }
+.room-pending :is(.room-open, .dm-open) {
+	cursor: progress;
+}
+.room-progress {
+	box-sizing: border-box;
+	height: 13px;
+	/* The element is still the room mark's full-width slot. The ring belongs
+	   inside it so the rail's mark column cannot stretch the circle sideways. */
+	border: 0;
+	border-radius: 0;
+	/* The spinner replaces the room-mark glyph while pending. Zero hides
+	   that glyph inside its unchanged mark slot. It sets no visible text size. */
+	font-size: 0;
+	line-height: 0;
+	position: relative;
+	width: var(--mark-col);
+	flex: none;
+	display: flex;
+	justify-content: flex-end;
+	align-items: center;
+}
+.room-progress::after {
+	content: "";
+	box-sizing: border-box;
+	flex: none;
+	width: 13px;
+	height: 13px;
+	border: 2px solid currentColor;
+	border-right-color: transparent;
+	border-radius: 50%;
+	animation: control-busy-turn .75s linear infinite;
+}
+#roomList .room-pending .room-leave {
+	visibility: visible;
+	opacity: 1;
+}
 /* Taking an invitation is a room-row act, so the row itself stays parked and
    answers with the same progress ring as the shared controls. The ring takes
-   the badge slot; the invitation's origin remains readable beside it. */
+   the badge slot. The invitation's origin remains readable beside it. */
 #roomList .inviterow .invite-take[data-busy] {
 	cursor: progress;
 	opacity: .72;
@@ -112,7 +159,7 @@
 	opacity: 0;
 }
 /* One template row, always. The caption is a sibling of that button and never a
-   child of it — a control cannot live inside a control — so a second row here
+   child of it, a control cannot live inside a control, so a second row here
    would hold nothing and add its own height to every captioned row. */
 #roomList .hash,
 #dmList .avatar-presence {
@@ -125,7 +172,7 @@
 }
 /* A name is a name. Left to inherit, a person's would come out at the page's own
    fifteen while a room's was stated at fourteen, so one rail gave the same kind
-   of thing two sizes — visible as a half-step in weight down a list that is
+   of thing two sizes, visible as a half-step in weight down a list that is
    meant to read as one column. */
 #roomList .rname,
 #dmList .rname {
@@ -155,7 +202,7 @@
 
    They are labels, never controls, and none of them may take a press. They fade
    to nothing when that mark takes their slot, and an element at zero opacity is
-   still perfectly good at swallowing clicks — the mark ended up visible,
+   still perfectly good at swallowing clicks: the mark ended up visible,
    enabled, correctly placed, and unpressable through its own middle, because
    what it had just replaced was still lying on top of it. */
 #roomList .rcount,
@@ -188,8 +235,8 @@
 }
 /* A finger cannot hover, so where there is no pointer the mark takes a place of
    its own beside the count instead of borrowing its slot: this rail is a screen
-   of its own on a phone and has the width to hold both. The desktop trade — one
-   slot, revealed under the pointer — is what a 264px rail can afford, and it
+   of its own on a phone and has the width to hold both. The desktop trade (one
+   slot, revealed under the pointer) is what a 264px rail can afford, and it
    stays as it is. */
 @media (hover: none) {
 	#roomList li,
@@ -207,8 +254,8 @@
 	}
 	/* And the slot they sit in is their own width, not a mark's. On the pointer
 	   side that column is held open to the width of the leave mark so the two are
-	   centred on the same point as one replaces the other; here nothing replaces
-	   anything — the mark has a column of its own beside this one — so holding it
+	   centred on the same point as one replaces the other. Here nothing replaces
+	   anything, the mark has a column of its own beside this one, so holding it
 	   open leaves the count floating in nine pixels of slack at each side, with
 	   the mark a further gap beyond that. The row is 326 pixels wide on a phone
 	   and was spending a quarter of them on two small marks. */
@@ -220,13 +267,13 @@
 /* Every row here is a room you are in, so the rail draws no membership tint:
    with nothing to contrast against, a "you are a member" ground says nothing and
    only costs the row on screen some of its own contrast. One distinction is
-   left — the room you are reading — carried by a bar and a fill together.
+   left, the room you are reading, carried by a bar and a fill together.
    Membership is a distinction again in the browse list, where rooms you are not
    in also appear, and it is drawn there.
 
    The ink here is deeper than the accent ink the rest of the rail uses, because
    the ground is deeper too. That token is stated to clear small text on paper,
-   and this row is paper with a sixth of the accent poured into it — so the ink
+   and this row is paper with a sixth of the accent poured into it. So the ink
    has to move away from the colour it is standing in rather than sit in it, the
    same move the count badge and the selected direct line make. Taken an eighth
    of the way toward the page's plain ink it clears the 4.5 small text needs in
@@ -246,8 +293,8 @@
    The contrast check in the browser proof measures the amber one directly, in
    both appearances, and the teal one follows from what else it measures rather
    than from a scenario nobody can build. No proof can put a caption on a teal
-   row — that wants a tab holding two directories with a direct line open and
-   being read, and none does — but a caption needs no measurement of its own
+   row (that wants a tab holding two directories with a direct line open and
+   being read, and none does) but a caption needs no measurement of its own
    there. At full strength it wears the row's ink on the row's ground, which is
    what the name beside it is, and that name is measured. Turned down on an
    ordinary row it wears the page's ink on the rail's fill, because neither list
@@ -265,7 +312,7 @@
 	background: var(--accent);
 }
 /* The sigil is the room row's directory mark: it is the only thing on the row
-   not already spoken for, and it costs no width. Quiet when nothing is marked —
+   not already spoken for, and it costs no width. Quiet when nothing is marked:
    a coloured sigil means "this fact", and with one directory there is no fact.
    It does not warm with the row either, and that is deliberate: which directory
    a room is on must not change because a pointer passed over it. */
@@ -285,7 +332,7 @@
    which leaves ink and ground the same hue and the wash lifting the ground
    toward the ink: measured, the count came out at 4.46 to 1 against the 4.5
    small text needs. A sixth of the way toward the page's plain ink clears it in
-   both appearances and the badge is still teal — the same move the selected row
+   both appearances and the badge is still teal: the same move the selected row
    makes for the same reason, and held by the contrast check in the browser
    proof. */
 #roomList .rcount {
@@ -305,7 +352,7 @@
 }
 /* Two facts share one slot, so they must not look alike. How many people are in
    a room is a standing fact and stays in the quiet teal the badge has always
-   worn; unread is something waiting for you, so it takes the accent and full
+   worn. Unread is something waiting for you, so it takes the accent and full
    weight. A reader glancing down the rail should be able to find the rooms that
    want them without reading a single number. */
 #roomList .rcount.unread {
@@ -325,11 +372,11 @@
 }
 /* The room you are about to be in, drawn as one of the rooms you are in.
    It is the same item: a mark, a name, and a line under the name saying which
-   directory it belongs to — except the name is still being typed and the line is
+   directory it belongs to, except the name is still being typed and the line is
    still yours to change. Reading it as an item is what makes the whole panel one
    thing rather than a field with two notes stacked under it, and it is why the
-   field below carries no border of its own. The container is the object here;
-   everything inside it is content. */
+   field below carries no border of its own. The container is the object here.
+   Everything inside it is content. */
 .newroom {
 	display: none;
 	margin: 4px 0 0;
@@ -340,14 +387,14 @@
 	background: color-mix(in srgb, var(--accent) 7%, transparent);
 	/* It arrives over the rows it pushes down, so it floats the way the page's
 	   other menus float: `--shadow`, the same token the line menu and the
-	   standing menu carry. A small lift reads as a row with an edge; this is a
+	   standing menu carry. A small lift reads as a row with an edge. This is a
 	   panel that opened over the list. */
 	box-shadow: var(--shadow);
 	/* The directory menu hangs off the line at the foot of this panel, so the
 	   panel is what it hangs from. */
 	position: relative;
 	/* Sigil, the name being typed, and the mark that decides what kind of room
-	   it will be — the third column is empty in the section that has no such
+	   it will be: the third column is empty in the section that has no such
 	   choice, and an empty `auto` column takes no width. */
 	grid-template-columns: auto minmax(0, 1fr) auto;
 	column-gap: var(--mark-gap);
@@ -432,7 +479,7 @@
 	opacity: .5;
 }
 /* The directories this tab holds, hanging under the line that names where the
-   room lands — the same rows, in the same box, that the join card's own
+   room lands: the same rows, in the same box, that the join card's own
    directory mark opens, because it is the same choice being made from the
    other side of the page. Held to the panel's text column so it reads as
    belonging to the line it came from rather than to the rail. */
@@ -460,7 +507,7 @@
 	padding-left: calc(10px + 14px + 9px);
 }
 /* These rows are the card's, in a column a third of its width, and a directory
-   is named after the address it was reached by — so a long one ends in an
+   is named after the address it was reached by. So a long one ends in an
    ellipsis here rather than running under the edge of the rail, which clips
    without saying it has. */
 .where-picks .line-menu-row > span:last-child {

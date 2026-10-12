@@ -43,6 +43,10 @@ typedef struct GlowcapRelayConfig {
     const uint8_t *trust_pem;
     /* Byte length of trust_pem. */
     size_t trust_pem_len;
+    /* Borrowed advertised dial route redirected to relay_url; both must reach the same registry. NULL/empty disables the alias. Other peer hints retain their routes. */
+    const uint8_t *relay_alias_url;
+    /* Byte length of relay_alias_url. */
+    size_t relay_alias_url_len;
 } GlowcapRelayConfig;
 
 /* Return the exact callable-surface fingerprint. Compare it with the binding-generated GLOWCAP_RELAY_ARCHIVE_FINGERPRINT before any other call. */

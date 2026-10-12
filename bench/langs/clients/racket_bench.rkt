@@ -31,7 +31,7 @@
   (session-send c task 'status))
 
 ;; The same four verbs as run-unit, but pipelined (ADR-0007, questioner half):
-;; assign/complete/status are addressed at the answer `create` will resolve to —
+;; assign/complete/status are addressed at the answer `create` will resolve to,
 ;; the vow `session-send-promise` returns, passed as the target. assign/complete
 ;; are one-way deliveries; only status allocates an answer and is settled. The
 ;; unit costs one round trip without leaving discarded result vows behind.
@@ -157,9 +157,9 @@
     (error 'racket-bench "bad final count ~v (expected ~a)" (unbox final) (+ WARMUP N)))
   lats)
 
-;; The `local` mode (see contract.md): (a) in_lang — a counter spawned on this
+;; The `local` mode (see contract.md): (a) in_lang, a counter spawned on this
 ;; connection, dispatched in process by the binding's own local path; (b)
-;; via_host — the same behavior published across a loopback pair inside this
+;; via_host: the same behavior published across a loopback pair inside this
 ;; process (listen on 127.0.0.1:0 + connect to itself), so every turn pays wire
 ;; codec, feed, trampoline, and marshal both ways. The orchestrator's host/port
 ;; arguments are unused; the pair is self-contained.

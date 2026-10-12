@@ -1,5 +1,5 @@
 //! Live interop proof for the Rust binding: a peer built on glowcap's C ABI
-//! holds a *keyed* OCapN conversation with a real Spritely Goblins vat over TCP —
+//! holds a *keyed* OCapN conversation with a real Spritely Goblins vat over TCP,
 //! driven through the *same* `connect`/`enliven`/`send` application surface the
 //! cross-language demos use, so what is proven against a real Goblins vat is the
 //! application API itself, not a bespoke handshake script.
@@ -8,7 +8,7 @@
 //! its NDJSON readiness line, then `connect` (keyed `op:start-session`),
 //! `enliven` the echo sturdyref (bootstrap fetch + ADR-0012 dedup), `send` a
 //! positional call, then a repeat `enliven` of the same swiss-num. Needs
-//! `racket` plus `goblins` on PATH; `zig build rust-goblins-interop`.
+//! `racket` plus `goblins` on PATH, `zig build rust-goblins-interop`.
 
 use glowcap_rust_dogfood::{Argument, ConnectOptions, Runtime, RuntimeConfig, format_locator_uri, tcp};
 use tokio::process::Command;
@@ -19,7 +19,7 @@ mod helpers;
 type Fail = helpers::Fail;
 
 const HOST: &str = "127.0.0.1";
-/// The Goblins vat's fixed port; `--port=N` (from
+/// The Goblins vat's fixed port, `--port=N` (from
 /// `zig build rust-goblins-interop -Dport=N`) moves it when 22096 is taken.
 const DEFAULT_PORT: u16 = 22096;
 const RACKET: &str = "racket";

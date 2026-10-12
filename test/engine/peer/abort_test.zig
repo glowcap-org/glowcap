@@ -35,8 +35,8 @@ test "an inbound protocol violation emits a typed op:abort and closes the sessio
     var pair = try engine.pairing.pairedV1_0Syrup(allocator);
     defer pair.deinit();
 
-    // An inbound `op:deliver` to `<desc:export 7>` — an export this open peer
-    // never installed (only the bootstrap export 0 exists) — is a protocol
+    // An inbound `op:deliver` to `<desc:export 7>`, an export this open peer
+    // never installed (only the bootstrap export 0 exists), is a protocol
     // violation (`InvalidReference`). The runtime must emit a typed abort and
     // close rather than silently bubbling the error.
     const deliver_to_unknown_export = "<10'op:deliver<11'desc:export7+>[]11+f>";
@@ -65,7 +65,7 @@ test "an app-queued op:abort commits outbound then closes the CapTP session" {
     defer pair.deinit();
 
     try std.testing.expectEqual(session.State.open, pair.p1.session_state.state);
-    // recordSend must not close — the partner still needs to take the frame
+    // recordSend must not close, the partner still needs to take the frame
     // after step encodes it.
     try pair.p1.sendCopying(.{ .abort = .{ .kind = .graceful_shutdown, .message = "done" } });
     try std.testing.expectEqual(session.State.open, pair.p1.session_state.state);

@@ -2,7 +2,7 @@
 //
 // The place the error appeared still says that something went wrong, in the
 // space it already held. This is the reading surface for the rest of the
-// words — selectable, copyable, and no longer competing with the control they
+// words, selectable, copyable, and no longer competing with the control they
 // answered.
 //
 // It stands over whatever layer the refusal is in rather than replacing it, so

@@ -1,4 +1,4 @@
-//! Structural grant encoding. Decoding owns bounded selections; scope coverage,
+//! Structural grant encoding. Decoding owns bounded selections. Scope coverage,
 //! policy schema interpretation, and current authority stay in the access core.
 const std = @import("std");
 const core = @import("loam_access_core");
@@ -22,7 +22,7 @@ pub const GrantRecord = struct {
     pub const DecodeError = Error || std.mem.Allocator.Error;
     const label = "access:grant";
 
-    /// Exact owned output; no selections are retained by the encoder.
+    /// Exact owned output. No selections are retained by the encoder.
     pub fn encodeAlloc(self: GrantRecord, allocator: std.mem.Allocator) (Error || syrup.shared.WalkError)![]u8 {
         try self.validate();
         return syrup.render.renderRecordExact(allocator, write, .{self});

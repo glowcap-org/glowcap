@@ -1,4 +1,4 @@
-//! The annotated symbol inventory of `libglowcap_net_transport_tcp` — the
+//! The annotated symbol inventory of `libglowcap_net_transport_tcp`: the
 //! crossing semantics a language FFI table cannot reflect from the C
 //! signature alone.
 //!

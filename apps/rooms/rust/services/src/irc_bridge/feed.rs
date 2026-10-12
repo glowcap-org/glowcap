@@ -1,4 +1,4 @@
-//! The shared IRC identity. Receipts survive select cancellation; every socket
+//! The shared IRC identity. Receipts survive select cancellation. Every socket
 //! worker is joined before a replacement is opened.
 use super::{config::Config, notice::Notice, outbound::Pending, state::Shared};
 use crate::irc::{Connection, Delivery, Event, Tls, WriteError, WriteReceipt};
@@ -21,7 +21,7 @@ pub(super) async fn run(
 	mut jobs: mpsc::Receiver<Pending>,
 ) -> Result<(), String> {
 	let mut changed = shared.borrow().changed.subscribe();
-	let mut current = None;
+	let mut current: Option<Pending> = None;
 	let mut delay = Duration::from_secs(1);
 	let mut result = Ok(());
 	while !shared.borrow().stopping {
@@ -67,17 +67,25 @@ pub(super) async fn run(
 					Action::Fail(reason) => break 'connected reason,
 				}
 			}
-			if writing.is_none() && current.is_some() && shared.borrow_mut().room.relay().joined() {
+			if writing.is_none()
+				&& let Some(pending) = &current
+				&& shared.borrow_mut().room.relay().joined()
+			{
 				// Keep the bounded original until its receipt proves delivery. A
 				// retry may copy at most one IRC frame (512 bytes), never a queue.
-				match connection.write(current.as_ref().map(|p: &Pending| p.bytes.clone()).unwrap()) {
+				match connection.write(pending.bytes.clone()) {
 					Ok(written) => writing = Some(receipt(written)),
 					Err(error) => break error.reason,
 				}
 			}
 			tokio::select! {
 				biased;
-				result = async { writing.as_mut().unwrap().await }, if writing.is_some() => {
+				result = async {
+					match writing.as_mut() {
+						Some(receipt) => receipt.await,
+						None => std::future::pending().await,
+					}
+				} => {
 					writing = None;
 					if let Err(reason) = settle(&shared, &mut current, result) {
 						break reason;
@@ -101,8 +109,16 @@ pub(super) async fn run(
 					}
 					None => break "IRC event stream ended".into(),
 				},
-				_ = tokio::time::sleep_until(deadline.map(|(_, at)| at).unwrap_or_else(Instant::now)), if deadline.is_some() => {
-					let (generation, _) = deadline.take().unwrap();
+				generation = async {
+					match deadline {
+						Some((generation, at)) => {
+							tokio::time::sleep_until(at).await;
+							generation
+						}
+						None => std::future::pending().await,
+					}
+				} => {
+					deadline = None;
 					let mut state = shared.borrow_mut();
 					let actions = state.room.relay().join_timed_out(generation);
 					state.actions(actions);
@@ -191,15 +207,16 @@ fn observe(
 fn settle(shared: &Shared, current: &mut Option<Pending>, result: Result<(), WriteError>) -> Result<(), String> {
 	match result {
 		Ok(()) => {
-			current.take().unwrap().finish(shared, Ok(()));
+			if let Some(pending) = current.take() {
+				pending.finish(shared, Ok(()));
+			}
 			Ok(())
 		}
 		Err(error) => {
-			if error.delivery == Delivery::Uncertain {
-				current
-					.take()
-					.unwrap()
-					.finish(shared, Err(format!("IRC delivery is uncertain: {}", error.reason)));
+			if error.delivery == Delivery::Uncertain
+				&& let Some(pending) = current.take()
+			{
+				pending.finish(shared, Err(format!("IRC delivery is uncertain: {}", error.reason)));
 			}
 			Err(error.reason)
 		}

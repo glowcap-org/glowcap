@@ -25,7 +25,7 @@ export function timelineCursorContext(
 
 /**
  * Resolve what a Timeline pointer-down means. Navigation applies even when a
- * gutter pad has no hit; ordinary verbs require a concrete hit and otherwise
+ * gutter pad has no hit. Ordinary verbs require a concrete hit and otherwise
  * return null.
  */
 export function resolveTimelineGesture(

@@ -1,7 +1,7 @@
 # HTTP and capability accountability
 
 This application could carry its signed request over HTTP. HTTP is a transport
-and request protocol, not an authority model; mutual TLS, signed bodies,
+and request protocol, not an authority model. Mutual TLS, signed bodies,
 macaroons, OAuth, and other designs can all provide meaningful identity or
 delegation.
 
@@ -19,9 +19,8 @@ to B's key, narrow its scope, record who issued it, and keep revocation state.
 Those are application and infrastructure choices that must be designed
 explicitly.
 
-The problem is therefore not that HTTP cannot carry accountability. It is that
-a copied bearer token does not carry delegation, recipient identity, or
-per-recipient revocation by itself.
+HTTP can carry accountability. A copied bearer token does not carry
+delegation, recipient identity, or per-recipient revocation by itself.
 
 ## What OCapN supplies
 
@@ -43,7 +42,7 @@ history and signature before recording an Episode. A bad signature or a key
 the history has retired is refused.
 
 After A introduces B to C, the accepted Episode names B because B signed the
-call. OCapN preserves the direct capability relationship; the application
+call. OCapN preserves the direct capability relationship. The application
 provides identity and the audit record. The example does not record a complete
 delegation chain from A to B.
 
@@ -55,9 +54,8 @@ revocation machinery. OCapN makes reference passing and three-party
 introduction part of the network model, so the application can concentrate on
 identity evidence and accountability.
 
-That is the claim this example supports: capability networking composes cleanly
-with signed caller identity. It is not a claim that HTTP cannot support secure
-delegation or attribution.
+This example shows that capability networking composes cleanly with signed
+caller identity. HTTP can also support secure delegation and attribution.
 
 Run `zig build accountability` for the native signed-call path and
 `zig build accountability-three-party` for attribution after a live three-Host

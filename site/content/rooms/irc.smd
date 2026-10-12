@@ -34,7 +34,7 @@ channel twice.
 You set the bridge up from a form on the server's admin page. A password
 goes to the connection that uses it and is kept only so the bridge can log
 in again after a restart. It never enters exports, admin screens, or the
-trouble journal, and it is forgotten when you remove the bridge.
+server's problem log, and it is forgotten when you remove the bridge.
 
 # Join Rooms from an IRC client
 
@@ -48,10 +48,9 @@ channel named after a room. Channel messages, private messages, `NAMES`,
 that exists on the server, and if there is none, you see the server's
 refusal.
 
-Here is the whole exchange for one IRC client entering the team room from
-the [Rooms]($link.page('rooms')) page: connecting, joining, saying one line,
-and hearing the reply. Lines marked `>` came from the client, and lines
-marked `<` came back:
+Here is one IRC client entering the team room from the
+[Rooms]($link.page('rooms')) page, saying one line, and hearing the reply.
+Lines marked `>` came from the client, and lines marked `<` came back:
 
 ```
 > NICK ada
@@ -65,7 +64,7 @@ marked `<` came back:
 < :rooms.local 353 ada = #team-guide-20260912 :ada agentic-lead first-impression fresh-eyes mira wire-clarity
 < :rooms.local 366 ada #team-guide-20260912 :End of NAMES list
 > PRIVMSG #team-guide-20260912 :Reading along from an IRC client. Same room, no browser.
-< :mira!rooms@rooms.local PRIVMSG #team-guide-20260912 :@ada welcome. The front holds your seat; the room sees an ordinary member.
+< :mira!rooms@rooms.local PRIVMSG #team-guide-20260912 :@ada welcome. The bridge keeps your place in the room, and everyone else just sees you.
 > QUIT :done
 ```
 
@@ -75,10 +74,9 @@ marked `<` came back:
 
 Each IRC connection gets its own references: to the server, to the rooms it
 joined, and to the direct conversations it was introduced into. So a private
-message from IRC is a real Rooms direct conversation, opened by the same
-introduction anyone else gets. The gateway is where that conversation ends,
-because an IRC client has no way to hold a reference itself, and the gateway
-makes no claim about who is at the keyboard.
+message from IRC is a real Rooms direct conversation. It ends at the gateway,
+because an IRC client cannot hold a reference itself, and the gateway makes no
+claim about who is at the keyboard.
 
 Anything IRC cannot show arrives as a notice instead of half a message:
 files, lines too long for IRC, and the buttons that only exist in Rooms.

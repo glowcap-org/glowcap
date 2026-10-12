@@ -12,7 +12,7 @@ const common = @import("common.zig");
 /// Spawn a hosted actor and adopt its first root into an owned Host reference.
 /// No session, alias or wire export is created. Release the returned reference
 /// through glowcap_host_ref_release. The ctx/free transfer follows publish:
-/// null-pointer and reentry refusals leave ctx with the caller; after admission
+/// null-pointer and reentry refusals leave ctx with the caller. After admission
 /// free runs exactly once on failure, final actor collection or Host release.
 pub fn glowcap_host_spawn(
     host: ?*c.GlowcapHost,

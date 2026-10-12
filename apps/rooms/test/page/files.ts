@@ -3,7 +3,7 @@
 // The second tab is where the proof lands, because it holds none of the bytes:
 // anything it draws it fetched over its own session by calling the capability
 // the room handed it. Changing a posted line's files is the same claim one step
-// on — the room re-broadcasts, and the tab that never had the bytes redraws.
+// on, the room re-broadcasts, and the tab that never had the bytes redraws.
 
 import type { Page } from "playwright";
 import { Buffer } from "node:buffer";
@@ -17,8 +17,8 @@ export async function run(
 	// ── Posting a file ───────────────────────────────────────────────────
 	// A real picture through the real path: the picker takes a file, the page
 	// uploads it to the room a chunk at a time, and the room broadcasts a line
-	// carrying a capability to the copy it now holds. The *second* peer is
-	// where the proof lands, because that tab has none of the bytes — anything
+	// carrying a capability to the copy it holds. The *second* peer is
+	// where the proof lands, because that tab has none of the bytes, anything
 	// it draws it fetched over its own session by calling that capability.
 	if (!(await tab.isDisabled("#sendBtn"))) fail("an empty composer presented Send as ready");
 	await tab.setInputFiles("#filePick", {
@@ -82,7 +82,7 @@ export async function run(
 	}
 
 	// Clicking a picture opens it rather than saving it. The viewer covers the
-	// whole interface — it is not a panel inside the conversation column — and
+	// whole interface. It is not a panel inside the conversation column, and
 	// Escape leaves it, through the same chain that dismisses Settings.
 	// Hold the stage without layout to exercise the cached image's mount before
 	// showModal gives it dimensions. A zero-sized box is not a fitted size.

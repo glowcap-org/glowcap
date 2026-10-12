@@ -8,7 +8,7 @@
 //! locator's `direct-addresses` hint. The transport symbol stays distinct
 //! because it selects channel semantics: `keyed-tcp` is cleartext, while
 //! `noise-tcp` makes the owning core Host run the sealed channel. Those
-//! semantics live in `driver_core`; nothing here differs by them.
+//! semantics live in `driver_core`. Nothing here differs by them.
 
 const std = @import("std");
 
@@ -26,7 +26,7 @@ const Buffers = netlayer.Buffers;
 const Connection = connection.Connection;
 
 /// Instantiate one TCP profile. Only a host-port transport with a dialable
-/// address source is admitted; the designator scheme selects whether a listen
+/// address source is admitted. The designator scheme selects whether a listen
 /// needs the Host's identity key.
 pub fn Profile(comptime transport: model.transport.Known) type {
     const profile_meta = transport.metadata();
@@ -38,7 +38,7 @@ pub fn Profile(comptime transport: model.transport.Known) type {
         pub const transport_name = profile_meta.symbol;
 
         /// Build this profile's locator without parsing or allocating. The
-        /// address form takes the `host:port` designator; the key form takes
+        /// address form takes the `host:port` designator. The key form takes
         /// the peer's canonical key designator, the caller-owned address hint,
         /// and the hint storage the returned locator borrows.
         pub const locator = LocatorBuilder.locator;

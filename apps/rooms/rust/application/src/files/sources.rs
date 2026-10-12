@@ -1,4 +1,4 @@
-//! Sender-held direct files. One owner spans conversations; expired in-flight
+//! Sender-held direct files. One owner spans conversations. Expired in-flight
 //! reads stay charged until their leases drop. No I/O or task ownership lives here.
 use super::{CHUNK_BYTES, FileArgument, FileDescription};
 use crate::room::line::MAX_MESSAGE_FILES;
@@ -69,13 +69,13 @@ impl<S> Blob<S> {
 	}
 	/// Protect live backing from pressure eviction through admission and
 	/// settlement. Explicit expiration, consumed coverage and pool teardown
-	/// still retire it; the lease cannot revive or retarget authority.
+	/// still retire it. The lease cannot revive or retarget authority.
 	pub fn lease(&self) -> Lease<S> {
 		self.slot.leases.set(self.slot.leases.get() + 1);
 		Lease(self.clone())
 	}
 }
-/// A pressure pin in the existing bounded pool; it allocates no backing or
+/// A pressure pin in the existing bounded pool. It allocates no backing or
 /// registry row. Read custody remains independent of the sender's lease.
 pub struct Lease<S>(Blob<S>);
 impl<S> Lease<S> {
@@ -95,7 +95,7 @@ pub struct Usage {
 	pub reads: usize,
 }
 /// The application runtime owns one pool. Blob and read handles cannot extend
-/// its lifetime; dropping it expires every still-published backing source.
+/// its lifetime. Dropping it expires every still-published backing source.
 pub struct Sources<S> {
 	rows: VecDeque<Rc<Slot<S>>>,
 	reads: Rc<Cell<usize>>,
@@ -122,12 +122,12 @@ impl<S> Sources<S> {
 		}
 	}
 	/// Validate the whole batch before expiring or publishing any source. S is
-	/// already a validated platform backing source; nonempty inputs require one.
+	/// already a validated platform backing source. Nonempty inputs require one.
 	pub fn retain(&mut self, sources: Vec<(FileDescription, S)>) -> Result<Vec<Blob<S>>, Error> {
 		self.retain_with_reads(sources, false)
 	}
 	/// Managed line custody has independent receiver and archive readers. They
-	/// borrow the same backing; complete coverage by one cannot retire another.
+	/// borrow the same backing. Complete coverage by one cannot retire another.
 	/// Hosted leases pin these sources against pressure until custody is released.
 	/// The ordinary file/byte/read limits and explicit expiry still apply.
 	pub fn retain_repeatable(&mut self, sources: Vec<(FileDescription, S)>) -> Result<Vec<Blob<S>>, Error> {
@@ -164,7 +164,7 @@ impl<S> Sources<S> {
 				.rows
 				.iter()
 				.find(|r| r.reads.get() == 0 && r.leases.get() == 0 && r.source.borrow().is_some())
-				.expect("preflight found reclaimable sources");
+				.ok_or(Error::Capacity)?;
 			row.source.borrow_mut().take();
 			usage = self.usage();
 		}

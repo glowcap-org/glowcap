@@ -1,7 +1,7 @@
 //! Shared harness for the onion C-ABI loopback proofs: the fake-daemon
 //! netlayer mint, the frame-shuttling loopback transport, and the release
 //! helpers every scenario family funnels through. Both daemons are fakes on
-//! loopback; their bytes are pinned against the reference implementations in
+//! loopback. Their bytes are pinned against the reference implementations in
 //! `test/net/onion_socks5_test.zig` and `test/net/onion_control_test.zig`.
 
 const std = @import("std");

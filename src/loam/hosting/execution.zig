@@ -10,7 +10,7 @@ pub const Execution = opaque {
         ready: driver.Value,
         /// No target call crossed Host admission.
         unsent: Failure,
-        /// Target admission occurred; only the application can resolve effect
+        /// Target admission occurred. Only the application can resolve effect
         /// application. A broken reply or closed connection is insufficient.
         unknown: Failure,
     };
@@ -36,7 +36,7 @@ pub const Execution = opaque {
     }
 
     /// Detach the observer, not an admitted effect or its receipt. Call before
-    /// destroying Host or the caller allocator; bytes and capabilities borrow
+    /// destroying Host or the caller allocator. Bytes and capabilities borrow
     /// this observer until release.
     pub fn deinit(self: *Execution) void {
         const state: *Dispatch = @ptrCast(@alignCast(self));
@@ -47,7 +47,7 @@ pub const Execution = opaque {
 };
 
 /// One stable allocation shared by observer, internal endpoint and admitted
-/// operation. Restarts only replace preparation; admission is monotonic.
+/// operation. Restarts only replace preparation. Admission is monotonic.
 pub const Dispatch = struct {
     host: *driver.Host,
     refs: usize = 1,

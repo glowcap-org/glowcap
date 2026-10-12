@@ -1,13 +1,13 @@
 //! The blocking in-process transport (the `inproc` feature).
 //!
-//! This module wraps `libglowcap_net_transport_inproc` — the `glowcap_inproc_*`
+//! This module wraps `libglowcap_net_transport_inproc`: the `glowcap_inproc_*`
 //! archive that the `inproc` Cargo feature links (ADR-0059). It is the
 //! socket-free sibling of [`tcp`](crate::tcp): two peers in one process are
 //! wired by in-process pipes, with no kernel transport. The C listener adds a
-//! wake descriptor for reactor integration; no application bytes flow through it.
+//! wake descriptor for reactor integration. No application bytes flow through it.
 //! A [`Listener`] binds to a string designator (any opaque token, not a
-//! `host:port`) and a dialer names that designator; otherwise the frame shuttle
-//! is identical — a [`Connection`] reads and writes one whole CapTP frame at a
+//! `host:port`) and a dialer names that designator. Otherwise the frame shuttle
+//! is identical: a [`Connection`] reads and writes one whole CapTP frame at a
 //! time, and the frame methods block.
 //!
 //! Errors from a `glowcap_inproc_*` call route through the transport archive's
@@ -47,6 +47,8 @@ error_slot!(
 fn require_archive() -> Result<()> {
 	crate::require_archive_fingerprint(
 		"inproc",
+		// SAFETY: `glowcap_inproc_archive_fingerprint` takes no arguments and returns an integer by value, so it
+		// touches no Rust memory.
 		unsafe { ffi::glowcap_inproc_archive_fingerprint() },
 		crate::abi_constants::INPROC_ARCHIVE_FINGERPRINT,
 	)
@@ -65,6 +67,8 @@ impl Netlayer {
 	pub fn new() -> Result<Netlayer> {
 		require_archive()?;
 		let mut raw: *mut ffi::GlowcapInprocNetlayer = core::ptr::null_mut();
+		// SAFETY: `raw` is a local out-parameter the callee fills with the new netlayer handle, which `Netlayer::drop`
+		// releases.
 		check_inproc(unsafe { ffi::glowcap_inproc_netlayer_new(&mut raw) })?;
 		Ok(Netlayer {
 			raw,
@@ -76,6 +80,9 @@ impl Netlayer {
 	/// returned listener borrows this netlayer and cannot outlive it.
 	pub fn listen(&self, designator: &str) -> Result<Listener<'_>> {
 		let mut raw: *mut ffi::GlowcapInprocListener = core::ptr::null_mut();
+		// SAFETY: `self.raw` is this `Netlayer`'s handle from `glowcap_inproc_netlayer_new`, released only by its
+		// `Drop`; `designator` is a borrowed `str` whose pointer and length stay live for the call; `raw` is an
+		// out-parameter the callee fills.
 		check_inproc(unsafe { ffi::glowcap_inproc_listen(self.raw, designator.as_ptr(), designator.len(), &mut raw) })?;
 		Ok(Listener {
 			raw,
@@ -89,6 +96,9 @@ impl Netlayer {
 	/// netlayer and cannot outlive it.
 	pub fn connect(&self, designator: &str, codec: Codec, max_frame_bytes: usize) -> Result<Connection<'_>> {
 		let mut raw: *mut ffi::GlowcapInprocConn = core::ptr::null_mut();
+		// SAFETY: `self.raw` is this `Netlayer`'s handle from `glowcap_inproc_netlayer_new`, released only by its
+		// `Drop`; `designator` is a borrowed `str` whose pointer and length stay live for the call; `raw` is an
+		// out-parameter the callee fills, and the null error buffer with length zero asks for no error text.
 		check_inproc(unsafe {
 			ffi::glowcap_inproc_connect(
 				self.raw,
@@ -123,6 +133,8 @@ impl Netlayer {
 
 impl Drop for Netlayer {
 	fn drop(&mut self) {
+		// SAFETY: `self.raw` is this `Netlayer`'s handle from `glowcap_inproc_netlayer_new`, released only by its
+		// `Drop`, so the release runs once after every borrowing `Listener` and `Connection` is gone.
 		unsafe { ffi::glowcap_inproc_netlayer_release(self.raw) };
 	}
 }
@@ -137,9 +149,12 @@ pub struct Listener<'a> {
 
 impl Listener<'_> {
 	/// Return the borrowed wake descriptor for reactor integration. The
-	/// listener owns it; callers must not close it or retain it after drop.
+	/// listener owns it. Callers must not close it or retain it after drop.
 	pub fn readiness_fd(&self) -> Result<i32> {
 		let mut fd: i32 = -1;
+		// SAFETY: `self.raw` is this `Listener`'s handle from `Netlayer::listen`, released only by its `Drop`; its `'a`
+		// borrow keeps the netlayer alive; `fd` is an out-parameter the callee writes; the listener keeps owning the
+		// descriptor.
 		check_inproc(unsafe { ffi::glowcap_inproc_listener_readiness_fd(self.raw, &mut fd) })?;
 		Ok(fd)
 	}
@@ -148,6 +163,9 @@ impl Listener<'_> {
 	/// listener (and thus the netlayer) and cannot outlive it.
 	pub fn accept(&self, codec: Codec, max_frame_bytes: usize) -> Result<Connection<'_>> {
 		let mut raw: *mut ffi::GlowcapInprocConn = core::ptr::null_mut();
+		// SAFETY: `self.raw` is this `Listener`'s handle from `Netlayer::listen`, released only by its `Drop`; its `'a`
+		// borrow keeps the netlayer alive; `raw` is an out-parameter the callee fills, and the null error buffer with
+		// length zero asks for no error text.
 		check_inproc(unsafe {
 			ffi::glowcap_inproc_accept(
 				self.raw,
@@ -167,6 +185,9 @@ impl Listener<'_> {
 			return Ok(());
 		}
 		let raw = core::mem::replace(&mut self.raw, core::ptr::null_mut());
+		// SAFETY: `raw` is this `Listener`'s handle from `Netlayer::listen`, moved out of `self.raw` just above and
+		// non-null, so it is released exactly once and `Drop` sees null afterward; the netlayer outlives it through the
+		// `'a` borrow, and the null error buffer with length zero asks for no error text.
 		check_inproc(unsafe {
 			ffi::glowcap_inproc_listener_release(raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
 		})
@@ -178,8 +199,8 @@ impl Listener<'_> {
 	}
 }
 
-// SAFETY: a `Listener` owns a self-contained payload — its own bound
-// switchboard slot plus a copy of the netlayer's allocator — and shares no
+// SAFETY: a `Listener` owns a self-contained payload, its own bound
+// switchboard slot plus a copy of the netlayer's allocator, and shares no
 // per-handle mutable state with the netlayer or sibling handles, so moving it to
 // the accepting thread and calling `accept` there touches only its own state.
 // The state it shares with the netlayer is thread-safe: the allocator
@@ -212,11 +233,21 @@ impl Connection<'_> {
 	/// Block for one whole frame. [`ErrorKind::Closed`](crate::ErrorKind::Closed)
 	/// reports a clean EOF.
 	pub fn read_frame(&mut self) -> Result<Vec<u8>> {
+		// SAFETY: `GlowcapManagedFrame` is a plain C struct of integers, null pointers, and an `Option` function
+		// pointer; all-zero is a valid value, and the callee fills it before it is read.
 		let mut frame: crate::sys::GlowcapManagedFrame = unsafe { core::mem::zeroed() };
+		// SAFETY: `self.raw` is this `Connection`'s handle from `connect` or `accept`, released only by its `Drop`; its
+		// `'a` borrow keeps the backend alive; `frame` is an out-parameter the callee fills, and the null error buffer
+		// with length zero asks for no error text.
 		check_inproc(unsafe {
 			ffi::glowcap_inproc_conn_read_frame(self.raw, &mut frame, core::ptr::null_mut(), 0, core::ptr::null_mut())
 		})?;
+		// SAFETY: on success `read_frame` filled `frame.bytes` and `frame.len` with a view the frame owns until
+		// `glowcap_managed_frame_release` runs on the next line, and `owned_from_view` copies it first; it handles a
+		// null pointer or zero length.
 		let out = unsafe { crate::owned_from_view(frame.bytes, frame.len) };
+		// SAFETY: `frame` was filled by the successful `read_frame` call above and is released exactly once, after the
+		// copy.
 		unsafe { crate::sys::glowcap_managed_frame_release(&mut frame) };
 		Ok(out)
 	}
@@ -228,14 +259,17 @@ impl Connection<'_> {
 			len: bytes.len(),
 			shape: crate::sys::FRAME_SHAPE_BYTE,
 		};
+		// SAFETY: `self.raw` is this `Connection`'s handle from `connect` or `accept`, released only by its `Drop`; its
+		// `'a` borrow keeps the backend alive; `f` is a local `GlowcapFrame` whose `bytes` and `len` come from the
+		// borrowed `bytes` slice, live for the call, and the callee reads it only during the call.
 		check_inproc(unsafe {
 			ffi::glowcap_inproc_conn_write_frame(self.raw, &f, core::ptr::null_mut(), 0, core::ptr::null_mut())
 		})
 	}
 }
 
-// SAFETY: a `Connection` owns a self-contained payload — its own in-process pipe
-// half plus a copy of the netlayer's allocator — and shares no per-handle
+// SAFETY: a `Connection` owns a self-contained payload, its own in-process pipe
+// half plus a copy of the netlayer's allocator, and shares no per-handle
 // mutable state with the netlayer or sibling handles, so moving it to another
 // thread and doing frame I/O on it touches only its own state. The allocator and
 // the switchboard/`std.Io.Threaded` backend it shares are thread-safe under the
@@ -245,6 +279,8 @@ unsafe impl Send for Connection<'_> {}
 
 impl Drop for Connection<'_> {
 	fn drop(&mut self) {
+		// SAFETY: `self.raw` is this `Connection`'s handle from `connect` or `accept`, released only by its `Drop`; its
+		// `'a` borrow keeps the backend alive, so the release runs once after every borrow of it ends.
 		unsafe { ffi::glowcap_inproc_conn_release(self.raw) };
 	}
 }
@@ -254,7 +290,7 @@ mod tests {
 	use super::*;
 	use crate::Codec;
 
-	// Two peers wired by an in-process pipe — no socket — shuttle one whole
+	// Two peers wired by an in-process pipe, no socket, shuttle one whole
 	// frame across the switchboard, proving the `inproc` archive composes with
 	// the core exactly as the tcp one does.
 	#[test]

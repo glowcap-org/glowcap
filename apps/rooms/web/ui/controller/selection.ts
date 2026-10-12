@@ -1,5 +1,5 @@
 // This page projection names its opened viewer. Retained Rust custody owns
-// the saved selection; this object never writes a workspace document.
+// the saved selection. This object never writes a workspace document.
 import type { RoomsControllerSelection } from "../../../lib/rooms_state.ts";
 
 export class ControllerSelection {

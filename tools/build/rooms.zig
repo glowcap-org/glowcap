@@ -23,7 +23,7 @@ const rooms_peers = @import("rooms/peers.zig");
 const rooms_browser_front = @import("rooms/browser_front.zig");
 
 /// What the rooms family draws from the root build graph. Everything here is
-/// minted by the root before the family registers; the family adds no layer
+/// minted by the root before the family registers. The family adds no layer
 /// of its own.
 pub const Context = struct {
     b: *std.Build,
@@ -71,6 +71,10 @@ const WebProof = struct {
     needs_archive: bool = false,
     /// The proof attaches browsers to the installed native session peer.
     needs_session: bool = false,
+    /// The proof holds the page to a wall-clock budget. A budget measured while
+    /// the rest of the family competes for the same cores measures the
+    /// contention, so `rooms-web-proofs` runs it after every other proof.
+    measures_time: bool = false,
 };
 
 /// One native direct-message demo: a Deno scenario over the installed
@@ -154,7 +158,7 @@ pub fn register(ctx: Context) Registered {
     // consumer, a browser, and a picture is the wrong tool for "what did this
     // peer do just now, in order". A convenience runner like the client above:
     // it runs until interrupted, so it belongs to no gate, and its posture is
-    // the reader's patience rather than a deadline — `service`, the posture the
+    // the reader's patience rather than a deadline, `service`, the posture the
     // long-running rooms processes already take, for the same reason.
     const rooms_trace_tail = execution.addSystemCommand(b, .service, &.{
         "deno",
@@ -253,27 +257,27 @@ pub fn register(ctx: Context) Registered {
     // Four native direct-message scenarios over TCP, one table because their
     // wiring is identical and only the scenario differs.
     //
-    //   demo-rooms-dm — the rooms-app face of the gifter handoff
+    //   demo-rooms-dm: the rooms-app face of the gifter handoff
     //     (`deno-gifter-handoff`): a rendezvous room introduces two members
     //     who then DM directly, room out of the path. Exercises the real rooms
     //     directory's `register`/`introduce` and a member's exported `dm`
     //     object, the three proofs (live cap, brand-new inbound, no relay)
     //     asserted. Its iroh sibling is `demo-rooms-dm-iroh`.
-    //   demo-rooms-dm-reply — the bidirectional completion of the
+    //   demo-rooms-dm-reply: the bidirectional completion of the
     //     introduction: a Host publication reads its caller's connection
     //     through `currentSession()` and replies over it, so a non-listening
     //     caller (a browser peer) receives the reply on the connection it
     //     opened. Direct 2-party TCP, no room, no dial-back.
-    //   demo-rooms-dm-back — the redeemed-introduction back-channel: a member
+    //   demo-rooms-dm-back: the redeemed-introduction back-channel: a member
     //     answers a non-listening sender across a three-party handoff. The
     //     sender hosts a reply inbox on the redeemed direct connection
     //     (`Session.sendRedeeming`), so the member replies over it without
     //     dialing the sender. The native, Chromium-free sibling of
     //     `rooms-web-dm`, driving the same `room_client.ts` DirectMessage.
-    //   rooms-dm-reredeem — redeem attribution is deterministic:
+    //   rooms-dm-reredeem: redeem attribution is deterministic:
     //     `Session.sendRedeeming` resolves the direct exporter session from
     //     the reply's own route, so a re-redeem to an already-dialed exporter
-    //     resolves the same live session even though it runs no new dial —
+    //     resolves the same live session even though it runs no new dial,
     //     the case a capture-window heuristic would surface as null
     //     (ADR-0088).
     const dm_demos = [_]DmDemo{
@@ -309,7 +313,7 @@ pub fn register(ctx: Context) Registered {
     const rooms_client_iroh_exe = b.addExecutable(.{ .name = "glowcap-rooms-client-iroh", .root_module = rooms_client_iroh_mod });
     // The client's `dialIroh` path lives behind `iroh_enabled`, so the TCP client
     // that rides `check` (above) compiles it out. Ride a second, cargo-free
-    // compile guard on `check` with the flag on — externs stay unresolved — so a
+    // compile guard on `check` with the flag on, externs stay unresolved, so a
     // core-API change through the iroh resident cannot break this consumer unseen.
     const rooms_client_iroh_check_mod = common.irohDriverModule(b, target, optimize, lib_mod, ctx.iroh_resident_mod, "apps/rooms/clients/zig/client.zig");
     rooms_client_iroh_check_mod.addOptions("rooms_client_build_options", rooms_iroh_opts);
@@ -395,13 +399,13 @@ pub fn register(ctx: Context) Registered {
     // companion (cargo). All are siblings of `check`, never members. What each
     // proves:
     //
-    //   rooms-web-page — the whole rooms page as a browser peer: load the
+    //   rooms-web-page: the whole rooms page as a browser peer: load the
     //     served page, join a room through /relay, and round-trip a chat line
     //     over the room capability, no JSON bridge on the page's path.
-    //   rooms-web-hosted-session — one browser promotes its local session and
+    //   rooms-web-hosted-session: one browser promotes its local session and
     //     a browser on another Rooms origin follows the capability's signaling
     //     directory to attach to that in-tab Host over WebRTC.
-    //   rooms-web-reconnect — the page surviving the loss of its room server.
+    //   rooms-web-reconnect: the page surviving the loss of its room server.
     //     Which state belongs to a directory session is only observable when
     //     one dies, so this kills the room out from under a joined page: it
     //     must notice, come back, re-enter a listed room by name and a private
@@ -409,65 +413,67 @@ pub fn register(ctx: Context) Registered {
     //     session delivered, and reach both rooms over the new one. Runs the
     //     room over iroh so a restart changes its routing hints while preserving
     //     its durable authority.
-    //   rooms-web-manager — a managed room's authority across a reload: the
+    //   rooms-web-manager: a managed room's authority across a reload: the
     //     card draws the workspace's saved manager sturdyref, while the acts
     //     beside it need the capability the room took on entry, and re-entering
     //     a name the directory already knows answers with no authority to take.
     //     Presses the act rather than reading the card.
-    //   rooms-web-dm — the browser sends a direct message end to end: redeem
+    //   rooms-web-dm: the browser sends a direct message end to end: redeem
     //     a room introduction and dial the member's iroh endpoint through the
     //     relay, delivering off-room.
-    //   rooms-web-dm-tabs — two browser tabs cold-dial each other by relay
+    //   rooms-web-dm-tabs: two browser tabs cold-dial each other by relay
     //     rendezvous (ADR-0088 capability 5): each registers its durable
     //     identity and advertises a `noise-relay` locator, one redeems the
     //     room's introduction by cold-dialing the other tab-to-tab off-room,
     //     the sealed session opens end to end, and the reply rides back over
     //     the arriving connection. Browser-to-browser on a shared relay, not
     //     a general stranger cold-dial.
-    //   rooms-web-dm-trace — the DM conversation appears on the live timeline
+    //   rooms-web-dm-trace: the DM conversation appears on the live timeline
     //     (ADR-0104). The room server serves the endpoint; each tab publishes
     //     its OWN trace to it, because the DM is a session the room does not
     //     carry and must not start carrying.
-    //   rooms-web-trace-lifecycle — the whole picture over a member's life in a
+    //   rooms-web-trace-lifecycle: the whole picture over a member's life in a
     //     room, counted after every step through ocapnviz's OWN converter:
     //     joins, a DM, leaving, closing, reopening, going away.
-    //   rooms-web-dm-native — a NATIVE peer cold-dials a browser member by
+    //   rooms-web-dm-native: a NATIVE peer cold-dials a browser member by
     //     relay rendezvous (ADR-0088, the native-dialer row): the tab
     //     registers its Noise-sealed relay identity, the native Host redeems the room's
     //     introduction and bridges onto the held socket through the relay
     //     provider it composes for rendezvous dials.
-    //   rooms-web-dm-noise — two browser tabs use that same sealed rendezvous
+    //   rooms-web-dm-noise: two browser tabs use that same sealed rendezvous
     //     in both directions, pinning the managed browser connector as dialer.
-    //   rooms-web-dm-webrtc — the live webrtc handoff-redeem proof
+    //   rooms-web-dm-webrtc: the live webrtc handoff-redeem proof
     //     (ADR-0089): the give's exporter locator names a bare webrtc
     //     designator, the redeeming host signals through the room directory
     //     by its composed webrtc connector, and the DM crosses the
     //     DataChannel with the room out of the byte path. The live timeline
     //     must name `webrtc`, so relay delivery cannot impersonate this proof.
-    //   rooms-web-private — a room nobody can look up: in no list, answering
+    //   rooms-web-private: a room nobody can look up: in no list, answering
     //     to no name, taking no name from anybody; its Capabilities control
     //     mints the bearer link another tab uses to enter it.
-    //   rooms-web-dm-foreign — starting a direct message from somebody else's
+    //   rooms-web-dm-foreign: starting a direct message from somebody else's
     //     room. A visitor holds two directories, their own page's and the one
     //     they joined, and a `webrtc` locator names a designator and nothing
-    //     else — so the redeeming connector has to ask which directory to
+    //     else, so the redeeming connector has to ask which directory to
     //     signal through, and answering with the first one meant a visitor
     //     could receive direct messages and never start one.
-    //   rooms-web-dm-retarget — a nickname is a claim the room grants and
+    //   rooms-web-dm-retarget: a nickname is a claim the room grants and
     //     takes back, so a conversation cannot be keyed on one: talk to ada,
     //     ada leaves, somebody else is granted the name, then type into the
     //     conversation you already had.
-    //   rooms-web-dm-reopen — closing a direct conversation and reopening it
+    //   rooms-web-dm-reopen: closing a direct conversation and reopening it
     //     has to open a second connection, and the second one has to carry.
     //     The sibling proofs ask only whether the message arrived, which a
     //     reopen resolving to the connection the close was supposed to end
     //     also satisfies, so this one watches the live timeline and requires
     //     a session id nobody had seen.
-    //   rooms-web-archive — a member selects a durable archive peer, writes a
+    //   rooms-web-archive: a member selects a durable archive peer, writes a
     //     direct-message history through it, closes the whole browser profile,
     //     then recovers that history through the same authority in a fresh one.
     const web_proofs = [_]WebProof{
-        .{ .step_name = "rooms-web-page", .description = "Prove the whole rooms page runs as a browser peer: join a room through /relay and round-trip a line over the room capability (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/page_proof.ts", .wrapper_deadline_seconds = 270 },
+        .{ .step_name = "rooms-web-page", .description = "Prove the whole rooms page runs as a browser peer: join a room through /relay and round-trip a line over the room capability (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/page_proof.ts", .wrapper_deadline_seconds = 330 },
+        .{ .step_name = "rooms-web-admission", .description = "Prove browser admission preserves drafts, attachment custody, cleanup and unrelated progress", .source = "apps/rooms/test/proofs/admission_proof.ts", .wrapper_deadline_seconds = 120 },
+        .{ .step_name = "rooms-web-responsiveness", .description = "Prove stable Rooms presentation, delayed progress and bounded input latency over the production transport", .source = "apps/rooms/test/proofs/responsiveness_proof.ts", .wrapper_deadline_seconds = 180, .measures_time = true },
         .{ .step_name = "rooms-web-link-preview", .description = "Prove link previews reconcile ready, retry, remove, image-failure and delivered-fallback states using Rooms controls on the real page (needs deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/link_preview_proof.ts", .wrapper_deadline_seconds = 120 },
         .{ .step_name = "rooms-web-shared-session", .description = "Prove two browser profiles attach to one native durable Rooms session peer and mirror its member, selection, draft, lines, and capability vault (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/shared_session_proof.ts", .wrapper_deadline_seconds = 330, .needs_session = true },
         .{ .step_name = "rooms-web-operations-refresh", .description = "Prove Rust operations pagination, latest search, credential removal and reload on the real page (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/operations_refresh_proof.ts", .wrapper_deadline_seconds = 210 },
@@ -489,45 +495,66 @@ pub fn register(ctx: Context) Registered {
         .{ .step_name = "rooms-web-dm-reopen", .description = "Prove reopening a closed direct conversation opens a second connection and that the second one carries: the live timeline must show the first session gone and a session id nobody had seen, and the reply must ride back over it, run once over webrtc and once over noise-relay (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/dm_reopen_proof.ts", .wrapper_deadline_seconds = 330 },
         .{ .step_name = "rooms-web-archive", .description = "Prove a member explicitly selects a durable archive peer, a generation split across two archives reads back as one account under both keepers, and a fresh browser profile recovers direct-message history from the same sturdyref (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/archive_peer_proof.ts", .wrapper_deadline_seconds = 150, .needs_iroh = true, .needs_archive = true },
     };
-    const web_proofs_step = b.step("rooms-web-proofs", "Run every browser proof of the shipped Rooms page (needs cargo + deno + a Playwright Chromium)");
+    const web_proofs_step = b.step("rooms-web-proofs", "Run every browser proof of the shipped Rooms page (needs cargo + deno + a Playwright Chromium). The proofs run concurrently, so a green run needs the machine to carry them: under fleet load the heaviest proofs (iroh dials) can exceed their wrapper deadline while passing alone through their own step.");
+    var concurrent: [web_proofs.len]*std.Build.Step = undefined;
+    var concurrent_len: usize = 0;
     for (web_proofs) |proof| {
-        const run = execution.addSystemCommand(b, .{ .browser_proof = proof.wrapper_deadline_seconds }, &.{"env"});
-        run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
-        if (proof.needs_archive) {
-            run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-archive" } }, .{ .prefix = "GLOWCAP_ROOMS_ARCHIVE_BIN=", .make_absolute = true });
-            run.step.dependOn(archive_install);
-        }
-        if (proof.needs_session) {
-            run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-session" } }, .{ .prefix = "GLOWCAP_ROOMS_SESSION_BIN=", .make_absolute = true });
-            run.step.dependOn(archive_install);
-        }
-        {
-            run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
-            run.step.dependOn(peers.web_build);
-        }
-        run.addArgs(&.{ "deno", "run", "--allow-all", proof.source });
-        // Each proof binds free loopback ports, owns its process group and
-        // temporary state, so the family runs concurrently up to `-j`.
-        // Capturing output keeps it out of the runtime gate's exclusive
-        // stdio lock; a failure still reports the proof's captured stderr.
-        run.expectExitCode(0);
-        const cache = execution.addSystemCommand(b, .build_tool, &.{ "deno", "cache", proof.source });
-        run.step.dependOn(&cache.step);
-        run.setCwd(b.path("."));
-        run.has_side_effects = true;
-        if (proof.needs_browser) run.step.dependOn(ctx.browser_preflight);
-        // Prepare once before launching the concurrent family. Each proof
-        // pins a concrete generation through its prepared web front.
-        run.step.dependOn(browser_assets);
-        if (proof.needs_iroh) run.step.dependOn(ctx.iroh_abi_step);
-        run.step.dependOn(ctx.ocapn_install);
-        run.step.dependOn(ctx.host_install);
-        run.step.dependOn(ctx.driver_install);
-        run.step.dependOn(ctx.tcp_install);
-        run.step.dependOn(ctx.relay_install);
+        const run = webProofRun(ctx, proof, archive_install, peers.web_build, browser_assets);
         b.step(proof.step_name, proof.description).dependOn(&run.step);
+        if (proof.measures_time) continue;
+        web_proofs_step.dependOn(&run.step);
+        concurrent[concurrent_len] = &run.step;
+        concurrent_len += 1;
+    }
+    // A timed proof's own step stays standalone; the family gets a second
+    // instance of it, ordered after every concurrent proof has finished.
+    for (web_proofs) |proof| {
+        if (!proof.measures_time) continue;
+        const run = webProofRun(ctx, proof, archive_install, peers.web_build, browser_assets);
+        for (concurrent[0..concurrent_len]) |step| run.step.dependOn(step);
         web_proofs_step.dependOn(&run.step);
     }
 
     return .{ .services_install = archive_install, .web_proofs = web_proofs_step, .browser_application = browser_application };
+}
+
+/// One browser proof's run, wired to everything the shipped page needs.
+fn webProofRun(ctx: Context, proof: WebProof, archive_install: *std.Build.Step, web_build: *std.Build.Step, browser_assets: *std.Build.Step) *std.Build.Step.Run {
+    const b = ctx.b;
+    const run = execution.addSystemCommand(b, .{ .browser_proof = proof.wrapper_deadline_seconds }, &.{"env"});
+    run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
+    if (proof.needs_archive) {
+        run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-archive" } }, .{ .prefix = "GLOWCAP_ROOMS_ARCHIVE_BIN=", .make_absolute = true });
+        run.step.dependOn(archive_install);
+    }
+    if (proof.needs_session) {
+        run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-session" } }, .{ .prefix = "GLOWCAP_ROOMS_SESSION_BIN=", .make_absolute = true });
+        run.step.dependOn(archive_install);
+    }
+    {
+        run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+        run.step.dependOn(web_build);
+    }
+    run.addArgs(&.{ "deno", "run", "--allow-all", proof.source });
+    // Each proof binds free loopback ports, owns its process group and
+    // temporary state, so the family runs concurrently up to `-j`, apart
+    // from a proof that `measures_time`.
+    // Capturing output keeps it out of the runtime gate's exclusive
+    // stdio lock; a failure still reports the proof's captured stderr.
+    run.expectExitCode(0);
+    const cache = execution.addSystemCommand(b, .build_tool, &.{ "deno", "cache", proof.source });
+    run.step.dependOn(&cache.step);
+    run.setCwd(b.path("."));
+    run.has_side_effects = true;
+    if (proof.needs_browser) run.step.dependOn(ctx.browser_preflight);
+    // Prepare once before launching the concurrent family. Each proof
+    // pins a concrete generation through its prepared web front.
+    run.step.dependOn(browser_assets);
+    if (proof.needs_iroh) run.step.dependOn(ctx.iroh_abi_step);
+    run.step.dependOn(ctx.ocapn_install);
+    run.step.dependOn(ctx.host_install);
+    run.step.dependOn(ctx.driver_install);
+    run.step.dependOn(ctx.tcp_install);
+    run.step.dependOn(ctx.relay_install);
+    return run;
 }

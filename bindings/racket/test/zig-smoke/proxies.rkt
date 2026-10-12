@@ -281,7 +281,7 @@
 ;; ── The callback latch crosses the binding ────────────────────────────────────
 ;; A behavior that reaches for a host-driving verb mid-turn (session-fetch, here)
 ;; is refused by the C tier before it can block, the refusal surfaces as the
-;; method's own raise, and the answer breaks with it — the turn neither
+;; method's own raise, and the answer breaks with it. The turn neither
 ;; deadlocks nor corrupts the host. This is the loud edge of the binding rule
 ;; that a handler must not drive (or block on) the host inside its own turn.
 ;; The connection stays fully usable afterwards.

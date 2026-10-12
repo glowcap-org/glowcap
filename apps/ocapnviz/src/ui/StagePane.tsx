@@ -3,7 +3,7 @@
  * controls.
  *
  * AppView owns the build gestures and the gesture context. This
- * module owns how those land on the stage — which click places a
+ * module owns how those land on the stage, which click places a
  * peer, which drag moves a node, which tool paints the armed ring.
  */
 
@@ -98,7 +98,7 @@ export function StagePane({
 					visibility={visibility}
 					// An empty-canvas click means something to two tools. Add Peer
 					// places one. Open Session, once a peer is armed, runs the
-					// session out to an end nothing has attributed — the shape a
+					// session out to an end nothing has attributed. The shape a
 					// recording holds when a peer has dialed and nothing has yet
 					// answered for who answered.
 					onCanvasClick={mode !== "build" || spaceHeld
@@ -111,7 +111,7 @@ export function StagePane({
 					// Drag-to-reposition is a Select-tool gesture. With any
 					// other build tool, a click that strays > 4px between
 					// pointerdown and pointerup would otherwise convert into
-					// a peer reposition, swallowing the two-click pick — a
+					// a peer reposition, swallowing the two-click pick, a
 					// surprisingly easy way to misfire when the cursor is
 					// tracking marching ants. Keep peer drag scoped to Select.
 					// Also gated on spacebar: hand-tool override beats peer
@@ -132,7 +132,7 @@ export function StagePane({
 					// event-transparent so the FSM's pan verbs get the
 					// pointerdown even on a peer body.
 					//
-					// The App's one gesture context — the Timeline's surfaces read
+					// The App's one gesture context. The Timeline's surfaces read
 					// the same value, so the two agree by construction.
 					gestureCtx={gestureCtx}
 					selection={selection}

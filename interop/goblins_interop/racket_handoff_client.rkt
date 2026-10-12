@@ -1,6 +1,6 @@
 #lang racket
 ;; Live three-party handoff with the Racket binding as the recipient (Carol),
-;; proving the binding redeems a `desc:handoff-give` transparently — through the
+;; proving the binding redeems a `desc:handoff-give` transparently, through the
 ;; same Runtime/session application surface the demos use, with
 ;; no bespoke handoff choreography in the application. The binding counterpart of
 ;; `zig build goblins-handoff` (which proves it at the Zig driver level).
@@ -12,7 +12,7 @@
 ;;   2. `(session-send session introducer 'get-greeter)`. Alice hands back Bob's greeter
 ;;      as a three-party handoff give. The connection's machine redeems it: it
 ;;      dials Bob directly (keyed with the *same* identity Alice saw), withdraws
-;;      the gift, and resolves the send to an ordinary capability — the
+;;      the gift, and resolves the send to an ordinary capability, the
 ;;      application never sees the give or the second connection.
 ;;   3. `(session-send session greeter (string->symbol "") "glowcap-carol")`. The empty
 ;;      method is a positional (methodless) deliver, which the greeter lambda

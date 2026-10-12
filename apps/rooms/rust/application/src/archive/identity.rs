@@ -1,5 +1,5 @@
 //! The peer seed and archive publication entropy are one durable identity.
-//! There is deliberately no Debug representation for authority-bearing bytes.
+//! There is no Debug representation for authority-bearing bytes.
 use crate::fields::{Hex, SafeInteger};
 use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
@@ -14,6 +14,10 @@ impl RecordingIdentity {
 		Self(Hex(entropy))
 	}
 	pub fn source(&self) -> crate::text::DocumentText {
+		#[expect(
+			clippy::expect_used,
+			reason = "a 16-byte hex newtype has no failing serialization arm"
+		)]
 		let encoded = serde_json::to_string(self).expect("fixed recording identity");
 		encoded[1..encoded.len() - 1].into()
 	}
@@ -63,6 +67,10 @@ impl Identity {
 		})
 	}
 	pub fn encode(&self) -> Vec<u8> {
+		#[expect(
+			clippy::expect_used,
+			reason = "three fixed integer and byte fields have no failing serialization arm"
+		)]
 		let mut bytes = serde_json::to_vec(self).expect("fixed identity fields serialize");
 		bytes.push(b'\n');
 		bytes

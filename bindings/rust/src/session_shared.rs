@@ -1,6 +1,6 @@
 //! Per-session capability support and shared state: [`Caretaker`] and
 //! [`SessionShared`]. [`Session`](crate::Session) is the application handle
-//! over one `SessionShared`; pump/host/trampoline/gc borrow `SessionShared` directly.
+//! over one `SessionShared`. The pump, host, trampoline, and gc modules borrow `SessionShared` directly.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -23,7 +23,7 @@ mod retirement;
 
 pub(crate) const READ_CHUNK: usize = sys::BINDING_STREAM_READ_CHUNK_BYTES;
 
-/// Preserve a transport deadline as `TimedOut`; other transport failures use
+/// Preserve a transport deadline as `TimedOut`. Other transport failures use
 /// `Io`. Keep the original diagnostic for display without making consumers
 /// parse it to distinguish an unanswered close from another I/O failure.
 pub(crate) fn io_err(e: std::io::Error) -> Error {
@@ -63,7 +63,7 @@ impl TryFrom<&Argument> for Ref {
 }
 
 /// A revocable caretaker over a capability (ADR-0064), returned by
-/// [`crate::Session::caretaker`]. Hand [`proxy`](Caretaker::proxy) to a partner; call
+/// [`crate::Session::caretaker`]. Hand [`proxy`](Caretaker::proxy) to a partner. Call
 /// [`revoke`](Caretaker::revoke) to sever it, after which every call through the
 /// proxy breaks with `Revoked`.
 pub struct Caretaker {
@@ -116,8 +116,8 @@ pub(crate) struct SessionShared {
 	pub(crate) closing: Cell<bool>,
 	pub(crate) released: Cell<bool>,
 	// Whether the loop has been told to serve this session. Serving is
-	// idempotent natively, but every verb used to re-cross the FFI to say it
-	// again; the first success settles it here.
+	// idempotent natively, so the first success settles it here and later
+	// verbs skip re-crossing the FFI.
 	pub(crate) served: Cell<bool>,
 	pub(crate) release_pending: Cell<bool>,
 	// Terminal result projected by the core-issued CLOSE action or native
@@ -133,7 +133,7 @@ pub(crate) struct SessionShared {
 	pub(crate) close_task: RefCell<Option<tokio::task::JoinHandle<()>>>,
 	pub(crate) owner_handles: Cell<usize>,
 	/// The Host adopted this dial independently of application handles. An
-	/// implicit final-handle drop must not condemn it; explicit close still can.
+	/// implicit final-handle drop must not condemn it. Explicit close still can.
 	pub(crate) host_retained: Cell<bool>,
 	// Set when an outbound write was dropped part-way through a frame, which a
 	// caller does by cancelling: `tokio::time::timeout` around a send is
@@ -152,8 +152,8 @@ pub(crate) struct SessionShared {
 impl SessionShared {
 	// The stream shorthand exists for `session_tests`, so it carries that
 	// module's own gate. Gated on `test` alone it was dead under any feature set
-	// that compiles the tests without `tcp` — `--features iroh` is one the build
-	// checks — and `dead_code = "deny"` turned that into a compile error rather
+	// that compiles the tests without `tcp`, `--features iroh` is one the build
+	// checks, and `dead_code = "deny"` turned that into a compile error rather
 	// than a warning nobody read.
 	#[cfg(all(test, feature = "tcp"))]
 	pub(crate) fn new<S>(ptr: *mut ffi::GlowcapHostSession, host: Rc<HostShared>, stream: S) -> Rc<SessionShared>
@@ -200,7 +200,7 @@ impl SessionShared {
 	}
 
 	/// The loop-backed shell (ADR-0112): a real `GlowcapHostSession` the native
-	/// loop minted (dial, accept, or an internal redeem), with no byte halves —
+	/// loop minted (dial, accept, or an internal redeem), with no byte halves:
 	/// the loop owns the wire, the pumping, and the release. Registered in the
 	/// host's session directory like any other shell, so the loop's
 	/// SESSION_CLOSED dispatch and `exporter_for` both find it.
@@ -265,7 +265,7 @@ impl SessionShared {
 	}
 
 	/// Resume loop-owned inbound once application setup is complete. A dialed
-	/// session reaches this from its first wire verb; an accepted session may
+	/// session reaches this from its first wire verb. An accepted session may
 	/// instead call `Session::serve` after publishing. Byte-fed sessions already
 	/// own their reader task, so this is a no-op for them.
 	pub(crate) fn attend_inbound(self: &Rc<Self>) -> Result<()> {
@@ -283,6 +283,9 @@ impl SessionShared {
 	pub(crate) fn session_open(&self) -> bool {
 		!self.host.closing()
 			&& !self.released.get()
+			// SAFETY: `self.ptr` is this `SessionShared`'s `GlowcapHostSession` handle, owned by the Host and nulled
+			// only by `commit_native_release`; the short-circuit on `released` above means a released session never
+			// reaches the call, and the callee only reads the handle and returns a status.
 			&& unsafe { ffi::glowcap_host_session_is_open(self.ptr.get()) } == 1
 	}
 
@@ -291,8 +294,8 @@ impl SessionShared {
 	// Spawn the inbound serve loop as its own task. Runs from establish, so a
 	// connection pumps from birth: an accepted partner's traffic and a dialed
 	// exporter's withdraw both arrive without an explicit `serve()` call.
-	// A loop-backed session has no byte pump of its own — the native loop
-	// reads, feeds, and drains — so its serve task only awaits the session's
+	// A loop-backed session has no byte pump of its own, the native loop
+	// reads, feeds, and drains, so its serve task only awaits the session's
 	// closure, keeping the completes-on-close contract.
 	pub(crate) fn spawn_serve(self: &Rc<SessionShared>) {
 		let shared = Rc::clone(self);
@@ -417,6 +420,11 @@ impl SessionShared {
 			Some(turn) => turn_spawn(turn, cell)?,
 			None => {
 				let mut reference = sys::GlowcapReference { id: 0 };
+				// SAFETY: `cell` is the fresh unregistered `ActorCell` that `HostShared::actor_cell` boxed, so nothing
+				// else holds it; the closure makes the one `glowcap_host_session_spawn` call on `self.ptr`, the live
+				// session handle owned by this `SessionShared` (guarded open above), and the host's single thread runs
+				// no other access to the cell during it. `trampoline` and `ctx_free` are the binding's callbacks for an
+				// `ActorCell`, and `reference` is a local out-parameter the callee writes.
 				unsafe {
 					register_actor_cell(
 						cell,
@@ -443,6 +451,8 @@ impl SessionShared {
 		self.drain_gc()?;
 		let cell = self.host.actor_cell(behavior)?;
 		let mut reference = sys::GlowcapReference { id: 0 };
+		// SAFETY: as `spawn_actor` above, with `glowcap_host_session_publish`; `name` is a `&str` borrowed for the
+		// whole call, and `reference` is the local out-parameter the callee writes.
 		unsafe {
 			register_actor_cell(
 				cell,
@@ -474,6 +484,10 @@ impl SessionShared {
 		let wire = target.to_sys()?;
 		let mut arena = SendArena::default();
 		let (args_ptr, args_len) = arena.build(args)?;
+		// SAFETY: `self.ptr` is this `SessionShared`'s live session handle (guarded open above); `wire` is a local
+		// `GlowcapReference` borrowed for the call, `verb` is a `&str` borrowed for the call, and `args_ptr`/`args_len`
+		// come from `arena`, a live local `SendArena` that outlives the call; the header says the host copies what it
+		// queues.
 		check_host(unsafe {
 			ffi::glowcap_host_session_tell(self.ptr.get(), &wire, verb.as_ptr(), verb.len(), args_ptr, args_len)
 		})?;
@@ -482,7 +496,7 @@ impl SessionShared {
 
 	// ── Distributed GC (ADR-0063), on by default and set per Host ──────────────
 
-	// Drain the parked GC releases — see [`crate::gc::drain`].
+	// Drain the parked GC releases: see [`crate::gc::drain`].
 	pub(crate) fn drain_gc(&self) -> Result<()> {
 		crate::gc::drain(&self.host)
 	}

@@ -17,7 +17,7 @@
 
 import type { Page } from "playwright";
 import { namedRoomRow } from "../support/conversation_row.ts";
-import { fail } from "./harness.ts";
+import { fail, waitForPostedLine } from "./harness.ts";
 import { run as filterFormRun } from "./filter_form.ts";
 
 /** What the rail is drawing, and what the filter says about it. */
@@ -94,7 +94,12 @@ async function makeRoom(tab: Page, name: string, privateRoom: boolean): Promise<
 	await tab.fill("#newRoomInput", name);
 	await tab.press("#newRoomInput", "Enter");
 	await tab.waitForFunction(
-		(room) => [...document.querySelectorAll("#roomList .rname")].some((el) => el.textContent?.trim() === room),
+		(room) =>
+			[...document.querySelectorAll("#roomList .room-open .rname")].some((el) =>
+				el.textContent?.trim() === room
+			) &&
+			document.getElementById("roomName")?.textContent?.trim() === room &&
+			(document.getElementById("line") as HTMLTextAreaElement | null)?.disabled === false,
 		name,
 		{ timeout: 30_000 },
 	).catch(() => fail(`naming ${JSON.stringify(name)} in the rail did not put a row for it in the list`));
@@ -126,6 +131,7 @@ async function sayInto(peer: Page, room: string, line: string): Promise<void> {
 	await peer.press("#line", "Enter");
 	await peer.waitForSelector(`.bubble:has-text(${JSON.stringify(line)})`, { timeout: 30_000 })
 		.catch(() => fail(`the second peer's line never landed in ${JSON.stringify(room)}`));
+	await waitForPostedLine(peer, line);
 	const row = namedRoomRow(peer, room);
 	await row.hover();
 	await row.locator(".room-leave").click();

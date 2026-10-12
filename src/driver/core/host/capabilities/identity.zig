@@ -125,9 +125,9 @@ pub fn liftCapability(self: *Host, session: *HostSession, reference: model.Refer
 }
 
 /// Commit a prepared lift's only external authority transfer. Registry and
-/// session ownership were already established by `liftCapabilityTracked`;
-/// the redeemed route stays in the Node until this point so rollback and
-/// retry can still name it.
+/// session ownership were already established by `liftCapabilityTracked`. The
+/// redeemed route stays in the Node until this point so rollback and retry can
+/// still name it.
 pub fn commitCapabilityLift(self: *Host, lifted: CapabilityLift) void {
     if (lifted.redeemed_route_id) |route_id|
         std.debug.assert(self.node.consumeRedeemedRoute(route_id));
@@ -146,14 +146,14 @@ fn retainLiveLocalCapability(self: *Host, actor_id: u64) !LocalRetain {
     return .{ .ref = ref, .fresh = fresh };
 }
 
-/// Retain one already-rooted live actor as a Host capability. A fresh slot
-/// adds its own Vat root; repeated observations reuse that root and identity.
+/// Retain one already-rooted live actor as a Host capability. A fresh slot adds
+/// its own Vat root. Repeated observations reuse that root and identity.
 pub fn retainLocalCapability(self: *Host, actor: actors.Ref) !capability.Ref {
     self.assertOwner();
     const actor_id = try host_mod.localActorId(actor);
-    // Vat retain is deliberately tolerant for relationships that outlive a
-    // restore. This mint is not: no registry identity may be published for an
-    // actor that is already gone.
+    // Vat retain is tolerant for relationships that outlive a restore. This
+    // mint is not: no registry identity may be published for an actor that is
+    // already gone.
     if (!self.vat.hasActor(actor_id)) return actors.Error.NoSuchActor;
     return (try retainLiveLocalCapability(self, actor_id)).ref;
 }
@@ -177,12 +177,12 @@ pub fn liftLocalActor(self: *Host, actor: actors.Ref) !capability.Ref {
     return retained.ref;
 }
 
-/// Undo one lift that failed before its application handle became visible.
-/// A claimed remote occurrence is real wire authority even though C never
+/// Undo one lift that failed before its application handle became visible. A
+/// claimed remote occurrence is real wire authority even though C never
 /// received it, so queue its exact GC release rather than returning it to an
 /// invisible pool. If allocation pressure prevents that release, condemn the
-/// owning session; it may retain authority only until teardown and cannot
-/// admit another inbound value meanwhile.
+/// owning session. It may retain authority only until teardown and cannot admit
+/// another inbound value meanwhile.
 pub fn rollbackCapabilityLift(self: *Host, lifted: CapabilityLift) void {
     self.assertOwner();
     const target = self.capabilities.resolve(lifted.ref) orelse unreachable;
@@ -268,13 +268,13 @@ pub fn adoptReservedLocalCapability(
 }
 
 /// Re-scope an ABI-stored raw id to this Host. Resolution still validates the
-/// generation; this constructor grants no authority by itself.
+/// generation. This constructor grants no authority by itself.
 pub fn capabilityFromRaw(self: *const Host, raw: u64) capability.Ref {
     return self.capabilities.refFromRaw(raw);
 }
 
 /// Borrow the settled identity of an inline handoff. The original occurrence
-/// retains its target through the promise row; this query transfers no custody.
+/// retains its target through the promise row. This query transfers no custody.
 /// Pending redemption and terminal failure remain distinct from live objects.
 pub fn settledCapability(self: *Host, ref: capability.Ref) !capability.Ref {
     self.assertOwner();
@@ -313,14 +313,14 @@ pub fn capabilitySession(self: *Host, ref: capability.Ref) ?*HostSession {
 /// Release application retains on one Host capability. A remote Host row may
 /// have more application retains than wire retains (for example when a
 /// sturdyref cache reissues the same identity). Keep enough wire retains to
-/// back the surviving application retains and return only the surplus; the
+/// back the surviving application retains and return only the surplus. The
 /// final application release returns every remaining wire retain. Local
 /// releases affect only the Host identity row. Once cancellation is committed,
-/// session teardown owns wire retirement; application cleanup still consumes
+/// session teardown owns wire retirement. Application cleanup still consumes
 /// its retains without sending new GC traffic. If the remote home already
 /// closed, its release-only row consumes the outstanding unit as a no-op:
-/// session teardown already reclaimed the wire authority, while the
-/// application handle still deserves a deterministic terminal recipient.
+/// session teardown already reclaimed the wire authority, while the application
+/// handle still deserves a deterministic terminal recipient.
 pub fn releaseCapability(self: *Host, ref: capability.Ref, delta: u64) !void {
     self.assertOwner();
     const retains = self.capabilities.retainCount(ref) orelse return error.UnknownCapability;
@@ -387,10 +387,10 @@ pub fn releaseCapability(self: *Host, ref: capability.Ref, delta: u64) !void {
     }
 }
 
-/// Consume a cleanup retain after its initiating operation can no longer
-/// return an error. A live remote home is condemned if ordinary GC publication
-/// fails; a dead home is skipped. Registry/Vat ownership is then retired
-/// exactly once so terminal cleanup never parks forever.
+/// Consume a cleanup retain after its initiating operation can no longer return
+/// an error. A live remote home is condemned if ordinary GC publication fails.
+/// A dead home is skipped. Registry/Vat ownership is then retired exactly once
+/// so terminal cleanup never parks forever.
 pub fn releaseCapabilityTerminal(
     self: *Host,
     ref: capability.Ref,

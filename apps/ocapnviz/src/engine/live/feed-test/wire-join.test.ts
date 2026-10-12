@@ -38,7 +38,7 @@ Deno.test("two producers watching one wire draw one session", () => {
 	assertEquals(second.filter((e) => e.kind === "session-opened").length, 0);
 	// The tab is drawn once, by the report that could say who it is. The room's
 	// report drew nobody for that end, so this join has nothing to be a
-	// duplicate of — two producers leave two nodes on stage, not three.
+	// duplicate of, two producers leave two nodes on stage, not three.
 	assertEquals(
 		second.filter((e) => e.kind === "peer-joined").map((e) => expectKind(e, "peer-joined").peerId),
 		["tab-designator"],

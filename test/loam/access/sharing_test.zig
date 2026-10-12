@@ -1,6 +1,6 @@
 //! Atomic derivation and bounded retry semantics through held CapTP references.
 //! Removing shared-read discovery notification makes the overlap test fail to
-//! quiesce; the provider correctly refuses destruction with that work retained.
+//! quiesce. The provider correctly refuses destruction with that work retained.
 const std = @import("std");
 const f = @import("sharing_fixture.zig");
 const h = f.h;

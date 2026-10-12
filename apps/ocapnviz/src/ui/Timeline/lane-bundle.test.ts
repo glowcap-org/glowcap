@@ -1,5 +1,5 @@
 /**
- * Lane bundle — the paint side of the timeline. These tests cover
+ * Lane bundle. The paint side of the timeline. These tests cover
  * the moment glyphs a peer's row carries, because a rename that
  * lands in the document but never on the row is a change the user
  * cannot see or reach.
@@ -199,7 +199,7 @@ Deno.test("an end attaching is a diamond on the session's row", () => {
 });
 
 Deno.test("the feed going quiet stays a tick, not a change to the session", () => {
-	// The session-lane glyphs are built by one pass now, and the filter it
+	// The session-lane glyphs are built by one pass, and the filter it
 	// uses matters: `session-unobserved` is not a moment (`momentOf` answers
 	// null for it), so a pass that guarded on `momentOf` would drop this
 	// silently. It is painted because the row should show where the feed
@@ -235,7 +235,7 @@ Deno.test("the feed going quiet stays a tick, not a change to the session", () =
 
 Deno.test("a lane stack is built once for a document nobody is touching", () => {
 	// The whole reason the bundle is cached. Playback repaints every frame,
-	// and the document under it is not moving — so the second frame has to get
+	// and the document under it is not moving. So the second frame has to get
 	// the first frame's stack back rather than rebuild the same one.
 	const doc = docFor([joined]);
 	const events = [joined];
@@ -248,7 +248,7 @@ Deno.test("the lane-bundle cache does not grow with the recording", () => {
 	// under a key the cache has never seen. Kept forever, that is one whole
 	// lane stack retained per record received, for as long as the capture
 	// runs. Past the ceiling the oldest goes, and asking for it again is a
-	// rebuild — which is what a fresh object here proves.
+	// rebuild, which is what a fresh object here proves.
 	const doc = docFor([joined]);
 	const events = [joined];
 	const first = buildLaneBundle(doc, events, 1000, COLORS, "bounded-0");
@@ -258,7 +258,7 @@ Deno.test("the lane-bundle cache does not grow with the recording", () => {
 		"the newest key should still be cached",
 	);
 	// Enough distinct keys to push the first one out, whatever the ceiling is
-	// set to — a capture makes thousands of these.
+	// set to. A capture makes thousands of these.
 	for (let i = 1; i <= 32; i++) {
 		buildLaneBundle(doc, events, 1000, COLORS, `bounded-${i}`);
 	}
@@ -270,7 +270,7 @@ Deno.test("the lane-bundle cache does not grow with the recording", () => {
 
 Deno.test("a row is called what its own span is called", () => {
 	// The gutter down the left of the timeline and the pill beside it ask
-	// one question — what is this called — so the gutter reads the pill's
+	// one question, what is this called, so the gutter reads the pill's
 	// answer instead of deriving a second one. A session pill is named by
 	// the pair it joins, and an end with a claim on it and nobody attached
 	// is named by that claim, which is what the Inspector and the stage

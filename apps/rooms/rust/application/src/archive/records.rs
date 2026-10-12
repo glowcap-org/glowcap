@@ -9,6 +9,7 @@ use crate::{
 };
 use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
+use serde_json::{Value as Json, json};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Coordinates {
@@ -28,6 +29,12 @@ impl Coordinates {
 		}
 		Ok(())
 	}
+}
+/// The one presentation of an archive coordinate. The runtime's activity
+/// reader and the services control journal both attach a received event's
+/// history in this shape, so the two renderers cannot drift apart.
+pub fn history_data(history: Coordinates) -> Json {
+	json!({"source":history.source,"generation":history.generation,"id":history.id})
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -277,5 +284,19 @@ impl Record {
 			a.set_blob(digest);
 		}
 		Ok(self)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn history_presentation_is_the_coordinate_triple() {
+		let history = Coordinates::new("room-source".into(), "generation-1".into(), "line-9".into()).unwrap();
+		assert_eq!(
+			history_data(history),
+			json!({"source":"room-source","generation":"generation-1","id":"line-9"})
+		);
 	}
 }

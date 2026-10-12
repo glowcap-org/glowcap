@@ -1,4 +1,4 @@
-// Client custody for one consumable room invitation and its retry receipt.
+// Client ownership of one consumable room invitation and its retry receipt.
 
 import { Ref, type Session } from "@glowcap/runtime";
 import { ask } from "../ask.ts";

@@ -10,7 +10,7 @@
 //! `validate/passable.zig`: its one `anytype` walk serves both
 //! owned `model.*` values and borrowed `model.view.*` projections, including
 //! the `IntroducedImports` record apply consumes. Validators never mutate
-//! session authority; the matching mutations live in `apply.zig`.
+//! session authority. The matching mutations live in `apply.zig`.
 
 const std = @import("std");
 const model = @import("model");
@@ -155,10 +155,10 @@ fn startSessionHintValue(hints: anytype, name: []const u8) Error!?model.HintValu
 }
 
 /// Validate an inbound `op:listen`: the pipelining feature gate, the target
-/// rule, and the listener rule, exactly the checks the `.listen` dispatch
+/// rule, and the listener rule, the checks the `.listen` dispatch
 /// arms run. Public because the engine's listener install
 /// (`engine.pipeline.maybeInstallInboundListener`) runs ahead of
-/// `recordRecvView` and must validate before it mutates; both dispatch arms
+/// `recordRecvView` and must validate before it mutates. Both dispatch arms
 /// call this same body, so the engine pre-step and the recv path cannot drift.
 pub fn validateInboundListen(self: *Session, listen: anytype) RecvViewError!void {
     if (!self.features.pipelining) return Error.FeatureNotNegotiated;
@@ -167,8 +167,8 @@ pub fn validateInboundListen(self: *Session, listen: anytype) RecvViewError!void
 }
 
 /// Validate an inbound `op:resolve`. The answer must be one we allocated
-/// (an outbound call awaiting its reply), and — symmetrically with a
-/// deliver's args — the fulfill payload's references are validated and
+/// (an outbound call awaiting its reply), and, symmetrically with a
+/// deliver's args, the fulfill payload's references are validated and
 /// depth-bounded: a `near` must name one of our exports, a `far` is a fresh
 /// introduction, and the payload tree may not nest past `max_nesting_depth`.
 /// Without this, a fulfill carrying a `near` to a non-existent export would
@@ -176,8 +176,8 @@ pub fn validateInboundListen(self: *Session, listen: anytype) RecvViewError!void
 ///
 /// Public because the engine's V1.0 resolver-callback translation
 /// (`Session.recordResolverCallbackResolve`) validates a synthesized resolve
-/// with this exact body — minus the wire-`op:resolve` refusal in
-/// `validateRecvView` — so the synthesized and canonical resolve paths cannot
+/// with this exact body, minus the wire-`op:resolve` refusal in
+/// `validateRecvView`, so the synthesized and canonical resolve paths cannot
 /// drift.
 pub fn validateInboundResolve(self: *Session, resolve: anytype, introduced: *IntroducedImports) RecvViewError!void {
     const entry = self.outbound_answers.getPtr(resolve.answer) orelse
@@ -208,9 +208,9 @@ pub fn validateSend(self: *Session, message: model.Message) !void {
         .gc_export => |gc_export| {
             if (!self.features.wire_delta) return Error.FeatureNotNegotiated;
             try session.validateGcExport(gc_export);
-            // Our import 0 is the partner's pinned bootstrap — always reachable
+            // Our import 0 is the partner's pinned bootstrap, always reachable
             // without a table row (`validateReference` with `.held_import`) and outside
-            // wire-delta accounting — so releasing it is releasing an id the
+            // wire-delta accounting, so releasing it is releasing an id the
             // table never holds. Refuse loudly rather than put a bootstrap
             // release on the wire (a partner that does account it, the way
             // Goblins does, would tear down its bootstrap export on receipt).
@@ -218,7 +218,7 @@ pub fn validateSend(self: *Session, message: model.Message) !void {
                 if (pos == BOOTSTRAP_POSITION) return Error.GcUnderflow;
             }
             // Outbound `op:gc-exports` releases our refs to the partner's
-            // exports — decrements the import table, never below the retains
+            // exports, decrements the import table, never below the retains
             // the session keeps for releases of its own.
             try session.checkGcExportDecrement(self.allocator, &self.imports, gc_export);
         },
@@ -254,7 +254,7 @@ pub fn validateSend(self: *Session, message: model.Message) !void {
         // `op:abort` carries no send-side validation. Listing the remaining
         // no-op kinds explicitly (rather than `else`) makes a new
         // `model.Message` kind fail to compile until its send-side validation
-        // is classified here — the silent-drop that produced the wire-delta
+        // is classified here, the silent-drop that produced the wire-delta
         // bug cannot recur.
         .abort => {},
     }
@@ -336,14 +336,14 @@ fn checkOutboundAnswerPosition(self: *const Session, answer: model.AnswerPositio
 }
 
 /// A partner-named answer names one outstanding question, so reusing a row
-/// that is still live — pending, or
-/// settled and awaiting `op:gc-answers` — is a protocol violation; refusing it
+/// that is still live, pending, or
+/// settled and awaiting `op:gc-answers`, is a protocol violation. Refusing it
 /// here projects a typed abort, where letting it through left `installAnswer` a
 /// no-op and failed later on our own outbound resolve with no abort recorded.
 ///
 /// Every kind that installs an inbound answer calls this: the deliver that
 /// carries one, and the three projection ops (ADR-0050), which name an answer
-/// of their own and install a row exactly as a deliver does.
+/// of their own and install a row as a deliver does.
 fn checkInboundAnswerPosition(self: *Session, answer: model.AnswerPosition) Error!void {
     if (self.inbound_answers.contains(.fromWire(answer))) return Error.UnexpectedMessage;
 }
@@ -376,7 +376,7 @@ fn validateInboundDeliverAny(self: *Session, deliver: anytype, introduced: *Intr
 /// an inbound rule for `1.0`: the pinned OCapN suite gives with a seven-byte
 /// `my-gift`, and refusing it retires the session before the handoff is read, so
 /// `tests.third_party_handoffs` loses its Exporter and Receiver cases to a
-/// closed socket. Length is not what makes a gift id safe here either — the
+/// closed socket. Length is not what makes a gift id safe here either, the
 /// signed envelope is the authority, and a short id costs one bounded retry
 /// against the fixed-width tag that keeps a partner-chosen length out of
 /// coordination state. This follows the same posture as `op:listen`'s operand
@@ -393,7 +393,7 @@ pub fn validateHandoffGiftId(self: *const Session, gift_id: []const u8) Error!vo
 /// application value without a send. It carries the resolve arm's reference
 /// rule too (`.near_may_be_first_export`), because the stored value reaches
 /// this same partner verbatim when the fire carriers encode it: a `far` the
-/// store holds is a position this session must hold, exactly as if the
+/// store holds is a position this session must hold, as if the
 /// application had sent the resolve itself.
 ///
 /// The Host/Node relay keeps to that rule by construction: home-session
@@ -409,7 +409,7 @@ pub fn validateStoredResolution(self: *Session, resolution: model.Resolution) pa
 }
 
 /// Validate the destination of a prepared listener fire. Its payload has
-/// already passed `validateStoredResolution`; this checks the one remaining
+/// already passed `validateStoredResolution`. This checks the one remaining
 /// session-relative name without repeating the payload's allocation-bearing
 /// set/struct folds for every fan-out recipient.
 pub fn validateListenerFireTarget(self: *Session, listener: model.FarRef) Error!void {

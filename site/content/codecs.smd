@@ -6,18 +6,18 @@
 .draft = false,
 ---
 
-A codec turns CapTP messages into bytes and back. It does not decide what a
-message means or whether a reference is valid; that authority stays in the
-session. Changing codecs changes the wire format, not application behavior.
+A codec turns CapTP messages into bytes and back. It does not decide whether a
+reference is valid, which stays with the session, so changing codecs changes
+the wire format, not application behavior.
 
 glowcap ships two:
 
 | Codec | Use it when | Tradeoff |
 | --- | --- | --- |
-| [Syrup](https://github.com/ocapn/syrup) | Always, unless a measured glowcap-to-glowcap workload says otherwise | Compact and interoperable; finding an arbitrary field requires a scan |
-| [Cap'n Proto](https://capnproto.org/) | Both peers are glowcap and large or partially read payloads benefit from fixed offsets | Constant-time field access; larger frames and no outside interoperability |
+| [Syrup](https://github.com/ocapn/syrup) | Always, unless a measured glowcap-to-glowcap workload says otherwise | Compact and interoperable. Finding an arbitrary field requires a scan |
+| [Cap'n Proto](https://capnproto.org/) | Both peers are glowcap and large or partially read payloads benefit from fixed offsets | Constant-time field access. Larger frames and no outside interoperability |
 
-[One message, two encodings. Syrup lays it out as variable-length byte records and Cap'n Proto as fixed 8-byte words; decode either and you get back the same message.]($image.siteAsset('diagram-codec.svg'))
+[One message, two encodings. Syrup lays it out as variable-length byte records and Cap'n Proto as fixed 8-byte words. Decode either and you get back the same message.]($image.siteAsset('diagram-codec.svg'))
 
 # Syrup
 
@@ -40,20 +40,14 @@ Cap'n Proto lays messages out in 8-byte words with fixed field offsets. That
 makes partial reads and random access cheap, but padding and pointer words make
 small messages larger.
 
-In glowcap it is only for two glowcap peers; Goblins does not speak it. Codec
-and CapTP version are separate choices. The native preference pairs Cap'n Proto
-with `glowcap-next`, while Cap'n Proto can also carry V1.0 semantics between
-glowcap peers. Set `codec = .capnp` and the version you need in Zig
+It works only between two glowcap peers, since Goblins does not speak it. Codec
+and CapTP version are separate choices: glowcap prefers Cap'n Proto with
+`glowcap-next`, but it can also carry V1.0 between glowcap peers. Set `codec = .capnp` and the version you need in Zig
 `SessionOptions`, or use the matching Host or binding preference.
 
 # Choosing
 
-Stay on Syrup for ordinary CapTP traffic. Other OCapN implementations expect
-it, glowcap signs with it, and small messages stay compact.
-
-Consider Cap'n Proto only when both peers are glowcap and your payloads are
-large or field-heavy enough for fixed-offset access to matter. Measure your
-actual messages: the
+Measure your own messages before switching. The
 [performance page]($link.page('performance')) shows one small mixed-argument
 call, not a universal result.
 

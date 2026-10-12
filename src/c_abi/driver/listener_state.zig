@@ -15,13 +15,13 @@ pub const State = union(enum) {
     pending,
     active: Bound,
     /// Close has committed in HostRuntime and provider stop is still pending.
-    /// The locator projection is already gone; only listener_close may retry.
+    /// The locator projection is already gone. Only listener_close may retry.
     closing,
     /// Native stop completed after an earlier WOULD_BLOCK. The retrying C
-    /// caller owns final id retirement; no locator projection remains.
+    /// caller owns final id retirement. No locator projection remains.
     retired,
 
-    /// Retire owned projection state; false names an impossible surviving
+    /// Retire owned projection state. False names an impossible surviving
     /// pending setup so loop release can report the violated barrier.
     pub fn deinit(self: *State, inst: anytype) bool {
         return switch (self.*) {

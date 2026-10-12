@@ -6,6 +6,7 @@
 // says it in words. Its sibling rooms.tsx holds the same for the rooms section,
 // and the rail itself only decides which sections there are.
 
+import { PRESENTATION, useProgress } from "../presentation.ts";
 import { useMemo } from "react";
 import { dmMarkTitle, dmRemove, dmSectionTitle } from "../../../lib/text/controls.ts";
 import {
@@ -49,7 +50,7 @@ function DmRow(
 		unread: Unread;
 		online: boolean;
 		/** Why the peer has stepped away, by the shared rooms' word, or null
-		 * while they are simply here — `peerAway`'s answer, worn by the chip's
+		 * while they are here, `peerAway`'s answer, worn by the chip's
 		 * pip exactly as the roster wears it. */
 		away: string | null;
 		/** Which directory this line was introduced on, or nothing at all while
@@ -78,15 +79,15 @@ function DmRow(
 	// How the directory that introduced this line is doing, and empty while it is
 	// connected. A line reached through a directory that is not connected is a
 	// line this reader cannot use, which is a fact about this row.
-	const standing = dirStanding(phase);
+	const progress = useProgress(phase === "connecting" || phase === "reconnecting", PRESENTATION.connection, phase);
+	const standing = phase === "disconnected" || progress ? dirStanding(phase) : "";
 	// Every trailing mark hangs off one group, because the close button takes the
 	// whole group's slot rather than a slot of its own. Naming the marks one by
 	// one in the stylesheet is what let a closed row keep its "closed" label under
 	// the button and draw the two on top of each other.
 	//
-	// A closed row is one whose member left, which puts their name back in the
-	// room's hands. The conversation stays, its history is yours, but it reaches
-	// nobody, and the row says so rather than looking like someone merely offline.
+	// A closed row has lost its direct route and needs a fresh introduction.
+	// Its history stays readable. Room membership has its own lifetime.
 	//
 	// The close button is on every conversation, not only the one on screen: the
 	// room you are in can be left while you are reading a direct message, and the
@@ -118,7 +119,7 @@ function DmRow(
 					   the same tint here and in the log, and the log knows only the name.
 					   Which directory they are on is carried by the ring around this chip
 					   and by the line under it, so two people holding one nickname on two
-					   directories are still told apart — by the two channels that mean
+					   directories are still told apart, by the two channels that mean
 					   that, rather than by a fill that would then disagree with the
 					   conversation it opens. */
 				}
@@ -136,7 +137,7 @@ function DmRow(
 				)}
 				{
 					/* Titled like a room's name, because it truncates like one. The row's
-				    own label carries the whole name for a reader who is listening; a
+				    own label carries the whole name for a reader who is listening. A
 				    reader who is looking had nothing. */
 				}
 				<span className="rname" title={conv.id}>{conv.id}</span>
@@ -192,7 +193,7 @@ function DmRows(
 		unreads: ReadonlyMap<string, Unread>;
 		activeKey: string | null;
 		/** Whether this tab is in any room at all. A direct line starts from a
-		 * roster, so which room it came from does not matter here — only that
+		 * roster, so which room it came from does not matter here, only that
 		 * there is one. */
 		inARoom: boolean;
 		/** Every directory, because whether a peer is reachable is one directory's

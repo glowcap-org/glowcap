@@ -3,17 +3,18 @@
 // session rides through end to end and the relay never holds a capability. This
 // is a first-class glowcap capability, not app code: an embedder hosting peers
 // that cannot open a socket themselves (a browser) runs a relay built from these
-// pieces, and the app on top adds only policy — which targets may be dialed.
+// pieces, and the app on top adds only policy: which targets may be dialed.
 //
 // Transport adapters implement ByteSource/ByteSink and RelayChannel and call
 // relayBytes(). Backpressure is the awaited write: a leg reads its next chunk
-// only after the previous write settled, so a leg whose sink actually blocks
+// only after the previous write settled, so a leg whose sink blocks
 // propagates its partner's flow control. The WebSocket sink in `ws_relay.ts`
 // blocks by gating on `bufferedAmount`; a raw-socket RelayChannel blocks on the
 // kernel write. A sink that cannot block (a fire-and-forget send) has no
 // backpressure and must be bounded some other way.
 
 import { retainSecondaryFailure } from "@glowcap/runtime/transport";
+import type { Timer } from "../runtime/timer.ts";
 
 /** A byte source: yields chunks to relay. `read` resolves null on EOF. */
 export interface ByteSource {
@@ -48,9 +49,9 @@ export interface RelayConfig {
  * Relay bytes between `source`/`sink` and `channel` in both directions until
  * either leg ends (EOF, error, byte cap, or idle timeout).
  *
- * Teardown is pair-atomic: whichever leg ends first, both sides are closed —
+ * Teardown is pair-atomic: whichever leg ends first, both sides are closed:
  * the channel via `channel.close()` and the source via `closeSource` (the
- * caller's closure over its own transport, e.g. closing the WebSocket) — so
+ * caller's closure over its own transport, e.g. closing the WebSocket), so
  * the other leg's pending read settles and the session never half-closes.
  * The idle timeout runs the same teardown. Both closes are idempotent here;
  * the caller does not need to close anything again after this settles. EOF,
@@ -65,7 +66,7 @@ export async function relayBytes(
 	closeSource: () => Promise<void>,
 ): Promise<void> {
 	let bytesTransferred = 0;
-	let timeoutHandle: number | null = null;
+	let timeoutHandle: Timer | null = null;
 	let teardownBarrier: Promise<void> | null = null;
 	const failures: unknown[] = [];
 
@@ -98,7 +99,7 @@ export async function relayBytes(
 	const resetIdleTimeout = () => {
 		if (timeoutHandle !== null) clearTimeout(timeoutHandle);
 		if (config.idleTimeoutMs > 0) {
-			timeoutHandle = setTimeout(() => void teardown(), config.idleTimeoutMs) as unknown as number;
+			timeoutHandle = setTimeout(() => void teardown(), config.idleTimeoutMs);
 		}
 	};
 	resetIdleTimeout();
@@ -116,7 +117,7 @@ export async function relayBytes(
 				await channel.write(chunk);
 			}
 		} catch (error) {
-			// Teardown deliberately interrupts the sibling's pending read/write. Its
+			// Teardown interrupts the sibling's pending read/write. Its
 			// resulting transport rejection is cancellation evidence, not a second
 			// session failure; only an error observed before teardown owns the result.
 			if (teardownBarrier == null) retainFailure(error);

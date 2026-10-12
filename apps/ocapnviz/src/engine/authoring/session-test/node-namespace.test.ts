@@ -1,6 +1,6 @@
 /**
  * The node namespace peers and loose ends share. A peer cannot take
- * an end's stage id; a live producer that presents one is renamed,
+ * an end's stage id. A live producer that presents one is renamed,
  * not refused.
  */
 
@@ -16,7 +16,7 @@ import { engineTest, looseDoc } from "./harness.ts";
 engineTest("a peer cannot be renamed onto a session end's node", () => {
 	const e = new Engine(looseDoc());
 	// `s1`'s loose end `b` is drawn as the node `s1::b`. A peer wearing
-	// that name would be the same node — one place in the layout for
+	// that name would be the same node. One place in the layout for
 	// two things the picture holds apart.
 	const refused = e.validate({
 		kind: "rename-peer",

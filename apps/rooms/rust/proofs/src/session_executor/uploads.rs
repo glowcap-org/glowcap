@@ -23,6 +23,8 @@ pub(super) struct Trace {
 	pub(super) readers: RefCell<Vec<Ref>>,
 	short: Cell<bool>,
 	malformed: Cell<bool>,
+	refused: Cell<Option<&'static str>>,
+	refuse_discard: Cell<bool>,
 }
 struct Target(Rc<Trace>);
 impl Content for Target {
@@ -41,7 +43,10 @@ impl Content for Target {
 					uri: None,
 				})
 				.collect()
-		} else if matches!(input.verb, "attachRetained" | "postFilesWithPreviews") {
+		} else if matches!(
+			input.verb,
+			"attachRetained" | rooms_application::room::correlation::POST_FILES
+		) {
 			(0..input.field_count).map(loam::ReferenceRequest::Restore).collect()
 		} else {
 			Vec::new()
@@ -58,6 +63,9 @@ impl Content for Target {
 			(b"files", "attachRetained") => {
 				assert_eq!(input.args[0].as_str(), Some("file.bin"));
 				self.0.steps.borrow_mut().push("attach");
+				if self.0.refused.get() == Some("attach") {
+					return Err(loam::refusal("rate-limited: retry-after-ms=1000; scope=upload"));
+				}
 				if self.0.malformed.get() {
 					return Ok(true.into());
 				}
@@ -66,9 +74,16 @@ impl Content for Target {
 					call.disclose(1, false)?,
 				]))
 			}
-			(b"files", "postFilesWithPreviews") => {
-				assert_eq!(input.args, ["caption".into(), "[]".into()]);
+			(b"files", rooms_application::room::correlation::POST_FILES) => {
+				assert_eq!(input.args.len(), 3);
+				assert_eq!(&input.args[..2], ["caption".into(), "[]".into()]);
+				assert!(rooms_application::room::correlation::valid(
+					input.args[2].as_str().unwrap()
+				));
 				self.0.steps.borrow_mut().push("post");
+				if self.0.refused.get() == Some("post") {
+					return Err(loam::refusal("rate-limited: retry-after-ms=1000; scope=message"));
+				}
 				Ok(Argument::List(vec![23.into(), call.disclose(2, false)?]))
 			}
 			(b"line", "refile") => {
@@ -97,6 +112,9 @@ impl Content for Target {
 			}
 			(b"upload", "discard") => {
 				self.0.steps.borrow_mut().push("discard");
+				if self.0.refuse_discard.get() {
+					return Err(loam::refusal("discard was not confirmed"));
+				}
 				Ok(Argument::Void)
 			}
 			_ => Err(loam::refusal("unexpected upload target call")),
@@ -128,7 +146,7 @@ fn registration(trace: Rc<Trace>) -> Registration {
 			"configure",
 			"configureLiveUpload",
 			"attachRetained",
-			"postFilesWithPreviews",
+			rooms_application::room::correlation::POST_FILES,
 			"read",
 			"write",
 			"discard",
@@ -280,6 +298,18 @@ pub(super) async fn run() {
 					platform.clone(),
 					std::num::NonZeroUsize::new(REPLY_BYTES).unwrap(),
 				);
+				// This streaming fixture exercises custody and interruption beyond
+				// ordinary bursts; admission's default profile has its own proofs.
+				owner
+					.configure_admission(
+						rooms_application::admission::Settings::parse(
+							|key| (key == "admission-rates").then(|| "message=64/64,upload=64/64".into()),
+							4096,
+							8,
+						)
+						.unwrap(),
+					)
+					.unwrap();
 				let trace = Rc::new(Trace::default());
 				let mut attachment = store
 					.attach(&host, vec![owner.registration(), registration(trace.clone())])
@@ -445,6 +475,49 @@ pub(super) async fn run() {
 						.files_complete
 				);
 				assert_eq!(trace.steps.borrow().last(), Some(&"refile"));
+				for (stage, failed_cleanup) in [("attach", false), ("post", false), ("post", true)] {
+					trace.refused.set(Some(stage));
+					trace.refuse_discard.set(failed_cleanup);
+					let before = trace.steps.borrow().len();
+					let id = format!("refused-{stage}-{failed_cleanup}");
+					let (args, canonical) = request(&host, &source, &targets[2], &id, Kind::Post, true).await;
+					mutate(&host, &source, "sendFiles", &args).await.unwrap();
+					let status = if failed_cleanup { "unknown" } else { "unsent" };
+					assert_eq!(finished(&host, &source, &id, &source).await.as_str(), Some(status));
+					let value = host
+						.send(
+							&source,
+							"effect-result",
+							&[id.as_str().into(), canonical.as_str().into()],
+						)
+						.await
+						.unwrap();
+					let rows = value.as_list().unwrap();
+					assert_eq!(
+						rows[0].as_str(),
+						Some(if failed_cleanup { "unknown" } else { "refused" })
+					);
+					assert!(rows[1].as_str().unwrap().contains("rate-limited:"));
+					{
+						let steps = trace.steps.borrow();
+						assert_eq!(
+							&steps[before..],
+							if stage == "attach" {
+								&["attach"][..]
+							} else {
+								&["attach", "post", "discard"][..]
+							}
+						);
+					}
+					mutate(&host, &source, "sendFiles", &args).await.unwrap();
+					assert_eq!(
+						trace.steps.borrow().len(),
+						before + if stage == "attach" { 1 } else { 3 },
+						"refusal replay ran external work"
+					);
+				}
+				trace.refused.set(None);
+				trace.refuse_discard.set(false);
 				trace.malformed.set(true);
 				let (args, _) = request(&host, &source, &targets[2], "unknown-upload", Kind::Post, true).await;
 				mutate(&host, &source, "sendFiles", &args).await.unwrap();

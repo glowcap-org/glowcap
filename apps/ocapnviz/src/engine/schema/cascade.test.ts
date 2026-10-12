@@ -66,7 +66,7 @@ Deno.test("cascadeDelete: peer cascades through session and message", () => {
 	// referenced s1 which itself cascaded).
 	assertEquals(result.entities?.messages?.m1, undefined);
 
-	// The cascade purges each visited entity's own observations — a
+	// The cascade purges each visited entity's own observations, a
 	// spared observation would re-synthesize its ghost on the next
 	// projection. Only bob's join survives here: alice's join, the
 	// session pair's open, and m1's sent/delivered all belonged to
@@ -90,7 +90,7 @@ Deno.test("cascadeDelete: deleting a session cascades through its messages but n
 	// s1 gone, m1 cascaded (message.sessionId referenced s1).
 	assertEquals(result.entities?.sessions, undefined);
 	assertEquals(result.entities?.messages, undefined);
-	// Peers survive — sessions don't own peers.
+	// Peers survive, sessions don't own peers.
 	assert(result.entities?.peers?.alice);
 	assert(result.entities?.peers?.bob);
 
@@ -167,7 +167,7 @@ Deno.test("cascadeRewrite: rename peer alice → alyssa", () => {
 	assertEquals(result.entities?.messages?.m1?.from, "alyssa");
 	assertEquals(result.entities?.messages?.m1?.to, "bob");
 
-	// Observations are immutable — events still carry the old id.
+	// Observations are immutable, events still carry the old id.
 	const origAliceEv = primaryObservations(doc).find(
 		(e): e is Extract<typeof e, { kind: "peer-joined" }> => e.kind === "peer-joined" && e.peerId === "alice",
 	);
@@ -200,7 +200,7 @@ Deno.test("cascadeRewrite: session rename cascades through message.sessionId", (
 	assertEquals(result.entities?.sessions?.s1, undefined);
 	assert(result.entities?.sessions?.["session-prime"]);
 	assertEquals(result.entities?.messages?.m1?.sessionId, "session-prime");
-	// Observations are immutable — the recording still contains session-opened with sessionId "s1".
+	// Observations are immutable. The recording still contains session-opened with sessionId "s1".
 	assert(
 		primaryObservations(result).some((e) => e.kind === "session-opened"),
 	);
@@ -221,12 +221,12 @@ Deno.test("cascadeRewrite: message rename touches only message refs", () => {
 Deno.test(
 	"cascadeRewrite: the observation follows the rename",
 	() => {
-		// The doc has a peer-joined event only — no explicit entities
-		// map entry — but the zod parse transform materializes the
+		// The doc has a peer-joined event only, no explicit entities
+		// map entry, but the zod parse transform materializes the
 		// entity from the event payload. The rename must carry the
 		// observation with it: an observation left on the old id would
 		// let the projection resurrect a ghost there, while the renamed
-		// entity — matching no observations — would lose its derived
+		// entity, matching no observations, would lose its derived
 		// timing.
 		const doc = TimelineDocument.parse({
 			id: "doc-2",
@@ -258,7 +258,7 @@ Deno.test(
 //
 // A session's end is a structure, and the peer it names is one
 // property of it. `EVENT_EDGES` says so with `nested`, and every
-// walker, rewriter, and extractor reads through it — so these two
+// walker, rewriter, and extractor reads through it. So these two
 // cases are the ones that fail when a rewriter keeps its own list of
 // field names instead.
 

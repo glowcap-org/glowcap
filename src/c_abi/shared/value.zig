@@ -31,8 +31,8 @@ pub const GLOWCAP_ARG_SYMBOL: u32 = 5;
 pub const GLOWCAP_ARG_VOID: u32 = 6;
 pub const GLOWCAP_ARG_REFERENCE: u32 = 7;
 pub const GLOWCAP_ARG_LIST: u32 = 8;
-/// A `set` reuses `items`; a `tagged` reuses `bytes` (the tag) and `items` (the
-/// value list); a `keyword` reuses `bytes`.
+/// A `set` reuses `items`. A `tagged` reuses `bytes` (the tag) and `items` (the
+/// value list). A `keyword` reuses `bytes`.
 pub const GLOWCAP_ARG_SET: u32 = 9;
 pub const GLOWCAP_ARG_TAGGED: u32 = 10;
 pub const GLOWCAP_ARG_KEYWORD: u32 = 11;
@@ -46,7 +46,7 @@ pub const GLOWCAP_ARG_BIG_INTEGER: u32 = 12;
 /// the C waist recursive without adding a second mutually-recursive ABI type.
 pub const GLOWCAP_ARG_STRUCT: u32 = 13;
 /// An OCapN Error value. `bytes`/`bytes_len` carry its message. This is a
-/// fulfilled value; `GLOWCAP_RESOLUTION_BREAK` remains the rejected outcome.
+/// fulfilled value. `GLOWCAP_RESOLUTION_BREAK` remains the rejected outcome.
 pub const GLOWCAP_ARG_ERROR: u32 = 14;
 
 pub const GLOWCAP_RESOLUTION_FULFILL: u32 = 0;
@@ -59,23 +59,23 @@ pub const GLOWCAP_RESOLUTION_HANDOFF: u32 = 2;
 
 /// An opaque capability identity owned by one `GlowcapHost`. The integer has no
 /// wire meaning and cannot be combined with a caller-selected session. Equal
-/// ids name the same Host capability; the C issuer keeps ids distinct across
+/// ids name the same Host capability. The C issuer keeps ids distinct across
 /// Hosts and never reuses a retired id.
 pub const GlowcapReference = extern struct {
     id: u64,
 };
 
 /// A passable argument value. `kind` selects which field is live. `bytes`/
-/// `bytes_len` carry `_BYTES`/`_STRING`/`_SYMBOL`/`_KEYWORD`/`_ERROR`; `items`/
+/// `bytes_len` carry `_BYTES`/`_STRING`/`_SYMBOL`/`_KEYWORD`/`_ERROR`. `items`/
 /// `items_len` carry a `_LIST`'s or `_SET`'s elements. A `_TAGGED` uses both:
 /// the tag in `bytes`/`bytes_len` and the value list in `items`/`items_len`.
 /// A `_BIG_INTEGER` carries the canonical decimal magnitude in `bytes`/
 /// `bytes_len` (ASCII digits, no leading zero) and the sign in `boolean`
-/// (1 = negative); a magnitude that fits `int64_t` belongs in `_INTEGER` and
+/// (1 = negative). A magnitude that fits `int64_t` belongs in `_INTEGER` and
 /// is refused here. An `_ERROR` is a fulfilled OCapN Error value whose bytes
-/// are its message; it is distinct from a rejected resolution. A `_STRUCT`
+/// are its message. It is distinct from a rejected resolution. A `_STRUCT`
 /// carries alternating `_STRING` key/value
-/// children in `items`; its count is therefore always even. On a projected
+/// children in `items`. Its count is therefore always even. On a projected
 /// (received) value the pointers alias the
 /// owning arena and are valid until the matching `*_release`.
 pub const GlowcapArgument = extern struct {
@@ -112,7 +112,7 @@ pub const MarshalError = error{ UnsupportedValue, InvalidArgument, NullPointer, 
 
 /// Classify an inbound-dispatch error into a C ABI return code. Derived from the
 /// single error taxonomy (`engine.abort_projection.classify`) so the C codes
-/// cannot drift from the abort projection — and defined once here so no two
+/// cannot drift from the abort projection. It is defined once here so no two
 /// archives can disagree on the same error: codec/decode malformations report
 /// `CODEC`, session state-machine refusals (a partner protocol violation, a
 /// resource cap, an already-closed session) report `SESSION`, and host-internal
@@ -143,11 +143,11 @@ pub const GLOWCAP_ABORT_DOMAIN_SESSION: u32 = 1;
 pub const GLOWCAP_ABORT_DOMAIN_FOREIGN: u32 = 2;
 
 /// The typed cause of a peer's most recent local dispatch failure, projected
-/// to C — the ABI counterpart of `engine.Peer.lastAbort`. `domain` is a
+/// to C, the ABI counterpart of `engine.Peer.lastAbort`. `domain` is a
 /// `GLOWCAP_ABORT_DOMAIN_*` value. When `has_kind` is nonzero, `kind_name`
-/// is the wire name of the projected `op:abort` kind (e.g. "MalformedFrame");
-/// when zero, the failure projected no abort (a closed session, an allocation
-/// failure). All byte views are process-static — read them, never free them.
+/// is the wire name of the projected `op:abort` kind (e.g. "MalformedFrame").
+/// When zero, the failure projected no abort (a closed session, an allocation
+/// failure). All byte views are process-static. Read them and never free them.
 /// Declared in this leaf so the ocapn peer family and the byte-fed driver
 /// family (`glowcap_host_session_last_abort`) share it by layout.
 pub const GlowcapLastAbort = extern struct {
@@ -165,7 +165,7 @@ pub const GlowcapLastAbort = extern struct {
     secondary_error_name: ?[*]const u8,
     /// Length of `secondary_error_name`.
     secondary_error_name_len: usize,
-    /// Secondary failures observed; 255 means 255 or more.
+    /// Secondary failures observed. 255 means 255 or more.
     secondary_error_count: u32,
 };
 
@@ -478,10 +478,10 @@ pub fn argumentToCWith(
             c_arg.items = arr.ptr;
             c_arg.items_len = arr.len;
         },
-        // Exhaustive on purpose: the model arms with no C mapping are named
+        // The switch is exhaustive: the model arms with no C mapping are named
         // here, so a new `model.Argument` arm stops this build at the boundary
         // that must decide how (or whether) the typed surface carries it,
-        // rather than degrading silently to the opaque-frame fallback.
+        // instead of degrading silently to the opaque-frame fallback.
         .handoff => return error.UnsupportedValue,
     }
     return c_arg;

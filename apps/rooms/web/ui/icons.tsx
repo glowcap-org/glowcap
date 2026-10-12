@@ -184,8 +184,8 @@ const paths = {
 	// Settings: three sliders. A cog at this size reads as a blob; this stays
 	// a control glyph next to the sun and the bell.
 	// A directory, drawn as the two stacked bars of a rack. At the size the rail
-	// uses it — under a room's sigil, a third of the height of the name beside it
-	// — anything with an interior detail closes up, so this has none: two bars and
+	// uses it (under a room's sigil, a third of the height of the name beside it)
+	// anything with an interior detail closes up, so this has none: two bars and
 	// the space between them is the whole glyph, and it survives being small.
 	directory: (
 		<>
@@ -255,8 +255,8 @@ export const iconNames: readonly IconName[] = [
 	"mark-line",
 ];
 
-/** The logotype lockup — "glowcap" beside its small-caps rooms — as one
- * component so every home shares one structure; every metric lives on the
+/** The logotype lockup, "glowcap" beside its small-caps rooms, as one
+ * component so every home shares one structure. Every metric lives on the
  * `.wordmark` class in ui/mark.css, where the lockup's pixel contract is owned.
  * (The boot screen in page.html carries the same two-element markup
  * statically, because it paints before this bundle arrives. The documentation

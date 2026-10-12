@@ -6,11 +6,12 @@
 
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
 import {
+	acquireTraceCapability,
 	connectTraceViewer,
 	scrapeTraceSturdyref,
-	traceMemorySeed,
 	traceUrlOf,
 } from "../../apps/rooms/test/trace/viewer.ts";
+import { establishLocalSession } from "../../apps/rooms/test/support/session_setup.ts";
 import { confirmTitleLeave } from "../../apps/rooms/test/page/harness.ts";
 import { freePort } from "../../apps/rooms/test/support/rooms_server.ts";
 
@@ -251,13 +252,14 @@ async function joinWeb(
 	port: number,
 	nick: string,
 	room: string,
-	seed: ReturnType<typeof traceMemorySeed>,
+	trace: string,
 ): Promise<WebPeer> {
 	const context = await browser.newContext({ viewport: { width: 1100, height: 760 } });
-	await context.addInitScript(({ key, value }) => localStorage.setItem(key, value), seed);
 	const page = await context.newPage();
 	page.on("pageerror", (err) => console.error(`  [${nick} page] ${err.message}`));
 	await page.goto(`http://127.0.0.1:${port}/`);
+	await establishLocalSession(page);
+	await acquireTraceCapability(page, trace);
 	await joinRoom({ nick, context, page }, room);
 	return { nick, context, page };
 }
@@ -425,14 +427,13 @@ try {
 	const locator = await locatorAt(httpPort);
 	const traceRef = await scrapeTraceSturdyref(web.stderr);
 	const traceUrl = traceUrlOf(traceRef);
-	const traceSeed = traceMemorySeed(httpPort, traceRef);
 	timeline = await watchTimeline(traceRef);
 	gobA = new ChatPeer(GOB_A, locator, FULL, traceUrl);
 	gobB = new ChatPeer(GOB_B, locator, FULL, traceUrl);
 	await Promise.all([gobA.ready(FULL), gobB.ready(FULL)]);
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
-	const webA = await joinWeb(browser, httpPort, WEB_A, FULL, traceSeed);
-	const webB = await joinWeb(browser, httpPort, WEB_B, FULL, traceSeed);
+	const webA = await joinWeb(browser, httpPort, WEB_A, FULL, traceRef);
+	const webB = await joinWeb(browser, httpPort, WEB_B, FULL, traceRef);
 
 	if (phase === "count-discrepancy") {
 		await browserDm(webA, gobA, "first independent receiver");

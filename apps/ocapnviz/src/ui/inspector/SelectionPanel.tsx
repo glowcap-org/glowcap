@@ -4,12 +4,12 @@
  * Its sibling panels answer "what is this?" about one entity. This
  * one answers the questions a set raises instead: what is in it, when
  * it runs, how much of it is on stage, whether the sessions in it
- * join peers that are also in it — and then what can be changed
+ * join peers that are also in it, and then what can be changed
  * across the whole of it at once.
  *
  * Selection is not this panel's to write. The narrowing control hands
  * a set of keys back to the host, which dispatches the store's own
- * `set-selection`; nothing here keeps a selection of its own, because
+ * `set-selection`. Nothing here keeps a selection of its own, because
  * a second place that decides what is selected is the one defect the
  * interaction layer is arranged to prevent.
  *
@@ -62,7 +62,7 @@ export type SelectionPanelProps = {
 	selection: ReadonlySet<EntityRefKey>;
 	editor?: EditorBindings | undefined;
 	/** Replace the selection with exactly these entities. The host
-	 *  dispatches the store's `set-selection`; this panel only names
+	 *  dispatches the store's `set-selection`. This panel only names
 	 *  the target set. Absent in a host that does not offer the
 	 *  control, and then no narrowing row is drawn. */
 	onNarrow?: ((entities: ReadonlySet<EntityRefKey>) => void) | undefined;
@@ -206,7 +206,7 @@ function NarrowRow(
  *  broadcasts to every one of them inside a single edit transaction.
  *
  *  What it reads is what the next write would set. The single-entity
- *  panels read `live ?? def` so an in-flight edit shows immediately;
+ *  panels read `live ?? def` so an in-flight edit shows immediately.
  *  these read the authored definition alone, because that is where
  *  the broadcast lands, and a control reading one value while writing
  *  another reports that nothing happened when the document says
@@ -218,7 +218,7 @@ function NarrowRow(
  *  Messages and session ends have no such field today. A message's
  *  direction swap is a one-shot act rather than a value, and the
  *  session it is carried over has a different candidate list per
- *  message; an end's every field belongs to the session that owns
+ *  message. An end's every field belongs to the session that owns
  *  it. */
 function SharedFields(
 	{ engine, selection, editor }: {
@@ -410,7 +410,7 @@ function ShiftGroup(
  *  differently. */
 const MOVE_EVENTS_LABEL = "Move events";
 
-/** Drag-to-shift control; emits one `translate` per planned event at
+/** Drag-to-shift control. Emits one `translate` per planned event at
  *  `originalT + delta`. A burst coalesces into one undo step through
  *  the wrapping transaction. */
 function BulkShiftInput(
@@ -486,12 +486,12 @@ function BulkShiftInput(
 /** Delete every selected entity that can be deleted on its own,
  *  inside one transaction so undo restores the group as a unit.
  *
- *  The engine's per-entity delete already cascades — taking a peer
- *  takes its sessions and their messages — so the order does not
+ *  The engine's per-entity delete already cascades, taking a peer
+ *  takes its sessions and their messages, so the order does not
  *  matter, and a session already gone when its turn comes is a
  *  no-op rather than an error. Session ends are skipped here for the
  *  same reason the single-entity panel offers no delete for one, and
- *  the label counts what is actually taken. */
+ *  the label counts what is taken. */
 export function deleteSelection(
 	editor: EditorBindings,
 	selection: ReadonlySet<EntityRefKey>,
@@ -507,7 +507,7 @@ export function deleteSelection(
 /** Wrap a bulk operation in one begin/endEdit transaction so the
  *  whole batch collapses to a single undo step. `try/finally`
  *  protects against an iteration-time throw leaving the transaction
- *  open — `endEdit` must always fire so the engine reverts cleanly.
+ *  open, `endEdit` must always fire so the engine reverts cleanly.
  *  Takes the bracket pair rather than the whole editor, because that
  *  pair is all a batch needs and it is what the row-level controls
  *  have to hand. */
@@ -530,8 +530,8 @@ function bulkApply<T>(
 /** A quiet aside inside a panel: a dashed box, one notch down in
  *  size, saying something about what is around it rather than being
  *  part of it. Both of them belong to a selection of more than one
- *  thing — what a bulk edit leaves alone, and which of the selected
- *  the Connections list is showing — and the dash is the shared idea:
+ *  thing, what a bulk edit leaves alone, and which of the selected
+ *  the Connections list is showing, and the dash is the shared idea:
  *  this is commentary, not content. The border color and which side
  *  it sits on are each site's own. */
 const noteBoxStyle: React.CSSProperties = {
@@ -564,7 +564,7 @@ const anchorNoteStyle: React.CSSProperties = {
  *  showing.
  *
  *  The list is anchored to one entity, so with several selected the
- *  reader has to be told which one — otherwise a list of one peer's
+ *  reader has to be told which one, otherwise a list of one peer's
  *  sessions reads as a roll-up of the whole selection. */
 export function AnchorNote(
 	{ engine, anchor }: { engine: Engine; anchor: NonNullable<StageSelection> },
@@ -578,7 +578,7 @@ export function AnchorNote(
 
 /** What to call an entity in one line of running text. Every arm can
  *  end up holding a key the network chose rather than a name a person
- *  did, so each one elides — this is a sentence, and a sixty-four
+ *  did, so each one elides. This is a sentence, and a sixty-four
  *  character word inside a sentence has nowhere to break. */
 function entityLabel(
 	engine: Engine,

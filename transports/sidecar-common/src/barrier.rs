@@ -17,7 +17,7 @@ struct BarrierState {
 
 /// One or more tasks admitted to a teardown barrier ended without explicitly
 /// committing success. This includes cancellation and panic as well as a
-/// reported task failure; the barrier cannot safely erase any of them.
+/// reported task failure. The barrier cannot safely erase any of them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TaskFailure;
 
@@ -63,7 +63,7 @@ impl TaskBarrier {
 		if state.failed { Err(TaskFailure) } else { Ok(()) }
 	}
 
-	/// These critical sections contain counters and a boolean only; no callback,
+	/// These critical sections contain counters and a boolean only. No callback,
 	/// allocation, or fallible transport operation runs while held. Recovering a
 	/// poisoned container is therefore safe and keeps an unrelated panic from
 	/// turning the library's release barrier into another panic.
@@ -79,7 +79,7 @@ impl Default for TaskBarrier {
 }
 
 /// Failure-by-default admission for one task. A normal result explicitly
-/// marks success; cancellation or panic drops the permit unfinished and is
+/// marks success. Cancellation or panic drops the permit unfinished and is
 /// therefore retained as a teardown failure instead of disappearing with the
 /// Tokio `JoinHandle`.
 pub struct TaskPermit {

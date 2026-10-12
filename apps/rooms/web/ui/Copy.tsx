@@ -4,17 +4,17 @@
 // cannot show, so a control that only depresses leaves a reader to find out by
 // pasting. Everything that copies therefore answers in the same two ways at
 // once. The mark becomes a tick, and a short "Copied" stands over the control
-// for a moment; then both go back to offering. That chip is also the accessible
+// for a moment. Then both go back to offering. That chip is also the accessible
 // reply, because it is a live region rather than a swapped label, and an
 // `aria-label` that changes under a pointer press is announced by some screen
 // readers and not others.
 //
 // A write the browser refused has nothing on the control left to say, and that
-// is a toast — above the page, including above a modal, which is where a
+// is a toast, above the page, including above a modal, which is where a
 // locator is copied from.
 //
 // The write itself lives in `clipboard.ts`. `navigator.clipboard` is absent
-// outside a secure context, and a page may be denied it outright; both arrive
+// outside a secure context, and a page may be denied it outright. Both arrive
 // here rather than at each caller, so no site can half-handle them and leave a
 // press unanswered.
 
@@ -119,7 +119,7 @@ export type CopyFieldProps = {
  *
  * The whole field is the control. It looks like a field because that is what
  * the text is, but nothing in it can be typed into, so the only thing a press
- * could mean is the one thing a reader wants; a small target in the corner
+ * could mean is the one thing a reader wants. A small target in the corner
  * would be asking them to aim at it for no reason. The mark stays in that
  * corner anyway, because it is what says a press does anything at all.
  *

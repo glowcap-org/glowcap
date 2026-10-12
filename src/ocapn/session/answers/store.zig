@@ -39,13 +39,13 @@ pub fn answerSlot(position: model.AnswerPosition, status: AnswerStatus) slot.Slo
 /// settling, or either transition concludes the subscription. The type is a bare `FarRef`, not a full
 /// `Reference`: the installs only ever anchor a positional far target
 /// (`pipeline.installAnswerListener` and the imported-promise install both
-/// build `FarRef.object`), so an entry is POD — no heap, nothing to free.
+/// build `FarRef.object`), so an entry is POD, no heap, nothing to free.
 pub const ListenerEntry = struct {
     listener: model.FarRef,
     mode: model.ListenMode,
 };
 
-/// A row's `op:listen` subscribers — the parties to notify when the row's
+/// A row's `op:listen` subscribers, the parties to notify when the row's
 /// promise resolves. An inbound answer's pipelining payload and a third-party
 /// imported promise (ADR-0009) hold listeners the same way: accumulate POD
 /// entries until resolve, then hand the whole batch off. This type is that one
@@ -53,12 +53,12 @@ pub const ListenerEntry = struct {
 ///
 /// The fan-out bound (`max_listeners_per_target`, ADR-0025) is the length of
 /// this whole list: it caps how many listeners one *listened-on promise*
-/// accumulates — `op:listen`'s `target`, the answer or import, which is the
-/// quantity a flooding partner grows. It is deliberately not a per-
+/// accumulates, `op:listen`'s `target`, the answer or import, which is the
+/// quantity a flooding partner grows. It is not a per-
 /// `ListenerEntry.listener` (per notify-destination) count: that would let a
 /// partner evade the bound by naming a fresh destination each time. The check
 /// stays at the call site because the answer side must read the length before
-/// lazily allocating its payload. The stored resolution stays on each row —
+/// lazily allocating its payload. The stored resolution stays on each row,
 /// its other consumers (an answer's projections and status) make it answer
 /// state, not listener state.
 pub const ListenerList = struct {
@@ -70,7 +70,7 @@ pub const ListenerList = struct {
         return self.entries.items.len;
     }
 
-    /// Append `listener` (a POD entry; nothing to free on failure).
+    /// Append `listener` (a POD entry, nothing to free on failure).
     pub fn append(self: *ListenerList, allocator: std.mem.Allocator, listener: ListenerEntry) !void {
         try self.entries.append(allocator, listener);
     }
@@ -84,7 +84,7 @@ pub const ListenerList = struct {
     }
 
     /// Hand the caller every listener, leaving the list empty. Returns an
-    /// empty slice when there are none; the caller frees only the slice (the
+    /// empty slice when there are none. The caller frees only the slice (the
     /// entries are POD).
     pub fn take(self: *ListenerList, allocator: std.mem.Allocator) ![]ListenerEntry {
         if (self.entries.items.len == 0) return &.{};
@@ -147,7 +147,7 @@ pub const Projection = struct {
     /// asked. Resolving a projection against a reused position would answer
     /// the partner's *new* question with the old one's value, and the
     /// application's real reply to it would then be refused as a second
-    /// resolve and tear the session down. A stamp that no longer matches
+    /// resolve and tear the session down. A stamp that does not match
     /// means the question is gone, and the projection is dropped.
     answer_row_id: u64,
 };
@@ -163,7 +163,7 @@ pub fn deinitProjection(allocator: std.mem.Allocator, projection: Projection) vo
 }
 
 /// Cold pipelining payload for an answer (ADR-0007), allocated lazily only when
-/// an answer actually accrues a queued call, a listener, a projection, or a
+/// an answer accrues a queued call, a listener, a projection, or a
 /// stored resolution.
 pub const AnswerPayload = struct {
     /// One reference belongs to the live answer row. A staged settlement and
@@ -172,30 +172,30 @@ pub const AnswerPayload = struct {
     /// a resolver or listener that was already accepted for this incarnation.
     refs: u32 = 1,
     /// Pipelined `op:deliver`s that arrived for this answer while it was still
-    /// `pending`. FIFO; each is an owned `model.Message` freed on drain or
+    /// `pending`. FIFO. Each is an owned `model.Message` freed on drain or
     /// removal.
     queue: std.ArrayList(model.Message) = .empty,
     /// Parties listening for this answer's resolution (POD entries).
     listeners: ListenerList = .empty,
     /// `op:get` / `op:index` projections waiting on this answer's resolution
-    /// (ADR-0050). Each entry's `.field` bytes are owned; freed on drain or
+    /// (ADR-0050). Each entry's `.field` bytes are owned. Freed on drain or
     /// removal.
     projections: std.ArrayList(Projection) = .empty,
     /// The resolution, stored once the answer resolves so a late `op:listen`
-    /// fires immediately. Owned; freed on removal.
+    /// fires immediately. Owned. Freed on removal.
     resolution: ?StoredResolution = null,
     /// Exact owned-model charge paired with `resolution`. Session aggregates
     /// it so a succession of published answers cannot hide variable retained
     /// trees behind the fixed answer-row cap.
     resolution_charge: usize = 0,
     /// V1.0's independently accepted resolver callback. The BiMap remains the
-    /// live answer-name index; this captured import is the detached obligation
+    /// live answer-name index. This captured import is the detached obligation
     /// that survives removal and legal reuse of that name.
     resolver_import: ?model.ImportPosition = null,
 };
 
 /// Session-local identity of one inbound answer incarnation. `AnswerName`
-/// carries the wire/virtual namespace; `row_id` carries the epoch. Application
+/// carries the wire/virtual namespace. `row_id` carries the epoch. Application
 /// work must return this whole token so a late result cannot settle a new
 /// question that reused the same wire position.
 pub const AnswerTarget = struct {
@@ -204,7 +204,7 @@ pub const AnswerTarget = struct {
 };
 
 /// One owned resolution plus the exact answer incarnation named by a top-level
-/// promise fulfillment. The wire value carries only a reusable position; this
+/// promise fulfillment. The wire value carries only a reusable position. This
 /// sidecar keeps later local consequence walks from following a replacement row.
 pub const StoredResolution = struct {
     value: model.Resolution,
@@ -241,7 +241,7 @@ pub const AnswerCell = struct {
     application_notification_consumed: bool = false,
     payload: ?*AnswerPayload = null,
     /// Next-profile local settling fan-out. The target import owns the ordered
-    /// answer list; this back-link makes `op:gc-answers` removal O(1) without a
+    /// answer list. This back-link makes `op:gc-answers` removal O(1) without a
     /// scan of every imported promise. `settling_index == 0` names the inline
     /// primary answer, larger values are one-based indexes into its followers.
     settling_target: model.ImportPosition = .from(0),
@@ -295,7 +295,7 @@ pub const AnswerView = struct {
 };
 
 /// Typed-name-keyed answer table. Inbound rows preserve wire-versus-virtual
-/// provenance; outbound rows carry only real wire answer positions.
+/// provenance. Outbound rows carry only real wire answer positions.
 pub fn AnswerTable(comptime IdType: type) type {
     return struct {
         rows: std.AutoHashMapUnmanaged(IdType, AnswerCell) = .empty,
@@ -364,7 +364,7 @@ pub fn ensureAnswerPayload(allocator: std.mem.Allocator, cell: *AnswerCell) !*An
 }
 
 /// An exact pending-answer payload prepared for one wider transaction. A cold
-/// live row receives a fresh empty payload immediately; this token remains its
+/// live row receives a fresh empty payload immediately. This token remains its
 /// sole publication owner until commit and removes it on abandon. Detached rows
 /// can only be prepared when their already-owned payload still exists.
 pub const PreparedPendingPayload = struct {
@@ -557,7 +557,7 @@ pub fn storeResolutionNamed(self: anytype, answer: model.AnswerName, resolution:
 
 /// Store `resolution` on the wire-named inbound answer, taking ownership and
 /// marking it resolved. A replacement preserves the prior value if measuring
-/// or accounting for the new resolution fails; every failure consumes the new
+/// or accounting for the new resolution fails. Every failure consumes the new
 /// resolution.
 pub fn storeResolution(self: anytype, answer: model.AnswerPosition, resolution: model.Resolution) !void {
     return storeResolutionNamed(self, .fromWire(answer), resolution);

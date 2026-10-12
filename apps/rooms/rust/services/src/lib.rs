@@ -15,6 +15,8 @@ pub mod media_files;
 #[cfg(feature = "processes")]
 pub mod server;
 #[cfg(feature = "processes")]
+pub mod trace_view;
+#[cfg(feature = "processes")]
 pub mod web;
 
 #[cfg(feature = "processes")]

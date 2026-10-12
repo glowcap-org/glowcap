@@ -1,8 +1,8 @@
 //! KERI-anchored identity, living strictly above glowcap.
 //!
-//! This is application vocabulary — an autonomic identifier (AID) with a key
+//! This is application vocabulary, an autonomic identifier (AID) with a key
 //! event log (KEL), pre-rotation, and rotation. It never enters glowcap's
-//! protocol surface; glowcap hosts the codec-neutral CapTP boundary and knows
+//! protocol surface, glowcap hosts the codec-neutral CapTP boundary and knows
 //! nothing about identity. The accountability application binds an identity to a
 //! peer here, above the `Peer`/`Vat` line, exactly as the project guardrails
 //! require.
@@ -13,7 +13,7 @@
 //! the next key is committed before it is ever exposed). Rotation reveals the
 //! committed next key, signs the new event with the current key, and commits to
 //! a fresh next digest.
-//! These are the load-bearing KERI properties. SAID rendering, keys, and the
+//! These are the essential KERI properties. SAID rendering, keys, and the
 //! draft digest live in `said.zig`. Minting a rotation and walking a presented
 //! log live in `kel.zig`.
 //!
@@ -55,7 +55,7 @@ pub const Identity = struct {
     /// The SAID of the latest key event. The next rotation names it as its
     /// predecessor, which is what makes the log a chain.
     said: [SAID_LEN]u8 = undefined,
-    /// The KEL as appended JSON-LD event lines; the canonical local record.
+    /// The KEL as appended JSON-LD event lines. The canonical local record.
     kel: std.ArrayList(u8) = .empty,
 
     /// Incept a fresh identity. Two keypairs are drawn: the current signer and
@@ -67,7 +67,7 @@ pub const Identity = struct {
         return inceptFrom(allocator, current, next);
     }
 
-    /// Incept from caller-supplied keys (deterministic; used by tests).
+    /// Incept from caller-supplied keys (deterministic, used by tests).
     pub fn inceptFrom(allocator: std.mem.Allocator, current: Key, next: Key) Error!Identity {
         var self = Identity{
             .allocator = allocator,
@@ -165,7 +165,7 @@ pub const Identity = struct {
 // `currentVerkey` is the check that decides whether a host will attribute an
 // Episode at all, so each way it can refuse gets a test. A log a stranger hands
 // over is untrusted input; these are the shapes a peer would try.
-// The tests forge with the same minting the honest path uses, so a forged event
+// The tests forge with the same minting the legitimate path uses, so a forged event
 // is well-formed in every respect except the one under test.
 
 const testing = std.testing;

@@ -12,7 +12,7 @@ import { BLUR, COMPOSITE, SHADER } from "./mark_gpu_shader.ts";
 /** The mark's box, plus the air the light needs around it, in the units of
  * the 24-unit box the silhouette fills. The flat drawing in ui/tokens.css was
  * traced out of this frame and states its own share of it in `.mark-piece`,
- * so the two marks stand in the same place; this one keeps more air around
+ * so the two marks stand in the same place. This one keeps more air around
  * the mushroom, because light that disperses through a volume needs room to
  * run out in, where a drawn ray only needs room to end. The canvas
  * hangs around its element by these numbers, and the shader places the
@@ -51,7 +51,7 @@ export type Colours = {
 	accent: [number, number, number];
 	/** The dark page: the night the mark is drawn in, whatever the theme. */
 	night: [number, number, number];
-	/** The page actually behind the mark. Its brightness decides whether the
+	/** The page behind the mark. Its brightness decides whether the
 	 * air is drawn as light over a dark page or as teal ink over a light one. */
 	paper: [number, number, number];
 };
@@ -170,7 +170,7 @@ function flare(f: number): number {
 	if (f < BEAT.held) return 1;
 	// Back to amber fast. Teal and amber sit across from each other, so the
 	// straight line between them runs through a dead khaki, and a slow return
-	// parks the whole cap in it now that the flare colours the whole cap.
+	// parks the whole cap in it, since the flare colours the whole cap.
 	return 1 - ease(BEAT.held, 0.435, f);
 }
 
@@ -237,14 +237,14 @@ export function beats(frame: number, seconds: number, still: boolean): Beats {
  * blur adds back. Fractions, so a glow is the same size relative to the mark
  * at every size the mark is drawn: at forty-eight pixels a fixed texel radius
  * was a halo three pixels wide, which is not a halo. */
-// The threshold sits above one on purpose: the scene pass is HDR, and only
+// The threshold sits above one: the scene pass is HDR, and only
 // the light goes past one. The body never blooms, so the mark stays a crisp
 // glyph with light coming off it rather than a warm smudge.
 const BLOOM = { core: 0.012, halo: 0.05, threshold: 1.05, coreStrength: 0.7, haloStrength: 0.8 };
 
 /** Draws the mark into any target: a float scene pass, four half-size blur
  * passes that make the two blooms, and a composite. The canvas loop in
- * `start` is one user; the size proofs are another, and both get the same
+ * `start` is one user. The size proofs are another, and both get the same
  * pixels because there is one of these. */
 export class Renderer {
 	readonly #device: GPUDevice;

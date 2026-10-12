@@ -6,7 +6,7 @@ type Pending<T> = Pin<Box<dyn Future<Output = Result<T, Error>>>>;
 /// One boxed observation retains the Host's actual vow receiver after the
 /// command inputs enter its existing bounded call owner. It copies no request
 /// or result. The worker lends this future to its deadline or cancellation
-/// wait; dropping that wait leaves the receiver here. Replacing it before a
+/// wait. Dropping that wait leaves the receiver here. Replacing it before a
 /// terminal result would lose evidence of a committed admission during close.
 #[must_use]
 pub struct Submission<T = EffectStatus> {
@@ -26,11 +26,15 @@ impl<T: Clone> Submission<T> {
 	}
 	/// The embedding bounds this wait while retaining this owner for recovery.
 	pub async fn completed(&mut self) -> Result<T, Error> {
-		if self.result.is_none() {
-			self.result = Some(self.pending.as_mut().expect("unobserved submission").await);
-			self.pending.take();
+		if let Some(result) = &self.result {
+			return result.clone();
 		}
-		self.result.as_ref().expect("terminal submission").clone()
+		let Some(pending) = self.pending.as_mut() else {
+			return Err(glowcap::loam::refusal("submission holds neither a receiver nor a result").into());
+		};
+		let result = pending.await;
+		self.pending.take();
+		self.result.insert(result).clone()
 	}
 }
 impl<D: Deadline + 'static> Command<D> {

@@ -31,8 +31,8 @@ impl fmt::Display for OpenError {
 }
 impl std::error::Error for OpenError {}
 
-/// The actual bind owns exclusion. Retain its address and failure together;
-/// diagnostic wording must never turn a different I/O failure into a collision.
+/// The actual bind owns exclusion. Retain its address and failure together.
+/// Diagnostic wording must never turn a different I/O failure into a collision.
 #[derive(Debug)]
 pub struct BindError {
 	host: String,

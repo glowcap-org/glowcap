@@ -65,11 +65,10 @@ pub(super) async fn open(config: &Config, host: &Host) -> Result<(Listener, Loca
 			let locator = match server.locator() {
 				Ok(locator) => locator,
 				Err(error) => {
-					let result = crate::cleanup::combine(
-						Err(error.to_string()),
+					return Err(crate::cleanup::failed(
+						error.to_string(),
 						server.close().await.map_err(|e| e.to_string()),
-					);
-					return Err(result.expect_err("listener metadata failed"));
+					));
 				}
 			};
 			(Listener::Tcp(server), locator)
@@ -84,11 +83,10 @@ pub(super) async fn open(config: &Config, host: &Host) -> Result<(Listener, Loca
 	}
 	match Runtime::open(RuntimeConfig::providers(providers).adopt_host(host)).await {
 		Ok(runtime) => Ok((listener, locator, Rc::new(runtime))),
-		Err(error) => Err(crate::cleanup::combine(
-			Err(error.to_string()),
+		Err(error) => Err(crate::cleanup::failed(
+			error.to_string(),
 			listener.close().await.map_err(|e| e.to_string()),
-		)
-		.expect_err("runtime startup failed")),
+		)),
 	}
 }
 

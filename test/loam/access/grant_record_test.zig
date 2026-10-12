@@ -1,4 +1,4 @@
-//! Persistent grants retain exact terms; allocation, shape, and event grammar
+//! Persistent grants retain exact terms. Allocation, shape, and event grammar
 //! are bounded independently of current graph and policy interpretation.
 const std = @import("std");
 const access = @import("glowcap").loam.access;

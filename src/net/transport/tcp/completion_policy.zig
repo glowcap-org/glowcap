@@ -6,7 +6,7 @@
 //! byte-fed Host on both halves (ADR-0107), so the socket under it is the
 //! `keyed-tcp` socket exactly. A platform backend binds every listener on the
 //! one interface it was built with, so a listen designator must name that
-//! interface; any other host is refused rather than silently rebound.
+//! interface. Any other host is refused rather than silently rebound.
 
 const std = @import("std");
 
@@ -30,7 +30,7 @@ pub fn Policy(comptime Backend: type) type {
             return addressing.DialResolver.resolve(locator);
         }
 
-        /// The designator is where to bind, for every profile; a key profile
+        /// The designator is where to bind, for every profile. A key profile
         /// also needs the identity it publishes.
         pub fn listenTarget(backend: *const Backend, transport: []const u8, config: netlayer.ListenConfig) addressing.Error!Backend.ListenTarget {
             const profile = try profileFor(transport);

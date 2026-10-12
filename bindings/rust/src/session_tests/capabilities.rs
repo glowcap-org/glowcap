@@ -374,7 +374,7 @@ async fn pipelined_projections_reach_a_field() {
 }
 
 // Object-capability forwarding proxies over the wire (ADR-0064). The host fetches the
-// client's published tool — a *far* reference on the host side — wraps it in a
+// client's published tool, a *far* reference on the host side, wraps it in a
 // caretaker, and hands the proxy back to the client. A call through the proxy
 // forwards across the host to the client's tool (the far deferred-answer path)
 // and resolves the caller's answer; an attenuator passes only its allow-listed

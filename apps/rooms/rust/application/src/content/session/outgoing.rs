@@ -55,11 +55,9 @@ pub fn release_sources<R: custody::References, C>(record: &mut workspace::Record
 /// Forgetting a line releases its private provenance in the same transaction.
 /// Receipts retain their own source occurrences independently of this custody.
 pub fn retire<R: custody::References, C>(record: &mut workspace::Record<R, C>) {
-	let (kept, retired): (alloc::vec::Vec<_>, alloc::vec::Vec<_>) = core::mem::take(&mut record.outgoing)
-		.0
-		.into_iter()
-		.partition(|origin| record.custody.line(origin.line).is_some());
-	record.outgoing = List::new(kept).expect("existing bounded origins");
+	let mut outgoing = core::mem::take(&mut record.outgoing);
+	let retired = outgoing.partition_out(|origin| record.custody.line(origin.line).is_some());
+	record.outgoing = outgoing;
 	for origin in retired {
 		let coordinate = |role, slot, generation| custody::Coordinate {
 			role,
@@ -96,7 +94,7 @@ impl Origin {
 }
 
 /// Only private settlement accepts this plan. Existing file coordinates select
-/// retained custody; new files select exact source fields in the effect receipt.
+/// retained custody. New files select exact source fields in the effect receipt.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Update {

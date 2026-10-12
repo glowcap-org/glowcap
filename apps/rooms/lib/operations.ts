@@ -1,11 +1,10 @@
 // Taking an operations capability on the directory that printed its name.
 //
 // An operations capability is a second object the server publishes under an
-// unguessable name, so holding that name is the whole of the authority. The
-// operator pastes the name; fetching it on the live directory session is how
-// the capability is taken, and letting the reference go is how it is given up.
-// What each capability answers differs; how one is taken does not, so that
-// flow lives here once.
+// unguessable name, so holding that name is the authority. The operator pastes
+// the name, fetching it on the live directory session takes the capability, and
+// letting the reference go gives it up. What each capability answers differs,
+// and how one is taken does not, so that flow lives here once.
 
 import type { Ref, Session } from "@glowcap/runtime";
 import { retainCleanupFailures } from "@glowcap/runtime";
@@ -16,7 +15,7 @@ import { parseRoomsSturdyref } from "./locator.ts";
  * A sturdyref also names a Host. Stripping that locator and fetching its swiss
  * on the current directory can silently retarget authority when two servers
  * restored the same operator state. Operations therefore accepts only the bare
- * swiss explicitly scoped by the live directory in front of the reader. */
+ * swiss scoped by the live directory in front of the reader. */
 export function operationsSwiss(pasted: string): string {
 	const trimmed = pasted.trim();
 	if (trimmed.includes("://")) {

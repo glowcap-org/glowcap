@@ -1,4 +1,4 @@
-//! Directory metadata stays descriptive; held readers own exact admission.
+//! Directory metadata stays descriptive. Held readers own exact admission.
 use super::*;
 use rooms_glowcap::client::workspace::DirectoryReader;
 

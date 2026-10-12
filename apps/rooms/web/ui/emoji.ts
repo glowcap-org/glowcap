@@ -4,7 +4,7 @@
 //
 // Curated rather than the full Unicode set: every entry earns its place in a
 // chat about software. Widening this into a generated CLDR-backed table is
-// named in `developing.md`; the shape here is already the one a generator
+// named in `developing.md`. The shape here is already the one a generator
 // would fill.
 
 export interface EmojiEntry {

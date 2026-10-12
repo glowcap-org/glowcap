@@ -8,13 +8,13 @@
 // row's caption line has no room for.
 //
 // Then this page's own room server is taken down and stood back up while the
-// second one is still away, because a directory coming back used to clear the
-// one notice the page had for all of them and erase an outage that was still
+// second one is still away, because a directory coming back must not clear the
+// one notice the page has for all of them and erase an outage that is still
 // true.
 //
 // A line in flight preserves its uncertain delivery receipt after connection
 // loss. Reconnection cannot authorize a new post from the old message text.
-// Files already recorded in the archive retain their bytes; live line-edit
+// Files already recorded in the archive retain their bytes. Live line-edit
 // authority retires with its connection. Both are checked after restart.
 //
 // The last phase of the two-directories conversation, run by `leaving.ts` with
@@ -22,7 +22,8 @@
 // stands back up.
 
 import type { Locator, Page } from "playwright";
-import { fail, openDirectoryCardFromCaption, ROOT, SERVER } from "./harness.ts";
+import { fail, openDirectoryCardFromCaption, ROOT, SERVER, waitForPostedLine } from "./harness.ts";
+import { proveRecoveryDialogLayout } from "./recovery_layout.ts";
 import { inkContrast } from "../ink_contrast.ts";
 import { spawnOwned } from "../support/children.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
@@ -125,6 +126,7 @@ export async function run(
 		keptLine,
 		{ timeout: 30_000 },
 	).catch(() => fail("the room on the second server never confirmed a line said into it"));
+	await waitForPostedLine(tab, keptLine);
 	await tab.waitForFunction(
 		(text) => {
 			const bubble = [...document.querySelectorAll(".row.mine .bubble")]
@@ -137,7 +139,7 @@ export async function run(
 
 	// Stopped before the line is said, killed after it is drawn. A stopped server
 	// answers nothing while its connection stays up, so the line below is
-	// accepted, painted, and genuinely waiting on an answer. This is the state
+	// accepted, painted, and waiting on an answer. This is the state
 	// the whole passage exercises. Killing across the press instead has two losing
 	// sides: the composer refuses the moment the session goes, and a server
 	// that answers first leaves nothing in flight. Both have happened.
@@ -176,7 +178,7 @@ export async function run(
 		// already gone
 	}
 	// Resume only the retained observation when its bounded worker has stopped.
-	// Its old execution must now settle terminally without dispatching a new post.
+	// Its earlier execution must settle terminally without dispatching a new post.
 	if (observationStopped) await originalReceipt.getByRole("button", { name: "Pick back up", exact: true }).click();
 	await tab.waitForSelector(
 		`dialog[open] [data-operation="${originalPending}"][data-status="unknown"][data-resumable="false"]`,
@@ -184,11 +186,20 @@ export async function run(
 			timeout: 30_000,
 		},
 	).catch(() => fail("the open recovery dialog never reported the original send's unknown outcome"));
+	await proveRecoveryDialogLayout(tab);
 	await tab.keyboard.press("Escape");
+	// Exercise the exact terminal receipt before later admissions can evict it
+	// from the bounded inventory. Its inline unknown delivery must outlive it.
+	await openRetainedChanges(tab);
+	const releasedRow = tab.locator(`dialog[open] [data-operation="${originalPending}"]`);
+	await releasedRow.getByRole("button", { name: "Let go…" }).click();
+	await releasedRow.getByRole("button", { name: "Let go", exact: true }).click();
+	await releasedRow.waitFor({ state: "detached", timeout: 30_000 });
+	await closeRetainedChanges(tab);
 	// Back to the room on this page's own directory. Pressing the room you are
 	// already in is how a reader puts the rail away, so leaving the tab in this
-	// one would turn the next press on its row — the one below, which expects to
-	// open it — into a press that closes the rail instead.
+	// one would turn the next press on its row, the one below, which expects to
+	// open it, into a press that closes the rail instead.
 	await tab.click('.room-open:has-text("lobby")');
 
 	// ── The news lands on the rooms it is about ──────────────────────────
@@ -265,10 +276,28 @@ export async function run(
 	// value got wrong: the writer that cleared the notice on a successful open
 	// cleared it for every directory, so a directory coming back erased an outage
 	// that was still true.
-	const killed = await new Deno.Command("pkill", {
-		args: ["-f", `${SERVER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} .*--port=${homeRoomPort}( |$)`],
-	}).output();
-	if (!killed.success) fail("could not find this page's own room server to take down");
+	// Pause the replacement server itself: this also holds recovery when the
+	// workspace's connector is hosted outside this browser tab.
+	const pattern = `${SERVER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} .*--port=${homeRoomPort}( |$)`;
+	const serverPid = async () => {
+		const found = await new Deno.Command("pgrep", { args: ["-f", pattern] }).output();
+		const pids = new TextDecoder().decode(found.stdout).trim().split(/\s+/).filter(Boolean).map(Number);
+		return pids.length === 1 ? pids[0] : null;
+	};
+	const original = await serverPid();
+	if (original == null) fail("could not identify this page's own room server");
+	Deno.kill(original, "SIGTERM");
+	let replacement: number | null = null;
+	for (let attempt = 0; attempt < 200; attempt++) {
+		const pid = await serverPid();
+		if (pid != null && pid !== original) {
+			Deno.kill(pid, "SIGSTOP");
+			replacement = pid;
+			break;
+		}
+		await new Promise((resolve) => setTimeout(resolve, 25));
+	}
+	if (replacement == null) fail("the supervised home server did not restart");
 	await tab.waitForFunction(
 		() =>
 			[...document.querySelectorAll('#roomList li[data-dir="home"]')].some((row) =>
@@ -281,7 +310,9 @@ export async function run(
 			`this page's own directory going away was never said on the rooms held on it: ` +
 				JSON.stringify(await railStandings(tab)),
 		)
-	);
+	).finally(() => {
+		Deno.kill(replacement!, "SIGCONT");
+	});
 	await tab.waitForFunction(
 		() =>
 			document.querySelectorAll('#roomList li[data-dir="home"]').length > 0 &&
@@ -327,7 +358,7 @@ export async function run(
 	// A room on the directory that went away is still a room this tab is in, and
 	// opening it has to show it. Gating that on a live session put a reader in
 	// front of a form asking them to join a room they were already in, with the
-	// history they came for behind it — so this asserts the conversation opens
+	// history they came for behind it, so this asserts the conversation opens
 	// before it asks what the field says.
 	await namedRoomRow(tab, "elsewhere").locator(".room-open").click();
 	await tab.waitForFunction(
@@ -460,11 +491,6 @@ export async function run(
 		if (await pendingRow.locator(".delivery-failure button").count() !== 0) {
 			fail("an unknown delivery offered a fresh resend");
 		}
-		await tab.click("#sessionEffectReview");
-		await tab.getByRole("dialog", { name: /^Unfinished change/ }).waitFor();
-		await tab.waitForSelector('dialog[open] [data-operation][data-status="unknown"]', { timeout: 30_000 });
-		const originalReceipts = await unknownReceipts(tab);
-		await tab.keyboard.press("Escape");
 
 		// The file that was posted before the server went was also retained by this
 		// session's archive. Its live occurrence died with the connection, but the
@@ -556,46 +582,25 @@ export async function run(
 		if (await pendingRow.locator(".delivery-failure button").count() !== 0) {
 			fail("reconnection changed unknown delivery into permission to resend");
 		}
-		await tab.click("#sessionEffectReview");
-		await tab.waitForSelector('dialog[open] [data-operation][data-status="unknown"]', { timeout: 30_000 });
-		const recoveredReceipts = await unknownReceipts(tab);
-		if (originalReceipts.length === 0 || !originalReceipts.every((id) => recoveredReceipts.includes(id))) {
-			fail("reconnection lost or replaced the original unknown post receipt");
+		await openRetainedChanges(tab);
+		await tab.getByRole("dialog", { name: /^Unfinished change/ }).waitFor();
+		if (await tab.locator(`dialog[open] [data-operation="${originalPending}"]`).count() !== 0) {
+			fail("reconnection restored a receipt the reader explicitly released");
 		}
-		// Letting a receipt go is the reader's explicit answer: the row leaves for
-		// good, and the line stays not confirmed with no way to resend it. A new
-		// admission can evict a terminal receipt from the bounded window, so pick
-		// a row only once the list has stopped changing.
-		let listed = "";
-		for (let quiet = 0; quiet < 5;) {
-			const now = (await tab.locator("dialog[open] [data-operation]").evaluateAll((rows) =>
-				rows.map((row) =>
-					`${row.getAttribute("data-operation")}:${row.getAttribute("data-status")}`
-				)
-			)).join();
-			quiet = now === listed ? quiet + 1 : 0;
-			listed = now;
-			await tab.waitForTimeout(200);
-		}
-		const released = await tab.locator("dialog[open] [data-operation]:has(button:text-is('Let go…'))").first()
-			.getAttribute("data-operation", { timeout: 5_000 })
-			.catch(() => fail("no unfinished change offered to be let go"));
-		const releasedRow = tab.locator(`dialog[open] [data-operation="${released}"]`);
-		await releasedRow.getByRole("button", { name: "Let go…" }).click();
-		await releasedRow.getByRole("button", { name: "Let go", exact: true }).click();
-		await releasedRow.waitFor({ state: "detached", timeout: 30_000 })
-			.catch(() => fail("letting an unknown receipt go left it on the recovery card"));
-		await pendingRow.locator(".delivery-failure:has-text('Not confirmed')").waitFor();
-		if (await pendingRow.locator(".delivery-failure button").count() !== 0) {
-			fail("a receipt the reader let go still offered a resend");
-		}
-		if (await tab.locator("dialog[open]").count() !== 0) await tab.keyboard.press("Escape");
+		await closeRetainedChanges(tab);
 	}
 }
 
-/** The operations the open recovery card reports with an unknown outcome. */
-function unknownReceipts(tab: Page): Promise<string[]> {
-	return tab.locator('dialog[open] [data-operation][data-status="unknown"]').evaluateAll((rows) =>
-		rows.map((row) => row.getAttribute("data-operation") ?? "")
-	);
+async function openRetainedChanges(tab: Page): Promise<void> {
+	await tab.click("#settingsBtn");
+	await tab.getByRole("tab", { name: "Session", exact: true }).click();
+	await tab.click("#sessionChangesOpen");
+	await tab.waitForSelector('#sessionRecoveryList[aria-busy="false"]', { state: "attached" });
+}
+
+async function closeRetainedChanges(tab: Page): Promise<void> {
+	await tab.keyboard.press("Escape");
+	await tab.getByRole("dialog", { name: /^Unfinished change/ }).waitFor({ state: "hidden" });
+	await tab.keyboard.press("Escape");
+	await tab.locator("dialog[open]").waitFor({ state: "hidden" });
 }

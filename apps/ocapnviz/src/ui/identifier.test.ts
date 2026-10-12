@@ -3,7 +3,7 @@
  *
  * The rule is worth a test because both the failures it guards against
  * are silent. A run that keeps only one end still renders, still fits,
- * and reads perfectly well — right up to the moment two keys sharing
+ * and reads perfectly well, right up to the moment two keys sharing
  * that end are shown side by side and a reader concludes they are the
  * same key. And a run that elides a short string costs the reader its
  * middle in exchange for no room at all.

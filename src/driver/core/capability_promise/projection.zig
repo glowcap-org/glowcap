@@ -16,7 +16,7 @@ pub const Prepared = struct {
 };
 
 /// Project a still-pending Host promise onto one session. The session owns the
-/// paired export/answer rows once a surrounding send commits; `created` gives
+/// paired export/answer rows once a surrounding send commits. `created` gives
 /// that transaction exact rollback authority until then.
 pub fn prepare(self: *Host, id: capability.PromiseId, session: *HostSession) !Prepared {
     const row = self.capability_promises.getPtr(id) orelse return error.UnknownCapability;
@@ -58,7 +58,7 @@ pub fn rollback(
 }
 
 /// Forget projections whose session is being destroyed. The session owns and
-/// frees its export/answer rows; this removes only the Host's route to them.
+/// frees its export/answer rows. This removes only the Host's route to them.
 pub fn forgetSession(self: *Host, peer_handle: engine.PeerHandle) void {
     var rows = self.capability_promises.valueIterator();
     while (rows.next()) |row| {

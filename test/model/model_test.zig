@@ -76,7 +76,7 @@ test "value-tree types stay within their documented size budget" {
     // asserts beside the types in `src/ocapn/model/mod.zig`; un-boxing the
     // handoff arm fails the build there, not this test.
     // The borrowed twins get their gate here. `view.Argument` keeps its handoff
-    // arm inline — it borrows wire bytes and may not allocate a box — so it is
+    // arm inline, it borrows wire bytes and may not allocate a box, so it is
     // roughly eight times its owned twin, and the inbound set-uniqueness fold
     // parks one per set element (stack for small sets, `recv_scratch` above
     // that). That spend is deliberate, but it must not grow silently: a new
@@ -447,4 +447,32 @@ test "route bundle refuses malformed and over-budget route lists" {
         .designator = "127.0.0.1:9049",
         .hints = .{ .entries = &byte_alt_hints },
     }));
+}
+
+test "route view decoding is total for a span that skipped escape validation" {
+    // `inspectRouteUri` refuses these before a view exists; a caller that
+    // builds a view by hand must not reach an assertion instead of a verdict.
+    const truncated: model.route_bundle.RouteUriView = .{
+        .uri = "ocapn://x.tc%",
+        .transport_encoded = "tc%",
+        .designator_encoded = "x",
+        .query_encoded = null,
+    };
+    try model.route_bundle.validateDialPathView(truncated);
+
+    const bad_digits: model.route_bundle.RouteUriView = .{
+        .uri = "ocapn://x.t%zzc?a=1",
+        .transport_encoded = "t%zzc",
+        .designator_encoded = "x",
+        .query_encoded = "a=1",
+    };
+    try model.route_bundle.validateDialPathView(bad_digits);
+
+    const dotted: model.route_bundle.RouteUriView = .{
+        .uri = "ocapn://x.t%2Ec",
+        .transport_encoded = "t%2Ec",
+        .designator_encoded = "x",
+        .query_encoded = null,
+    };
+    try std.testing.expectError(error.UnparseableLocator, model.route_bundle.validateDialPathView(dotted));
 }

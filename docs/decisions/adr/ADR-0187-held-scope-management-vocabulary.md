@@ -3,7 +3,7 @@ id: ADR-0187
 status: accepted
 date: 2026-10-03
 tags: [loam, bindings, authority, hosting]
-decision: "Management decoders receive loaded held-control powers; the fixed-resource foreign vocabulary projects policy edits, managed derivation and control attenuation through shared Zig admission."
+decision: "Management decoders receive loaded held-control powers. The fixed-resource foreign vocabulary projects policy edits, managed derivation and control attenuation through shared Zig admission."
 supersedes: []
 superseded_by: []
 amends: [ADR-0185]
@@ -15,19 +15,19 @@ amended_by: [ADR-0207]
 ## Context
 
 The fixed-resource C/Rust/browser profile has content registration and derived
-use references. Rooms requires separately held child controls and mutable
-policy before replacing its session ledger. Policy-edit terms include scope,
-but the original application decoder receives only wire arguments. An
-embedding would have to reconstruct scope from caller-supplied identities or
-retain a parallel map. Held authority, one owner per fact, and shared admission
-require scope to come from the loaded control.
+use references. Rooms requires separately held child controls and mutable policy
+before replacing its session ledger. Policy-edit terms include scope, but the
+original application decoder receives only wire arguments. An embedding would
+have to reconstruct scope from caller-supplied identities or retain a parallel
+map. Scope must come from the loaded control, so authority stays held and
+admission stays shared.
 
 ## Decision
 
 `access.hosting.Service` supplies loaded control powers to policy-edit and
 attenuation decoders during retained preparation. Decoded terms borrow that
 operation's scope through settlement. The shared operation admits edits,
-attenuation and lifecycle changes; decoding does not decide availability.
+attenuation and lifecycle changes. Decoding does not decide availability.
 Repeated terminal grant revocation retains the model's idempotent result.
 
 `src/c_abi/loam/vocabulary.zig` supplies one fixed-resource vocabulary for C,
@@ -37,7 +37,7 @@ explicit child management powers. `attenuate-control` returns a dependent
 control with narrowed powers. Policy identities, unsigned masks and ordered
 bounds keep their existing derivation encoding. Requests carry no resource
 identities. Shared Zig policy, ancestry, ceiling and depth rules remain the
-authority; Rust constructs arguments for existing Ref and Session calls.
+authority. Rust constructs arguments for existing Ref and Session calls.
 
 ## Scope
 
@@ -45,8 +45,8 @@ This profile covers policy editing and independent pause/resume/revoke powers
 for fixed resources. It does not implement application labels, control-owned
 issuance, branch inventory, general graph edits, saved-reference authoring or
 owner lifecycle. Rooms still uses its session-specific ledger. Child controls
-are recovered by exact managed-derivation receipt replay through a held source;
-they are not given independent durable publications by this change.
+are recovered by exact managed-derivation receipt replay through a held source.
+They are not given independent durable publications by this change.
 
 ## Alternatives considered
 

@@ -1,14 +1,16 @@
 // The page-origin door to the live timeline: `/trace` and `/publish` on the
 // web server carry a WebSocket to the endpoint itself, so a browser reaches
-// the timeline without knowing the endpoint's own port — which may be
+// the timeline without knowing the endpoint's own port, which may be
 // container-side and unpublished to the browser's host. The endpoint still
 // judges every socket: its admission mark and its typed refusal must both
 // arrive through the carried leg unchanged.
 
 import { TRACE_REFUSED_CLOSE_CODE, traceCapUrl } from "../../lib/trace_publish.ts";
-import { assert, freePort, roomsTest, ROOT, waitForHttp, within } from "../support/rooms_server.ts";
+import { assert, freePort, roomsTest, ROOT, until, waitForHttp, within } from "../support/rooms_server.ts";
 import { spawnOwned, stopOwned } from "../support/children.ts";
 import { WEB } from "../support/paths.ts";
+import { connectTraceViewer } from "../../lib/trace_view.ts";
+import { formatRoomsSturdyref, roomsLocator } from "../../lib/locator.ts";
 
 async function readSwiss(stateDir: string): Promise<string> {
 	for (let i = 0; i < 200; i++) {
@@ -52,6 +54,7 @@ roomsTest("the page origin carries trace sockets, admission and refusal alike", 
 			GLOWCAP_ROOMS_STATE: stateDir,
 			GLOWCAP_ROOMS_TRACE: "1",
 			GLOWCAP_ROOMS_TRACE_PORT: String(tracePort),
+			GLOWCAP_ROOMS_TRACE_CONNECT: `ws://127.0.0.1:${httpPort}/trace/captp`,
 		},
 		stdout: "null",
 		stderr: "null",
@@ -92,6 +95,43 @@ roomsTest("the page origin carries trace sockets, admission and refusal alike", 
 			viewer.kind === "close" && viewer.code === TRACE_REFUSED_CLOSE_CODE,
 			`expected the viewer leg's refusal through the origin: ${JSON.stringify(viewer)}`,
 		);
+		const response = await fetch(`http://127.0.0.1:${httpPort}/trace/locator`);
+		assert(response.ok, "the current trace locator is discoverable without its capability");
+		const locator = roomsLocator((await response.text()).trim());
+		const link = formatRoomsSturdyref(locator, swiss);
+		const deniedLink = formatRoomsSturdyref(locator, "cd".repeat(32));
+		let denied = false;
+		let leaked = 0;
+		try {
+			const invalid = await within(
+				connectTraceViewer(deniedLink, () => {
+					leaked++;
+				}),
+				"the carried capability refusal",
+				15_000,
+			);
+			await invalid.close();
+		} catch (error) {
+			if (String(error).includes("timed out")) throw error;
+			denied = true;
+		}
+		assert(denied, "opening the carried byte channel granted trace authority");
+		assert(leaked === 0, "a refused viewer received trace records");
+		const records: Record<string, unknown>[] = [];
+		const subscription = await within(
+			connectTraceViewer(link, (record) => records.push(record)),
+			"the advertised trace channel",
+			15_000,
+		);
+		try {
+			await until(
+				() => records.some((record) => record.kind === "trace.replay-end"),
+				"the carried replay",
+				5_000,
+			);
+		} finally {
+			await subscription.close();
+		}
 	} finally {
 		await stopOwned(web);
 		await Deno.remove(stateDir, { recursive: true });

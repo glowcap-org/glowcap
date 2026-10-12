@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-picker-labels-probe.ts — every Build-mode picker that
+ * playwright-picker-labels-probe.ts: every Build-mode picker that
  * offers an entity, photographed with its options showing.
  *
  * The rule under test is in `src/ui/inspector/picker-labels.ts`: a

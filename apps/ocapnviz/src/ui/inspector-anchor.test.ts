@@ -1,8 +1,8 @@
 /**
  * What the Inspector shows, as against what is logically selected.
  *
- * The two come apart on purpose. A selection survives a mode switch so that
- * leaving Play for Live and coming back puts the reader where they were — which
+ * The two come apart. A selection survives a mode switch so that
+ * leaving Play for Live and coming back puts the reader where they were, which
  * means that while Live is up, the selection names entities the live stream has
  * never mentioned.
  *
@@ -20,8 +20,8 @@
  * "DETAILS" title, and switching back shows the peer again.
  *
  * Validated by injection, one per claim: returning the anchor unresolved fails "an
- * entity this buffer never heard of is not being shown"; returning the selection
- * unfiltered fails "a selection is narrowed to what the buffer holds"; and dropping
+ * entity this buffer never heard of is not being shown". Returning the selection
+ * unfiltered fails "a selection is narrowed to what the buffer holds", and dropping
  * the all-held shortcut fails "a selection the buffer holds whole comes back by
  * identity", which is the one that would otherwise rot silently, since a copy is
  * correct in everything but cost.
@@ -68,7 +68,7 @@ function docEngine(): Engine {
 	}));
 }
 
-/** An engine with no entities at all — what Live is before anything arrives. */
+/** An engine with no entities at all, what Live is before anything arrives. */
 function emptyEngine(): Engine {
 	return new Engine(TimelineDocument.parse({
 		id: "empty",
@@ -92,8 +92,8 @@ Deno.test("what the buffer holds is shown as picked", () => {
 });
 
 Deno.test("an entity this buffer never heard of is not being shown", () => {
-	// The Live case. The anchor is real — it names a peer the reader picked in Play
-	// — and this engine has no record of it, so nothing is being shown and the pane
+	// The Live case. The anchor is real, it names a peer the reader picked in Play,
+	// and this engine has no record of it, so nothing is being shown and the pane
 	// reads exactly as it does with nothing picked, title included.
 	const live = emptyEngine();
 	const shown = inspectorView(
@@ -106,8 +106,8 @@ Deno.test("an entity this buffer never heard of is not being shown", () => {
 });
 
 Deno.test("a session the buffer dropped takes its end with it", () => {
-	// A session end has no identity of its own — it is one end of one session and
-	// dies with it — so an end of a session this buffer does not hold is not shown
+	// A session end has no identity of its own. It is one end of one session and
+	// dies with it, so an end of a session this buffer does not hold is not shown
 	// either.
 	const live = emptyEngine();
 	assertEquals(
@@ -123,7 +123,7 @@ Deno.test("a session the buffer dropped takes its end with it", () => {
 
 Deno.test("a selection is narrowed to what the buffer holds", () => {
 	// The group panel counts what it is given, so a selection of two peers where
-	// the buffer holds one has to arrive as one — otherwise the heading counts
+	// the buffer holds one has to arrive as one, otherwise the heading counts
 	// entities that are not on the stage.
 	const e = docEngine();
 	const both: ReadonlySet<EntityRefKey> = new Set([

@@ -2,7 +2,7 @@
 //!
 //! This module renders the codec-neutral `model.Message` tree into glowcap's
 //! self-consistent Cap'n Proto dialect. It owns builder allocation and canonical
-//! set ordering; it does not decode or materialize owned values.
+//! set ordering. It does not decode or materialize owned values.
 
 const std = @import("std");
 
@@ -279,9 +279,9 @@ fn encodePeerLocator(b: *wire.Builder, allocator: std.mem.Allocator, locator: mo
 
 /// Composite list of hint entries: each element is a 2-data / 2-pointer struct
 /// holding a discriminant plus inline payload in the data words (data word 0
-/// bit 16 doubles as the boolean value; data word 1 carries an integer value),
+/// bit 16 doubles as the boolean value. Data word 1 carries an integer value),
 /// the entry's String name at pointer 0, and a String/Bytes payload at pointer
-/// 1 for the `string`/`bytes` value kinds. Model order is preserved; the peer
+/// 1 for the `string`/`bytes` value kinds. Model order is preserved. The peer
 /// locator validation above owns the dictionary invariants.
 fn encodeHintEntries(b: *wire.Builder, allocator: std.mem.Allocator, entries: []const model.HintEntry) EncodeError!ListContent {
     const data_words: u16 = 2;
@@ -369,9 +369,9 @@ fn encodeArgumentInto(b: *wire.Builder, allocator: std.mem.Allocator, arg: model
             b.set(loc.data_idx, @backingInt(ArgKind.boolean) | (if (boolean) shared.data0_flag else 0));
         },
         .big_integer => |big| {
-            // Symmetric refusal (ADR-0003): a non-canonical big integer —
+            // Symmetric refusal (ADR-0003): a non-canonical big integer,
             // leading zeros, non-digits, or a magnitude that belongs to the
-            // `integer` arm — never reaches the wire.
+            // `integer` arm, never reaches the wire.
             if (!big.isCanonical()) return Error.UnsupportedArgument;
             b.set(loc.data_idx, @backingInt(ArgKind.big_integer) | (if (big.negative) shared.data0_flag else 0));
             try setData(b, allocator, loc, 0, big.digits);
@@ -480,7 +480,7 @@ fn deinitEncodedSetElements(allocator: std.mem.Allocator, encoded: []EncodedSetE
 }
 
 /// Composite list of `Argument` in canonical set order. Each element is encoded
-/// once into a scratch builder; the standalone message bytes are the sort key,
+/// once into a scratch builder. The standalone message bytes are the sort key,
 /// then the encoded subgraph is grafted into the list slot without a second
 /// model walk (the Syrup codec's encode-once / append-sorted shape).
 fn encodeArgumentSetList(b: *wire.Builder, allocator: std.mem.Allocator, args: []const model.Argument) EncodeError!ListContent {
@@ -492,7 +492,7 @@ fn encodeArgumentSetList(b: *wire.Builder, allocator: std.mem.Allocator, args: [
     const encoded = try allocator.alloc(EncodedSetElement, args.len);
     defer allocator.free(encoded);
     var built: usize = 0;
-    // One cleanup for success and error — never pair errdefer + defer on the
+    // One cleanup for success and error, never pair errdefer + defer on the
     // same `built` slice (UnsupportedArgument would double-free).
     defer deinitEncodedSetElements(allocator, encoded[0..built]);
 
@@ -567,7 +567,7 @@ fn relocatePointerOffset(word: u64, delta: i32) u64 {
     // scalar Argument arm (`.integer`, `.boolean`, `.void`, `.float64`) copies
     // its single pointer word, which the scalar left null; without this guard the
     // struct-kind branch would turn that 0 into `encodeStructPointer(delta, 0, 0)`
-    // — a spurious non-null pointer where canonical wire form requires 0.
+    // (a spurious non-null pointer where canonical wire form requires 0).
     if (word == 0) return 0;
     return switch (wire.pointerKind(word)) {
         .@"struct" => blk: {

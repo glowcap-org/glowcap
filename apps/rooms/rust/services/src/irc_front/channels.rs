@@ -54,10 +54,10 @@ impl Channel {
 			)
 			.await
 		{
-			return Err(
-				crate::cleanup::combine(Err(error), held.room.leave().await.map_err(|e| e.to_string()))
-					.expect_err("join output failed"),
-			);
+			return Err(crate::cleanup::failed(
+				error,
+				held.room.leave().await.map_err(|e| e.to_string()),
+			));
 		}
 		let channel = channel.to_owned();
 		held.pump = Some(tokio::task::spawn_local(async move {
@@ -168,11 +168,23 @@ async fn pump(
 					.await?;
 			}
 			Some(Presence::Leave { name }) => {
-				view.borrow_mut().roster.remove(&name.to_lowercase());
+				if view.borrow_mut().roster.remove(&name.to_lowercase()).is_none() {
+					continue;
+				}
 				let nick = output.project(&name)?;
 				output
 					.send("PART", &[channel], Some(&front::member_prefix(&nick, &output.server)))
 					.await?;
+			}
+			Some(Presence::Offline { names }) => {
+				for name in names {
+					if view.borrow_mut().roster.remove(&name.to_lowercase()).is_some() {
+						let nick = output.project(&name)?;
+						output
+							.send("PART", &[channel], Some(&front::member_prefix(&nick, &output.server)))
+							.await?;
+					}
+				}
 			}
 			_ => {}
 		}

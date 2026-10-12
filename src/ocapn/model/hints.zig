@@ -35,8 +35,8 @@ pub fn validateName(name: []const u8) error{EmptyHintName}!void {
 }
 
 /// One authority for the duplicate-name rule: hint names within one hint set
-/// are unique. Answers the first repeated name, or null when all are distinct;
-/// the caller maps a hit onto its own refusal error.
+/// are unique. Answers the first repeated name, or null when all are distinct.
+/// The caller maps a hit onto its own refusal error.
 pub fn firstDuplicateName(entries: []const HintEntry) ?[]const u8 {
     for (entries, 0..) |entry, i| {
         for (entries[0..i]) |seen| {
@@ -49,7 +49,7 @@ pub fn firstDuplicateName(entries: []const HintEntry) ?[]const u8 {
 pub const Hints = struct {
     entries: []const HintEntry = &.{},
     /// Which wire spelling an empty hint set uses. Goblins writes an absent
-    /// hint map as the boolean `#f` while an empty map is `{}`; the two are
+    /// hint map as the boolean `#f` while an empty map is `{}`. The two are
     /// semantically the same empty hints, but a signature computed over one
     /// spelling does not verify over the other, so the decoded form is
     /// remembered and reproduced on encode.
@@ -68,12 +68,12 @@ pub const Hints = struct {
     /// A single `hint_direct_addresses` entry, or the `#f` empty spelling
     /// (`emptyFalse`) when there are none. Both the dial-locator builders
     /// (`driver.HostRuntime`'s redeem dial, the C URI helpers) and the keyed
-    /// hello builders start here; a hello then passes through
+    /// hello builders start here. A hello then passes through
     /// `engine.Peer.advertisedLocator`, which adds this peer's preference. The
     /// empty case stays `#f`, not `{}`: a partner
     /// verifies the location signature over the exact spelling, and the two do
     /// not verify against each other.
-    /// The caller owns `entry_buf`; the returned `Hints` borrows it, so the
+    /// The caller owns `entry_buf`. The returned `Hints` borrows it, so the
     /// connection-open path allocates nothing.
     pub fn forDirectAddresses(direct_addresses: []const u8, entry_buf: *[1]HintEntry) Hints {
         if (direct_addresses.len == 0) return emptyFalse();
@@ -83,7 +83,7 @@ pub const Hints = struct {
 
     /// Empty-hint spelling for URI / redeem projection when a locator carried
     /// neither entries nor an explicit wire form. Bare `.{}` defaults to map
-    /// form; dialable handoff URIs want Goblins' `#f` empty spelling so a
+    /// form. Dialable handoff URIs want Goblins' `#f` empty spelling so a
     /// partner verifies the same bytes the gifter signed.
     pub fn forUriExport(self: Hints) Hints {
         if (self.entries.len != 0 or self.wire_form == .boolean_false) return self;

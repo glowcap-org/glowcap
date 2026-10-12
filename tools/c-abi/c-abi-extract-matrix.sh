@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Hermetic C-ABI extract hygiene matrix (ADR-0077).
 # Executes each available resolve port's production listing validator against
-# the fixture set this file builds — the fixtures are named where they are
+# the fixture set this file builds, the fixtures are named where they are
 # created, so this header does not go stale each time one is added. Network
 # soft-fail paths are out of scope.
 set -eu
@@ -56,7 +56,7 @@ fi
 
 # A regular file whose own name contains " -> ", the separator tar prints
 # before a link's target. A parser that cuts the line there checks `lib/x` and
-# never sees the traversal in the name tar would actually extract.
+# never sees the traversal in the name tar would extract.
 UNSAFE="$FIX/link.tar.gz $FIX/adversarial.tar.gz"
 if [ "$HAVE_SLIP" = 1 ]; then
 	(cd "$FIX/slip_src" && tar -czf "$FIX/arrow.tar.gz" \
@@ -100,7 +100,7 @@ UNSAFE="$UNSAFE $FIX/arrowtarget.tar.gz"
 # The same shape as a hard link, which tar prints with the other separator:
 # `lib link to real`, not `lib -> real`. A strip that knows only the symlink
 # spelling leaves this one matching no prefix, so it is skipped before the kind
-# test — the identical evasion, through the other half of the same condition.
+# test: the identical evasion, through the other half of the same condition.
 mkdir -p "$FIX/roothard"
 echo 'ok' >"$FIX/roothard/real"
 ln "$FIX/roothard/real" "$FIX/roothard/$PREFIX"
@@ -121,9 +121,9 @@ else
 	skipped="$skipped fifo"
 fi
 
-# Counted, not asserted. The summary at the end used to name a fixed number of
-# validators and extracts, which on a runner missing racket or rustc printed a
-# count and then listed two of them as skipped, in one line.
+# Counted, not asserted. A fixed number of validators and extracts in the
+# summary would, on a runner missing racket or rustc, print a count and then
+# list two of them as skipped, in one line.
 validators=0
 extracts=0
 injected_env=0
@@ -227,7 +227,7 @@ must_refuse(pathlib.Path(roothard), "roothard")
 if have_fifo == "1":
     must_refuse(pathlib.Path(fifo), "fifo")
 if have_slip == "1":
-    # Confirm fixture actually has .. before requiring refuse.
+    # Confirm fixture has .. before requiring refuse.
     names = tarfile.open(slip).getnames()
     if any(".." in n or n.startswith("/") for n in names):
         must_refuse(pathlib.Path(slip), "slip")
@@ -245,8 +245,8 @@ else
 	skipped="$skipped python3"
 fi
 
-# Deno, the production loader itself: run `safeExtractPrefix` — its own listing
-# call, its own environment, its own extract — under a injected TAR_OPTIONS that
+# Deno, the production loader itself: run `safeExtractPrefix`, its own listing
+# call, its own environment, its own extract, under a injected TAR_OPTIONS that
 # would hide the symlink from a tar inheriting it.
 if command -v deno >/dev/null 2>&1; then
 	mkdir -p "$WORKDIR/loader-clean"

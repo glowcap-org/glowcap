@@ -312,6 +312,60 @@ pub(super) async fn run() {
 				);
 				let canonical =
 					serde_json::to_string(&("local-draft", base, "setDraft", ["conversation", "first draft"])).unwrap();
+				assert_eq!(
+					finished(&host, &source, "local-draft", &source).await.as_str(),
+					Some("committed")
+				);
+				let reader = host
+					.send(
+						&source,
+						"effect-reader",
+						&["local-draft".into(), canonical.clone().into()],
+					)
+					.await
+					.expect("a collaborator can observe its own ordinary completion");
+				assert!(Ref::try_from(&reader).is_ok());
+				assert_eq!(
+					host.send(&source, "effect-adopted", &["local-draft".into()])
+						.await
+						.unwrap(),
+					false.into()
+				);
+				for endpoint in [&other, &observer] {
+					assert!(
+						host.send(
+							endpoint,
+							"effect-reader",
+							&["local-draft".into(), canonical.clone().into()]
+						)
+						.await
+						.is_err()
+					);
+					assert!(
+						host.send(
+							endpoint,
+							"effect-status",
+							&["local-draft".into(), endpoint.clone().into()]
+						)
+						.await
+						.is_err()
+					);
+					assert!(
+						host.send(endpoint, "effect-adopted", &["local-draft".into()])
+							.await
+							.is_err()
+					);
+				}
+				assert!(host.send(&source, "effect-inventory", &[]).await.is_err());
+				assert!(
+					host.send(
+						&source,
+						"resume-effect",
+						&["local-draft".into(), canonical.clone().into()]
+					)
+					.await
+					.is_err()
+				);
 				let result = host
 					.send(
 						&source,

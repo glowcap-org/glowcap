@@ -1,10 +1,9 @@
 //! Crossed-hellos tiebreak state (ADR-0030): the outbound-dial table an
 //! accepted session's inbound `op:start-session` is compared against, unlocked
 //! because one thread drives one host by contract. `openDialedLocator`
-//! registers the outbound before its hello moves; the host condemns the losing
+//! registers the outbound before its hello moves. The host condemns the losing
 //! session immediately rather than deferring a flag to a later pump. Public for
-//! its unit tests; embedders never touch it — the host runs the tiebreak
-//! itself.
+//! its unit tests. Embedders never touch it, since the host runs the tiebreak.
 //!
 //! The tiebreak is **two operations over two different values**, and keeping
 //! them apart is the whole design (ADR-0097):
@@ -16,7 +15,7 @@
 //!      host separately decides whether channel evidence authenticated a peer.
 //!   2. **Ordering** asks which of the two racing sessions survives. That is a
 //!      question about *session identity*, so it compares the OCapN session
-//!      identifiers derived from the two connections' `session_pubkey`s — ours
+//!      identifiers derived from the two connections' `session_pubkey`s, ours
 //!      on the outbound, the partner's on the inbound.
 //!
 //! These values do not coincide: each session has a fresh signing key, while
@@ -122,36 +121,33 @@ pub const CrossedHellos = struct {
     }
 };
 
-/// Run the crossed-hellos tiebreak for an inbound start-session on an
-/// accepted CapTP session (ADR-0030): with an outbound dial registered to the
-/// same partner, the not-lower side condemns its accepted session, and
-/// the strictly lower side condemns its own dialed one — immediately, no
+/// Run the crossed-hellos tiebreak for an inbound start-session on an accepted
+/// CapTP session (ADR-0030): with an outbound dial registered to the same
+/// partner, the not-lower side condemns its accepted session, and the strictly
+/// lower side condemns its own dialed one. Both act immediately with no
 /// deferred flag, because one thread drives the host.
 pub fn tiebreakInbound(self: *host_mod.Host, session: *host_mod.HostSession, ss: model.view.StartSession) !void {
     const partner_key = try crypto.PeerKey.fromSlice(ss.session_pubkey);
     const partner_pid = crypto.derivePublicIdentifier(partner_key);
     const designator = ss.acceptable_location.designator;
     // The designator here is a claim, not a proof. The handshake signature
-    // establishes that the partner holds `session_pubkey` and made this
-    // locator claim; it does not establish ownership of the durable key or
-    // address the claim names. On the transports
-    // whose designator *is* the identity, the two must agree, or any peer
-    // able to open a connection could name a designator we are dialing and
-    // have us abort our own verified outbound session to it — repeatedly,
-    // and against an exporter it never has to reach or hold a key for.
-    // `liveSessionForDial` already refuses to trust this same field as a
-    // dial match key for the same reason.
+    // establishes that the partner holds `session_pubkey` and made this locator
+    // claim; it does not establish ownership of the durable key or address the
+    // claim names. On the transports whose designator *is* the identity, the
+    // two must agree, or any peer able to open a connection could name a
+    // designator we are dialing and have us abort our own verified outbound
+    // session to it, repeatedly and against an exporter it never has to reach
+    // or hold a key for. `liveSessionForDial` already refuses to trust this
+    // same field as a dial match key for the same reason.
     //
-    // An address designator stays an unverifiable claim, and it still
-    // decides the tiebreak, because the OCapN suite's crossed-hellos test
-    // requires exactly that: an address transport has nothing else to match
-    // on at hello time. Refusing to act on it there is not ours to choose —
-    // dropping it makes that test hang waiting for the abort. So on an
-    // address transport a peer that can open a connection and name an
-    // address we are dialing can condemn our dial to it. That exposure is
-    // ADR-0030's model, not an oversight, and it is why a designator that
-    // *is* an identity is the one that gets checked; see
-    // `docs/boundaries.md`.
+    // An address designator stays an unverifiable claim, and it still decides
+    // the tiebreak, because the OCapN suite's crossed-hellos test requires it:
+    // an address transport has nothing else to match on at hello time. Refusing
+    // to act on it there is not ours to choose. Dropping it makes that test
+    // hang waiting for the abort. So on an address transport a peer that can
+    // open a connection and name an address we are dialing can condemn our dial
+    // to it. ADR-0030 models that exposure, and it is why a designator that
+    // *is* an identity is the one that gets checked; see `docs/boundaries.md`.
     if (try self.designatorScheme(ss.acceptable_location.transport) == .key) {
         const claimed = crypto.PeerKey.fromDesignator(designator) orelse return;
         if (!std.mem.eql(u8, &claimed.bytes, &partner_key.bytes)) return;

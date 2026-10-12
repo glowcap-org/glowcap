@@ -204,9 +204,9 @@ pub fn producer(turn: *actors.Turn) !*Producer {
     return input.producer;
 }
 
-/// Acquire callback observations separately from the queue's keeper retains.
-/// A behavior can release its observations and return an aliased argument;
-/// the queue still holds that authority through owning-reply preparation.
+/// Acquire callback observations separately from the queue's keeper retains. A
+/// behavior can release its observations and return an aliased argument. The
+/// queue still holds that authority through owning-reply preparation.
 pub fn arguments(turn: *actors.Turn) !struct { verb: []const u8, args: []const value_mod.Value } {
     const owner = try producer(turn);
     const input: *Input = @ptrCast(@alignCast(turn.opaque_message.?.ctx));

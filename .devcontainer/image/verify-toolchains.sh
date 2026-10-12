@@ -12,8 +12,6 @@ set -uo pipefail
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../lib/mod.sh
 source "${dir}/lib/mod.sh"
-# shellcheck source=../lib/playwright.sh
-source "${dir}/lib/playwright.sh"
 glowcap_devcontainer_init "${dir}"
 glowcap_require_devcontainer "image/verify-toolchains"
 
@@ -124,40 +122,33 @@ expect_pin_contains "deno" DENO_VERSION deno --version
 expect_pin_contains "node" NODE_VERSION node --version
 expect_pin_equals "npm" NPM_VERSION npm --version
 expect_pin_contains "bun" BUN_VERSION bun --version
-expect_pin_contains "claude" CLAUDE_CODE_VERSION claude --version
-expect_pin_contains "opencode" OPENCODE_VERSION opencode --version
-expect_pin_contains "codex" CODEX_VERSION codex --version
-# Both of the agent CLI's command names are checked, because the image links
-# them separately and a broken link is invisible until someone types the other
-# one. `agent` is upstream's current name; `cursor-agent` is the original.
-# Even `--version` writes a default settings file into the configured state
-# directory, and during the image build that directory is the vscode user's
-# bind-mount target while this runs as root, so both checks are pointed at a
-# scratch directory that goes away with them.
-cursor_state="$(mktemp -d -t glowcap-cursor-agent-verify-XXXXXX)"
-expect_pin_equals "cursor-agent" CURSOR_AGENT_VERSION \
-    env "CURSOR_CONFIG_DIR=${cursor_state}" "CURSOR_DATA_DIR=${cursor_state}" cursor-agent --version
-expect_pin_equals "cursor-agent (agent)" CURSOR_AGENT_VERSION \
-    env "CURSOR_CONFIG_DIR=${cursor_state}" "CURSOR_DATA_DIR=${cursor_state}" agent --version
-rm -rf "${cursor_state}"
 
-# The browser proofs launch both Chromium binaries Playwright installs, so both
-# are checked, and running each one proves more than a file test would: it needs
-# the apt libraries too, and (during post-create, which runs as vscode) it needs
-# the image's root-installed files to be readable. Playwright picks the browser
-# build number and architecture-specific archive layout, so the resolver owns
-# both supported Linux forms. The path pin is read through the same skew guard
-# as every version pin above.
-if require_pin "playwright" PLAYWRIGHT_BROWSERS_PATH; then
-    browsers_path="${PLAYWRIGHT_BROWSERS_PATH}"
-    if ! glowcap_playwright_binaries "${browsers_path}"; then
-        fail "playwright: expected exactly one Chromium and one headless shell under ${browsers_path}; image/playwright.sh puts them there during the image build, so rebuild the container"
-    else
-        for bin in "${playwright_bins[@]}"; do
-            expect_ok "playwright" "${bin}" --version
-        done
+# The managed tools (AI harnesses) are not image content, so their absence is
+# correct; what the image owes is the wiring. Every managed command name is
+# linked to the checkout's dispatcher, a link that dangles during the image
+# build and resolves when the workspace bind lands, like the glowcap shim.
+tools_wrapper="/workspaces/glowcap/.devcontainer/tools/wrapper.sh"
+for managed_name in $(bash -c "source '${GLOWCAP_DEVCONTAINER_DIR}/tools/lib/registry.sh' 2>/dev/null && glowcap_tools_path_names" 2>/dev/null || printf 'claude\ncodex\nopencode\nagent\ncursor-agent\n'); do
+    got="$(readlink "/usr/local/bin/${managed_name}" 2>/dev/null || true)"
+    if [[ "${got}" != "${tools_wrapper}" ]]; then
+        fail "${managed_name}: expected /usr/local/bin link to ${tools_wrapper}, got '${got:-<missing>}'"
+    fi
+done
+if [[ -e "${tools_wrapper}" ]]; then
+    if ! bash -n "${tools_wrapper}"; then
+        fail "tools/wrapper.sh does not parse"
+    fi
+    if ! bash -c "source '${GLOWCAP_DEVCONTAINER_DIR}/tools/lib/registry.sh' && glowcap_tools_path_names >/dev/null" 2>/dev/null; then
+        fail "the copied tools registry does not load"
     fi
 fi
+
+# Browsers are runtime content, not image content: the managed-tool
+# lifecycle downloads the pinned requirement into the shared cache and
+# launches both Chromium forms through the image-owned libraries, so a
+# browser check here would test an install the image does not hold. What the
+# image owes is the library set, and the driver's launch verification proves
+# it whenever a browser install happens.
 
 expect_pin_contains "rustc" RUST_VERSION rustc --version
 expect_pin_contains "cargo" RUST_VERSION cargo --version

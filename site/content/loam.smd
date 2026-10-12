@@ -22,8 +22,8 @@ restart the same objects come back and the same references reach them. Objects
 nobody is calling stay on disk, so the board can be far bigger than memory.
 
 Loam is a library inside your program, not a database server. Its full API is
-in Zig, under `glowcap.loam`; C and Rust get a narrower profile, and Rust's
-also runs in the browser on IndexedDB ([limits]($link.ref('limits'))).
+in Zig, under `glowcap.loam`, and C and Rust get a narrower profile
+([limits]($link.ref('limits'))).
 [Concepts]($link.page('concepts')) covers references and sturdyrefs if they
 are new to you.
 
@@ -33,7 +33,7 @@ Each object is a **record**: its data, plus **edges** pointing at other
 records. "The to-do column holds card #12" is an edge. An edge names a record,
 not a memory address, which is why it survives a restart.
 
-A **strong** edge keeps its target alive; a **weak** one doesn't. A **root**
+A **strong** edge keeps its target alive. A **weak** one doesn't. A **root**
 is kept no matter what. So the rule for what to keep is simple: anything you
 can reach from a root along strong edges.
 
@@ -61,15 +61,14 @@ is kept but the caller never hears back. If the caller retries, the change
 happens twice. Write methods that are safe to repeat, or use managed access,
 which keeps receipts for its changes.
 
-Notice the worker. Loam decides what to read and write but never touches the
-disk itself, the same way glowcap's protocol core never opens a socket. Your
+Loam decides what to read and write but never touches the disk itself, the same way glowcap's protocol core never opens a socket. Your
 worker does the I/O, on threads you choose, against LMDB on disk or an
 in-memory store for tests.
 
 [Six layers from top to bottom. Peers call your Host and Vat over CapTP. The Loam attachment wakes actors and saves their state before replying. The Store keeps records, transactions and a bounded cache, and decides every read and write. Your storage worker runs that work on your threads against LMDB, IndexedDB or memory.]($image.siteAsset('diagram-loam-layers.svg'))
 
 Calls travel down from peers to the disk, and replies travel back up. The two
-Loam layers decide what happens; the two below them are yours and do the
+Loam layers decide what happens. The two below them are yours and do the
 work. The **attachment** is the piece that joins a store to
 the Host you already run.
 
@@ -125,7 +124,7 @@ nothing for it.
 - [Performance]($link.page('performance').ref('persistent-actors-in-loam'))
   charts call latency, memory and restart time from one machine.
 - Recovery is tested by killing the process mid-write, not by cutting power.
-  The [evidence table](https://github.com/jimisaacs/glowcap/blob/main/docs/stability.md)
+  The [table of checks](https://github.com/jimisaacs/glowcap/blob/main/docs/stability.md)
   lists every Loam check.
 - Loam's full API is in Zig. C and Rust get a narrower profile through
   `libglowcap_loam` and Rust's `loam` feature: create a resource, share it
@@ -144,8 +143,7 @@ Chapter 07,
 runs this page's restart as one short program: it moves a card, shuts
 everything down, and reopens the store to find the move still there.
 
-The guides below go from the model to every contract. Read them in order to
-understand Loam top to bottom, or jump to the one you need.
+The guides below go from the model to every contract.
 
 1. [Loam guide](https://github.com/jimisaacs/glowcap/blob/main/docs/loam.md):
    the model, a walkthrough of chapter 07, the words used throughout, and how

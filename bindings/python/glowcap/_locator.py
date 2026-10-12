@@ -4,10 +4,10 @@ The ``ocapn://<designator>.<transport>[?hints]`` grammar is core OCapN
 vocabulary, defined once in ``libglowcap_ocapn``'s ``glowcap_uri_*`` /
 ``glowcap_locator_*`` surface, so no binding hand-rolls a percent codec.
 :func:`parse_locator` copies every borrowed view into Python strings before
-releasing the handle; :func:`format_peer_uri` renders through the same grammar.
+releasing the handle. :func:`format_peer_uri` renders through the same grammar.
 :func:`encode_peer_locator` builds the verbatim exporter location record a
 gifter embeds in a give. Re-exported from the
-:mod:`glowcap` package; import from there.
+:mod:`glowcap` package. Import from there.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ HintValue = Union[str, bytes, bool, int]
 class Locator(NamedTuple):
     """A parsed OCapN peer locator.
 
-    Transport modules own locator construction and realization; apps that need
+    Transport modules own locator construction and realization. Apps that need
     a bare designator split use :func:`designator_host_port`.
     """
 

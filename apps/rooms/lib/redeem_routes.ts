@@ -27,7 +27,7 @@ export async function claimRedeemWithin<T>(
 
 /** Serialize route-sensitive handoff redemption without turning one stalled
  * directory into unbounded retained work. Redeems through one route may run
- * together; a different route waits FIFO until the active batch ends, because
+ * together. A different route waits FIFO until the active batch ends, because
  * the browser signaling authority can name exactly one directory at a time. */
 export class RedeemRouteCoordinator<Route extends object> {
 	readonly #active = new Map<Route, number>();

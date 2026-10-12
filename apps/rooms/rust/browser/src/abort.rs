@@ -1,5 +1,5 @@
 //! An owned browser AbortSignal subscription. Dropping the observer removes its
-//! event handler; cancellation is consumed by the Rust effect that owns the work.
+//! event handler. Cancellation is consumed by the Rust effect that owns the work.
 use tokio::sync::watch;
 use wasm_bindgen::{JsCast, closure::Closure};
 

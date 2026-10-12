@@ -1,5 +1,5 @@
 #lang racket/base
-;; Goblins half of the S5 snapshot benchmark — the counterpart to glowcap's
+;; Goblins half of the S5 snapshot benchmark, the counterpart to glowcap's
 ;; `bench/snapshot_bench.zig`. It measures Goblins' local time-travel natively
 ;; (Racket), to sit beside glowcap's native (Zig) numbers. Because that is
 ;; native-Racket vs native-Zig, compare the *shape* of each cost and the
@@ -8,13 +8,13 @@
 ;;
 ;; Three axes, mirroring the Zig half:
 ;;   - snapshot: `snapshot-whactormap` copies the actormap spine (one pointer per
-;;     object) and shares each object's behavior by reference — O(objects), flat in
+;;     object) and shares each object's behavior by reference, O(objects), flat in
 ;;     the bytes an object holds.
 ;;   - restore: `hasheq->whactormap` rebuilds a live actormap from a snapshot after
 ;;     every actor has diverged. The diverged behaviors are reclaimed by Goblins'
 ;;     GC, not freed in the timed window (glowcap frees them eagerly instead).
 ;;   - divergence: with a snapshot outstanding, `become` (`bcom`) an actor holding
-;;     an N-entry immutable hash to a path-copied version — O(log N), the shape
+;;     an N-entry immutable hash to a path-copied version, O(log N), the shape
 ;;     glowcap's persistent actors mirror.
 ;;
 ;; Measured natively rather than through the shared wire suite because

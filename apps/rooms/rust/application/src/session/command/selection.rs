@@ -1,6 +1,6 @@
 //! Automatic gestures fence their selected rows, not unrelated supervisor work.
-//! Workspace-wide commands retain a whole-intent fence. These are scalar views;
-//! actual admission and retained authority remain in the managed owner.
+//! Configuration replacements retain a whole-intent fence. These are scalar views.
+//! Actual admission and retained authority remain in the managed owner.
 use crate::session::{
 	checkpoint::commands::Command,
 	command::{Effect, Route},
@@ -44,7 +44,7 @@ fn same_conversation_except(before: &Value, after: &Value, id: Option<&String>, 
 		.all(|key| before.get(key) == after.get(key))
 }
 /// Selecting a conversation exercises no authority. The exact row must still be
-/// the conversation the person chose; membership churn underneath it is not a
+/// the conversation the person chose. Membership churn underneath it is not a
 /// reason to refuse.
 fn same_conversation_identity(before: &Value, after: &Value, id: Option<&String>) -> bool {
 	let Some(id) = id else { return false };
@@ -114,6 +114,21 @@ pub fn unchanged(name: &str, args: &[String], before: &Value, after: &Value) -> 
 		}
 		Route::Checkpoint(Select) => same_conversation_identity(before, after, args.first()),
 		Route::Checkpoint(SetDraft) => same_conversation_except(before, after, args.first(), &SUPERVISED),
+		// These gestures write a workspace setting, without selecting a room or
+		// directory capability. Supervision cannot change that choice. Retention
+		// also fences the erasure that must finish before another choice is made.
+		Route::Checkpoint(ChooseHistoryRetention) => {
+			before["keepHistory"].is_boolean()
+				&& before["keepHistory"] == after["keepHistory"]
+				&& before["historyErasure"] == after["historyErasure"]
+		}
+		Route::Checkpoint(SetStanding) => before["standing"].is_string() && before["standing"] == after["standing"],
+		Route::Checkpoint(ChooseConnection) => {
+			before["connection"].is_string() && before["connection"] == after["connection"]
+		}
+		Route::Checkpoint(SetIgnoredNames | SetIgnoredName) => {
+			before["ignored"].is_array() && before["ignored"] == after["ignored"]
+		}
 		Route::Checkpoint(
 			CloseDirect | LeaveConversation | SetRoomStanding | DropRoomModerator | DropRoomManager
 			| SubmitRoomBridgeForm,
@@ -212,6 +227,31 @@ mod tests {
 	}
 	fn args() -> vec::Vec<String> {
 		vec!["ada".into()]
+	}
+
+	#[test]
+	fn workspace_settings_fence_their_choice_without_fencing_room_startup() {
+		let before = json!({
+			"keepHistory": false, "standing": "", "connection": "relay", "ignored": [],
+			"conversations": [{"id":"room", "inbox":null}]
+		});
+		let mut after = before.clone();
+		after["conversations"][0]["inbox"] = json!("callback");
+		for (name, field, changed) in [
+			("chooseHistoryRetention", "keepHistory", json!(true)),
+			("setStanding", "standing", json!("away")),
+			("chooseConnection", "connection", json!("webrtc")),
+			("setIgnoredNames", "ignored", json!(["ada"])),
+			("setIgnoredName", "ignored", json!(["ada"])),
+		] {
+			assert!(unchanged(name, &args(), &before, &after), "{name}");
+			let mut competing = after.clone();
+			competing[field] = changed;
+			assert!(!unchanged(name, &args(), &before, &competing), "{name}");
+		}
+		after["historyErasure"] = json!("original-erasure");
+		assert!(!unchanged("chooseHistoryRetention", &args(), &before, &after));
+		assert!(!unchanged("replaceOperationsBundle", &args(), &before, &after));
 	}
 
 	#[test]

@@ -96,7 +96,7 @@ pointer-down handler reads them, the gutter seam, then the gutter controls, then
 the scrub zone, then the lanes, and `overviewHitAt` does the same for the strip.
 Each returns the hit the pointer is over, or null where a press would do
 nothing. In Live mode the scrub zone returns null rather than a ruler hit,
-because the feed only goes forward and the press is refused; the cursor falls to
+because the feed only goes forward and the press is refused. The cursor falls to
 the no-hover step and reads `default`, because nothing will happen on click.
 
 Both hosts pass the App's own `SurfaceGestureCtx`, the same value the Stage

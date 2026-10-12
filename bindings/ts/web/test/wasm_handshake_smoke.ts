@@ -5,7 +5,7 @@
 //
 // Two independent Hosts with distinct Ed25519 identities live in one wasm
 // instance. One dials, one accepts, and their op:start-session frames shuttle
-// between them over an in-memory byte pipe — no socket, no transport, no bridge.
+// between them over an in-memory byte pipe with no socket, no transport, no bridge.
 // The proof is that both sessions reach `session_open`, then a wrong-peer
 // sturdyref is refused before any frame is emitted. The signed handshake,
 // keyed crypto, Syrup framing, entropy seam, URI parsing, and peer check all
@@ -146,7 +146,7 @@ const readU32 = (off: number) => dv().getUint32(off, true);
 // pointers and `usize`), so the module reports its own layout rather than the
 // 64-bit host mirror in `abi.ts`. `glowcap_wasm_abi_layout` writes a blob of
 // little-endian u32 words: for each struct in canonical order, the words are
-// `name_hash, size, nfields, off_0 … off_{nfields-1}` — an FNV-1a identity
+// `name_hash, size, nfields, off_0 … off_{nfields-1}`: an FNV-1a identity
 // over the struct's manifest prefix, then the offsets in field-declaration
 // order. A cap=0 probe returns the total word count; allocate `count * 4`
 // bytes and call again to fill. `GlowcapManagedFrame` is struct index 0
@@ -201,7 +201,7 @@ function lastHostError(): string {
 function hostNew(seed: Uint8Array): number {
 	// Durable identity followed by a session-key root, so every session this
 	// host opens signs with its own key (ADR-0097). The wasm module draws no
-	// entropy; the page supplies it, exactly as the native bindings do.
+	// entropy; the page supplies it, as the native bindings do.
 	const seedWithRoot = new Uint8Array(64);
 	seedWithRoot.set(seed.subarray(0, 32), 0);
 	crypto.getRandomValues(seedWithRoot.subarray(32));

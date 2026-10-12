@@ -3,7 +3,7 @@ id: ADR-0097
 status: accepted
 date: 2026-07-31
 tags: [captp, handshake, identity, keyed-tcp, transport]
-decision: "Every CapTP session uses a fresh signing key. The signed locator is that session signer's claim, while durable peer authentication is separate connection provenance. ADR-0109 retires the durable-key hint credential; without matching authenticated-channel proof, a durable locator claim remains unauthenticated."
+decision: "Every CapTP session uses a fresh signing key. The signed locator is that session signer's claim, while durable peer authentication is separate connection provenance. ADR-0109 retires the durable-key hint credential. Without matching authenticated-channel proof, a durable locator claim remains unauthenticated."
 supersedes: []
 superseded_by: []
 amends: [ADR-0068, ADR-0075, ADR-0093]
@@ -16,237 +16,90 @@ amended_by: [ADR-0105, ADR-0109, ADR-0113]
 
 Accepted for fresh per-session signing keys and for keeping session identity,
 durable locator identity, and provenance distinct. ADR-0109 retires the
-durable-key credential and its provenance arm.
+durable-key credential and its provenance arm. ADR-0105's surviving rule is
+that provenance belongs to the realized connection, not to a transport symbol.
 
 The current contract is:
 
 - The ordinary hello signature verifies control of `session_pubkey` and binds
   that session signer to the complete locator claim it signed.
-- The signed designator and locator record remain claims; that signature does
+- The signed designator and locator record remain claims. That signature does
   not prove durable locator ownership.
 - A matching key supplied by the code that realized the authenticated channel
   is the only positive durable provenance. Raw `keyed-tcp` and `keyed-relay`
   claims are unauthenticated.
 - A dial's expected key is a target requirement, not authentication evidence.
+- Every session on every tier signs with its own key, derived from a
+  per-process root. `driver.HostRuntime` draws that root at the I/O boundary,
+  because the sans-io core draws no entropy. A caller's keyed identity is the
+  durable identity and supplies the advertised designator. It never signs a
+  session.
+- `glowcap_host_new` takes a 64-byte seed. The first 32 bytes are the durable
+  identity and stay stable, because a keyed locator's designator derives from
+  it. The next 32 are the session-key root and must be fresh per process. A
+  32-byte seed is refused. Each binding draws the root at its own entropy
+  boundary (Rust `getrandom`, TypeScript and Wasm `crypto.getRandomValues`,
+  Python `secrets`, Racket `crypto-random-bytes`).
+- `PartnerIdentity` keeps session identity, durable identity, and provenance
+  as three fields at every tier (`GLOWCAP_DURABLE_PROVENANCE_*` in C).
+  `durableIdentityAuthenticated` is the check an API that needs a proved
+  durable peer asks, and `Host.matchSturdyrefPeer` asks it.
+- A `desc:handoff-receive` is signed by the key of the session the give
+  arrived on (the give's `recipient_key`, which the exporter verifies), while
+  its side and session names come from the recipient and exporter session
+  where the withdrawal happens. Goblins draws the same line.
+- A handoff certificate from an earlier connection resolves to nothing on a
+  reconnect, because it names a session that no longer exists. That resolver
+  is the only path from a withdrawal to a gift registry.
+- Replaying a whole captured keyed-TCP hello is outside this guarantee. The
+  hello signature covers a static locator claim, so fresh keys isolate honest
+  reconnects without making a cleartext channel replay-safe.
 
-The credential mechanism, vectors, migration steps, and two-signature-chain
-text retained below are historical records of the mechanism removed by
-ADR-0109. ADR-0105's surviving rule is that provenance belongs to the realized
-connection rather than to a transport symbol.
+Crossed sessions keep two axes apart. Ordering compares the two sessions' own
+identifiers. Matching uses a durable identity the channel authenticated:
+`refuseDuplicatePartnerKey` asks `Host.peer_by_durable` before the session-key
+index, because two sessions to one peer never share a signing key. Only a
+proved durable identity may collapse a session, so a partner that merely
+asserts a name cannot condemn a live one. A transport that proves no durable
+identity has no collapse here, and the declared-location match of ADR-0030 is
+its only one. The index is keyed by the durable key's bytes, so the pre-apply
+duplicate check can write a row from the borrowed hello view.
 
-### Historical credential migration
+Evidence: the provenance, reconnect, and crossed-session scenarios in
+[`test/driver/core_host/`](../../../test/driver/core_host/) (raw keyed-TCP keeps
+both crossed sessions, and an iroh-shaped pair with channel proof collapses to
+one survivor on both ends), and the two-session byte-fed scenario in
+[`test/c_abi/host/authority_test.zig`](../../../test/c_abi/host/authority_test.zig).
+The live `iroh-interop` check requires the designator to be the authenticated
+node id and the session key to differ from it.
 
-Migration step 1 shipped. The canonical codec bytes and signing vectors were
-committed (`test/oracle/corpus/cred_session_key_attestation_v1.bin` and
-`cred_locator_keyed_tcp_hint.bin`, generated by the upstream Racket Syrup
-encoder and held by `zig build fixture-gen-check`), with the positive
-signature and every named mutation negative verified by the attestation vector
-test that ADR-0109 removed with the mechanism.
-The live foreign-decode evidence is green: `zig build goblins-gift-hints`
-drives a real Goblins exporter whose hello advertises the credential hint
-dict, a glowcap gifter that embeds that signed location verbatim in its give,
-and a real Goblins recipient that decodes the mapping-shaped hints, dials the
-hinted node, and redeems — with the Goblins exporter verifying the gifter's
-signature over its own re-encoding of the hint dict. The upstream proposal
-remains before interoperability ships.
-
-Migration step 2 ships, with sessions still reusing keys. Designator grammar
-and authentication mechanism are separate contracts: every `.key`-scheme
-transport carries an `AuthenticationMechanism` row in the byte-fed table
-(`driver_core.vocab`) mirrored by its resident's vtable declaration, held in
-sync by `zig build source-check`. keyed-TCP and keyed-relay hellos whose own
-designator has key form mint the credential
-(`engine.keyedHelloHints`, shared by the byte-fed Host and the blocking
-driver), and every session on those transports installs
-`Peer.requirePartnerAttestation`, so a key-designator location claim without
-a verifying credential is refused at the pre-open chokepoint — before any
-later frame in the same chunk, held byte-fed by the one-chunk scenario in
-[`test/driver/core_host/`](../../../test/driver/core_host/).
-iroh's dial keeps its designator pin and its accept paths (blocking listener
-and completion backend) read the QUIC-authenticated remote endpoint id from
-the new sidecar export and install `Peer.bindVerifiedTransportKey`: a hello
-may claim that durable identity or an address, never someone else's key, and
-`session_pubkey` stays unconstrained so an ephemeral client's fresh-keyed
-hello is unaffected. WebRTC's `Peer.authorizeRemote` records the identity a
-channel's signaling was scoped to and `connection` installs the same binding
-on offer and answer legs (a sidecar-surfaced fingerprint attestation remains
-adapter work). The refusal matrix — missing credential, wrong durable signer,
-mutated transport/designator/session key, and the foreign-identity claim —
-was held by the attestation contract test that ADR-0109 removed,
-and the live `iroh-interop`, `iroh-loop`, `webrtc-interop`, keyed-tcp
-restart, and relay checks run green over the new contracts.
-
-Migration step 3 ships. `PartnerIdentity` carries a third field,
-`provenance`, so session identity, durable identity, and what authenticated
-that durable name are three separate facts at every tier: the native struct,
-one `GlowcapPartnerIdentity` in C (a `GLOWCAP_DURABLE_PROVENANCE_*` value),
-and the Wasm and Rust, TypeScript, Python, and Racket surfaces that mirror
-it. `durableIdentityAuthenticated` is the predicate an API requiring a proved
-durable peer asks, and `Host.matchSturdyrefPeer` now asks it;
-`designatorIsSessionKey` remains only as a documented diagnostic, and the C
-export that wrapped it is deleted, because key equality answers false for a
-fully authenticated keyed partner the moment session keys go fresh. The
-crossed-hello table names its two axes apart — matching by durable peer,
-ordering by the two connections' session identifiers — and dial dedup reads a
-new durable-peer directory (`Host.peer_by_durable`, indexed only for an
-authenticated identity) instead of deriving a side name from the durable key
-and asking the session-incarnation index, which is the lookup that would
-silently open a duplicate session per dial once the two identities diverge.
-Evidence: the provenance cases in
-[`test/driver/core_host/`](../../../test/driver/core_host/),
-the C-tier report in
-[`test/c_abi/host/authority_test.zig`](../../../test/c_abi/host/authority_test.zig), and the
-per-binding assertions in the keyed-tcp restart proofs.
-
-Migration steps 4 and 5 ship at the native tier, together because fresh keys
-invalidate the equality pin the moment they exist. A session's signing key is
-its own, derived from a required per-process root; `driver.HostRuntime` draws that
-root at the I/O boundary, fresh per process,
-because the sans-io core draws no entropy. The `session_pubkey == designator`
-pin is deleted, and `Peer.expectPartnerDurableKey` replaces it: a hello whose
-location designator has key form must name the identity the session
-expects, while `session_pubkey` is left unconstrained because a session key is
-not a durable identity. What makes that claim trustworthy is the transport or
-the hello's credential, and `DurableKeyBasis` keeps a dial's *expectation*
-from being reported as a transport's *proof*.
-
-Landing it separated two conflations that a single shared key had hidden, and
-both are load-bearing:
-
-- A handoff crosses sessions, so a `desc:handoff-receive` is signed by the key
-  of the session the give arrived on — the identity the give named as its
-  `recipient_key`, and what the exporter verifies against — while its side and
-  session names come from the recipient–exporter session where the withdrawal
-  happens. Goblins draws the same line: its receive is signed by the
-  coordinator that received the give, with names taken from the exporter
-  session's coordinator.
-- The `session-key-attestation` credential is signed by the durable key and
-  binds the session key. Those are its two distinct roles; minting it with one
-  key for both yields a credential binding a session key the hello does not
-  carry, which the verifier correctly refuses.
-
-The byte-fed tier draws its own keys too. `glowcap_host_new` requires a 64-byte
-seed: the first 32 stay the durable identity, which must remain stable because
-a keyed locator's designator derives from it, and the next 32 are the
-session-key root, which must be fresh per process. A durable-only 32-byte call
-is refused: silently reusing the identity seed would recreate the conflation
-this decision removes. Every binding supplies a root — Rust through
-`getrandom`, TypeScript and Wasm through `crypto.getRandomValues`, Python
-through `secrets`, Racket through `crypto-random-bytes` — each at its own
-entropy boundary, because the library has none. Held by the two-session
-byte-fed scenario in
-[`test/c_abi/host/authority_test.zig`](../../../test/c_abi/host/authority_test.zig), which proves
-two sessions on one host sign with different keys and neither is the durable
-identity.
-
-The reconnect evidence (item 10) holds. Reconnecting the same two hosts and
-resolving the first connection's handoff names against the replacement session
-returns nothing, while the replacement's own names resolve — so a stale
-certificate is refused because it names a session that no longer exists, not
-because anything is live or closed. The test asserts the two connections' names
-actually differ before asserting the refusal, so it cannot pass on coincidence.
-The sans-I/O `driver_core.Host.init` requires the session root as a separate
-argument, so durable-key reuse is no longer a representable constructor mode. That
-resolver is also the only path a withdrawal takes to a gift registry, which is
-the whole of "must not consume a new deposit with the same gift id": an
-unresolvable certificate reaches no registry at all. Held by
-[`test/driver/core_host/`](../../../test/driver/core_host/).
-
-Replaying a whole captured keyed-TCP hello stays outside this guarantee. The
-hello signature covers a static locator claim, so fresh keys isolate honest
-reconnects without making a cleartext channel replay-safe.
-
-### Current crossed-session behavior
-
-Item 9's two axes remain separate after ADR-0109. *Ordering* is per session:
-the identifiers compared are the two sessions' own ids, so a race
-between the same durable peers can be ordered at all. *Matching* is by a durable
-peer identity the channel authenticated: `refuseDuplicatePartnerKey` asks
-`Host.peer_by_durable` before it asks the session-key index, because two
-sessions to one peer no longer share a signing key and are invisible to that
-index.
-
-**Only a proved durable identity may collapse a session.** `peer_by_durable`
-indexes nothing else, so a partner that merely asserts a name cannot condemn a
-live session — the same refusal `liveSessionForDial` makes against the same
-squatting hazard. The consequence is deliberate and worth stating: a transport
-that proves no durable identity has no collapse here, and the crossed-hellos
-declared-location match remains its only one, with the weakness ADR-0030 already
-states. A key-shaped declared location does not become stronger merely because
-it can be parsed as a public key. A host that never declares its own identity
-likewise offers a partner nothing to collapse on, because its dials advertise
-the unreachable-client placeholder rather than a name.
-
-The index is keyed by the durable key's own bytes rather than its hex
-text form, so a row can be written from the borrowed hello view during the
-pre-apply duplicate check without retaining bytes the frame owns. Both halves
-are held by
-[`test/driver/core_host/`](../../../test/driver/core_host/): raw
-keyed-TCP keeps both crossed sessions because the locator claims authenticate
-nothing, while an iroh-shaped pair with channel proof on all four legs collapses
-to the same survivor on both ends. All four connections carry distinct session
-keys, so the authenticated case can converge only through the durable-peer
-directory.
-
-### Fresh session keys across every tier
-
-The last gap was
-the borrowing `BlockingSession` tier, which signed its hello with whatever
-identity the caller supplied. That is now resolved the way the model reads
-rather than by narrowing the claim: `Identity.keyed` names the caller's
-*durable* identity and supplies the advertised designator, while the session
-draws its own signing key like any other. No tier is an exception to
-per-session identity, which is why the live iroh, WebRTC, and
-keyed-relay checks — all on that tier — now exercise fresh keys rather than
-passing beside the question.
-
-`iroh-interop`'s identity assertion moved with it. It used to require the node
-id, the signed designator, and the session key to be one value, which is what
-key unification meant while a host signed every session with its durable key.
-It now requires the designator to be the authenticated node id and the session
-key to differ from it, so a regression back to one key fails the live check.
-
-## Historical design record
-
-The remainder preserves the context, decision, evidence plan, and consequences
-as adopted before ADR-0109. Present-tense references to
-`session-key-attestation`, durable-key credentials, or
-`.durable_key_attestation` describe that retired mechanism. The fresh-key and
-identity-separation parts remain current as stated in Status.
-
-### Context at adoption
+## Context
 
 OCapN defines `session_pubkey` as the public half of a per-session key pair.
-Goblins generates a fresh pair for every CapTP session. glowcap instead seeds
-every session in a Host from one durable Host key. The reuse made handoff and
-reconnect code convenient, but it collapsed two identities:
+Goblins generates a fresh pair for every CapTP session. glowcap originally
+seeded every session in a Host from one durable Host key. That collapsed two
+identities:
 
-- the durable peer identity named by a locator; and
+- the durable peer identity named by a locator
 - the ephemeral CapTP session identity named by `session_pubkey` and signed
-  handoff records.
+  handoff records
 
-Changing only the key generator would break keyed-TCP authentication. A
-`keyed-tcp` locator's designator is the listener's durable Ed25519 key, while
-the underlying TCP stream is cleartext and authenticates nothing. Its current
-dial-side proof is exactly `session_pubkey == locator designator`. A fresh
-session key makes that equality false and leaves no other proof that the
-listener owns the durable key.
+A `keyed-tcp` locator's designator is the listener's durable Ed25519 key, while
+the TCP stream is cleartext and authenticates nothing. The dial-side proof was
+`session_pubkey == locator designator`, which a fresh session key makes false.
+iroh has the needed lower-layer fact (QUIC authenticates the durable endpoint
+key and protects the stream carrying the hello), and WebRTC has an authenticated
+pipe (DTLS verifies the fingerprint exchanged through capability-authorized
+signaling).
 
-iroh has the needed lower-layer fact: QUIC authenticates the durable endpoint
-key and protects the stream carrying the hello. WebRTC also has an authenticated
-pipe: DTLS verifies the fingerprint exchanged through capability-authorized
-signaling. Their current adapters do not expose those remote bindings to Host
-verification. They have shared one equality check with cleartext transports
-despite having different authentication mechanisms.
-
-### Decision at adoption
+## Decision
 
 ### Every CapTP session has a fresh key
 
 Each `HostSession` receives a fresh Ed25519 signing seed from the adapter entropy
 boundary. The sync no-I/O core generates no entropy. Native drivers draw the
-seed while opening a connection; byte-fed C and Wasm Hosts receive it through
-an explicit entropy action or caller-provided bytes; tests use deterministic
+seed while opening a connection. Byte-fed C and Wasm Hosts receive it through
+an explicit entropy action or caller-provided bytes. Tests use deterministic
 seeds.
 
 The session key signs `acceptable_location` and every handoff record that names
@@ -254,122 +107,24 @@ that session. Reconnecting the same peers creates a different session public
 key and therefore a different handoff session name. An old give cannot name the
 new connection merely because the durable peers are unchanged.
 
-### Key shape and authentication mechanism are separate contracts
+`DesignatorScheme.key` describes locator grammar. It does not mean the
+designator bytes equal `session_pubkey`.
 
-`DesignatorScheme.key` continues to describe locator grammar. It no longer
-means that the designator bytes must equal `session_pubkey`.
+### Identity reporting carries three facts
 
-Each identity-aware netlayer declares how a durable designator is authenticated
-and bound to the CapTP hello:
+Host state retains these separately:
 
-- **Authenticated transport.** iroh authenticates the durable endpoint key and
-  protects the byte stream. WebRTC authenticates its DataChannel with the DTLS
-  fingerprint exchanged through the OCapN signaling capability for the named
-  peer. Their adapters surface the verified remote binding on dial and accept
-  paths. Host installs it as pre-feed engine policy, and the inbound hello must
-  name the same designator before session state mutates. WebRTC's missing proof
-  is interim adapter work, not a reason to add a wire credential.
-- **Durable-key attestation.** keyed-TCP and byte-transparent keyed-relay have a
-  durable Ed25519 designator and no lower layer that can authenticate it. Their
-  hello carries a signature by that durable key authorizing the fresh CapTP
-  session key. This mechanism is permanent unless those transports gain an
-  independently authenticated peer binding.
-- **No durable authentication.** Plain TCP keeps address-based connection
-  provenance and the ordinary CapTP hello signature. It does not claim a
-  cryptographically authenticated durable peer.
+- `session_pubkey`, the exact CapTP session identity
+- peer `(transport, designator)`, the locator identity
+- verification provenance, set by the realized connection (ADR-0105)
 
-The core receives the selected verification contract from the adapter before
-the first byte is fed. The engine enforces it at the inbound hello chokepoint,
-before session apply or any later frame in the same chunk. It does not infer
-security from a transport string or from a key-shaped designator. The native
-and byte-fed transport tables must assign every member of the
-`DesignatorScheme.key` set owned by `designatorSchemeForTransport` a mechanism
-before the equality pin can be removed.
-
-### Durable-key transports carry a two-signature chain
-
-A hello whose verification contract is durable-key attestation contains a
-required `session-key-attestation` hint in its key-designator
-`acceptable_location`. Its value is a 64-byte Ed25519 signature. The durable
-peer key signs the canonical Syrup encoding of this domain-separated record:
-
-```text
-<session-key-attestation-v1 transport designator session-pubkey>
-```
-
-The fields are the exact locator transport and designator plus the 32-byte
-CapTP session public key. The canonical record, rather than byte concatenation,
-fixes field boundaries and gives Syrup and Cap'n Proto one verification domain.
-The record label is the domain separator. A different transport, designator,
-or session key invalidates the signature.
-
-The ordinary CapTP session key still signs the complete
-`acceptable_location`, including the attestation and routing hints. Verification
-therefore establishes this static authorization chain:
-
-1. the durable key authorizes this fresh session key for this locator identity;
-2. the session key signed the complete advertised locator.
-
-A receiver using durable-key attestation verifies, before the session opens and
-before any later frame in the same input chunk is applied:
-
-1. the designator parses as a durable Ed25519 key;
-2. the required attestation verifies under that durable key for the received
-   `session_pubkey`;
-3. the ordinary `acceptable_location_sig` verifies under that session key.
-
-A dial additionally requires the hello's `(transport, designator)` to equal the
-expected locator identity. An accept has no dialed identity to compare. It
-records the hello's durable identity only after both signatures verify, and
-never indexes an unverified claim as a peer.
-
-The attestation hint is session credential metadata, not another identity field
-or a routing hint. Locator and sturdyref equality continue to ignore it. After
-a signed handoff locator has been verified, `exporterLocatorUri` and every other
-dial/URI projection omit `session-key-attestation` while preserving routing
-hints such as `direct-addresses`. A stale credential must never enter a
-sturdyref or poison URI projection; the next session creates its own.
-
-The hint encoding is provisional. Canonical codec and signing vectors are
-committed before implementation, and a live Goblins recipient must decode a
-signed give whose glowcap exporter locator carries the credential. The current
-Goblins locator constructor accepts only false or string hints while the draft
-describes hints as a mapping and glowcap encodes a non-empty mapping as a Syrup
-dict; the wire unmarshaller builds nodes through the raw constructor, so the
-mapping shape does decode live. The pinned Goblins withdrawal lookup
-additionally requires a give's exporter locator to equal the exporter's
-hello-declared location including hints — which the verbatim reuse of the
-exporter's signed location record already guarantees; the checked finding in
-[`conformance/ocapn-findings/`](../../../conformance/ocapn-findings/README.md)
-records it. glowcap will propose the credential shape upstream before claiming
-interoperability. If upstream selects another shape, glowcap changes its
-unshipped encoding and vectors; it does not freeze the provisional dict into
-signed handoff locators.
-
-The attestation and ordinary hello signature contain no challenge. They prove
-that their keys authorized static records, not that a signer is live on this
-TCP connection. keyed-TCP retains ADR-0075's whole-hello replay and active-relay
-exposure. Fresh keys isolate honest reconnects and require possession for new
-handoff signatures; they do not make the cleartext channel replay-safe. A
-challenge or channel-binding protocol would be a separate wire decision.
-
-### Identity reporting carries both identities
-
-Host state retains these facts separately:
-
-- `session_pubkey`, the exact CapTP session identity;
-- peer `(transport, designator)`, the locator identity;
-- verification provenance: authenticated transport peer, durable-key static
-  authorization, or no cryptographic durable authentication.
-
-`PartnerIdentity` reports all three. `designatorIsSessionKey` may remain as a
-literal comparison for diagnostics, but it is no longer an authentication
-predicate and keyed-TCP normally returns false. APIs that require durable peer
-authentication ask the provenance-bearing predicate instead.
+`PartnerIdentity` reports all three. `designatorIsSessionKey` is a literal
+comparison for diagnostics and is not an authentication predicate. APIs that
+require durable peer authentication ask the provenance-bearing predicate.
 
 This amends ADR-0093: the signature under `session_pubkey` proves that session
-key's claim about its locator. Durable ownership comes from the independent
-transport proof or attestation.
+key's claim about its locator. Durable ownership comes from independent channel
+proof.
 
 ### Crossed hellos and handoff use the right identity
 
@@ -384,96 +139,39 @@ Crossed-hello matching and crossed-hello ordering are separate operations:
 3. Sort their serialized identifiers and abort the lower session, exactly as
    the OCapN crossed-hellos algorithm requires.
 
-Durable identity detects which two connection attempts race; fresh session
-identity selects the winner. Neither substitutes for the other. Established
-peer lookup and exact handoff-session lookup remain separate indexes. An
-unverified partner-declared key is never promoted to durable Host identity.
+Durable identity detects which two connection attempts race. Fresh session
+identity selects the winner. Established peer lookup and exact handoff-session
+lookup are separate indexes. An unverified partner-declared key is never
+promoted to durable Host identity.
 
 The exact `session_pubkey` continues to name a handoff session, verify gives,
 and index live session coordinators. It is never used as a reconnect-stable peer
 id. On an honest reconnect, a fresh key means an old give does not name the new
 session coordinator. A replayed complete keyed-TCP hello can revive its old
-static session claim on another cleartext connection; this ADR does not claim
-otherwise.
+static session claim on another cleartext connection.
 
-This amends ADR-0068's reused-Host-key assumption without discarding its
-one-Host/many-session or crossed-hello structure. It amends ADR-0075's equality
-pin into explicit transport proof or a two-signature chain, and ADR-0093's
-partner report into a two-identity result.
+This amends ADR-0068's reused-Host-key assumption while keeping its
+one-Host/many-session and crossed-hello structure. It amends ADR-0075's
+equality pin and ADR-0093's partner report.
 
-## Required evidence
+## Retired credential mechanism
 
-Every item below holds. The Status section above names the test that carries
-each one.
-
-1. Open two successive and two simultaneous sessions from one Host and prove
-   every `session_pubkey` differs while the durable peer identity stays equal.
-2. On keyed-TCP, accept a valid durable-key attestation and refuse a missing
-   attestation, a signature by another durable key, and mutations of the
-   transport, designator, or session key.
-3. Feed a valid hello and a later frame in one chunk. Every failed keyed-TCP
-   credential must refuse the hello before the later frame can apply.
-4. Exercise both dial and accept halves. The listener creates the attestation
-   from its durable seed; the dialer verifies it against the expected locator.
-   The accept side verifies a remote attestation before recording that remote
-   durable identity and refuses every negative case without indexing the claim.
-5. Carry a credential-bearing keyed-TCP exporter locator through a signed
-   glowcap handoff. Verify the credential in the descriptor, omit it from
-   URI/dial projection, preserve `direct-addresses`, and redeem successfully.
-6. Carry the same locator through a live Goblins recipient's signed-give decode
-   path and prove its locator constructor accepts the chosen interoperable
-   hints shape. Goblins need not implement the keyed-TCP netlayer; an
-   unsupported-netlayer result may follow only after successful decode.
-7. Run iroh with fresh CapTP keys while its authenticated transport identity
-   remains stable. Prove both dial and accept sidecar paths supply the remote
-   endpoint id to pre-feed verification.
-8. Run WebRTC with fresh CapTP keys while DTLS and capability-authorized
-   signaling supply the pre-feed peer binding. Run keyed-relay with a fresh key
-   and durable-key attestation. No key-designator transport remains
-   authenticated only by the deleted equality rule.
-9. Resolve crossed hellos between the same durable peers with fresh session
-   keys. Prove matching uses peer identity, ordering uses the two session ids,
-   the lower serialized id aborts, and both sides retain the same connection.
-10. Reconnect the same nodes honestly and prove an old handoff certificate cannot
-   resolve to the new session coordinator. Separately pin that replaying a whole
-   keyed-TCP hello is outside this guarantee.
-11. Report one `PartnerIdentity` through native Zig, C, Wasm, and every binding,
-   proving the durable identity, session key, and verification provenance are
-   not conflated.
-12. Preserve the current keyed-TCP restart/squatter refusal matrix and the
-   cleartext security statement in ADR-0075.
-
-## Migration order
-
-1. Check the pinned draft/Goblins hints-typing disagreement as an OCapN
-   finding. Commit canonical codec bytes plus positive and mutation-negative
-   signing vectors for the provisional credential, and propose its shape
-   upstream before interoperability shipment.
-2. Split designator grammar from netlayer authentication in the native and
-   byte-fed adapter contracts. Expose iroh's authenticated remote endpoint id
-   and WebRTC's capability-authorized DTLS binding on dial/accept paths. Add
-   durable-key verification for keyed-TCP and keyed-relay while sessions still
-   reuse keys.
-3. Widen core and public partner identity to retain durable identity, session
-   identity, and provenance. Split crossed-hello matching from fresh-session-id
-   ordering, and split durable-peer lookup from handoff-session lookup.
-4. Switch every session-opening path to fresh entropy in one green slice,
-   including C, Wasm, bindings, iroh, keyed-TCP, WebRTC, keyed-relay, tests, and
-   handoff fixtures.
-5. Delete the equality pin as an authentication rule only after every sibling
-   path proves its replacement.
+The first design had keyed-TCP and keyed-relay hellos carry a
+`session-key-attestation` hint: a 64-byte signature by the durable key over the
+canonical Syrup record
+`<session-key-attestation-v1 transport designator session-pubkey>`, authorizing
+the fresh session key for that locator identity. ADR-0105 extended it to every
+key-scheme transport. ADR-0109 retired the credential, its hint, and its
+provenance arm. A raw `keyed-tcp` or `keyed-relay` claim is unauthenticated, and
+only matching authenticated-channel proof raises provenance.
 
 ## Scope (what this does not decide)
 
-- keyed-TCP remains cleartext. The chain authenticates the durable
-  advertisement and session signing authority as static records; it does not
-  provide channel confidentiality, integrity, freshness, or replay resistance.
-- Locator identity remains `(transport, designator)`. Hints remain outside
-  equality even when one carries a required netlayer credential.
-- This does not change OCapN handoff descriptor shapes or signature domains.
+- keyed-TCP is cleartext and provides no channel confidentiality, integrity,
+  freshness, or replay resistance.
+- Locator identity is `(transport, designator)`. Hints stay outside equality.
+- OCapN handoff descriptor shapes and signature domains are unchanged.
 - Sturdyref peer matching is ADR-0098's decision.
-- A future transport can supply another binding mechanism, but it must declare
-  and test that mechanism explicitly.
 
 ## Alternatives Considered
 
@@ -482,45 +180,17 @@ each one.
 - **Change fresh keys everywhere except keyed-TCP.** Rejected: CapTP session
   semantics would depend on the selected transport and keyed-TCP reconnects
   would retain the defect.
-- **Demote keyed-TCP to unauthenticated.** Rejected: it discards the shipped
-  four-binding restart and squatter-refusal matrix. Durable-key attestation
-  preserves that possession check while still stating that cleartext TCP has
-  no confidentiality, channel freshness, or replay resistance.
 - **Treat any key-shaped designator as proof.** Rejected: syntax proves no key
   possession.
 - **Add a keyed-TCP transport preface.** Rejected: it duplicates CapTP hello
   framing, forces the transport resident to learn CapTP session keys, and does
-  not fit the byte-fed Host. The signed locator extension keeps verification at
-  the existing before-open handshake chokepoint.
-- **Sign only `session_pubkey`.** Rejected: the credential could be replayed
-  under another transport or locator identity. The signature binds all three.
-
-## Cost and lifetime posture
-
-- Attestation lookup and verification use the borrowed hello view before
-  session apply. An extra owned hint materialization is forbidden.
-- Canonical attestation bytes are once-per-hello signing or verification
-  scratch. Their allocation and copy count are named and measured.
-- Syrup currently retains the signed raw locator for the session lifetime. The
-  credential increases that retained size and must be charged to the warmed
-  500,000-session footprint measurement rather than assumed negligible.
-- Verification provenance and an authenticated transport id reuse retained
-  locator/key bytes where lifetimes allow; duplicating the same identity bytes
-  in another session allocation is forbidden without a measured reason.
-- URI and handoff dial projection filter the credential during their existing
-  materialization and add no second full-locator walk.
+  not fit the byte-fed Host.
 
 ## Consequences
 
-- Signing-key entropy becomes per session rather than per Host.
-- The engine's expected-partner contract becomes a verification strategy over
-  durable identity and session identity, not `expected_partner_key ==
-  session_pubkey`.
-- Locator hint codecs preserve the attestation bytes exactly, while equality
-  and URI cache keys continue to ignore them. URI/dial projection removes the
-  session credential after signed-descriptor verification.
-- The iroh and WebRTC adapters expose their authenticated remote binding before
-  CapTP bytes can apply. WebRTC does not carry the provisional credential.
+- Signing-key entropy is per session rather than per Host.
+- The engine's expected-partner contract is a verification strategy over durable
+  identity and session identity, not `expected_partner_key == session_pubkey`.
 - Host session registries distinguish durable peer lookup from exact CapTP
   session lookup.
 - ADR-0068, ADR-0075, and ADR-0093 remain accepted in substance and are amended
@@ -529,5 +199,4 @@ each one.
 ## Notes
 
 ADR-0096 owns Host-scoped capability identity and exact gifts. ADR-0098 owns
-sturdyref peer authority. Neither requires glowcap to claim fresh session keys
-before the keyed-TCP chain is complete.
+sturdyref peer authority.

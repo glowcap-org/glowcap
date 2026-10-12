@@ -12,7 +12,7 @@ import type { TimelineDocument, TimelineEvent } from "../timeline.ts";
 import type { Observation, RecordingSource } from "./recording.ts";
 
 /**
- * Mutable primary observation array — the home for new observations
+ * Mutable primary observation array. The home for new observations
  * from authoring or live-feed. Lazy-creates `recording.sources[0]`
  * if absent so the first write always succeeds without callers
  * needing to special-case empty docs.
@@ -49,7 +49,7 @@ const NO_OBSERVATIONS: readonly Observation[] = [];
 type Flattened = {
 	readonly view: readonly Observation[];
 	/** Each source's array as it stood at the build, and how long it was then.
-	 *  Identity catches a source replaced wholesale; the length catches a live
+	 *  Identity catches a source replaced wholesale. The length catches a live
 	 *  feed, which appends to the array it already has. */
 	readonly from: readonly { arr: readonly Observation[]; len: number }[];
 };
@@ -79,7 +79,7 @@ function stillDescribes(
  *  has written to return the identical array, so a reader may cache on what
  *  it got back. That is not a convenience: this is on the render path, and a
  *  reader that has to rebuild whenever its input LOOKS new rebuilds every
- *  frame forever. The single-source doc — every fixture, every live capture —
+ *  frame forever. The single-source doc, every fixture, every live capture,
  *  gets it for free, because the flattening of one list is that list. Several
  *  sources are flattened once and the result held against the arrays it was
  *  built from, so a source appended to or swapped out is flattened again and
@@ -88,7 +88,7 @@ function stillDescribes(
  *  What it does NOT cover is an observation mutated in place, which changes
  *  neither a source's identity nor its length. Authoring does exactly that,
  *  and it is why every authoring path swaps `doc.entities`
- *  (`bumpEntities`) — that swap, not this list, is what tells a viewer cache
+ *  (`bumpEntities`), that swap, not this list, is what tells a viewer cache
  *  an edit landed. */
 export function observationsOf(doc: TimelineDocument): readonly Observation[] {
 	const recording = doc.recording;
@@ -112,7 +112,7 @@ export function observationsOf(doc: TimelineDocument): readonly Observation[] {
 }
 
 /** Per-source view. Returns the empty array when no recording is
- *  present (rare post-parse — only fresh-from-construction docs
+ *  present (rare post-parse, only fresh-from-construction docs
  *  before any authoring write). */
 export function sourcesOf(doc: TimelineDocument): readonly RecordingSource[] {
 	return doc.recording?.sources ?? [];

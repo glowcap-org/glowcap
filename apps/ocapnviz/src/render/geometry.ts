@@ -1,10 +1,10 @@
 /**
- * Geometry helpers for hit-test and marquee selection. Pure math —
+ * Geometry helpers for hit-test and marquee selection. Pure math,
  * no Pixi, no engine. Extracted from `Stage.tsx` so the scene file
  * holds wiring + handlers, not standalone overlap/intersection
  * functions.
  *
- * `paintMarchingAntsBand` does need a Pixi `Graphics` — it stamps
+ * `paintMarchingAntsBand` does need a Pixi `Graphics`, it stamps
  * a 1-pixel marching-ants outline. Kept here because it belongs
  * with the segment/rect functions used by the same marquee
  * subsystem.
@@ -21,7 +21,7 @@ export type Rect = {
 };
 
 /** Half-open clamp bounds. `maxX` / `maxY` are exclusive in the same
- *  sense as canvas dimensions — a rect that ends exactly at `maxX`
+ *  sense as canvas dimensions. A rect that ends exactly at `maxX`
  *  reads as flush-right against the edge. */
 export type Bounds = {
 	minX: number;
@@ -32,14 +32,14 @@ export type Bounds = {
 
 /** Clamp a rectangle's corners into `bounds`. Returns a rect whose
  *  edges lie within `[minX, maxX] × [minY, maxY]`. If the input rect
- *  is entirely outside, the result has zero width or height — callers
+ *  is entirely outside, the result has zero width or height, callers
  *  shouldn't need to special-case that (paint and overlap helpers
  *  already early-out on zero-area).
  *
  *  Shared by every selection-marquee surface in the app so the
  *  visible marquee and the committed selection rect stay identical
- *  (WYSIWYG). Each surface defines its own `Bounds` — Stage uses
- *  host-element dimensions; Scrubber uses its plot content rect —
+ *  (WYSIWYG). Each surface defines its own `Bounds`. Stage uses
+ *  host-element dimensions and Scrubber uses its plot content rect,
  *  and calls this at both paint and commit sites.  */
 /** Build an axis-aligned `Rect` from two corner points in the same
  *  coordinate space. Order-independent. Shared by every drag-rect
@@ -75,7 +75,7 @@ export function clampRectToBounds(rect: Rect, bounds: Bounds): Rect {
 /** Rectangle ↔ circle overlap. True iff any point inside the
  *  circle (center cx, cy, radius r) lies inside the axis-aligned
  *  rect [rx0, rx1] × [ry0, ry1]. Implemented as: find the closest
- *  point on the rect to the circle center; the circle overlaps
+ *  point on the rect to the circle center. The circle overlaps
  *  iff that point lies within `r` of the center. */
 export function rectCircleOverlap(
 	rx0: number,
@@ -94,7 +94,7 @@ export function rectCircleOverlap(
 }
 
 /** Proper segment-segment intersection (parametric). Excludes the
- *  collinear case (returns false); for marquee selection the
+ *  collinear case (returns false). For marquee selection the
  *  endpoint-in-rect check covers collinear segments touching the
  *  rect anyway. */
 export function segmentsIntersect(
@@ -138,13 +138,13 @@ export function rectSegmentOverlap(
 
 /** Length (in perimeter pixels) of a single fg or bg dash. 2 px
  *  matches the classic Mac / early-Photoshop marching-ants look
- *  (fine pattern, not chunky); paired with the per-frame ticker it
+ *  (fine pattern, not chunky). Paired with the per-frame ticker it
  *  still reads smooth because the phase increments one pixel at a
  *  time. */
 const ANT_DASH_PX = 2;
 
 /** Wall-clock ms between phase steps. Phase advances ONE PIXEL per
- *  ANT_MS along the perimeter — with 2-px dashes that's half a dash
+ *  ANT_MS along the perimeter, with 2-px dashes that's half a dash
  *  per step, keeping the march fluid rather than stepped while
  *  preserving the old-school cadence. Centralized here so every
  *  marquee in the app marches at the same speed. */
@@ -153,11 +153,11 @@ const ANT_MS = 30;
 /** Paint a 1-pixel marching-ants rectangle outline into a Graphics.
  *
  * Two passes (one per color) so a single `.fill` covers all the fg
- * pixels and another covers the bg pixels — fewer state changes
+ * pixels and another covers the bg pixels, fewer state changes
  * than per-pixel fills. The perimeter is treated as a 1D line of
- * pixels in clockwise order; each consecutive run of `ANT_DASH_PX`
+ * pixels in clockwise order. Each consecutive run of `ANT_DASH_PX`
  * pixels is one dash, alternating fg/bg. `phase` shifts the whole
- * pattern along the perimeter; incrementing it 1 pixel at a time
+ * pattern along the perimeter. Incrementing it 1 pixel at a time
  * slides the dash-boundaries gradually through the dash, which
  * reads as smooth motion at any rate. */
 function paintAntsRect(
@@ -200,7 +200,7 @@ function paintAntsRect(
  *  every selection rubber-band in the app (Stage, Timeline, …) so
  *  the visual treatment and animation cadence stay locked together.
  *  Computes the phase from `performance.now()` so callers only need
- *  to repaint on their own ticker — they don't track phase. Skips
+ *  to repaint on their own ticker. They don't track phase. Skips
  *  zero-area rects so callers can pass raw drag deltas without
  *  guarding. */
 export function paintMarchingAntsBand(

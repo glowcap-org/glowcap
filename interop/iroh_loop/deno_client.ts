@@ -2,12 +2,12 @@
 // served from one readiness loop (ADR-0057), the Deno sibling of the Zig
 // `zig build iroh-loop` gate.
 //
-// The iroh netlayer has one I/O model — an event-driven readiness loop. This
+// The iroh netlayer has one I/O model, an event-driven readiness loop. This
 // gate proves it through the binding: one `IrohServer` runs a single loop that
 // registers the endpoint's readiness fd with the Deno event loop and serves
 // every accepted connection's peer from that one loop. Many clients dial it at
 // once, each over its own iroh endpoint, fetch the published greeter, and call
-// it several times. Every reply must come back correct — so the one server
+// it several times. Every reply must come back correct, so the one server
 // loop is provably multiplexing all the connections at once, not serving them
 // one at a time.
 //

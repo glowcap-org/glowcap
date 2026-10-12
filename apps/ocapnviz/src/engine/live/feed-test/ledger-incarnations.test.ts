@@ -82,8 +82,8 @@ Deno.test("an epoch change retires the dead process's topology", () => {
 	// events build fresh incarnations.
 	//
 	// Out of VIEW, not closed. Some of what the dead process was
-	// showing died with it and some did not — two browser tabs talking
-	// directly kept going — and from here those are indistinguishable.
+	// showing died with it and some did not, two browser tabs talking
+	// directly kept going, and from here those are indistinguishable.
 	// So the timeline says the one thing true of both.
 	const convert = makeBaseEventConverter();
 	convert({

@@ -135,7 +135,7 @@ export class RtcPeer {
 		// hangs, and every caller above it hangs with it. "failed" is the one
 		// state that cannot recover, so it closes the peer with a reason a
 		// person can act on; "disconnected" can still repair itself and is
-		// deliberately not treated as an ending.
+		// not treated as an ending.
 		this.#pc.onconnectionstatechange = () => {
 			if (this.#pc.connectionState !== "failed") return;
 			this.#closeWithError(

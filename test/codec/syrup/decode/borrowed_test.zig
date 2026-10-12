@@ -81,8 +81,8 @@ test "decodeBody exposes borrowed views for deliver, get, index, listen, and res
     // The decoder lifts each payload/target descriptor into the receiver's
     // perspective (ADR-0010 flip): `<desc:export N>` → `.near{export_position=N}` and
     // `<desc:import-object N>` → `.far{import_position=N}`. The fixture-name `_far` /
-    // `_near` labels predate the flip and now describe the wire descriptor's
-    // historical model arm, not the decoded one.
+    // `_near` labels describe the wire descriptor's model arm, not the decoded
+    // one.
     {
         const fixture = protocol_oracle.fixtureByName("op_deliver.bin").?;
         const decoded = try syrup.decodeBody(.{ .bytes = fixture.bytes(), .shape = .byte });

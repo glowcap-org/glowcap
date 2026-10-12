@@ -8,7 +8,7 @@
 
 The Zig reference and C headers are generated from declarations compiled by
 the library. A build check rejects stale output. To choose an API, start with
-[Choose an API]($link.page('surfaces')); to build a first client, use [Start
+[Choose an API]($link.page('surfaces')). To build a first client, use [Start
 building]($link.page('start')).
 
 # The Zig API
@@ -27,11 +27,11 @@ one archive and includes only the shared definitions it needs.
 | --- | --- | --- |
 | `libglowcap_ocapn` | [`glowcap_ocapn.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_ocapn.h) | shared contexts, frames, values, locators, and URI helpers |
 | `libglowcap_host` | [`glowcap_host.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_host.h) | the byte-fed host tier (`glowcap_host_*`) |
-| `libglowcap_driver` | [`glowcap_driver.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_driver.h) | the native loop; exports only `glowcap_driver_*` and adopts a Host from `libglowcap_host` through `glowcap_driver_take_host` |
+| `libglowcap_driver` | [`glowcap_driver.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_driver.h) | the native loop. It exports only `glowcap_driver_*` and adopts a Host from `libglowcap_host` through `glowcap_driver_take_host` |
 | `libglowcap_loam` | `glowcap_loam.h` | Portable persistence, managed registration and storage effect ownership on the existing Host. |
-| `libglowcap_loam_lmdb` | `glowcap_loam_lmdb.h` | Optional LMDB custody, startup creation/restoration and submitted storage execution. |
-| `libglowcap_net_transport_iroh` | [`glowcap_net_transport_iroh.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_net_transport_iroh.h) | encrypted QUIC; optional, links the Rust sidecar |
-| `libglowcap_net_transport_webrtc` | [`glowcap_net_transport_webrtc.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_net_transport_webrtc.h) | peer-to-peer WebRTC DataChannel; optional, links the Rust sidecar |
+| `libglowcap_loam_lmdb` | `glowcap_loam_lmdb.h` | Optional LMDB storage for Loam. It creates or reopens the database at startup and runs the storage work you hand it. |
+| `libglowcap_net_transport_iroh` | [`glowcap_net_transport_iroh.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_net_transport_iroh.h) | encrypted QUIC. It is optional and links a Rust library. |
+| `libglowcap_net_transport_webrtc` | [`glowcap_net_transport_webrtc.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_net_transport_webrtc.h) | peer-to-peer WebRTC DataChannel. It is optional and links a Rust library. |
 | `libglowcap_net_transport_onion` | [`glowcap_net_transport_onion.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_net_transport_onion.h) | Tor onion services over a daemon you run |
 | `libglowcap_net_transport_relay` | [`glowcap_net_transport_relay.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_net_transport_relay.h) | native `keyed-relay` and end-to-end sealed `noise-relay` provider package |
 | `libglowcap_net_transport_tcp` | [`glowcap_net_transport_tcp.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_net_transport_tcp.h) | the `noise-tcp`, `keyed-tcp`, and testing `tcp` provider package plus low-level framed TCP endpoints |

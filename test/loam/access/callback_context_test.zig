@@ -1,4 +1,4 @@
-//! Shared hosting selects callback metadata; descriptive names never grant access.
+//! Shared hosting selects callback metadata. Descriptive names never grant access.
 const std = @import("std");
 const h = @import("hosting_fixture.zig");
 const resources = @import("resource_fixture.zig");
@@ -10,6 +10,7 @@ const Probe = struct {
     expected: h.c.core.ResourceId,
     requirement: ?Stamp = null,
     invocations: usize = 0,
+    refuse: bool = false,
     fn get(context: ?*anyopaque) *Probe {
         return @ptrCast(@alignCast(context.?));
     }
@@ -43,6 +44,13 @@ const Probe = struct {
         const self = get(context);
         try self.same(input);
         self.invocations += 1;
+        var path: [65]h.loam.core.ObjectId = undefined;
+        const accounting = try call.accountingPath(&path);
+        try std.testing.expect(accounting.len != 0);
+        if (self.refuse) {
+            try call.refuseCopying("rate-limited: retry-after-ms=1000; scope=join");
+            return error.ApplicationRefused;
+        }
         // Retain only scalar evidence; the invocation's payload borrow ends here.
         const reply = try h.contents[0].invoke(null, call, input);
         self.requirement = null;
@@ -152,6 +160,13 @@ test "loam callback context follows direct and distinct local dependent resource
     // additional physical resource read, including the distinct selected leaf.
     try std.testing.expectEqualDeep([2]usize{ 1, 1 }, measured.counts);
     try std.testing.expectEqual(@as(usize, 0), host.caps.operations);
+    probe.refuse = true;
+    probe.expected = seeded.root;
+    var refusal: h.Answer = .{};
+    try host.send(host.use, "get", &.{}, &refusal);
+    try host.drain(&measured);
+    try std.testing.expect(refusal.broken);
+    try std.testing.expectEqualStrings("rate-limited: retry-after-ms=1000; scope=join", refusal.reason());
 }
 
 test "loam callback context refuses retired resource generation before declaration" {

@@ -16,11 +16,11 @@ const host_pump = @import("pump.zig");
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
 
-/// Fetch the partner capability published as `name`, minting a host vow for
-/// the outcome: observe it in-process with `vowOn`, or drain its
-/// `settled`/`failed` completion from the action queue. A fulfilled far
-/// capability settles *already enrolled* under a node-unique route (ADR-0069)
-/// — recorded before the outcome is dispatched, so a reply that immediately
+/// Fetch the partner capability published as `name`, minting a host vow for the
+/// outcome: observe it in-process with `vowOn`, or drain its `settled`/`failed`
+/// completion from the action queue. A fulfilled far capability settles
+/// *already enrolled* under a node-unique route (ADR-0069). The enrollment is
+/// recorded before the outcome is dispatched, so a reply that immediately
 /// re-gifts it routes to the right exporter. Top-level: refused from inside a
 /// callback.
 pub fn fetch(self: *Host, session: *HostSession, name: []const u8) !u64 {
@@ -54,16 +54,16 @@ fn fetchWithProgress(self: *Host, session: *HostSession, name: []const u8, drive
 }
 
 /// Listen on the promise `target` names, minting a host vow for its settlement
-/// (ADR-0095). A promise this session handed us — an introducing session's
-/// proxy for a third party's promise (ADR-0009) — settles through a
-/// notification the partner delivers, and this is the verb that asks for it.
-/// A far target routes through the node first, the way `send` and `tell` route,
-/// so a Node route is listened on the session that exports it rather than the
-/// session where it was learned. The vow is `.plain`, not `.fetch`: a listen
-/// makes no blanket claim that what arrives is a capability, and a give that
-/// does arrive is auto-redeemed on the way through, exactly as one arriving in
-/// a call's reply is. Enqueueing, like `send`: legal inside a callback, because
-/// a settle callback is where you learn the promise to listen on.
+/// (ADR-0095). A promise this session handed us (an introducing session's proxy
+/// for a third party's promise, ADR-0009) settles through a notification the
+/// partner delivers, and this is the verb that asks for it. A far target routes
+/// through the node first, the way `send` and `tell` route, so a Node route is
+/// listened on the session that exports it rather than the session where it was
+/// learned. The vow is `.plain`, not `.fetch`: a listen makes no blanket claim
+/// that what arrives is a capability, and a give that does arrive is
+/// auto-redeemed on the way through, as one arriving in a call's reply is.
+/// Enqueueing, like `send`: legal inside a callback, because a settle callback
+/// is where you learn the promise to listen on.
 pub fn listenTo(self: *Host, session: *HostSession, target: model.Reference) !u64 {
     return listenToWithProgress(self, session, target, true);
 }
@@ -117,8 +117,8 @@ fn listenToWithProgress(
     return commitRoutedListen(self, home, wire, drive_now);
 }
 
-/// An object contributes one owned application retain; a promise contributes
-/// a Host vow whose completion may be any value. Neither arm exposes the
+/// An object contributes one owned application retain. A promise contributes a
+/// Host vow whose completion may be any value. Neither arm exposes the
 /// capability's route or representation to the application.
 pub const CapabilityResolution = union(enum) {
     resolved: capability.Ref,

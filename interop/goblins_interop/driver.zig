@@ -11,7 +11,7 @@
 //! calls it, asserting it resolves fulfilled. The same bracket pipelines the
 //! two projection ops Goblins can answer: an `op:index` against the settled
 //! echo answer, and an `op:get` against a still-pending answer that settles to
-//! a Struct — and asserts Goblins resolves each projection. Finally it enlivens
+//! a Struct, and asserts Goblins resolves each projection. Finally it enlivens
 //! the echo swiss-num through the engine's ADR-0012 dedup-cache API
 //! (`prepareEnliven`/`recordEnlivenment`, the surface every binding's `enliven`
 //! rides), calls the enlivened cap, and asserts a repeat enliven hits the cache
@@ -50,14 +50,14 @@ const tcp = glowcap.net.tcp;
 
 const host = "127.0.0.1";
 /// The Goblins host's listening port in the dial direction. `--port=N` (from
-/// `zig build goblins-interop -Dport=N`) overrides it when 22099 is taken; the
+/// `zig build goblins-interop -Dport=N`) overrides it when 22099 is taken. The
 /// listener scenarios bind ephemeral ports and need no override.
 const default_port: u16 = 22099;
 const frame_cap: usize = 1 << 16;
 
 /// The wait each scenario allows its Goblins child, matching every sibling
 /// driver in this directory. Finite is the contract (an unbounded wait is a
-/// hang, not a slow test); 60s rather than 20s because these scenarios run
+/// hang, not a slow test), 60s rather than 20s because these scenarios run
 /// inside `check-external` beside other Racket and uv steps, and a child
 /// starved of CPU by that concurrency was timing out the projection-asker
 /// scenario in the aggregate while passing standalone.
@@ -82,7 +82,7 @@ const export_listen_dialer_script = "conformance/goblins-peer/racket/glowcap-exp
 const actor_swiss = "glowcapActorSwissnumABCDEFGH1234";
 // Swiss-num for the projection-responder actor (Struct + List replies).
 const projection_swiss = "glowcapProjectionSwissnumABCDEF1234";
-// Deliberately never registered on the glowcap side: fetching it makes the
+// Never registered on the glowcap side: fetching it makes the
 // bootstrap auto-serve break the answer with "unknown swissnum".
 const unregistered_swiss = "glowcapUnknownSwissnumZZZZZZ9999";
 
@@ -201,7 +201,7 @@ pub fn main(init: std.process.Init) !void {
     // Fourth bracket: the break path. Goblins enlivens a swiss-num glowcap never
     // registered; glowcap breaks the fetch answer, which on the V1.0 wire is a
     // resolver-callback deliver carrying `['break, reason-symbol]`. The client
-    // asserts its vow broke *with glowcap's reason* — an `<error …>` record here
+    // asserts its vow broke *with glowcap's reason*, an `<error …>` record here
     // would instead die in Goblins' unmarshaller (`captp-unknown-record-rag`)
     // and surface as a timeout or severed-session error. The fetch is auto-served
     // by the engine with no vat turn, so the bracket publishes nothing.
@@ -214,7 +214,7 @@ pub fn main(init: std.process.Init) !void {
     });
     std.debug.print("goblins-interop: OK — break path: goblins observed glowcap's broken vow with its reason\n", .{});
 
-    // Fifth bracket: export-side `op:listen` — Goblins listens on a live
+    // Fifth bracket: export-side `op:listen`, Goblins listens on a live
     // glowcap object export and receives immediate fulfill.
     try runListenerScenario(init, .{
         .dialer = export_listen_dialer_script,
@@ -239,7 +239,7 @@ pub fn main(init: std.process.Init) !void {
         .serves_actor = true,
         .kind = "projection asker",
         .actor = .projection,
-        // `PROJECTION OK` now means the Goblins-side probe observed fulfill
+        // `PROJECTION OK` means the Goblins-side probe observed fulfill
         // resolver callbacks for both projection answer positions, with the
         // expected payloads. The kind latches stay as a guard that the
         // canonical projection frames themselves reached glowcap.
@@ -267,7 +267,7 @@ const ListenerScenario = struct {
     kind: []const u8,
     /// Which actor type to publish when `serves_actor` is true.
     actor: enum { greeter, projection } = .greeter,
-    /// Inbound frame kinds this run must see arrive — the arrival proof for
+    /// Inbound frame kinds this run must see arrive, the arrival proof for
     /// frames the client writes fire-and-forget (the projection asker's
     /// `op:get` / `op:index`), whose success needle says only that the client
     /// was satisfied, not that the frames reached this peer.
@@ -282,7 +282,7 @@ const ListenerScenario = struct {
 
 /// The reverse direction: a glowcap peer listens on an ephemeral port, and a
 /// real Goblins client (`scenario.dialer`) dials in and drives the scenario.
-/// We assert the client printed `scenario.success_needle` — Goblins' own
+/// We assert the client printed `scenario.success_needle`, Goblins' own
 /// confirmation that it received the actor's reply, or observed the broken vow.
 fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void {
     const io = init.io;

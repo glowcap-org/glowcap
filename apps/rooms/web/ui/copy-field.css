@@ -1,8 +1,8 @@
 /* ── Copy fields ───────────────────────────────────────────────────────
    The boxed value a reader takes away: a locator, a capability, a build.
-   Split from settings.css by subject; the modal machinery stays there. */
+   Split from settings.css by subject. The modal machinery stays there. */
 /* A locator is a field only in the sense that it is a boxed value the reader
-   wants to take away; nothing in it can be typed into. So the box is the
+   wants to take away. Nothing in it can be typed into. So the box is the
    control (see `CopyField` in Copy.tsx), and the mark in the corner says a
    press does something rather than being the only place a press counts.
 

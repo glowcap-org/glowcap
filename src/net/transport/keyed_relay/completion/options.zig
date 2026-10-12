@@ -4,7 +4,7 @@ const protocol = @import("../../../websocket.zig").client_protocol;
 const tls_runtime_owner = @import("../../../tls/runtime_owner.zig");
 
 /// Default per-connection storage for one masked WebSocket send. This includes
-/// the frame header and payload; callers may trade a different explicit memory
+/// the frame header and payload. Callers may trade a different explicit memory
 /// commitment for larger or smaller application chunks.
 pub const default_send_staging_bytes: usize = 4096;
 pub const minimum_send_staging_bytes: usize =
@@ -15,19 +15,22 @@ pub const minimum_send_staging_bytes: usize =
 /// sleep behind work that only the retry itself can admit.
 pub const operation_retry_ms: i32 = 50;
 /// Bound close-resubmission work per loop turn. A mass disconnect under a full
-/// platform queue must not turn one poll into an O(all-connections) retry storm;
-/// the intrusive FIFO rotates the remaining debt across later turns.
+/// platform queue must not turn one poll into an O(all-connections) retry storm.
+/// The intrusive FIFO rotates the remaining debt across later turns.
 pub const close_retry_batch: usize = 256;
 
 pub const RelayOptions = struct {
     url: []const u8,
+    /// Redirect this exact peer-advertised route to `url`. Both URLs must
+    /// reach the same registry. Other peer hints are followed normally.
+    relay_alias_url: ?[]const u8 = null,
     entropy_seed: [@import("std").Random.DefaultCsprng.secret_seed_length]u8,
     /// Environment-owned async I/O used only for DNS lookup. IP-literal
     /// routes need no resolver. The completion backend races returned
-    /// addresses itself; this handle never owns a connect socket.
+    /// addresses itself. This handle never owns a connect socket.
     resolver_io: ?@import("std").Io = null,
     /// Optional process-owned TLS runtime. Initialization takes one child
-    /// lease; the caller retains the Owner as the deterministic final barrier.
+    /// lease. The caller retains the Owner as the deterministic final barrier.
     /// Clear relay connections pay no TLS state or runtime lease.
     tls_owner: ?tls_runtime_owner.Owner = null,
     /// Total retained storage for one masked WebSocket frame, including its

@@ -77,11 +77,20 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     // test binary built beside them. `-p rooms-glowcap --lib` on its own enables
     // no transport and needs nothing; the same tests under the workspace run
     // need `libglowcap_net_transport_iroh`, and without this resolved they fail
-    // to start rather than to assert — a loader error with no test name in it.
+    // to start rather than to assert, a loader error with no test name in it.
     const rooms_lib_dir = common.rootPath(b, "zig-out/lib");
     for ([_]*std.Build.Step.Run{ compile, native, executor_tests }) |run| setLibraryEnvironment(run, b);
     const native_step = b.step("rooms-rust-test", "Run portable Rooms application and Rust/Zig static linking contracts natively (needs cargo)");
     native_step.dependOn(&executor_tests.step);
+    const admission_cost = execution.addSystemCommand(b, .benchmark, &.{
+        "cargo", "run",                   "--quiet",   "--locked",       "--release", "--manifest-path", "apps/rooms/rust/Cargo.toml",
+        "-p",    "rooms-contract-proofs", "--example", "admission_cost",
+    });
+    admission_cost.setCwd(b.path("."));
+    setLibraryEnvironment(admission_cost, b);
+    admission_cost.step.dependOn(&compile.step);
+    b.step("bench-rooms-admission", "Measure admission cost and enforce zero steady policy allocations").dependOn(&admission_cost.step);
+    native_step.dependOn(&admission_cost.step);
     runtime_gate.add(native_step);
 
     // Clippy over every crate and target, so the Rust that ships the native

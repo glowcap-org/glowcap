@@ -2,10 +2,10 @@ import type { EngineError } from "../../engine/errors.ts";
 import { c, FONT, SIZE, SPACE } from "../tokens.ts";
 
 /**
- * Inline field-bound error. The caller decides when to show it —
+ * Inline field-bound error. The caller decides when to show it,
  * typically by running `engine.validate(intent)` synchronously on the
  * next-pending edit (Inspector ID blur, options-bar typing) and
- * passing the returned error in. Pure presentation; no bus
+ * passing the returned error in. Pure presentation. No bus
  * subscription.
  */
 export function FieldError({ error }: { error: EngineError | null }) {

@@ -1,6 +1,6 @@
 //! Typed Peer failure retention and phase-correct abort projection.
 //!
-//! The originating failure stays primary; abort-delivery and cleanup failures
+//! The originating failure stays primary. Abort-delivery and cleanup failures
 //! are bounded consequences. Deferred work projects protocol violations but
 //! leaves allocator and outbound pressure retryable without blaming the peer.
 
@@ -39,7 +39,7 @@ pub fn recordAbortDeliveryFailure(self: *Peer, err: anyerror) void {
 }
 
 /// Attach a cleanup consequence without replacing the primary failure. With no
-/// primary, `err` becomes it; a secondary-only diagnostic cannot be created.
+/// primary, `err` becomes it. A secondary-only diagnostic cannot be created.
 pub fn recordSecondaryFailure(self: *Peer, err: anyerror) void {
     abort_info.recordSecondary(&self.last_abort, err);
 }

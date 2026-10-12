@@ -15,10 +15,10 @@ const Error = shared.Error;
 /// Syrup's public name for the shared codec decode recursion bound.
 pub const max_decode_nesting: usize = limits.max_decode_nesting;
 
-/// Decode-time width bound for a single `list` / `set` / `struct` collection —
+/// Decode-time width bound for a single `list` / `set` / `struct` collection,
 /// the width sibling of `max_decode_nesting`. Collection width is
-/// untrusted, and every later walk over a collection — the lazy
-/// view's `len`/`at`, session validation, owned materialization — is linear in
+/// untrusted, and every later walk over a collection, the lazy
+/// view's `len`/`at`, session validation, owned materialization, is linear in
 /// the element count, so width needs an explicit bound rather than being an
 /// emergent property of whatever byte cap a deployment configures. An
 /// over-wide collection fails loud as `MalformedFrame` during the slice walk,
@@ -26,14 +26,14 @@ pub const max_decode_nesting: usize = limits.max_decode_nesting;
 /// streaming byte cap can even carry (one-byte elements under the 1 MiB
 /// `max_frame_bytes`), so on the streaming path with default limits the byte
 /// cap's `.too_large` verdict always fires first (the ADR-0041 contract the
-/// C ABI pins); this cap binds the uncapped whole-frame entry points and any
+/// C ABI pins). This cap binds the uncapped whole-frame entry points and any
 /// deployment that raises the byte cap. Ordinary CapTP messages carry a
 /// handful of arguments, six orders of magnitude below it.
 pub const max_collection_elements: usize = 1 << 20;
 
 /// Byte-position cap threaded through the decode walk. Whole-frame entry
 /// points (`decodeBody`, the owned readers, re-parses of already-bounded
-/// sub-slices) pass this no-op limit; only the streaming `decodePrefix`
+/// sub-slices) pass this no-op limit. Only the streaming `decodePrefix`
 /// passes its `max_frame_bytes`, so a length prefix that declares a body past
 /// the cap fails `FrameTooLarge` the moment the prefix is read, per ADR-0029
 /// the in-flight frame is refused *during* decode, not after the adapter has
@@ -46,7 +46,7 @@ pub const SignatureView = struct {
     s: []const u8,
 };
 
-/// Read one length-prefixed Syrup leaf — `<len><marker><payload>` — at
+/// Read one length-prefixed Syrup leaf, `<len><marker><payload>`, at
 /// `cursor`, advancing past it and returning the borrowed payload. The three
 /// leaf kinds share this one reader and differ only in their `marker` byte:
 /// `:` for byte-strings, `"` for strings, `'` for symbols. The length digits
@@ -106,7 +106,7 @@ pub fn readSymbolLimited(bytes: []const u8, cursor: *usize, limit: usize) Error!
 /// like its sibling collection readers.
 /// One delimited sequence body and how many elements the slicing walk
 /// counted. The count rides into the lazy view's context word so `len()` is a
-/// read, not a second walk of the subtree; the walk has to count anyway to
+/// read, not a second walk of the subtree. The walk has to count anyway to
 /// hold `max_collection_elements`.
 pub const Sliced = struct {
     body: []const u8,
@@ -242,7 +242,7 @@ fn rejectNonCanonicalDigits(bytes: []const u8, start: usize, end: usize) Error!v
 
 /// Hand-rolled base-10 parse for a digit run already scanned as ASCII `0`-`9`
 /// (and, for length/integer leaves, already refused a leading zero). Overflow
-/// returns `null` — the same verdict `std.fmt.parseInt` gave on these paths —
+/// returns `null`, the same verdict `std.fmt.parseInt` gave on these paths,
 /// without the formatter's digit-class / base machinery on every length and int.
 fn parseDecimalDigits(comptime T: type, digits: []const u8) ?T {
     var value: T = 0;
@@ -273,8 +273,8 @@ fn scanDigits(bytes: []const u8, cursor: *usize) Error![]const u8 {
 
 /// Apply the sign terminator at `cursor` to a scanned decimal `digits` run,
 /// consuming the terminator. Returns the signed `i64` value when the magnitude
-/// fits the i64 range — including the `minInt` boundary the
-/// `9223372036854775808-` encoding names — `null` when the magnitude overflows
+/// fits the i64 range, including the `minInt` boundary the
+/// `9223372036854775808-` encoding names, `null` when the magnitude overflows
 /// i64, so the caller decides (reject it, or take the arbitrary-precision arm),
 /// and `MalformedFrame` for `0-` (the spec has exactly one zero, `0+`) and any
 /// non-sign terminator. The shared sign/magnitude tail of `readInteger` and
@@ -322,7 +322,7 @@ pub fn readIntegerValue(bytes: []const u8, cursor: *usize) Error!model.Integer {
     const digits = try scanDigits(bytes, cursor);
     // Capture the sign before `signedI64FromDigits` consumes the terminator: an
     // overflow (null) takes the arbitrary-precision arm, whose sign is that
-    // terminator. A non-sign terminator never returns null — it errors — so the
+    // terminator. A non-sign terminator errors instead of returning null, so the
     // captured byte is `+` or `-` on every path that reads it.
     const sign_byte = bytes[cursor.*];
     if (try signedI64FromDigits(digits, bytes, cursor)) |value| {

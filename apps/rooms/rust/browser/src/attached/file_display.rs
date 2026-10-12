@@ -1,5 +1,5 @@
 //! One browser display budget and Blob materializer for live and archived
-//! readers. Chunks cross Wasm once; the URL owns its charge until retirement.
+//! readers. Chunks cross Wasm once. The URL owns its charge until retirement.
 use crate::attached::{Environment, Result, observation::call};
 use rooms_application::files::{CHUNK_BYTES, receiving::Charge};
 use wasm_bindgen::prelude::*;

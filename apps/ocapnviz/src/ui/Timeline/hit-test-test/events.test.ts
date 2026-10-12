@@ -1,5 +1,5 @@
 /**
- * `hitTestEvents` — plot-area picks: spans, edges, glyphs, stacked
+ * `hitTestEvents`, plot-area picks: spans, edges, glyphs, stacked
  * rows. Geometry and fixtures live in `harness.ts`.
  */
 
@@ -108,7 +108,7 @@ Deno.test("hitTestEvents: peer without peer-left has no right-edge handle", () =
 Deno.test("hitTestEvents: authored peer with no observations gets an entity-addressed drag plan", () => {
 	// `add-peer` seeds entity.timing but emits no peer-joined
 	// observation. The renderer paints the peer via peerEffective(doc);
-	// the hit-test MUST agree — and the gesture must be retimeable
+	// the hit-test MUST agree, and the gesture must be retimeable
 	// exactly like a loaded peer's, addressed by entity instead of by
 	// an observation event (`move-entity-span` is the write path).
 	const doc: TimelineDocument = {
@@ -447,7 +447,7 @@ Deno.test("hitTestEvents: message body click returns message-sent event without 
 			arrivalT: 800,
 		},
 	];
-	// px(500) = 164 — middle of [200..800] span; py=70 → messages lane.
+	// px(500) = 164, middle of [200..800] span; py=70 → messages lane.
 	const hit = hitTestEvents(
 		164,
 		70,
@@ -535,7 +535,7 @@ Deno.test("hitTestEvents: expanded peers category — per-entity row narrows the
 	);
 	assertNotEquals(aliceHit, null);
 	assertEquals(aliceHit!.entity, { kind: "peer", id: "alice" });
-	// y=65..95 → bob row. Same t=500 — bob is alive, alice is too,
+	// y=65..95 → bob row. Same t=500, bob is alive, alice is too,
 	// but the row constraint locks the answer to bob.
 	const bobHit = hitTestEvents(
 		164,

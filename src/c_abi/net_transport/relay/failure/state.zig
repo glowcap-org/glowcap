@@ -2,7 +2,7 @@
 //!
 //! Reactor faults are terminal immediately. Operation teardown stays on its
 //! request/listener/connection tombstone until readiness lets the driver claim
-//! it; this state retains only cleanup whose operation recipient disappeared
+//! it. This state retains only cleanup whose operation recipient disappeared
 //! because the whole runtime is already releasing. Both classes share one
 //! observation-ordered release outcome without letting cleanup alone fail-stop
 //! otherwise live connections.

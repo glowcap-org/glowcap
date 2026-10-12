@@ -52,7 +52,7 @@ interface SettingsProps {
 	dir: DirView | null;
 	/** Which operations capabilities this tab holds, which draws the Operations control in the head. */
 	opsHeld: OpsHeld;
-	/** Whether the selected archive keeps message history; the Capabilities switch
+	/** Whether the selected archive keeps message history. The Capabilities switch
 	 * draws it and `session.setKeepHistory` flips it. */
 	keepHistory: boolean;
 	/** Where member-owned history is currently written. */
@@ -221,7 +221,7 @@ function SettingsDialog(
 						named={open}
 						ops={anyOpsHeld(opsHeld)
 							? {
-								// Operations is its own page now, so the control
+								// Operations is its own page, so the control
 								// navigates rather than layering: never pressed.
 								open: false,
 								onOpen: () => commitments.request(() => browser.openOperations()),

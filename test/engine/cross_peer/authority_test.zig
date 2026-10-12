@@ -377,7 +377,7 @@ test "the exporter authorizes a withdrawal against the gifter key it learned fro
     const recipient_pub = recipient_secret.publicKey();
 
     // A real keyed handshake for the gifter-to-exporter session, so the exporter
-    // learns the gifter's session key from `op:start-session` — not from an
+    // learns the gifter's session key from `op:start-session`, not from an
     // argument. gx.p1 is the gifter; gx.p2 is the exporter.
     var gx = try pairing.pairedWithKeys(allocator, gifter_seed, exporter_seed);
     defer gx.deinit();
@@ -501,9 +501,9 @@ test "a signed handoff give re-encodes across codecs and its gifter signature st
 
     // The cross-codec re-encode contract (ADR-0003 / ADR-0009): the signature
     // covers the *decoded* record's Syrup canonicalization, not the carrying
-    // codec's bytes. So for every ordered pair of distinct codecs — encode in
+    // codec's bytes. So for every ordered pair of distinct codecs, encode in
     // the source, decode to a typed record, re-encode into the target codec,
-    // decode again — re-deriving the signing domain reproduces the exact bytes
+    // decode again, re-deriving the signing domain reproduces the exact bytes
     // the gifter signed, and the carried signature still verifies over them.
     const codecs = [_]model.CodecId{ .syrup, .capnp };
     for (codecs) |source| {

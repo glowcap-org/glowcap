@@ -1,10 +1,10 @@
 //! Bounded local grant ancestry and lifecycle for a trusted resource owner.
 //! The owner creates its own use and control references for committed grants.
-//! Holders exercise those references; ID-based methods remain owner operations.
+//! Holders exercise those references. ID-based methods remain owner operations.
 //! The graph must outlive the ledger at a stable address. Its mutations and
 //! these calls are synchronous and serialized by the embedding application.
 //! Successful mutations return committed change events. Event delivery is a
-//! hosting effect; it never substitutes for evaluating current access.
+//! hosting effect. It never substitutes for evaluating current access.
 
 const std = @import("std");
 const identity = @import("identity.zig");
@@ -43,7 +43,7 @@ pub const GrantLedger = struct {
     pub const Error = types.Error;
 
     /// Reserves grant records and copies the runtime policy descriptor. A fresh
-    /// ledger requires a fresh authority store; an empty old owner is not restore.
+    /// ledger requires a fresh authority store. An empty old owner is not restore.
     pub fn init(allocator: std.mem.Allocator, graph: *Graph, descriptor: Policy.Descriptor, limits: Limits) Error!GrantLedger {
         if (limits.capacity == 0) return error.InvalidLimits;
         const policy = try Policy.init(descriptor);
@@ -67,7 +67,7 @@ pub const GrantLedger = struct {
     }
 
     /// The trusted owner allocates its own use reference to a committed grant.
-    /// The reference carries authority; recipients need no additional credential.
+    /// The reference carries authority. Recipients need no additional credential.
     pub fn createUse(self: *GrantLedger, id: GrantId) Error!*capability.GrantUse {
         return capability.createUse(self, id);
     }
@@ -176,7 +176,7 @@ pub const GrantLedger = struct {
     }
 
     /// A trusted storage adapter reports the outcome of this exact write. It
-    /// must retire its I/O before reporting; uncertainty keeps the model fenced.
+    /// must retire its I/O before reporting. Uncertainty keeps the model fenced.
     pub fn finishWrite(self: *GrantLedger, ticket: Ticket, outcome: Outcome) Error!Completion {
         return transaction.finishWrite(self, ticket, outcome);
     }

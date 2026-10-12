@@ -107,8 +107,8 @@ async def run() -> None:
     )
     to_exporter = await gifter_runtime.connect(exporter_uri)
     greeter_ref = await to_exporter.fetch("greeter")
-    # The exporter's own signed session record names it by node id alone — not
-    # dialable under the relay-less Direct posture — so record its full dialable
+    # The exporter's own signed session record names it by node id alone, not
+    # dialable under the relay-less Direct posture, so record its full dialable
     # location (id + direct-addresses) as the give's exporter location.
     to_exporter.set_exporter_locator(Locator(
         "iroh",

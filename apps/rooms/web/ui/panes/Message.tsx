@@ -1,3 +1,5 @@
+import { messageEditing, messageWithdrawing } from "../../../lib/text/controls.ts";
+import { PRESENTATION, useProgress } from "../presentation.ts";
 // One stack of messages from one speaker, and the small toolbar that hangs off
 // it. Consecutive lines from the same person inside a few minutes share a row:
 // one avatar, one name, one timestamp, and a bubble each.
@@ -56,11 +58,11 @@ function LineMenu(
 	const [above, setAbove] = useState(false);
 	const [inward, setInward] = useState(false);
 	const { open, setOpen, holder, trigger, layer } = useMenu();
-	const { copy } = useCopy(item.text);
+	const { copy } = useCopy(item.pendingEdit?.text ?? item.text);
 	// Copying is about the words; there are none on a line that was taken back.
-	const words = !item.withdrawn && item.text !== "";
+	const words = !item.withdrawn && item.withdrawal == null && item.text !== "";
 	// Changing and taking back are the reference this tab holds, not authorship.
-	const held = item.held === true && !item.withdrawn;
+	const held = item.held === true && !item.withdrawn && item.withdrawal == null && item.pendingEdit == null;
 
 	if (!words && !held && item.mine) return null;
 	// The exact minute this line landed rides the same reveal as the mark: the
@@ -143,8 +145,8 @@ function LineMenu(
 							>
 								{
 									/* What it does, which is not deleting. The line keeps its
-								    place and says what became of it — the comment on that
-								    place says why — so a control promising removal promised
+								    place and says what became of it, the comment on that
+								    place says why, so a control promising removal promised
 								    something the room does not do, and the reader met the
 								    other word a moment later in "Message withdrawn". */
 								}
@@ -162,8 +164,8 @@ function LineMenu(
  * rather open upward. Three rows and their padding, rounded up. */
 const MENU_ROOM_PX = 130;
 /** How much room it needs beside the mark before it would rather open over the
- * bubble. A wide picture takes nearly the column, so the default — off the
- * bubble, away from the words — runs off the screen. */
+ * bubble. A wide picture takes nearly the column, so the default (off the
+ * bubble, away from the words) runs off the screen. */
 const MENU_WIDTH_PX = 168;
 
 function placeLineMenu(at: DOMRect, mine: boolean): { above: boolean; inward: boolean } {
@@ -198,16 +200,21 @@ function Bubble(
 		changing: boolean;
 	},
 ) {
-	const reading = useMemo(() => readRichText(item.text), [item.text]);
+	const sending = useProgress(item.state === "sending", PRESENTATION.sending, item.operation ?? item.id);
+	const displayed = item.pendingEdit?.text ?? item.text;
+	const editing = useProgress(item.pendingEdit != null, PRESENTATION.busy, item.pendingEdit?.operation);
+	const reading = useMemo(() => readRichText(displayed), [displayed]);
 	const highlight = !item.mine && richTextMentions(reading, nick);
 	const layouts = item.attachments === undefined ? undefined : mediaLayouts(item.attachments);
 	// A withdrawn line shows nothing of what it said. Keeping the text and
 	// striking it through would be a worse lie than deleting it: it would leave
 	// the words readable while claiming they had been taken back.
-	const body = item.withdrawn ? null : (
+	const body = item.withdrawn || item.withdrawal != null ? null : (
 		<>
-			<RichText text={item.text} nick={nick} reading={reading} />
-			{item.previewUrls !== undefined && <MessageLinkPreviews text={item.text} urls={item.previewUrls} />}
+			<RichText text={displayed} nick={nick} reading={reading} />
+			{item.pendingEdit == null && item.previewUrls !== undefined && (
+				<MessageLinkPreviews text={item.text} urls={item.previewUrls} />
+			)}
 			{item.attachments !== undefined && (
 				<div className={`attachment-set${layouts === undefined ? "" : " image-grid"}`}>
 					{item.attachments.map((file, at) => (
@@ -225,10 +232,11 @@ function Bubble(
 		</>
 	);
 	const className = "bubble" + (highlight ? " hl" : "") +
-		(item.state ? " " + item.state : "") + (item.withdrawn ? " withdrawn" : "") +
+		(item.state && (item.state !== "sending" || sending) ? " " + item.state : "") +
+		(item.withdrawn ? " withdrawn" : "") +
 		(changing ? " changing" : "");
 	return (
-		<div className={className} title={item.state === "sending" ? messageSendingLong : undefined}>
+		<div className={className} title={sending ? messageSendingLong : undefined}>
 			{
 				/* On your own lines, and on the line rather than on the group: a group
 			    is however many things you said close together, and changing one of
@@ -241,6 +249,10 @@ function Bubble(
 			    a conversation looked like to somebody scrolling it later. So the
 			    place stays and says what happened to it. */
 			}
+			{editing && <span className="withdrawn-said" role="status">{messageEditing}</span>}
+			{item.editFailure && <span className="delivery-failure" role="alert">{item.editFailure}</span>}
+			{item.withdrawal != null && <span className="withdrawn-said" role="status">{messageWithdrawing}</span>}
+			{item.withdrawalFailure && <span className="delivery-failure" role="alert">{item.withdrawalFailure}</span>}
 			{item.withdrawn && <span className="withdrawn-said">{messageWithdrawn}</span>}
 			<LineMenu item={item} onEdit={onEdit} onWithdraw={onWithdraw} onMention={onMention} />
 			{body}
@@ -248,23 +260,25 @@ function Bubble(
 				/* Changed since it was said: after the words, because it qualifies
 			    them rather than being one of them. Worth saying at all because a
 			    reader who answered what this used to say should be able to see that
-			    it moved under them — and worth saying *here* because drawn before
+			    it moved under them, and worth saying *here* because drawn before
 			    the line it is about, it would read as a label on the message rather
 			    than a note at the end of it. */
 			}
-			{item.edited && !item.withdrawn && <span className="edited-said">{messageEdited}</span>}
-			{item.state === "sending" && item.attachments !== undefined && (
+			{item.edited && !item.withdrawn && item.withdrawal == null && (
+				<span className="edited-said">{messageEdited}</span>
+			)}
+			{sending && (
 				<div className="delivery-failure" role="status">
 					<span>{messageSending}</span>
 				</div>
 			)}
 			{
 				/* Not sent, and whether that is the end of it. A line lost with a
-				    session carries the way to send it again; one typed into a
+				    session carries the way to send it again. One typed into a
 				    conversation whose member has left carries none, because there is
-				    nothing pressing it could reach — the room has the name back and
+				    nothing pressing it could reach: the room has the name back and
 				    the next holder is someone else. The line in the log says that in
-				    full; what this must not do is offer an action against it. */
+				    full. What this must not do is offer an action against it. */
 			}
 			{isUnsent(item.state) && (
 				<div className="delivery-failure" role="status">
@@ -287,7 +301,7 @@ function Bubble(
 
 // A group is rebuilt on every pass over the history, so identity says nothing.
 // What matters is whether it holds the same lines, and a line is only replaced
-// when it actually changes — so comparing the members element by element lets an
+// when it changes. So comparing the members element by element lets an
 // arriving message repaint one row instead of the whole log.
 function sameGroup(a: Group, b: Group): boolean {
 	// `blocksOf` is memoised, so when the history has not changed these are the
@@ -359,7 +373,7 @@ export const MessageGroup = memo(function MessageGroup(
 	);
 	// Prop by prop, and a prop missing from this list is a group that stops
 	// repainting rather than an error anybody sees. `bridge` compares by identity
-	// because `setBridgeFacts` only replaces it when a value actually changed.
+	// because `setBridgeFacts` only replaces it when a value changed.
 }, (prev, next) =>
 	prev.nick === next.nick &&
 	prev.bridge === next.bridge &&

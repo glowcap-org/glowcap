@@ -3,7 +3,7 @@ id: ADR-0124
 status: accepted
 date: 2026-08-24
 tags: [c-abi, bindings, session, memory, configuration]
-decision: "The C Host applies selective session limits through one versioned, caller-owned GlowcapSessionLimitOptions record. Zero fields preserve the current value; the record includes independent transient outbound and durable sent-answer byte budgets, and every binding projects it as one named options value."
+decision: "The C Host applies selective session limits through one versioned, caller-owned GlowcapSessionLimitOptions record. Zero fields preserve the current value. The record includes independent transient outbound and durable sent-answer byte budgets, and every binding projects it as one named options value."
 supersedes: []
 superseded_by: []
 amends: [ADR-0082, ADR-0121, ADR-0123]
@@ -14,15 +14,11 @@ amended_by: []
 
 ## Context
 
-The byte-fed Host originally exposed three positional limit arguments. Adding
-the durable sent-answer budget from ADR-0121 would have made four adjacent
-integer parameters with different ownership and lifetimes. That surface was
-easy to transpose and had no principled extension point. Leaving the durable
-budget at its default in C and the bindings would also make the public Host less
-resource-honest than the Zig Host it wraps.
-
-glowcap is prerelease, so preserving the positional spelling as a compatibility
-shim would retain the ambiguity without serving a released consumer.
+Four adjacent positional integer parameters with different ownership and
+lifetimes (three limits plus the durable sent-answer budget from ADR-0121) are
+easy to transpose and have no extension point. Leaving the durable budget at its
+default in C and the bindings would make the public Host less resource-honest
+than the Zig Host it wraps.
 
 ## Decision
 
@@ -30,10 +26,10 @@ shim would retain the ambiguity without serving a released consumer.
 `GlowcapSessionLimitOptions`. The record carries `abi_version`, `struct_size`,
 and four selective overrides:
 
-- inbound frame bytes;
-- pending-answer queue entries;
-- transient outbound bytes; and
-- durable bytes retained by sent inbound answers.
+- inbound frame bytes
+- pending-answer queue entries
+- transient outbound bytes
+- durable bytes retained by sent inbound answers
 
 Every zero field preserves the Host's current value, and every nonzero field is
 copied before the call returns. The record is validated in full before the Host
@@ -54,10 +50,9 @@ function signature participate in the archive fingerprint.
 - C and every binding can tune the durable answer-store budget rather than
   accepting an unchangeable default.
 - Configuration costs one caller-owned fixed-size record per call. Session
-  construction copies scalar values; steady-state framing, settlement, and
+  construction copies scalar values. Steady-state framing, settlement, and
   answer GC gain no allocation, copy, or additional per-peer field.
-- The prerelease positional C function and binding methods are removed rather
-  than retained as parallel APIs.
+- No positional C function or binding method parallels the options record.
 
 ## Evidence
 

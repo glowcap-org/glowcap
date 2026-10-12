@@ -36,7 +36,7 @@ impl RoomsManagedDirectoryAcquisition {
 #[wasm_bindgen]
 impl RoomsManagedWorkspace {
 	/// Preparation fetches once and retains the complete candidate. Submission
-	/// compares the saved revision; it never overwrites an intervening workspace.
+	/// compares the saved revision. It never overwrites an intervening workspace.
 	#[wasm_bindgen(js_name = prepareDirectory)]
 	pub fn prepare_directory(
 		&self,

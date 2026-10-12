@@ -1,5 +1,5 @@
 #lang racket/base
-;; glowcap-iroh-caller.rkt — a Goblins client that calls a glowcap actor over
+;; glowcap-iroh-caller.rkt: a Goblins client that calls a glowcap actor over
 ;; iroh's encrypted QUIC.
 ;;
 ;; It is `glowcap-actor-call.rkt`'s sibling, and the only difference is the

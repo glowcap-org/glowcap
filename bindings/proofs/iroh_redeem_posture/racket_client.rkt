@@ -1,27 +1,27 @@
 #lang racket
 ;; Hermetic proof that a recipient's *configured redeem posture* governs how a
-;; hint-less iroh handoff give is dialed (ADR-0009), all in the Racket binding —
+;; hint-less iroh handoff give is dialed (ADR-0009), all in the Racket binding:
 ;; the sibling of the Rust/Python `iroh_redeem_posture` clients.
 ;;
 ;; A give whose exporter location names the exporter by node id alone (no
-;; `direct-addresses`) cannot be dialed DIRECT — the recipient must resolve the
+;; `direct-addresses`) cannot be dialed DIRECT: the recipient must resolve the
 ;; id. Which discovery posture it resolves under is the recipient node's
 ;; `set-host-redeem-reachability!` knob: DISCOVERY (n0 relays + DNS/pkarr) by
 ;; default, lowerable for a deployment policy. This gate sets that knob to
-;; LOCAL-DISCOVERY — an in-process address book, no network — and proves the
+;; LOCAL-DISCOVERY, an in-process address book, no network, and proves the
 ;; hint-less redeem dials by id through it and withdraws the gift.
 ;;
 ;; It is a *discriminating* proof: with the default DISCOVERY, the hint-less
 ;; redeem would reach for n0's public relays + DNS and fail with no internet; the
 ;; redeem succeeds here only because `dial-exporter` honors the configured
-;; posture. Deterministic and flake-free — three LOCAL-DISCOVERY endpoints in one
+;; posture. Deterministic and flake-free: three LOCAL-DISCOVERY endpoints in one
 ;; process sharing one address book.
 ;;
 ;; Topology:
 ;;   Exporter  binds a LOCAL-DISCOVERY endpoint, publishes a Host-published `greeter`.
 ;;   Gifter    binds its own endpoint, dials the exporter by id (one node
 ;;             identity), fetches the greeter, and records the exporter's id-only
-;;             location as the give's exporter location — a hint-less give.
+;;             location as the give's exporter location: a hint-less give.
 ;;   Recipient binds its own endpoint, sets its redeem posture to LOCAL-DISCOVERY,
 ;;             dials the gifter, asks for the greeter, redeems the hint-less give
 ;;             by resolving the exporter's id through the book, and calls it.

@@ -134,12 +134,12 @@
     [else #f]))
 
 ;; The drain's settle arm: record the outcome, drop the table row (a vow
-;; settles once), and hand back the parked listeners as fire thunks — a
+;; settles once), and hand back the parked listeners as fire thunks. A
 ;; listener is arbitrary application code (the vat's `on`), so it must run
 ;; after the host lock releases, never under it, or a listener that pumps
 ;; could park the whole node. State mutation stays under the lock, so a
 ;; blocking `session-await`'s state poll never races the fire. An unregistered
-;; id yields nothing — an outcome nobody awaits.
+;; id yields nothing: an outcome nobody awaits.
 (define (settle-vow! m id outcome)
   (define boxed (hash-ref (host-vows m) id #f))
   (define v (vow-entry-value boxed))
@@ -325,7 +325,7 @@
 ;; (Goblins `<-np`). Promise-pipelined targets ride `vow_send`.
 ;; `session-listen`'s wire half: mint the listen vow over a held far reference
 ;; (CapTP op:listen) and hand back the vow. The session API owns
-;; profile-specific target legality. The vow is plain — a listen may settle to
+;; profile-specific target legality. The vow is plain: a listen may settle to
 ;; any value, not only a capability.
 (define (listen-far c target)
   (define m (session-host c))

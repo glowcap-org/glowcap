@@ -1,11 +1,11 @@
-//! The iroh transport's public C ABI — a host-driven netlayer boundary for C,
+//! The iroh transport's public C ABI, a host-driven netlayer boundary for C,
 //! the encrypted-QUIC sibling of the blocking TCP endpoints.
 //!
 //! This is a *separate artifact* from `libglowcap_ocapn` (ADR-0055): it links the
 //! Rust iroh sidecar, so folding it into the pure-Zig core would drag cargo
 //! into every consumer of the protocol library. The artifact
 //! (`libglowcap_net_transport_iroh`) is a *companion*, not a superset: it imports only the
-//! shared vocabulary leaf (`@import("c_abi_shared")` — frame/context types,
+//! shared vocabulary leaf (`@import("c_abi_shared")`, frame/context types,
 //! codes, allocation, the last-error slot), so it exports just the `glowcap_iroh_*`
 //! family and shares no core symbol with `libglowcap_ocapn`. A consumer links both
 //! libraries (core for the peer surface, this for the transport) and reuses the
@@ -15,7 +15,7 @@
 //! There is one I/O model (ADR-0057): an event-driven readiness loop, armed at
 //! construction, that serves many connections from one host thread. The netlayer
 //! hands back a single OS readiness fd (`glowcap_iroh_netlayer_readiness_fd`) the
-//! host parks on with its own poller; when it signals,
+//! host parks on with its own poller. When it signals,
 //! `glowcap_iroh_netlayer_drain_ready` drains the pending readiness records,
 //! `_try_accept` claims accepts, and `_conn_try_read` / `_conn_try_write` move
 //! raw bytes without ever parking on a connection. Because no call parks on a
@@ -37,14 +37,14 @@
 //! There is no channel object over them, because the wait a channel needs is
 //! your own reactor's, and only the caller can hold it.
 //!
-//! Symbol names deliberately avoid the sidecar's own `glowcap_iroh_sidecar_*`
+//! Symbol names avoid the sidecar's own `glowcap_iroh_sidecar_*`
 //! exports (`glowcap_iroh_sidecar_connect_blocking`, `glowcap_iroh_sidecar_conn_close`,
 //! …): this public surface is `glowcap_iroh_netlayer_*` and
 //! `glowcap_iroh_conn_{try_read,try_write}` / `_release`, so the private
 //! byte-level seam and the public loop-level ABI share no prefix and the two
 //! C ABIs link into one library without colliding.
 //!
-//! Threading: a `GlowcapIrohConn` is single-owner like a peer — serialize every
+//! Threading: a `GlowcapIrohConn` is single-owner like a peer: serialize every
 //! call on one onto one thread. Distinct connections are independent. Run the
 //! netlayer's readiness wait (the host's poll on `readiness_fd`) and its
 //! `drain_ready` on one thread per netlayer, serialized against `_release` of the
@@ -59,8 +59,8 @@ const ownership = @import("ownership.zig");
 const loop = @import("loop.zig");
 const provider = @import("provider.zig");
 
-// The shared C-ABI vocabulary leaf — types, codes, allocation policy,
-// managed-frame machinery, and the per-thread last-error slot — *not* the
+// The shared C-ABI vocabulary leaf (types, codes, allocation policy,
+// managed-frame machinery, and the per-thread last-error slot), not the
 // `c_abi` root. Importing the leaf gives this transport ABI the same frame and
 // context types `glowcap_ocapn.h` declares, with its own compiled copy of the helpers
 // and last-error slot, and pulls *none* of libglowcap_ocapn's exported `glowcap_*`
@@ -89,7 +89,7 @@ pub export fn glowcap_iroh_archive_fingerprint() u64 {
 /// every connection.
 pub const GlowcapIrohNetlayer = ownership.GlowcapIrohNetlayer;
 /// One QUIC connection carrying one OCapN session, framed on the netlayer's
-/// codec. Owned by the caller; released with `glowcap_iroh_conn_release`.
+/// codec. Owned by the caller. Released with `glowcap_iroh_conn_release`.
 pub const GlowcapIrohConn = ownership.GlowcapIrohConn;
 
 const NetlayerPayload = ownership.NetlayerPayload;
@@ -105,7 +105,7 @@ const GLOWCAP_ERR_INTERNAL = c.GLOWCAP_ERR_INTERNAL;
 const GLOWCAP_ERR_IO = c.GLOWCAP_ERR_IO;
 
 /// The annotated symbol inventory (crossing semantics per export) the
-/// binding FFI-table generators reflect from — see `symbols.zig`.
+/// binding FFI-table generators reflect from. See `symbols.zig`.
 pub const symbols = @import("symbols.zig");
 
 /// Copy the calling thread's last iroh-transport error message into `out_buf`,
@@ -113,7 +113,7 @@ pub const symbols = @import("symbols.zig");
 /// per-thread slot (a separate compiled copy of the shared leaf's slot), so a
 /// `glowcap_iroh_*` call that returns `GLOWCAP_ERR_IO` records its cause here,
 /// readable independently of libglowcap_ocapn's. Copies at most `cap - 1` bytes and
-/// always NUL-terminates when `cap > 0`; `out_buf == NULL` or `cap == 0`
+/// always NUL-terminates when `cap > 0`. `out_buf == NULL` or `cap == 0`
 /// queries the length. Returns the full message length, or 0 when none is set.
 pub export fn glowcap_iroh_last_error(out_buf: ?[*]u8, cap: usize) usize {
     return c.lastErrorRead(out_buf, cap);
@@ -126,7 +126,7 @@ pub export fn glowcap_iroh_clear_last_error() void {
 
 /// Readiness event bits, mirroring the header's `GLOWCAP_IROH_EV_*`. Defined
 /// from the resident's `loop_ev_*` values so the compiler holds this mirror and
-/// the resident/sidecar values in lockstep; the generated header renders these
+/// the resident/sidecar values in lockstep. The generated header renders these
 /// values. A drained record may carry several at once.
 pub const GLOWCAP_IROH_EV_READABLE = loop.GLOWCAP_IROH_EV_READABLE;
 pub const GLOWCAP_IROH_EV_WRITABLE = loop.GLOWCAP_IROH_EV_WRITABLE;
@@ -136,7 +136,7 @@ pub const GLOWCAP_IROH_EV_CONNECT = loop.GLOWCAP_IROH_EV_CONNECT;
 
 /// Reachability postures, mirroring the header's `GLOWCAP_IROH_REACH_*`.
 /// Defined from the resident's `Reachability` enum so the compiler holds the
-/// mirror in lockstep; the generated header and the binding constant modules
+/// mirror in lockstep. The generated header and the binding constant modules
 /// (`gen-binding-constants`, `gen-ts-abi`) render these values rather than
 /// hand-typing them.
 pub const GLOWCAP_IROH_REACH_DIRECT: u32 = @backingInt(iroh.Reachability.direct);
@@ -146,7 +146,7 @@ pub const GLOWCAP_IROH_REACH_LOCAL_DISCOVERY: u32 = @backingInt(iroh.Reachabilit
 
 /// The posture a Host redeems a hint-less handoff give under until the embedder
 /// sets one: discovery, the maximal-reach choice. The netlayer constructor
-/// still takes no default — this names the redeem knob's one starting value so
+/// still takes no default. This names the redeem knob's one starting value so
 /// every binding initializes from the same fact instead of hand-typing it.
 pub const GLOWCAP_IROH_REACH_REDEEM_DEFAULT: u32 = GLOWCAP_IROH_REACH_DISCOVERY;
 pub const GLOWCAP_IROH_NODE_ID_BYTES: usize = iroh.node_id_len;
@@ -161,17 +161,17 @@ pub const GlowcapIrohReadyEvent = loop.GlowcapIrohReadyEvent;
 
 /// One iroh endpoint's configuration, filled by the caller and passed to
 /// `glowcap_iroh_netlayer_new` / `_new_in`. `reachability` is mandatory (one of
-/// `GLOWCAP_IROH_REACH_*`; an unknown value is refused). `connect_timeout_ms` is
-/// the per-endpoint stream-establishment deadline in milliseconds — the dial's
-/// connect + first-stream open and each accepted stream ride it — with 0 meaning
+/// `GLOWCAP_IROH_REACH_*`, an unknown value is refused). `connect_timeout_ms` is
+/// the per-endpoint stream-establishment deadline in milliseconds (the dial's
+/// connect + first-stream open and each accepted stream ride it), with 0 meaning
 /// glowcap's thirty seconds.
 ///
 /// Every 0 here means glowcap's number, never the QUIC stack's own. That
 /// distinction matters most for `idle_timeout_ms` below, where glowcap's
-/// deliberately replaces a longer one the stack would otherwise use.
+/// replaces a longer one the stack would otherwise use.
 ///
 /// `idle_timeout_ms` bounds how long a connection survives without a packet
-/// from the far end. **This is the authority for what that setting means**; the
+/// from the far end. **This is the authority for what that setting means**. The
 /// residents and every binding's own config mirror this struct and point here.
 ///
 /// It decides how quickly a peer that was killed rather than closed stops
@@ -184,7 +184,7 @@ pub const GlowcapIrohReadyEvent = loop.GlowcapIrohReadyEvent;
 /// shorter than its own heartbeat drops connections whose peers are answering,
 /// so the transport derives the heartbeat from this value.
 ///
-/// `worker_threads` sizes this endpoint's runtime; 0 takes glowcap's two. That
+/// `worker_threads` sizes this endpoint's runtime. 0 takes glowcap's two. That
 /// is glowcap's number rather than the async runtime's own, which sizes itself
 /// to the machine's cores. It is a per-endpoint cost, so a process holding many
 /// endpoints, or one endpoint holding many connections, is the caller that
@@ -207,16 +207,16 @@ pub const GlowcapIrohConfig = extern struct {
 /// Create an iroh netlayer (one bound endpoint) allocating through the
 /// library-owned allocator. `secret_seed`/`secret_seed_len` is either a 32-byte
 /// Ed25519 secret key (borrowed) or empty (`secret_seed_len == 0`) for a fresh
-/// random key; any other length is `GLOWCAP_ERR_INVALID_ARGUMENT`.
-/// `config` carries the mandatory reachability (`GLOWCAP_IROH_REACH_*`; an
+/// random key. Any other length is `GLOWCAP_ERR_INVALID_ARGUMENT`.
+/// `config` carries the mandatory reachability (`GLOWCAP_IROH_REACH_*`, an
 /// unknown value or a null `config` is `GLOWCAP_ERR_INVALID_ARGUMENT` /
 /// `GLOWCAP_ERR_NULL_POINTER`) and the optional `connect_timeout_ms` (0 = the
 /// glowcap's own default). Binds the endpoint and arms
 /// the readiness loop, so the returned netlayer is immediately driveable through
-/// `glowcap_iroh_netlayer_readiness_fd`; `GLOWCAP_ERR_IO` (see
+/// `glowcap_iroh_netlayer_readiness_fd`. `GLOWCAP_ERR_IO` (see
 /// `glowcap_iroh_last_error`) if the endpoint cannot bind or the loop cannot arm.
 /// Release with `glowcap_iroh_netlayer_release` (prefer releasing every connection
-/// made from it first; leftovers are drained on release).
+/// made from it first, leftovers are drained on release).
 fn irohNetlayerNew(
     secret_seed: ?[*]const u8,
     secret_seed_len: usize,
@@ -416,7 +416,7 @@ pub export fn glowcap_iroh_netlayer_release(
 
 // ── Addressing ───────────────────────────────────────────────────────────────
 
-/// Write this endpoint's id — its Ed25519 public key, the dialable designator —
+/// Write this endpoint's id, its Ed25519 public key, the dialable designator,
 /// into `out` as lowercase hex, and the byte count into `out_len`. `cap` must
 /// be at least `GLOWCAP_IROH_NODE_ID_BYTES`.
 /// No terminator is written.

@@ -24,7 +24,7 @@ const proof_dir = "apps/rooms/test";
 const owner_rel = "support/children.ts";
 
 /// Spawning a child without adopting its process group. An awaited `.output()`
-/// is deliberately absent: it cannot outlive the call that made it, so it needs
+/// is absent: it cannot outlive the call that made it, so it needs
 /// no owner.
 const spawn_needle = ".spawn()";
 

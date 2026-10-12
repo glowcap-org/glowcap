@@ -2,7 +2,7 @@
 //! stops reading, proven deterministically on scripted backends: accept and
 //! keepalive failures surface typed and close cleanly, a per-connection drive
 //! failure closes that connection and not the loop, and outbound past the
-//! high-water mark parks reads until the partner drains — the exact
+//! high-water mark parks reads until the partner drains, the exact
 //! park/resume order ADR-0042 promises, read from the fake's journal.
 
 const std = @import("std");
@@ -128,7 +128,7 @@ test "completion loop: accept completion preserves its typed failure" {
 
     try std.testing.expectError(error.TestAcceptFailure, loop.run(.{ .after_closed = 1 }));
     // The accept was re-armed before the failure reached the owner, so a caller
-    // that deliberately resumes the loop does not lose listener readiness.
+    // that resumes the loop does not lose listener readiness.
     try std.testing.expect(loop.accept_armed);
 }
 
@@ -289,6 +289,12 @@ const OneBadPartnerBackend = struct {
 
     pub fn loopListenTarget(port: u16) ListenTarget {
         return port;
+    }
+
+    /// A scripted listener binds at `openListener`; nothing pends here; a
+    /// wrapped adapter's pending setup reports through the adapter itself.
+    pub fn listenerPending(_: *@This(), _: Fd) bool {
+        return false;
     }
 
     pub fn openListener(self: *@This(), port: u16) !Fd {

@@ -1,5 +1,5 @@
 //! One directory identity across child incarnations. An attached TCP server
-//! remains externally owned; loss of that server triggers verified takeover.
+//! remains externally owned. Loss of that server triggers verified takeover.
 use super::{
 	notice::{Notice, Report},
 	process::{Process, Temporary},
@@ -60,7 +60,7 @@ impl Supervisor {
 				owner.close().await?;
 				Ok(None)
 			}
-			Err(error) => Err(cleanup::combine(Err(error), owner.close().await).expect_err("startup failed")),
+			Err(error) => Err(cleanup::failed(error, owner.close().await)),
 		}
 	}
 
@@ -75,10 +75,11 @@ impl Supervisor {
 			return Ok(attached);
 		}
 		let deadline = self.spawn().await?;
+		let child = self.child.as_mut().ok_or("server child was not started")?;
 		tokio::select! {
 			biased;
 			_ = super::stopped(&mut stop) => Ok(None),
-			ready = self.child.as_mut().unwrap().announcement(deadline) => ready.map(Some),
+			ready = child.announcement(deadline) => ready.map(Some),
 		}
 	}
 
@@ -140,7 +141,19 @@ impl Supervisor {
 		} else {
 			None
 		};
-		Ok(Some(Announcement::new(locator, trace, Some(endpoint))))
+		let mut announcement = Announcement::new(locator, trace, Some(endpoint));
+		announcement.trace_locator = trace
+			.map(|port| {
+				crate::server::trace_locator(
+					port,
+					self.config.room.trace_publish.clone(),
+					self.config.room.trace_connect.clone(),
+				)
+				.and_then(|locator| glowcap::format_locator_uri(&locator).map_err(crate::server::Error::from))
+				.map_err(|e| e.to_string())
+			})
+			.transpose()?;
+		Ok(Some(announcement))
 	}
 	async fn spawn(&mut self) -> Result<Duration, String> {
 		if let Some(previous) = self.forward.take() {
@@ -225,9 +238,7 @@ impl Supervisor {
 					if let Some(child) = &mut self.child
 						&& let Err(retirement) = child.close().await
 					{
-						break Err(
-							cleanup::combine(Err(error), Err(retirement)).expect_err("restart and retirement failed")
-						);
+						break Err(cleanup::failed(error, Err(retirement)));
 					}
 					self.child = None;
 					backoff = restart_wait(backoff, Duration::ZERO);
@@ -301,7 +312,7 @@ async fn probe(endpoint: &Endpoint, mut stop: watch::Receiver<bool>) -> Result<S
 	let retired = runtime.close(PendingWork::Cancel).await.map_err(|e| e.to_string());
 	match served {
 		Ok(locator) => retired.map(|()| locator),
-		Err(error) => Err(cleanup::combine(Err(error), retired).expect_err("probe failed")),
+		Err(error) => Err(cleanup::failed(error, retired)),
 	}
 }
 

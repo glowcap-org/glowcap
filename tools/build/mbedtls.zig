@@ -270,6 +270,24 @@ pub fn relayAbiModules(
     return .{ .production = production, .check = check };
 }
 
+/// Install the relay archive with its compiler and TLS runtimes private on ELF.
+pub fn installArchive(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    module: *std.Build.Module,
+    version: std.SemanticVersion,
+) common.InstalledArchive {
+    const archive = common.installArchive(b, "glowcap_net_transport_relay", module, version);
+    if (target.result.ofmt == .elf) {
+        archive.dynamic.version_script = b.path("tools/build/exports/relay.map");
+        // The self-hosted linker does not enforce version scripts. LLVM/lld
+        // holds the same export boundary as the iroh and WebRTC companions.
+        archive.dynamic.use_llvm = true;
+        archive.dynamic.use_lld = true;
+    }
+    return archive;
+}
+
 /// Prove the installed archive shape that module-level tests cannot see: the
 /// static archive links without a separately installed vendor library, while
 /// the shared archive exports only Glowcap's relay family.

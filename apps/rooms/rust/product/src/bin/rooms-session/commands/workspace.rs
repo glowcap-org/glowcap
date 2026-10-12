@@ -1,5 +1,5 @@
 //! Human choices select typed custody and original command results. Routes are
-//! transient acquisition input; managed workspace rows contain no bearer links.
+//! transient acquisition input. Managed workspace rows contain no bearer links.
 use super::{Failure, Options, acquisition::submit as acquire, command, request};
 use rooms_application::{
 	content::session::workspace,
@@ -11,6 +11,17 @@ fn rows<'a>(value: &'a Value, name: &str) -> Result<&'a Vec<Value>, Failure> {
 	value[name]
 		.as_array()
 		.ok_or_else(|| Failure::invalid(format!("session response lacks {name}")))
+}
+fn rows_mut<'a>(value: &'a mut Value, name: &str) -> Result<&'a mut Vec<Value>, Failure> {
+	value[name]
+		.as_array_mut()
+		.ok_or_else(|| Failure::invalid(format!("session response lacks {name}")))
+}
+fn id_text(row: &Value) -> Result<String, Failure> {
+	row["id"]
+		.as_str()
+		.map(str::to_owned)
+		.ok_or_else(|| Failure::invalid("session response row lacks id text"))
 }
 fn revision(status: &Value) -> Result<u64, Failure> {
 	status["revision"]
@@ -66,7 +77,7 @@ pub async fn directory(options: &Options) -> Result<Value, Failure> {
 			let source = fresh()?;
 			let entry = json!({"id":address["id"],"access":access,"source":source,"home":directories.is_empty(),"nick":nick,"nickAllocation":"automatic","standing":null});
 			let mut intent = status["workspace"].clone();
-			intent["directories"].as_array_mut().unwrap().push(entry.clone());
+			rows_mut(&mut intent, "directories")?.push(entry.clone());
 			acquire(options,json!({"kind":"workspace","base":revision(&status)?,"imports":[{"coordinate":coordinate("directoryAccess",&access),"uri":address["uri"]}],"source":source,"releases":[],"intent":intent})).await?;
 			entry
 		}
@@ -92,11 +103,11 @@ pub async fn directory(options: &Options) -> Result<Value, Failure> {
 		})
 	})
 	.await?;
-	Ok(rows(&ready["workspace"], "directories")?
+	rows(&ready["workspace"], "directories")?
 		.iter()
 		.find(|row| row["id"] == entry["id"])
-		.unwrap()
-		.clone())
+		.cloned()
+		.ok_or_else(|| Failure::invalid("registered directory left the workspace"))
 }
 struct ResultAcquisition {
 	intent: Value,
@@ -156,7 +167,7 @@ pub async fn join(options: &Options) -> Result<Value, Failure> {
 				let (verb, args) = (
 					"openManagedRoom",
 					vec![
-						directory["id"].as_str().unwrap().into(),
+						id_text(&directory)?,
 						name.clone(),
 						"listed".into(),
 						"open".into(),
@@ -188,13 +199,10 @@ pub async fn join(options: &Options) -> Result<Value, Failure> {
 					control: Some(field(control.clone())?),
 					reconnect: workspace::Reconnect::Requested,
 					standing: None,
-					draft: Text::new("".into()).expect("empty draft"),
+					draft: Text::default(),
 				});
 				let mut intent = status["workspace"].clone();
-				intent["conversations"]
-					.as_array_mut()
-					.unwrap()
-					.push(conversation.clone());
+				rows_mut(&mut intent, "conversations")?.push(conversation.clone());
 				let result = &submitted["result"];
 				let mappings = vec![
 					json!([
@@ -272,7 +280,7 @@ pub async fn target(options: &Options) -> Result<String, Failure> {
 		if found.len() != 1 {
 			return Err(Failure::invalid("room is missing or ambiguous; use --conversation"));
 		}
-		return Ok(found[0]["id"].as_str().unwrap().into());
+		return id_text(found[0]);
 	}
 	let peer = options
 		.get("dm")
@@ -305,14 +313,9 @@ pub async fn target(options: &Options) -> Result<String, Failure> {
 				.iter()
 				.all(|key| row["introduction"][key] == introduction[key])
 	}) {
-		return Ok(row["id"].as_str().unwrap().into());
+		return id_text(row);
 	}
-	let args = vec![
-		directory["id"].as_str().unwrap().into(),
-		peer.into(),
-		registration.into(),
-		opening.clone(),
-	];
+	let args = vec![id_text(&directory)?, peer.into(), registration.into(), opening.clone()];
 	let setup = setup(options);
 	let mut submitted = super::admission::command_at(&setup, "startDirect", args.clone(), status.clone()).await?;
 	if submitted["result"]["status"] == "pending" {
@@ -354,7 +357,7 @@ pub async fn target(options: &Options) -> Result<String, Failure> {
 	let source = fresh()?;
 	let access = fresh()?;
 	let mut intent = status["workspace"].clone();
-	intent["conversations"].as_array_mut().unwrap().push(json!({"kind":"direct","id":id,"directory":directory["id"],"peer":peer,"source":source,"access":access,"introduction":introduction,"closed":false,"draft":""}));
+	rows_mut(&mut intent, "conversations")?.push(json!({"kind":"direct","id":id,"directory":directory["id"],"peer":peer,"source":source,"access":access,"introduction":introduction,"closed":false,"draft":""}));
 	acquire_result(
 		options,
 		&submitted,

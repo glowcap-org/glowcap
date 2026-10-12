@@ -38,8 +38,8 @@ fn take<K: PartialEq>(slot: &mut Option<FieldKey<K>>, key: FieldKey<K>) -> Resul
 	Ok(())
 }
 
-/// JSON allocates only the bounded candidate selections. Room keys are scalar;
-/// operator replacement moves its old list and borrows its coordinates through
+/// JSON allocates only the bounded candidate selections. Room keys are scalar.
+/// Operator replacement moves its old list and borrows its coordinates through
 /// alias-aware retirement. No capability copy, restoration or role conversion
 /// occurs here. The callback commits this candidate with its terminal receipt.
 pub(super) fn apply<R: References>(

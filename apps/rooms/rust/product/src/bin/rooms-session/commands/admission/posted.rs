@@ -1,5 +1,5 @@
 //! Adopt a send's exact live line occurrence before reporting usable authority.
-//! The saved acquisition owns recovery; replay never remints a destination.
+//! The saved acquisition owns recovery. Replay never remints a destination.
 use super::{Failure, Options, Value, json, request};
 
 pub(super) async fn acquire(

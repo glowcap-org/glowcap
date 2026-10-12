@@ -1,6 +1,6 @@
 # References and tables
 
-Anchors: CapTP Specification § Descriptors.
+These diagrams follow the CapTP Specification section Descriptors.
 
 ## RT-1: Descriptor taxonomy
 
@@ -63,7 +63,7 @@ flowchart LR
 ```
 
 Position allocation is one-sided: a peer allocates positions only in its own
-export table and its own answers-asked table; the mirrors fill in on receipt.
+export table and its own answers-asked table. The mirrors fill in on receipt.
 
 ## RT-4: Import installation on inbound traffic
 

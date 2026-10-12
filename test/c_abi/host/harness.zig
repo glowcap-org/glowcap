@@ -1,7 +1,7 @@
 //! The wired-pair harness the `libglowcap_host` suite drives: hosts opened
 //! from a seed, dialed/accepted/keyed session pairs, the frame shuttle whose
 //! outbound is the partner's inbound, the action pump that answers dials and
-//! watches, and the close-option vocabulary. No test lives here; every file in
+//! watches, and the close-option vocabulary. No test lives here. Every file in
 //! this directory opens with it.
 
 const std = @import("std");
@@ -71,7 +71,7 @@ pub fn expectOk(rc: i32) !void {
 }
 
 /// Durable identity in the first 32 bytes, deterministic session-key root in the
-/// rest — the only seed length `glowcap_host_new` accepts (ADR-0097).
+/// rest, the only seed length `glowcap_host_new` accepts (ADR-0097).
 pub fn hostSeed(durable_byte: u8) [64]u8 {
     var seed: [64]u8 = undefined;
     @memset(seed[0..32], durable_byte);
@@ -258,7 +258,7 @@ pub const Dials = struct {
 };
 
 /// Drain every encoded outbound frame from `from` and feed each, borrowed, to
-/// `to`, releasing the owned managed frame after — the socketless read/write
+/// `to`, releasing the owned managed frame after, the socketless read/write
 /// loop.
 pub fn shuttle(from: ?*cd.GlowcapHostSession, to: ?*cd.GlowcapHostSession) !bool {
     var moved = false;
@@ -318,7 +318,7 @@ pub const CapturedSettle = struct {
 
 /// The drain-routed vow registry: the test registers each vow it minted with
 /// `add`, and `drainActions` routes each SETTLE/FAIL action to the registered
-/// capture by (host, ticket) — a binding's vow table in miniature. A
+/// capture by (host, ticket), a binding's vow table in miniature. A
 /// completion nobody registered for is dropped, exactly as a binding drops an
 /// outcome no caller awaits (a NEAR send's already-settled local vow).
 pub const Watches = struct {

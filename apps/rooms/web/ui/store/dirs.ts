@@ -3,7 +3,7 @@
 // Split from `store.ts` by subject: a room list, a set of reachable peers,
 // and a connection's health all belong to one directory, and each verb here
 // names the directory it acts on. That is the whole of the change from one
-// directory to several — reporting these without saying which directory is
+// directory to several, reporting these without saying which directory is
 // what made holding two of them unspellable.
 
 import type { DirId, DirView, SessionPhase } from "../types.ts";
@@ -62,7 +62,7 @@ export function openDir(projection: PageProjection, dir: DirId, locator: string)
 
 /** Stop holding `dir`. Its conversations are forgotten by their own verb. A
  * card about this directory is a view of the same authority, so removal closes
- * it in the same state transition; retaining only its id would reopen the card
+ * it in the same state transition. Retaining only its id would reopen the card
  * if that authority were later acquired again. */
 export function forgetDir(projection: PageProjection, dir: DirId): void {
 	const state = projection.get();
@@ -132,7 +132,7 @@ export function liveRoom(projection: PageProjection, dir: DirId, name: string): 
 }
 
 /** Where one exact bridged publication's channel lives, or null for every
- * other publication. Publication ids are non-bearer directory identity; the
+ * other publication. Publication ids are non-bearer directory identity. The
  * gateway capability remains the authority to administer the bridge. */
 export function bridgedOrigin(
 	view: { liveRooms: ReadonlyMap<string, RoomInfo> } | undefined,

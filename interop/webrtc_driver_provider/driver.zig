@@ -2,7 +2,7 @@
 //!
 //! WebRTC signaling belongs to the WebRTC C archive. Once both DataChannels
 //! are open, the generic driver owns the sessions and all CapTP bytes. This
-//! proof deliberately does not call WebRTC try-I/O after adoption: the only
+//! proof does not call WebRTC try-I/O after adoption: the only
 //! post-adoption progress is `glowcap_driver_step`.
 
 const std = @import("std");

@@ -1,3 +1,4 @@
+import { PRESENTATION, useProgress } from "../presentation.ts";
 // The whole page, and the only place that decides what each layout is showing.
 //
 // Every class on the containers below is derived here from the store, in one
@@ -18,7 +19,7 @@ import {
 	cannotSendReadOnly,
 	cannotSendRegistrationEnded,
 } from "../../../lib/text/conversation.ts";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer } from "react";
 import { useLocation } from "react-router";
 import { useShallow } from "zustand/react/shallow";
 import { useRoomsProjection, useRoomsState } from "../hooks.ts";
@@ -51,6 +52,18 @@ import { operationsLoadingNoun, operationsTitle } from "../../../lib/text/settin
 /** How long the "New messages" rule stays up once you have arrived. Long enough
  * to see where you left off, short enough not to become furniture. */
 const UNREAD_RULE_MS = 1500;
+
+/** The four modal layers this shell hosts. Each card reports whether its
+ * dialog is still held, animating out, after its content closed, and the
+ * block rule below refuses Settings while any layer stands instead of it. */
+type ShellLayer = "help" | "dir" | "conv" | "member";
+type ShellLayerAction = { kind: "held"; layer: ShellLayer; held: boolean };
+type ShellLayerState = Readonly<Record<ShellLayer, boolean>>;
+const noLayerHeld: ShellLayerState = { help: false, dir: false, conv: false, member: false };
+
+function shellLayerReducer(state: ShellLayerState, action: ShellLayerAction): ShellLayerState {
+	return { ...state, [action.layer]: action.held };
+}
 
 // Shared empties, so a directory this tab does not hold yet draws as one with
 // nothing in it rather than making every reader below handle null.
@@ -176,6 +189,7 @@ export function App() {
 	// responsive layers that are part of the application layout rather than
 	// dialogs. The rail's "+" fields consume their own Escape first.
 	useEffect(() => {
+		if (!mobile) return;
 		const onKey = (e: KeyboardEvent) => {
 			if (e.key !== "Escape") return;
 			if (state.rosterSheet) store.closeRosterSheet(projection);
@@ -183,10 +197,10 @@ export function App() {
 		};
 		addEventListener("keydown", onKey);
 		return () => removeEventListener("keydown", onKey);
-	}, [projection, state.rosterSheet, state.listScreen]);
+	}, [projection, mobile, state.rosterSheet, state.listScreen]);
 
 	// Opening the list makes the conversation inert. If focus was in it, the
-	// rail's own hide control is the named way back — `#cover` is a tap target,
+	// rail's own hide control is the named way back, `#cover` is a tap target,
 	// not a third tab stop.
 	useEffect(() => {
 		if (!mobile || !state.listScreen) return;
@@ -196,14 +210,11 @@ export function App() {
 		}
 	}, [mobile, state.listScreen]);
 
-	const [helpLayer, setHelpLayer] = useState(false);
-	const [dirLayer, setDirLayer] = useState(false);
-	const [convLayer, setConvLayer] = useState(false);
-	const [memberLayer, setMemberLayer] = useState(false);
-	const onHelpLayer = useCallback((held: boolean) => setHelpLayer(held), []);
-	const onDirLayer = useCallback((held: boolean) => setDirLayer(held), []);
-	const onMemberLayer = useCallback((held: boolean) => setMemberLayer(held), []);
-	const onConvLayer = useCallback((held: boolean) => setConvLayer(held), []);
+	const [layersHeld, dispatchLayer] = useReducer(shellLayerReducer, noLayerHeld);
+	const onHelpLayer = useCallback((held: boolean) => dispatchLayer({ kind: "held", layer: "help", held }), []);
+	const onDirLayer = useCallback((held: boolean) => dispatchLayer({ kind: "held", layer: "dir", held }), []);
+	const onMemberLayer = useCallback((held: boolean) => dispatchLayer({ kind: "held", layer: "member", held }), []);
+	const onConvLayer = useCallback((held: boolean) => dispatchLayer({ kind: "held", layer: "conv", held }), []);
 	// A layer that stands *instead of* Settings blocks it in the same commit
 	// that opens it, and the held state keeps it blocked while that layer
 	// animates out. Waiting for a child layout effect alone briefly leaves two
@@ -215,16 +226,15 @@ export function App() {
 	// top layer *after* the card it opened from, so Settings would come back
 	// standing over its own open manager card. Nested dialogs need no such
 	// dance: the browser already makes everything under the topmost one inert.
-	const settingsBlocked = state.helpOpen || helpLayer || state.aboutDir !== null || dirLayer || state.aboutConv ||
-		convLayer ||
-		state.aboutMember !== null || memberLayer;
+	const settingsBlocked = state.helpOpen || layersHeld.help || state.aboutDir !== null || layersHeld.dir ||
+		state.aboutConv || layersHeld.conv || state.aboutMember !== null || layersHeld.member;
 	const opsHeld = state.opsHeld;
 	// What the peering pane could publish: rooms joined on a directory other
 	// than this one. Memoised on the maps it reads, the same reason the roster
 	// is: the pane sits behind a modal, and a keystroke must not rebuild it.
 	// The directory this page came from: Settings still names its locator, and
 	// a button there opens the same card a room caption would. Null when this
-	// tab does not hold that session — before it has answered, or after Leave.
+	// tab does not hold that session, before it has answered, or after Leave.
 	const onDir = state.homeDir === null ? null : state.dirs.get(state.homeDir) ?? null;
 
 	// Everything a directory says belongs to one directory, so the page reads it
@@ -263,7 +273,7 @@ export function App() {
 	// answer. Passing `state` made that a claim about another function's body,
 	// kept true by a comment; `answers` already declares what it reads in its
 	// own signature, so handing it exactly that makes the compiler the one
-	// holding the two in step. Widening what `answers` reads now fails here
+	// holding the two in step. Widening what `answers` reads fails here
 	// instead of quietly returning a held answer.
 	const { homeDir, reaching, edits, remembered } = state;
 	const joining = useMemo(
@@ -278,6 +288,14 @@ export function App() {
 	// Leave persists `none` and reloads. That write can notify this tree before
 	// the document unloads. Every hook above has already run, so drawing nothing
 	// is not a crash card and not a change in hook order. The cover is already up.
+	const openingHere = conv?.type === "dm" && state.navigationTarget?.kind === "direct" &&
+		state.navigationTarget.peer === conv.id;
+	const openingProgress = useProgress(openingHere, PRESENTATION.busy, conv?.key);
+	const joiningProgress = useProgress(
+		conv?.type === "room" && conv.membership === "joining",
+		PRESENTATION.connection,
+		conv?.key,
+	);
 	if (controller.kind === "none") return null;
 	const permissions = state.managedAccess.status === "active"
 		? state.managedAccess.effective?.permissions
@@ -287,14 +305,14 @@ export function App() {
 
 	const appClass = ["app"];
 	if (!state.railOpen) appClass.push("rooms-hidden");
-	if (state.listScreen) appClass.push("show-list");
-	if (state.rosterSheet) appClass.push("members-open");
+	if (mobile && state.listScreen) appClass.push("show-list");
+	if (mobile && state.rosterSheet) appClass.push("members-open");
 	// Something is over the page. Each overlay above says which one it is, for
 	// the rules that draw it; this says only that one is up, which is all the
 	// page needs to know to hold still underneath. A new overlay adds itself
 	// here and inherits that without going looking for what covering entails:
 	// `settings.css`, beside the cover's own paint, is where that is decided.
-	if (state.listScreen || state.rosterSheet) appClass.push("covered");
+	if (mobile && (state.listScreen || state.rosterSheet)) appClass.push("covered");
 	// With no conversation open the join card is the workarea, and its own top
 	// stripe stands in for the topbar's; the stylesheet reads this to put the
 	// topbar's away rather than draw the same flourish twice on one screen.
@@ -307,7 +325,6 @@ export function App() {
 		(conv?.type === "room" && !mobile && !state.rosterOpen);
 	// A direct line still being opened has no route yet, so only its own
 	// composer waits; every other conversation stays open to write in.
-	const openingHere = conv?.type === "dm" && state.navigationTarget === conv.id;
 	const composerAvailability = permissions?.includes("observeWorkspace") !== true
 		// Paused is not read-only, so this does not say read-only. Nor does it
 		// repeat the bar standing above it: that one carries the state and the
@@ -316,7 +333,7 @@ export function App() {
 		// than as each answering for what it owns.
 		? cannotSendPaused
 		: openingHere
-		? openingDirect(conv.id)
+		? openingProgress ? openingDirect(conv.id) : ""
 		: !canInteract
 		? cannotSendReadOnly
 		: conv?.type === "dm" && conv.line === "closed"
@@ -340,7 +357,9 @@ export function App() {
 			: conv.held && conv.linkToken == null
 			? cannotSendNotInPrivateRoom
 			: cannotSendNotInRoom
-		: cannotSendJoining;
+		: joiningProgress
+		? cannotSendJoining
+		: "";
 
 	return (
 		<div className={appClass.join(" ")}>
@@ -452,6 +471,7 @@ export function App() {
 				id="cover"
 				aria-hidden="true"
 				onClick={() => {
+					if (!mobile) return;
 					if (state.rosterSheet) store.closeRosterSheet(projection);
 					else if (state.listScreen) store.showRail(projection, false);
 				}}
@@ -511,7 +531,7 @@ export function App() {
 					: conv.standing ?? state.dirs.get(conv.dir)?.standing ?? state.standing}
 				follows={conv === null ? "" : directoryName(conv.dir, state.homeDir)}
 				online={directOnline}
-				open={state.aboutConv && conv?.type !== "directory" && state.aboutDir === null && !dirLayer}
+				open={state.aboutConv && conv?.type !== "directory" && state.aboutDir === null && !layersHeld.dir}
 				retain={state.aboutConv}
 				askingLeave={state.aboutConvLeave}
 				onLayer={onConvLayer}

@@ -1,9 +1,9 @@
 //! The opt-in convenience drain for `libglowcap_host` (ADR-0072 fifth
 //! amendment): `glowcap_host_pump_drain` runs the one-loop drain over
 //! `glowcap_host_next_action` for the embedder, dispatching each action to a
-//! `GlowcapHostPumpHooks` arm. The pull-queue stays normative — this wraps it,
-//! it does not replace it. The Zig-facing loop helpers live in
-//! `embedder_pump.zig`; this leaf only binds the C hook surface onto them.
+//! `GlowcapHostPumpHooks` arm. The pull-queue stays normative. This wraps it and
+//! does not replace it. The Zig-facing loop helpers live in
+//! `embedder_pump.zig`. This leaf only binds the C hook surface onto them.
 
 const shared = @import("c_abi_shared");
 const c = @import("mod.zig");
@@ -20,13 +20,13 @@ const GLOWCAP_ERR_NULL_POINTER = shared.GLOWCAP_ERR_NULL_POINTER;
 const GLOWCAP_ERR_INTERNAL = shared.GLOWCAP_ERR_INTERNAL;
 
 /// Opt-in convenience drain over `glowcap_host_next_action` (ADR-0072 fifth
-/// amendment). Still pops through the pull-queue internally; does not replace
+/// amendment). Still pops through the pull-queue internally. Does not replace
 /// it. NULL `hooks` discards every action (rarely useful). `*out_acted` is 1
 /// when any arm reported progress (optional). `*out_yielded` is 1 when the
-/// finite Host scheduler requested another embedder turn (optional); return to
+/// finite Host scheduler requested another embedder turn (optional). Return to
 /// the reactor before calling the drain again. Resuming work through the
 /// underlying pop may synchronously invoke a `GlowcapHostBehavior` before an
-/// action hook runs; binding runtimes must install their Host delivery context
+/// action hook runs. Binding runtimes must install their Host delivery context
 /// around this whole call.
 pub fn glowcap_host_pump_drain(
     host: ?*GlowcapHost,

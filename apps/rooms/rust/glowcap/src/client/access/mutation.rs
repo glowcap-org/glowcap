@@ -5,7 +5,7 @@ use crate::client::{Deadline, Error};
 use glowcap::{Argument, Ref, loam::PolicyValue};
 
 /// One owning request survives both caller cancellation and lost acknowledgment.
-/// The control guard prevents retargeting; the argument vector keeps the receipt
+/// The control guard prevents retargeting. The argument vector keeps the receipt
 /// sequence, expected revision and complete candidate together. Policy and label
 /// use the binding's existing encoders. Lifecycle owns three argument slots,
 /// one fixed verb and eight revision bytes. Dropping these inputs after sending

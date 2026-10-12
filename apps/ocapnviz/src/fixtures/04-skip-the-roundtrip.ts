@@ -2,23 +2,23 @@ import { TimelineDocument } from "../engine/timeline.ts";
 import { payloadOf, wireFrames } from "./wire-frames.ts";
 
 /**
- * Chapter 04 — Skip the round-trip (promise pipelining).
+ * Chapter 04, Skip the round-trip (promise pipelining).
  *
  * Email client wants `fetch the message` AND `mark it read` in one
  * round-trip. Two Delivers ship at once: the second targets the
  * promise of the first. The server queues the second on the first
- * answer's row; on resolve, the runtime drains the queue and
+ * answer's row. On resolve, the runtime drains the queue and
  * re-emits the queued call against the resolved reference.
  *
  * On the wire: this one crosses the internet, so it runs over `iroh`
  * and each peer's designator IS its Ed25519 endpoint key. The client's
- * end is its own report; the server's end is attached because the QUIC
+ * end is its own report. The server's end is attached because the QUIC
  * handshake proved the server holds the key the locator named. That is
  * the strongest attribution the vocabulary has, and it is the
  * difference a keyed netlayer makes.
  * Both peers run glowcap, so this session settles on Cap'n Proto over
  * glowcap-next. That is the pairing a glowcap fleet configures
- * (`HostRuntime.Options.codec` / `.captp_version` in `src/driver/host_runtime.zig`); the
+ * (`HostRuntime.Options.codec` / `.captp_version` in `src/driver/host_runtime.zig`). The
  * Syrup / OCapN 1.0 baseline is what a session settles on the moment a peer
  * at either end cannot follow.
  */

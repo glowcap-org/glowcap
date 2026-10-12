@@ -5,13 +5,16 @@ impl Stream {
 	/// because the peer held the secret for this key. `None` when the
 	/// connection is gone or the handshake proved nothing.
 	///
-	/// This is the fact a session is otherwise missing. glowcap cannot see it —
-	/// it did not open this connection — so whoever did passes it on with
+	/// This is the fact a session is otherwise missing. glowcap cannot see it,
+	/// it did not open this connection, so whoever did passes it on with
 	/// [`Session::bind_verified_channel_key`], which the accept and dial paths
 	/// below do for every session this module establishes.
 	pub(super) fn remote_node_id(&self) -> Option<String> {
 		let mut buf = [0u8; 64];
 		let mut len: usize = 0;
+		// SAFETY: `self.conn` is this `Stream`'s `GlowcapIrohConn`, released only when the `ConnPtr` is dropped or
+		// taken by `close`, and the `expect` proves it is still present; `buf` is a local 64-byte array the callee
+		// writes up to the passed capacity, and `len` is a local out-parameter the callee fills.
 		let code = unsafe {
 			ffi::glowcap_iroh_conn_remote_node_id(
 				self.conn.as_ref().expect("live iroh stream").0,
@@ -32,6 +35,9 @@ impl Stream {
 		owned_netlayer: Option<Netlayer>,
 		owns_loop: bool,
 	) -> Stream {
+		// SAFETY: `conn` is the connection handle its caller took from the iroh netlayer and hands to this `Stream`,
+		// which owns it from here; the callee only reads it to return its readiness identity, and returns 0 for a null
+		// handle.
 		let key = unsafe { ffi::glowcap_iroh_conn_id(conn) };
 		Stream {
 			conn: Some(ConnPtr(conn)),
@@ -115,6 +121,9 @@ impl AsyncRead for Stream {
 				return Poll::Ready(Ok(())); // the caller's buffer is full
 			}
 			let mut count: usize = 0;
+			// SAFETY: `me.conn` is this `Stream`'s `GlowcapIrohConn`, live while the `ConnPtr` is present (the `expect`
+			// proves it); `dst` is the unfilled tail of the caller's `ReadBuf`, borrowed for the call, which the callee
+			// writes at most `dst.len()` bytes into, and `count` is a local out-parameter the callee fills.
 			let rc = unsafe {
 				ffi::glowcap_iroh_conn_try_read(
 					me.conn.as_ref().expect("live iroh stream").0,
@@ -161,6 +170,9 @@ impl AsyncWrite for Stream {
 		}
 		loop {
 			let mut count: usize = 0;
+			// SAFETY: `me.conn` is this `Stream`'s `GlowcapIrohConn`, live while the `ConnPtr` is present (the `expect`
+			// proves it); `src` is the caller's `&[u8]`, borrowed for the whole call and read by the callee only during
+			// it, and `count` is a local out-parameter the callee fills.
 			let rc = unsafe {
 				ffi::glowcap_iroh_conn_try_write(
 					me.conn.as_ref().expect("live iroh stream").0,

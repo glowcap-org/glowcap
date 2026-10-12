@@ -3,7 +3,7 @@
  * fine), each a `Container` of N×N tile `Graphics` so the culler
  * can skip tiles outside the viewport before vertex submission.
  *
- * `WORLD_SIZE` is the canvas world's logical bounds — also drives
+ * `WORLD_SIZE` is the canvas world's logical bounds, also drives
  * the pixi-viewport `worldWidth`/`worldHeight`, so it's exported
  * for Stage's viewport setup to consume from the same source.
  */
@@ -20,8 +20,8 @@ export const WORLD_SIZE = 4000;
  * camera: one tier's dots are a readable grid at one zoom, a grey haze at
  * another. Asking the question in screen space is what makes the answer hold at
  * any zoom, including the ones nobody has tried yet. Asking it in zoom numbers
- * is what tied the old windows to the range the camera used to be clamped to,
- * so widening the range left the coarsest tier drawing a sub-pixel mesh with
+ * would tie the windows to the range the camera is clamped to, and widening
+ * the range would leave the coarsest tier drawing a sub-pixel mesh with
  * nothing to read in it.
  *
  * Sixteen is a little over the point where a dot lattice stops reading as
@@ -76,8 +76,8 @@ export function paintGridTiers(
 /**
  * Each tier appears when its own dots are far enough apart on screen to
  * read as a grid. Every tier answers to the same rule, coarse included:
- * it used to be pinned always-on, which was true while the camera stopped
- * at 0.2 and became a sub-pixel haze once it could reach one percent.
+ * pinned always-on, it would be a sub-pixel haze once the camera reaches
+ * one percent.
  */
 export function applyGridLod(
 	[fine, medium, coarse]: StageGridLayers,
@@ -105,7 +105,7 @@ const GRID_TILE_SIZE = WORLD_SIZE / GRID_TILES_PER_AXIS;
 
 /** (Re)build the tile-grid children of one LOD container. Reuses
  * existing tile `Graphics` so a theme repaint doesn't churn GPU
- * buffers — only the dot geometry is redrawn; tile identity and
+ * buffers. Only the dot geometry is redrawn. Tile identity and
  * `boundsArea` are stable. */
 export function populateGridLOD(
 	parent: Container,
@@ -144,7 +144,7 @@ export function populateGridLOD(
 }
 
 /** Stamp one tile's share of the global dot lattice. Dots are in
- * world coords snapped to the lattice; `[x0, x0+size)` is half-open
+ * world coords snapped to the lattice. `[x0, x0+size)` is half-open
  * so adjacent tiles don't double-stamp boundary dots. */
 function drawGridTile(
 	tile: Graphics,

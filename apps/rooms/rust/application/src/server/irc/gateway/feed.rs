@@ -1,5 +1,5 @@
 //! Feed observations borrow the seat tables while changing the channel room.
-//! Roster projections are built only when the room actually asks for one.
+//! Roster projections are built only when the room asks for one.
 use super::*;
 use crate::server::irc::{
 	protocol::{Message, fold},
@@ -46,7 +46,7 @@ impl<C: Copy + Ord, R: Clone> Gateway<C, R> {
 		nick: &str,
 		inbox: R,
 		kind: crate::room::policy::MembershipKind,
-	) -> Result<Effects<C, R>, String> {
+	) -> Result<Effects<C, R>, Refusal> {
 		self.feed_room(key, |bridge, seats| {
 			let note = alloc::format!(
 				"this room bridges to {}; your member row shows whether your IRC identity is connected",
@@ -58,23 +58,22 @@ impl<C: Copy + Ord, R: Clone> Gateway<C, R> {
 				.subscribe(connection, nick, inbox, kind, &note, bytes, &|connection| {
 					seats.view(connection)
 				})
-				.map_err(|e| e.reason())
 		})
 	}
 
-	pub fn feed_observe(&mut self, key: &str, message: &Message) -> Result<Effects<C, R>, String> {
+	pub fn feed_observe(&mut self, key: &str, message: &Message) -> Result<Effects<C, R>, Refusal> {
 		self.feed_room(key, |bridge, seats| {
 			bridge
 				.room
 				.observe(message, &|nick| seats.nick(nick), &|connection| seats.view(connection))
 		})
 	}
-	pub fn feed_disconnected(&mut self, key: &str) -> Result<Effects<C, R>, String> {
+	pub fn feed_disconnected(&mut self, key: &str) -> Result<Effects<C, R>, Refusal> {
 		self.feed_room(key, |bridge, seats| {
 			Ok(bridge.room.disconnected(&|connection| seats.view(connection)))
 		})
 	}
-	pub fn feed_refused(&mut self, key: &str, reason: &str) -> Result<Effects<C, R>, String> {
+	pub fn feed_refused(&mut self, key: &str, reason: &str) -> Result<Effects<C, R>, Refusal> {
 		self.feed_room(key, |bridge, seats| {
 			bridge.status = FeedStatus::Backoff;
 			bridge.problem = reason.into();
@@ -87,13 +86,16 @@ impl<C: Copy + Ord, R: Clone> Gateway<C, R> {
 	fn feed_room(
 		&mut self,
 		key: &str,
-		apply: impl FnOnce(&mut Bridge<C, R>, &Seats<'_, C>) -> Result<Effects<C, R>, String>,
-	) -> Result<Effects<C, R>, String> {
-		let bridge = self.bridges.get_mut(key).ok_or("IRC channel was retired")?;
+		apply: impl FnOnce(&mut Bridge<C, R>, &Seats<'_, C>) -> Result<Effects<C, R>, Refusal>,
+	) -> Result<Effects<C, R>, Refusal> {
+		let bridge = self
+			.bridges
+			.get_mut(key)
+			.ok_or_else(|| Refusal::plain("IRC channel was retired"))?;
 		let (network_key, network) = self
 			.networks
 			.get_key_value(&bridge.network)
-			.ok_or("IRC network was retired")?;
+			.ok_or_else(|| Refusal::plain("IRC network was retired"))?;
 		let seats = Seats {
 			network: &network.choice.network,
 			key: network_key,

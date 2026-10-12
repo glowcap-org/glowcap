@@ -7,10 +7,10 @@
 const std = @import("std");
 const fifo = @import("../fifo.zig");
 
-/// Capacity retained after a queue drains; larger burst backing is released.
+/// Capacity retained after a queue drains. Larger burst backing is released.
 /// At 500k connections, pinning even a few extra KiB per queue costs GiB, so a
 /// burst cannot become the peer's permanent footprint. Capacity at or below
-/// this bound remains allocation-free across steady turns; freeing a larger
+/// this bound remains allocation-free across steady turns. Freeing a larger
 /// burst costs one growth allocation only at the start of the next burst.
 /// Allocation and footprint budget tests pin both sides of that contract.
 pub const steady_retain_bytes: usize = 4096;
@@ -53,17 +53,18 @@ pub fn Queue(comptime T: type, comptime weightOf: ?*const fn (*const T) usize) t
             return value;
         }
 
-        /// Remove a successfully consumed borrowed front row and perform drain
-        /// housekeeping immediately.
+        /// Remove the front row `peek` lent the caller, which consumed it, and
+        /// perform drain housekeeping immediately.
         pub fn consumeFront(self: *Self, allocator: std.mem.Allocator) T {
             const value = self.pop(allocator) orelse unreachable;
             if (self.isEmpty()) std.debug.assert(self.pop(allocator) == null);
             return value;
         }
 
-        /// Consume while retaining backing promised to unpublished queue
-        /// reservations. The ordinary steady-footprint trim resumes as soon as
-        /// the last reservation publishes or cancels.
+        /// Consume the front row `peek` lent the caller while retaining backing
+        /// promised to unpublished queue reservations. The ordinary
+        /// steady-footprint trim resumes as soon as the last reservation
+        /// publishes or cancels.
         pub fn consumeFrontReserved(self: *Self, allocator: std.mem.Allocator) T {
             const value = fifo.popHead(
                 T,

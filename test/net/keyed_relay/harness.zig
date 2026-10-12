@@ -36,7 +36,7 @@ pub fn startSession(designator: []const u8) model.Message {
 /// registration, then serve the bootstrap fetch. Calling `accept` directly is
 /// intentional: the resident listener owns the blocking wait just like TCP.
 /// The listener's owned registration task is already running before this
-/// waiter starts; the relay fixture accepts that registration before the dial.
+/// waiter starts. The relay fixture accepts that registration before the dial.
 pub fn serveRegistered(
     listener: net.netlayer.Listener,
     identity: crypto.PeerKey,

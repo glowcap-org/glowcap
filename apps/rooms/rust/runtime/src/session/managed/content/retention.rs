@@ -12,11 +12,17 @@ pub(super) fn invoke(call: &mut loam::Call<'_>, input: loam::Invocation<'_>, roo
 		return Err(refuse("private retention observation required"));
 	}
 	let record = records::metadata(input)?;
+	let erasure = match record.intent.history_erasure {
+		Some(operation) => operation
+			.text()
+			.as_str()
+			.ok_or_else(|| refuse("history erasure operation is not text"))?
+			.into(),
+		None => Argument::Void,
+	};
 	Ok(Argument::List(vec![
 		Argument::Boolean(record.intent.keep_history),
-		record.intent.history_erasure.map_or(Argument::Void, |operation| {
-			operation.text().as_str().expect("operation text").into()
-		}),
+		erasure,
 	]))
 }
 /// Only the private recording owner acknowledges durable erasure. The marker
@@ -52,7 +58,7 @@ fn settle_erasure(call: &mut loam::Call<'_>, input: loam::Invocation<'_>) -> Res
 		&source,
 		&intent,
 		Outcome::Committed {
-			result: Text::new("null".into()).expect("local acknowledgment"),
+			result: Text::new("null".into()).ok_or_else(|| refuse("local acknowledgment exceeds receipt capacity"))?,
 			retained: List::default(),
 		},
 	)

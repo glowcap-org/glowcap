@@ -1,5 +1,5 @@
 //! Every test file the suite runs. `zig build test -Dtest-layer=engine,driver`
-//! compiles only those layers' files while iterating; the bare step and
+//! compiles only those layers' files while iterating. The bare step and
 //! every gate compile all of them.
 
 const std = @import("std");
@@ -298,6 +298,7 @@ comptime {
         _ = @import("net/keyed_relay_url_test.zig");
         _ = @import("net/keyed_relay/listener_test.zig");
         _ = @import("net/keyed_relay/rendezvous_test.zig");
+        _ = @import("net/keyed_relay/alias_test.zig");
         _ = @import("net/keyed_relay/loop_test.zig");
         _ = @import("net/keyed_relay/close_test.zig");
         _ = @import("net/keyed_relay/registration_test.zig");
@@ -383,6 +384,7 @@ comptime {
         _ = @import("c_abi/host/dial_plan_test.zig");
         _ = @import("c_abi/host/handoff_test.zig");
         _ = @import("c_abi/host/stream_test.zig");
+        _ = @import("c_abi/host/frame_admission_test.zig");
         _ = @import("c_abi/host/callback_test.zig");
         _ = @import("c_abi/last_error_test.zig");
         _ = @import("c_abi/failure_diagnostics_test.zig");

@@ -2,10 +2,10 @@
 //! deadline expiry, cancellation escalation, per-session close progression,
 //! and the quiescence transition to terminal state.
 //!
-//! One of `host.zig`'s responsibilities, kept beside it rather than in it.
-//! The `Host` still owns every lifecycle field and presents these functions as
-//! its own methods through the alias table in `host.zig`; adapters only start
-//! close, advance time, and observe the resulting state.
+//! One of `host.zig`'s responsibilities, kept in its own file. The `Host` owns
+//! every lifecycle field and presents these functions as its own methods
+//! through the alias table in `host.zig`. Adapters only start close, advance
+//! time, and observe the resulting state.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -24,11 +24,11 @@ const HostSession = host_mod.HostSession;
 const HostError = host_mod.HostError;
 
 /// Application-owner lifecycle. CapTP session protocol state remains
-/// authoritative in each session and is deliberately not represented here.
+/// authoritative in each session and is not represented here.
 pub const LifecyclePhase = enum { active, finishing, terminating, closed };
 
 /// Inline Host lifecycle state. `pub` is cross-file visibility for the Host
-/// aggregate; consumers reach only `Host.LifecyclePhase`.
+/// aggregate. Consumers reach only `Host.LifecyclePhase`.
 pub const Lifecycle = union(LifecyclePhase) {
     active: void,
     finishing: ?i64,
@@ -48,10 +48,10 @@ pub const SessionCloseTiming = union(enum) {
 };
 
 /// Seal application admission and begin terminal Host close. Finish waits for
-/// already-admitted vows, deferred answers, and actions; cancel moves directly
+/// already-admitted vows, deferred answers, and actions. Cancel moves directly
 /// to terminal session shutdown. A later cancel escalates finish. Recording the
-/// barrier is legal under the callback latch; the enclosing verb's
-/// `finishVerb` remains the only driver of queued work and teardown.
+/// barrier is legal under the callback latch. The enclosing verb's `finishVerb`
+/// remains the only driver of queued work and teardown.
 pub fn beginClose(self: *Host, pending: close_mod.PendingWork, now_ms: i64) void {
     self.assertOwner();
     // Time already elapsed under the first request is authoritative. Apply its
@@ -73,9 +73,9 @@ fn startTermination(self: *Host, abort_kind: model.AbortKind, timed_out: bool) v
         .abort_kind = abort_kind,
         .timed_out = timed_out,
     } };
-    // Every in-flight dial previously vacated one queue slot when its action
-    // was delivered, so its cancellation command can reuse that reserved
-    // capacity without making terminal close fallible.
+    // Every in-flight dial vacated one queue slot when its action was
+    // delivered, so its cancellation command can reuse that reserved capacity
+    // without making terminal close fallible.
     var cancellations = self.node.requestDialCancellations();
     while (cancellations.next()) |cancellation|
         self.actions.pushReserved(.{ .cancel_dial = .{
@@ -99,7 +99,7 @@ fn driveClose(self: *Host) void {
 }
 
 /// Apply the caller's monotonic time to the Host close policy. Expiry is a
-/// core-owned monotonic escalation; the caller performs no policy branch.
+/// core-owned monotonic escalation. The caller performs no policy branch.
 pub fn progressClose(self: *Host, now_ms: i64) HostError!void {
     try self.refuseReentry();
     try progressCloseAt(self, now_ms);
@@ -142,7 +142,7 @@ pub fn closeOutcome(self: *const Host, completion_reached: bool) close_mod.Close
 
 /// Seal one session's application admission and begin its terminal close.
 /// Finish keeps protocol ingress live until the session's admitted operations
-/// retire; cancel commits the terminal verdict immediately.
+/// retire. Cancel commits the terminal verdict immediately.
 pub fn beginSessionClose(
     self: *Host,
     session: *HostSession,
@@ -227,10 +227,10 @@ pub fn removeSessionCloseTiming(self: *Host, peer_handle: engine.PeerHandle) voi
     removedDeadline(self, removed.value);
 }
 
-/// Milliseconds until the nearest finite Host or session close deadline.
-/// `-1` means no timer can advance close; zero means progress is due now.
-/// Keeping the selection and clamp here lets every adapter project the same
-/// close policy without reconstructing it from separate observations.
+/// Milliseconds until the nearest finite Host or session close deadline. `-1`
+/// means no timer can advance close. Zero means progress is due now. Keeping
+/// the selection and clamp here lets every adapter project the same close
+/// policy without reconstructing it from separate observations.
 pub fn closeWaitMs(self: *const Host, now_ms: i64) i64 {
     var nearest = closeDeadline(self);
     if (nextSessionCloseDeadline(self)) |deadline| {
@@ -293,7 +293,7 @@ pub fn sessionCloseOutcome(
 
 /// Whether the byte-fed terminal CLOSE action has crossed its retryable
 /// delivery boundary. Transport-owning adapters use their actual wire fact
-/// instead; this exists so C projection does not infer queue state.
+/// instead. This exists so C projection does not infer queue state.
 pub fn sessionCloseActionDelivered(self: *const Host, session: *const HostSession) bool {
     if (!session.isTerminating() or session.control.close_action_pending) return false;
     if (self.retry_last_action) {
@@ -304,7 +304,7 @@ pub fn sessionCloseActionDelivered(self: *const Host, session: *const HostSessio
 }
 
 /// Enter terminal session lifecycle through one mutation authority. A normal
-/// terminal path discards a live deadline; timeout has already replaced that
+/// terminal path discards a live deadline. Timeout has already replaced that
 /// row with its sticky result and keeps it through release.
 pub fn markSessionTerminating(self: *Host, session: *HostSession) void {
     if (self.publication_lookup) |lookup| lookup.cancel(lookup.context, .{ .origin = .{ .peer = session.peer_handle } });
@@ -323,7 +323,7 @@ pub fn lifecyclePhase(self: *const Host) Host.LifecyclePhase {
 }
 
 /// Advance close at a Host quiescence boundary. Module-visible for the pump
-/// sibling; an embedder starts close and observes `lifecyclePhase`.
+/// sibling. An embedder starts close and observes `lifecyclePhase`.
 pub fn advanceCloseLifecycle(self: *Host) bool {
     const phase = lifecyclePhase(self);
     if (phase == .active or phase == .closed) return false;

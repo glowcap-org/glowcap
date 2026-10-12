@@ -1,4 +1,4 @@
-//! 05 — Call a remote method on the raw engine.
+//! 05: Call a remote method on the raw engine.
 //!
 //! A phone calls `speaker.queue("Hot Knife")` on the kitchen speaker. This is
 //! the basic CapTP move: invoke a method on a remote object and read the

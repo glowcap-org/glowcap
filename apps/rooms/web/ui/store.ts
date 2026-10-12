@@ -3,7 +3,7 @@
 // Everything the interface draws is a field here and everything that changes one
 // is a verb here, so the interface stays a function of this and nothing keeps a
 // second copy of the truth. The state itself, the page's chrome, conversations,
-// lines, and directories live in `store/`; this file is who is in a room, where
+// lines, and directories live in `store/`. This file is who is in a room, where
 // this reader stands, and what they have been offered.
 
 import type { BridgeFacts, DirId, Invitation, RoomCarries, RoomConv } from "./types.ts";
@@ -32,7 +32,7 @@ export * from "./store/trouble.ts";
  * Cleared and never-set are different states and both are spellable: a room that
  * has had its topic taken down says so with an empty string, and a room that has
  * never had one says nothing. The bar draws neither, so the difference shows
- * only in whether a change is worth announcing — taking one down is news. */
+ * only in whether a change is worth announcing, taking one down is news. */
 export function setTopic(projection: PageProjection, key: string, topic: string): void {
 	const conv = getConv(projection, key);
 	if (conv?.type !== "room" || conv.topic === topic) return;
@@ -208,7 +208,7 @@ function rosterEquals(
 
 /** Whose lines this window does not show.
  *
- * Kept in this window rather than told to the room, which is the honest shape:
+ * Kept in this window rather than told to the room, which is the right shape:
  * ignoring somebody is a decision about what you read, and a room that was told
  * would be a room that could be asked. Names are held folded, since a directory
  * grants them case-insensitively.
@@ -250,7 +250,7 @@ export function lastSentFor(projection: PageProjection, key: string | null): str
 }
 // ── Where this reader stands, at three levels ──────────────────────────────
 //
-// One word — empty for here, otherwise why they stepped out — and three places
+// One word (empty for here, otherwise why they stepped out) and three places
 // it can be said, each falling through to the next:
 //
 //   the room       what they said in this room alone
@@ -259,8 +259,8 @@ export function lastSentFor(projection: PageProjection, key: string | null): str
 //
 // A level holds null while it has nothing of its own to say, so setting the
 // outermost one moves every room that has not been given a word of its own, and
-// a room that has been keeps it. What each level is *for* is in its field's doc;
-// this is where the three meet.
+// a room that has been keeps it. What each level is *for* is in its field's doc.
+// This is where the three meet.
 //
 // The intention, not the standing: what a roster shows is the room's word about
 // a member, and this is what makes that word survive a membership. A reconnect

@@ -69,7 +69,7 @@ const PreparedEntry = struct {
     profile: model.transport.Metadata,
     adapter: Adapter,
     /// The provider table's address is multiplexed runtime identity within one
-    /// package preparation. Only multiplexed entries may share it; the table is
+    /// package preparation. Only multiplexed entries may share it. The table is
     /// validated and copied once, then every profile points at that adapter.
     implementation: *const anyopaque,
 

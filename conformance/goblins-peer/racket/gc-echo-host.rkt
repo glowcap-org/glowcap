@@ -1,5 +1,5 @@
 #lang racket
-;; gc-echo-host.rkt — Goblins vat host for the live `goblins-gc` driver.
+;; gc-echo-host.rkt: Goblins vat host for the live `goblins-gc` driver.
 ;;
 ;; Same echo swiss as goblins-host.rkt / the CapTP suite, plus a background
 ;; `(collect-garbage)` loop so CapTP's will-executor can fire `op:gc-exports`

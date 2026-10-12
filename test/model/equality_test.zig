@@ -278,7 +278,7 @@ test "view equality and hash agree with the owned spine across every argument ar
     const call_args = [_]model.Argument{ .{ .integer = 1 }, .{ .integer = 2 } };
     const reordered_call_args = [_]model.Argument{ .{ .integer = 2 }, .{ .integer = 1 } };
 
-    // The shared passable breadth, plus deliberately crafted twins: an
+    // The shared passable breadth, plus crafted twins: an
     // order-independent set and struct (equal to their reordered mates), an
     // order-sensitive list (unequal to its reordered mate), and a second
     // float64 that hashes tag-only-equal to the first while comparing distinct.
@@ -393,7 +393,7 @@ test "distinct values in a hashed arm do not collapse onto one hash" {
         model.equality.argumentHash(.{ .float64 = nan_b }),
     );
 
-    // The same property for the other arms that used to hash to their tag.
+    // The same property for the other arms, which must not hash to their tag.
     try std.testing.expect(
         model.equality.argumentHash(.{ .@"error" = .{ .message = "one" } }) !=
             model.equality.argumentHash(.{ .@"error" = .{ .message = "two" } }),

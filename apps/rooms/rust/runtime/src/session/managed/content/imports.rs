@@ -4,6 +4,8 @@ use super::receipts::authenticate;
 use super::*;
 use custody::{Coordinate, Retained};
 mod created;
+mod lines;
+mod participation;
 
 struct Selection {
 	result: Coordinate,
@@ -17,7 +19,7 @@ struct Replacement<'a> {
 }
 /// Callback-local scalar selections and releases each occupy at most one
 /// custody page. Legacy import holds one selection. Canonical command and
-/// candidate bytes borrow the retained invocation; parsing copies no authority.
+/// candidate bytes borrow the retained invocation. Parsing copies no authority.
 pub(super) struct Request<'a> {
 	operation: rooms_application::session::state::OperationId,
 	pub intent: &'a Argument,
@@ -142,20 +144,33 @@ impl<'a> Request<'a> {
 		}
 		Ok(receipt)
 	}
-	fn prepare_workspace(&self, input: Invocation<'_>, record: &MetadataRecord) -> Result<WorkspacePreparation> {
+	fn prepare_workspace(
+		&self,
+		input: Invocation<'_>,
+		record: &MetadataRecord,
+		receipt: &custody::EffectReceipt<records::Metadata>,
+	) -> Result<WorkspacePreparation> {
 		let Some(replacement) = &self.replacement else {
 			return Ok(Ok(None));
 		};
-		if self.receipt(record)?.adopted {
+		if receipt.adopted {
 			return Ok(Ok(None));
 		}
 		if self.created {
-			return self.created_workspace(record).map(|intent| Ok(Some(intent)));
+			return self
+				.created_workspace(record, receipt, replacement)
+				.map(|intent| Ok(Some(intent)));
 		}
 		let intent = workspace::Intent::decode(replacement.intent).map_err(|_| refuse("invalid workspace intent"))?;
+		// Selections that compare against the original command read it once,
+		// at the first one that does.
+		let mut original: Option<Vec<Argument>> = None;
 		for selection in &self.selections {
 			if selection.destination.role == custody::Role::DirectAccess {
-				let original = original_text(text(self.intent)?)?;
+				let original: &Vec<Argument> = match &original {
+					Some(original) => original,
+					None => original.insert(original_text(text(self.intent)?)?),
+				};
 				let [_, _, route, directory, peer, _registration, _opening] = original.as_slice() else {
 					return Err(refuse("direct acquisition requires its original introduction"));
 				};
@@ -178,14 +193,17 @@ impl<'a> Request<'a> {
 				if text(route)? != "startDirect"
 					|| row.directory.text().as_str() != Some(text(directory)?)
 					|| row.peer.text().as_str() != Some(text(peer)?)
-					|| row.introduction != self.receipt(record)?.introduction
+					|| row.introduction != receipt.introduction
 				{
 					return Err(refuse("direct contact differs from its original introduction"));
 				}
 				continue;
 			}
 			if selection.destination.role == custody::Role::PublicationLease {
-				let original = original_text(text(self.intent)?)?;
+				let original: &Vec<Argument> = match &original {
+					Some(original) => original,
+					None => original.insert(original_text(text(self.intent)?)?),
+				};
 				let [id, _, route, directory, name, room, _publisher] = original.as_slice() else {
 					return Err(refuse("publication acquisition requires its original request"));
 				};
@@ -214,7 +232,10 @@ impl<'a> Request<'a> {
 			if selection.destination.role != custody::Role::IrcConnection {
 				continue;
 			}
-			let original = original_text(text(self.intent)?)?;
+			let original: &Vec<Argument> = match &original {
+				Some(original) => original,
+				None => original.insert(original_text(text(self.intent)?)?),
+			};
 			let [id, _, route, gateway, kind, verb, connection] = original.as_slice() else {
 				return Err(refuse("connection acquisition requires its original gateway request"));
 			};
@@ -275,17 +296,34 @@ fn selected<'r>(
 }
 pub(super) fn references(input: Invocation<'_>, record: &MetadataRecord) -> Result<Vec<ReferenceRequest>> {
 	let request = Request::parse(input.verb, input.args)?;
-	let preparation = request.prepare_workspace(input, record)?;
 	let receipt = request.receipt(record)?;
+	let preparation = request.prepare_workspace(input, record, receipt)?;
 	if matches!(preparation, Err(WorkspaceConflict)) || (request.replacement.is_some() && receipt.adopted) {
 		return Ok(vec![restore_source(receipt)?]);
 	}
-	// A bounded declaration spine restores only selected results, occupied
-	// destinations and the original source. No result capability is resaved.
-	let mut requests = Vec::with_capacity(2 + request.selections.len() * 2);
+	let line_origin = match &preparation {
+		Ok(Some(candidate)) => request.line_origin(record, receipt, candidate)?,
+		_ => None,
+	};
+	// Selected results, occupied destinations and the source need at most two
+	// declarations per mapping plus two. A line adoption adds two declarations
+	// for its original and current target. No result capability is resaved.
+	let mut requests = Vec::with_capacity(2 + request.selections.len() * 2 + usize::from(line_origin.is_some()) * 2);
 	requests.push(restore_source(receipt)?);
+	if let Some(fields) = line_origin {
+		for field in fields {
+			let location = records::location(&field);
+			requests.push(ReferenceRequest::RestorePage {
+				page: location
+					.page
+					.checked_sub(1)
+					.ok_or_else(|| refuse("invalid line target page"))?,
+				field: location.field,
+			});
+		}
+	}
 	if request.created {
-		for field in request.created_directory(record)? {
+		for field in request.created_directory(record, receipt)? {
 			let location = records::location(&field);
 			requests.push(ReferenceRequest::RestorePage {
 				page: location
@@ -335,22 +373,30 @@ pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argum
 	let metadata = records::metadata(input)?;
 	let source = call.source()?;
 	authenticate(call, input, &metadata, &request.operation, &source)?;
-	if request.replacement.is_some() && request.receipt(&metadata)?.adopted {
+	// One receipt scan names the effect for the whole admission.
+	let receipt = request.receipt(&metadata)?;
+	if request.replacement.is_some() && receipt.adopted {
 		return Ok(Argument::Void);
 	}
 	if request.created {
-		let [original, current] = request.created_directory(&metadata)?;
+		let [original, current] = request.created_directory(&metadata, receipt)?;
 		if Field::Retained(records::location(&original)).resolve(call, input)?
 			!= Field::Retained(records::location(&current)).resolve(call, input)?
 		{
 			return Err(refuse("creation directory authority was replaced"));
 		}
 	}
-	let replacement = request.prepare_workspace(input, &metadata)?;
+	let replacement = request.prepare_workspace(input, &metadata, receipt)?;
 	if matches!(replacement, Err(WorkspaceConflict)) {
 		return Ok("conflict".into());
 	}
-	let receipt = request.receipt(&metadata)?;
+	if let Ok(Some(candidate)) = &replacement
+		&& let Some([original, current]) = request.line_origin(&metadata, receipt, candidate)?
+		&& Field::Retained(records::location(&original)).resolve(call, input)?
+			!= Field::Retained(records::location(&current)).resolve(call, input)?
+	{
+		return Err(refuse("original line target authority was replaced"));
+	}
 	let mut record = records::decode(input)?;
 	let mut changed = false;
 	if let Some(replacement) = &request.replacement {

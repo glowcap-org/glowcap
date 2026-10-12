@@ -1,4 +1,5 @@
 //! Stable Rooms failure codes inside a binding's broken-promise reason.
+use alloc::{format, string::String};
 use core::fmt;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,6 +51,9 @@ macro_rules! codes {
 }
 
 codes! {
+	RateLimited => ("rate-limited", "operation", Soon, "This action is temporarily rate limited.", Some("Wait for the retry time before trying again.")),
+	AdmissionBusy => ("admission-busy", "server", Soon, "This server is handling as much work as it can.", Some("Try again in a moment.")),
+	RequestTooLarge => ("request-too-large", "operation", AfterRequestChange, "This request exceeds its work allowance.", Some("Reduce the request before trying again.")),
 	NickTaken => ("nick-taken", "nickname", AfterRequestChange, "That name is taken in this room.", Some("Pick another.")),
 	NoSuchRoom => ("no-such-room", "room", AfterStateChange, "That room isn't open.", Some("If you followed a link, ask whoever sent it for a current one.")),
 	RoomExists => ("room-exists", "room", AfterRequestChange, "A room here already has that name.", Some("Go to that one, or pick a different name.")),
@@ -82,6 +86,7 @@ codes! {
 	SessionUnreachable => ("session-unreachable", "session-peer", AfterStateChange, "The shared session peer could not be reached.", Some("Make sure it is running and retry the capability it currently announces. An iroh session needs a reachable advertised address or working iroh discovery and relay access.")),
 	SessionHandshakeIncomplete => ("session-handshake-incomplete", "session-peer", AfterStateChange, "The session peer was reached, but it did not finish the OCapN handshake.", Some("Check that the Rooms session peer is running compatible code, then retry.")),
 	SessionCapabilityGone => ("session-capability-gone", "session-capability", AfterRequestChange, "The session peer does not know this capability.", Some("It was probably revoked or belongs to a session that no longer exists. Use one the session shows now.")),
+	SessionRestorationFailed => ("session-restoration-failed", "session-capability", AfterStateChange, "The saved session access could not be restored.", Some("Check that the session is running. If it was reset, attach its new session link.")),
 	SessionSignalingHostOffline => ("session-signaling-host-offline", "hosting-tab", AfterStateChange, "The hosting tab is not answering WebRTC on the directory this capability names.", Some("On that tab, share the session and leave it open. Reloading it ends sharing.")),
 	SessionSignalingUnavailable => ("session-signaling-unavailable", "signaling-directory", AfterStateChange, "This browser could not signal through the directory the capability names.", Some("Retry after that directory is reachable from here.")),
 	SessionWebrtcNoRoute => ("session-webrtc-no-route", "webrtc-route", AfterRequestOrStateChange, "The browsers exchanged the session offer, but WebRTC found no route between them.", Some("STUN can discover a direct route. If the networks permit none, configure TURN or select Relay and share a new capability. An already-issued .webrtc capability keeps its original route.")),
@@ -100,6 +105,14 @@ codes! {
 	LinkPreviewFailed => ("link-preview-failed", "link-preview", Soon, "Rooms could not build that link preview.", Some("Retry once. The link itself is still available.")),
 }
 
+impl FailureCode {
+	/// The one line a peer reads for this code, which `Failure::parse` reads
+	/// back: the wire code, a colon and a space, then the detail.
+	pub fn line(self, detail: impl fmt::Display) -> String {
+		format!("{}: {detail}", self.wire())
+	}
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Failure<'a> {
 	pub code: FailureCode,
@@ -107,9 +120,25 @@ pub struct Failure<'a> {
 }
 
 impl<'a> Failure<'a> {
+	/// Only the canonical throttling carrier can select a bounded retry delay.
+	pub fn retry_advice(self) -> Option<crate::admission::RetryAdvice> {
+		if self.code != FailureCode::RateLimited {
+			return None;
+		}
+		crate::admission::RetryAdvice::parse(self.detail)
+	}
+	/// Rooms admission refusals precede external effects. Only validated advice
+	/// makes a throttling carrier such evidence. Arbitrary diagnostics do not.
+	pub fn refused_before_dispatch(self) -> bool {
+		match self.code {
+			FailureCode::RateLimited => self.retry_advice().is_some(),
+			FailureCode::AdmissionBusy | FailureCode::RequestTooLarge => true,
+			_ => false,
+		}
+	}
 	/// Read the canonical Rooms reason, including the generic binding wrapper that
 	/// shipped around it. A code-shaped phrase inside diagnostic detail is not a
-	/// failure code. Unknown reasons stay untyped; reading allocates nothing.
+	/// failure code. Unknown reasons stay untyped. Reading allocates nothing.
 	pub fn parse(reason: &'a str) -> Option<Self> {
 		let reason = match reason.strip_prefix("glowcap error ") {
 			Some(wrapped) => {
@@ -148,6 +177,33 @@ pub fn reason_prefix(reason: &str) -> &str {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn a_coded_line_reads_back_as_its_failure() {
+		for definition in DEFINITIONS {
+			let detail = format!("detail for {}", definition.code.wire());
+			let line = definition
+				.code
+				.line(format_args!("detail for {}", definition.code.wire()));
+			assert_eq!(
+				Failure::parse(&line),
+				Some(Failure {
+					code: definition.code,
+					detail: &detail,
+				})
+			);
+			assert_eq!(
+				line,
+				format!(
+					"{}",
+					Failure {
+						code: definition.code,
+						detail: &detail
+					}
+				)
+			);
+		}
+	}
 
 	#[test]
 	fn parses_only_the_owned_code_position() {

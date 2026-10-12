@@ -58,6 +58,8 @@ const names = [_][]const u8{
     "glowcap_loam_call_replace_graph_copying",
     "glowcap_loam_call_page_reference",
     "glowcap_loam_call_source",
+    "glowcap_loam_call_accounting_path",
+    "glowcap_loam_call_refuse_copying",
     "glowcap_loam_call_retain_prepared_reference",
     "glowcap_loam_call_disclose_page",
     "glowcap_loam_references_restore_page",
@@ -89,6 +91,7 @@ const Spec = struct {
     pub fn special(comptime T: type) ?[]const u8 {
         if (T == abi.GlowcapLoamRequirementFn or T == ?abi.GlowcapLoamRequirementFn) return "GlowcapLoamRequirementFn";
         if (T == abi.GlowcapLoamInvokeFn or T == ?abi.GlowcapLoamInvokeFn) return "GlowcapLoamInvokeFn";
+        if (T == abi.GlowcapLoamForwardFn or T == ?abi.GlowcapLoamForwardFn) return "GlowcapLoamForwardFn";
         if (T == abi.GlowcapLoamReferencesFn or T == ?abi.GlowcapLoamReferencesFn) return "GlowcapLoamReferencesFn";
         if (T == abi.GlowcapLoamEntropyFn or T == ?abi.GlowcapLoamEntropyFn) return "GlowcapLoamEntropyFn";
         if (T == abi.GlowcapLoamKvFn or T == ?abi.GlowcapLoamKvFn) return "GlowcapLoamKvFn";
@@ -121,8 +124,11 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try b.appendSlice(gpa, "typedef struct GlowcapLoamWork GlowcapLoamWork;\n");
     try b.appendSlice(gpa, "typedef struct GlowcapLoamInvocation GlowcapLoamInvocation;\n");
     try b.appendSlice(gpa, "typedef struct GlowcapLoamRequirement GlowcapLoamRequirement;\n");
+    try b.appendSlice(gpa, "typedef struct GlowcapLoamGraphSchema GlowcapLoamGraphSchema;\n");
     try b.appendSlice(gpa, "typedef int32_t (*GlowcapLoamRequirementFn)(void *, const GlowcapLoamInvocation *, GlowcapLoamRequirement *);\n");
     try b.appendSlice(gpa, "typedef int32_t (*GlowcapLoamInvokeFn)(void *, GlowcapLoamCall *, const GlowcapLoamInvocation *);\n");
+    try b.appendSlice(gpa, "/* Borrowed selector, actual target method and payload byte count. No argument projection. */\n");
+    try b.appendSlice(gpa, "typedef int32_t (*GlowcapLoamForwardFn)(void *, GlowcapLoamCall *, const uint8_t *, size_t, const uint8_t *, size_t, size_t);\n");
     try b.appendSlice(gpa, "typedef int32_t (*GlowcapLoamReferencesFn)(void *, GlowcapLoamReferences *, const GlowcapLoamInvocation *);\n");
     try b.appendSlice(gpa, "typedef int32_t (*GlowcapLoamEntropyFn)(void *, uint8_t *, size_t);\n");
     try E.emitStruct(&b, gpa, abi.GlowcapLoamObject, "GlowcapLoamObject", &@as([@typeInfo(abi.GlowcapLoamObject).@"struct".field_names.len][]const u8, @splat("")));
@@ -186,6 +192,8 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try E.emitFn(&b, gpa, "glowcap_loam_call_replace_graph_copying", &.{ "call", "payload", "payload_len", "pages", "count" }, "Copy a complete owned-page candidate. A keep token borrows this preparation: null payload preserves the page, non-null payload updates its bytes while preserving exact fields; schema, version and fields must be zero. New pages carry exact held fields. Root binding, pages, recipes and managed receipt commit together as one content effect. No provisional capability escapes. A write field with null page captures reference (index must be zero); a non-null page copies that prepared page capability field (reference must be zero). Index zero excludes the resource binding. Retained fields preserve exact recipe edges without restoring their targets. Foreign tokens, invalid indices and weak fields refuse before capture.");
     try E.emitFn(&b, gpa, "glowcap_loam_call_page_reference", &.{ "call", "page", "index", "out_reference" }, "Borrow a prepared page's exact saved field through callback return. Indices omit its protected resource binding. This does not authorize reply disclosure or retain authority after settlement.");
     try E.emitFn(&b, gpa, "glowcap_loam_call_source", &.{ "call", "out_reference" }, "Return one owned occurrence of the actual invoking endpoint for comparison with saved receipt custody. This declares no reply disclosure. Release it through glowcap_host_ref_release.");
+    try E.emitFn(&b, gpa, "glowcap_loam_call_accounting_path", &.{ "call", "out_path", "capacity", "out_count" }, "Copy admitted source grant record names into caller storage, nearest first. The validated working set supplies the ancestors. At most 65 records; insufficient capacity refuses without writing a prefix. These are accounting data and confer no authority. Valid only during the callback.");
+    try E.emitFn(&b, gpa, "glowcap_loam_call_refuse_copying", &.{ "call", "reason", "len" }, "Copy an application refusal into the retained bounded arena. The explanation must be nonempty UTF-8 and at most 1024 bytes. A second refusal or a reply refuses. Return an application failure from the callback; this setter stages no mutation and grants no retry authority.");
     try E.emitFn(&b, gpa, "glowcap_loam_call_retain_prepared_reference", &.{ "call", "reference", "out_reference" }, "Own one occurrence of exact prepared reference custody beyond callback return. Preparation validates its recipe; this grants no disclosure. Release the returned occurrence through glowcap_host_ref_release. Output zeroes on refusal.");
     try E.emitFn(&b, gpa, "glowcap_loam_call_disclose_reads_copying", &.{ "call", "target", "interfaces", "interface_count", "role", "out_reference" }, "Read callback only: copy the original admitted source intent and declared recursive read interfaces. Return a callback-borrowed declared facade over the exact target; current source and upstream admission govern each later call. Returned capabilities are recursively mediated; wrong counts and undeclared verbs refuse. A bounded weak cache preserves exact target/interface identity while facets survive. The facade owns no durable recipe and refuses after its actual source lifetime ends. Output zeroes on refusal; no raw target is disclosed.");
     try E.emitFn(&b, gpa, "glowcap_loam_read_scope_size_bound", &.{ "arguments", "source_verb_bytes", "interfaces", "methods", "verb_bytes", "result_roles", "targets", "out_bytes" }, "Derive the shared physical continuation_bytes allowance for one read scope, copied source intent, interface declarations and weak target cache. Counts cover all methods and result occurrences; verb_bytes sums declared method names. targets matches max_continuation_targets. Host actors/registry and temporary C/Rust declaration projection are separately owned.");

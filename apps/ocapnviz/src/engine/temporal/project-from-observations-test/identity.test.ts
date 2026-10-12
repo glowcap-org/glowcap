@@ -1,7 +1,7 @@
 /**
  * What observations write onto entities besides spans: a live name,
  * an end that attaches when something backs it, a designator, a
- * netlayer — and the authored value that outranks the wire.
+ * netlayer, and the authored value that outranks the wire.
  */
 
 import { assertEquals } from "@std/assert";
@@ -63,7 +63,7 @@ Deno.test("live: every peer-updated lands, in time order", () => {
 });
 
 Deno.test("live: dropping the renaming observation drops its keyframe", () => {
-	// The observation stream is the authority in both directions —
+	// The observation stream is the authority in both directions,
 	// a track that outlived the observation behind it would keep
 	// renaming the peer with nothing left to point at.
 	const doc = joinedPeerDoc();
@@ -108,7 +108,7 @@ Deno.test("attributing an end attaches it, and keeps the session's span", () => 
 	// cannot attribute, so the session is drawn with that end attached to
 	// nobody, carrying only what the far side claimed. When something finally
 	// backs the claim, the end attaches to the peer it named. What must NOT
-	// happen is the session ending — nothing on the wire closed.
+	// happen is the session ending. Nothing on the wire closed.
 	const doc = withEvents(emptyDoc(), [
 		{
 			id: "e1",
@@ -160,7 +160,7 @@ Deno.test("attributing an end attaches it, and keeps the session's span", () => 
 
 	// No peer was born or died to carry the claim, which is the whole point:
 	// the only thing that changed is which peer the session's end names.
-	// Alice's row is open-ended — an implicit duration, the shape a peer
+	// Alice's row is open-ended. An implicit duration, the shape a peer
 	// with no ending observation gets.
 	assertEquals(out.entities?.peers?.["alice"]?.timing?.duration, {
 		value: 0,

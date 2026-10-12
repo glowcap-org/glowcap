@@ -26,7 +26,7 @@ const FakeBackend = fixtures.FakeBackend;
 const FakeEvent = fixtures.FakeEvent;
 
 /// Two-connection fan-in throttle (ADR-0082): while the sink stays over
-/// high-water, a drained source stays parked; when the sink finally drains,
+/// high-water, a drained source stays parked. When the sink finally drains,
 /// the source's read re-arms.
 const FanInBackend = struct {
     pub const Fd = i32;
@@ -79,6 +79,12 @@ const FanInBackend = struct {
 
     pub fn loopListenTarget(port: u16) ListenTarget {
         return port;
+    }
+
+    /// A scripted listener binds at `openListener`; nothing pends here; a
+    /// wrapped adapter's pending setup reports through the adapter itself.
+    pub fn listenerPending(_: *@This(), _: Fd) bool {
+        return false;
     }
 
     pub fn openListener(self: *@This(), port: u16) !Fd {
@@ -180,7 +186,7 @@ const FanInBackend = struct {
         _ = timeout_ms;
         if (self.ready_len == 0) {
             // Prefer releasing the source write so it drains while the sink
-            // stays held — that is the fan-in shape under test.
+            // stays held. That is the fan-in shape under test.
             if (self.held[1]) |h| {
                 self.held[1] = null;
                 self.source_released = true;

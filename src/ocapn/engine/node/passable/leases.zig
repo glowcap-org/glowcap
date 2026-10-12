@@ -48,6 +48,8 @@ pub fn claim(self: *Node, route_id: model.CapabilityRouteId) ?u64 {
 }
 
 pub fn unclaim(self: *Node, route_id: model.CapabilityRouteId, capability_raw: u64) void {
+    // Only a capability `claim` answered is unclaimed, inside the same
+    // `begin`/`end` window.
     const leases = self.outbound_staging_leases orelse unreachable;
     for (leases) |*lease| {
         if (lease.route_id != route_id or lease.capability != capability_raw or !lease.claimed) continue;

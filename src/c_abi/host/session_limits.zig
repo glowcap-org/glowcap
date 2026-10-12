@@ -11,8 +11,8 @@ const c = @import("mod.zig");
 const common = @import("common.zig");
 
 /// Configure independent per-ingress queue bounds before any session or
-/// eventual send. Bytes include spines and queue rows. All limits are positive;
-/// a complete queue chunk must fit the aggregate byte allowance. No eager
+/// eventual send. Bytes include spines and queue rows. All limits are positive.
+/// A complete queue chunk must fit the aggregate byte allowance. No eager
 /// payload allocation occurs. Later reconfiguration is refused.
 pub fn glowcap_host_set_ingress_limits(host: ?*c.GlowcapHost, max_pending_turns: u32, max_pending_bytes: u32, max_chunk_bytes: u32) callconv(.c) i32 {
     shared.lastErrorClear();
@@ -24,7 +24,7 @@ pub fn glowcap_host_set_ingress_limits(host: ?*c.GlowcapHost, max_pending_turns:
 
 /// Apply the versioned selective session-limit overrides before minting peers.
 /// Zero fields remain unchanged. Peers already open keep the limits they were
-/// minted with; later mints see the updated `Host.Options`.
+/// minted with. Later mints see the updated `Host.Options`.
 pub fn glowcap_host_set_session_limits(
     host: ?*c.GlowcapHost,
     options: ?*const c.GlowcapSessionLimitOptions,

@@ -1,4 +1,4 @@
-//! The annotated symbol inventory of `libglowcap_ocapn` — the crossing
+//! The annotated symbol inventory of `libglowcap_ocapn`: the crossing
 //! semantics a language FFI table cannot reflect from the C signature alone.
 //!
 //! Every export has a row here (in the TS table's reading order) or a binding-

@@ -69,7 +69,7 @@ fn expectStep(rc: i32) !void {
     return expectOk(rc);
 }
 
-/// What the loop's drained events amounted to; scalar facts only, because a
+/// What the loop's drained events amounted to, scalar facts only, because a
 /// COMPLETION's views die at the next `glowcap_driver_next_event`.
 const Drained = struct {
     dialed_session: ?*cd.GlowcapHostSession = null,

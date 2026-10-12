@@ -1,5 +1,5 @@
-//! Client command coordination. The durable session remains the authority;
-//! this owner decides which refused intent may be retried and retains the
+//! Client command coordination. The durable session remains the authority.
+//! This owner decides which refused intent may be retried and retains the
 //! identity of an authority request whose answer was lost. Adapters execute
 //! each selected step and release the operation after observing its outcome.
 pub mod drafts;
@@ -15,9 +15,9 @@ use core::cell::RefCell;
 use intent::Intent;
 
 /// A failed result request must not silently lose its retry identity. Refuse
-/// new retained intent at these bounds; correcting an existing intent replaces
+/// new retained intent at these bounds. Correcting an existing intent replaces
 /// only that action's conversation slot. Active and retained holders share it.
-/// Counts intent storage; the slot ceiling separately bounds map and id overhead.
+/// Counts intent storage. The slot ceiling separately bounds map and id overhead.
 pub const MAX_RETAINED_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_RETAINED_RESULTS: usize = 5 * 256;
 
@@ -149,7 +149,7 @@ impl Commands {
 		})
 	}
 	/// File transfers are external effects with their own typed protocol. Track
-	/// their identity while the adapter drives them; never make them retryable.
+	/// their identity while the adapter drives them. Never make them retryable.
 	pub fn external(&self, id: OperationId) -> Result<ExternalOperation, Error> {
 		let mut state = self.0.borrow_mut();
 		state.ready()?;

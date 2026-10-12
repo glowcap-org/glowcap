@@ -10,7 +10,7 @@
 //! driver runs the fuzzer once per target, which it discovers by reading test
 //! names out of files called `fuzz_test.zig` one directory under `test/`. A
 //! target written anywhere else compiles, passes the ordinary suite by replaying
-//! its seeds, and is never once mutated — it looks like coverage and is not.
+//! its seeds, and is never once mutated, it looks like coverage and is not.
 
 const std = @import("std");
 const util = @import("util.zig");
@@ -20,7 +20,7 @@ const appendViolation = util.appendViolation;
 /// Every crash input in every target's regressions directory must be replayed.
 ///
 /// The fuzzer writes a failing input to the build cache, which is wiped by any
-/// clean. Copying it into the tree is only half the job; if nobody wires it into
+/// clean. Copying it into the tree is only half the job. If nobody wires it into
 /// the replay it sits there looking like coverage and proving nothing.
 ///
 /// Every target owns its own directory, because that is what the fuzz driver
@@ -64,11 +64,10 @@ pub fn checkFuzzRegressionSeeds(
         };
         defer gpa.free(harness);
 
-        // A target with no regressions directory at all used to look exactly
-        // like one with an empty directory, so this check could not see the
-        // case it exists to refuse: a crash the driver tells you to save into a
-        // path that is not there, and a seed list to add it to that does not
-        // exist either. Absent is a violation now, not a skip.
+        // A target with no regressions directory at all must not pass as one
+        // with an empty directory. The case this check refuses is a crash the
+        // driver tells you to save into a path that is not there, and a seed
+        // list to add it to that does not exist either. Absent is a violation.
         //
         // Per target, not per file. One file may hold several targets, and
         // asking only whether the *file* mentions a seed list passes a file
@@ -114,9 +113,9 @@ pub fn checkFuzzRegressionSeeds(
                 try appendViolation(gpa, violations, "{s}: `{s}` is not replayed. Add it to the regression seeds in {s}, or delete it.", .{ regressions_dir, file.name, harness_path });
                 continue;
             };
-            // And into a list some target actually reads. A file may hold two
-            // targets whose inputs mean different things — a saved completion
-            // schedule is nothing to a frame reader — so being embedded
+            // And into a list some target reads. A file may hold two
+            // targets whose inputs mean different things, a saved completion
+            // schedule is nothing to a frame reader, so being embedded
             // *somewhere* is not the same as being replayed.
             const list = enclosingSeedList(harness, embed) orelse {
                 try appendViolation(gpa, violations, "{s}: `{s}` is embedded in {s} but not inside a `regression_seeds` list, so nothing replays it.", .{ regressions_dir, file.name, harness_path });
@@ -124,8 +123,8 @@ pub fn checkFuzzRegressionSeeds(
             };
             // In a file with more than one seed list, the filename must say
             // which. Binding a saved input to a *list* is all the check can
-            // decide from here — it cannot read the bytes and tell a completion
-            // schedule from a frame — so the one mistake left is pasting into
+            // decide from here. It cannot read the bytes and tell a completion
+            // schedule from a frame, so the one mistake left is pasting into
             // the wrong list, and a filename prefix makes that visible where
             // nothing else can.
             if (seedListCount(harness) > 1) {
@@ -140,7 +139,7 @@ pub fn checkFuzzRegressionSeeds(
                 0 => try appendViolation(gpa, violations, "{s}: `{s}` is embedded in `{s}`, which no fuzz target's corpus reads. It is replayed by nothing.", .{ regressions_dir, file.name, list }),
                 1 => {},
                 // More than one target reads the list, so which of them this
-                // input was saved for is unknowable from here — and in a file
+                // input was saved for is unknowable from here, and in a file
                 // whose targets take different input shapes, a schedule handed
                 // to a frame reader is replayed by a target that cannot take
                 // the path it was found on. One list per target keeps the
@@ -184,7 +183,7 @@ fn seedListCount(source: []const u8) usize {
     return count;
 }
 
-/// Whether `body` reads any seed list — an identifier ending in
+/// Whether `body` reads any seed list, an identifier ending in
 /// `regression_seeds`, so `schedule_regression_seeds` counts and the bare
 /// substring inside it does not.
 fn mentionsSeedList(body: []const u8) bool {
@@ -274,7 +273,7 @@ fn testBody(source: []const u8, at: usize) []const u8 {
 /// The corpus is the only route a saved crash has back into the ordinary suite:
 /// `zig build fuzz` writes the input to `fuzz_regressions/` and tells the author
 /// to add it to the seed list, and a target whose corpus never reads that list
-/// silently ignores it. The check is the name, not the value — whether the
+/// silently ignores it. The check is the name, not the value, whether the
 /// seeds are threaded through a shared `corpus_seeds` or spliced into a local
 /// array does not matter, only that the target's corpus reaches them.
 fn checkTargetsReplayRegressions(
@@ -292,7 +291,7 @@ fn checkTargetsReplayRegressions(
         // The target's body: its own braces, not "everything until the next
         // target". A file whose last target is a five-hundred-line harness gave
         // every earlier target a body that swallowed the whole rest of the
-        // file, so any one target's seed list satisfied all of them — the
+        // file, so any one target's seed list satisfied all of them, the
         // per-file check this replaced, wearing per-target clothes.
         const body = testBody(source, at);
         if (std.mem.indexOf(u8, body, fuzz_call) == null) {
@@ -326,8 +325,8 @@ const fuzz_root = "test/fuzz_check.zig";
 /// for `test "fuzz: …"` names and running the fuzzer once per name. Three ways
 /// a target can slip out of that, all of which leave a green build:
 ///
-///   - it lives in a file with another name, so the scan never sees it;
-///   - it is named without the `fuzz: ` prefix, same result;
+///   - it lives in a file with another name, so the scan never sees it,
+///   - it is named without the `fuzz: ` prefix, same result,
 ///   - its file is not imported by the fuzz root, so it is not even compiled
 ///     into the artifact the fuzzer runs.
 ///

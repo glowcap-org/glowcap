@@ -1,9 +1,12 @@
 // The production editor issues use separately from management, and lifecycle
 // changes reach a view already holding the exact issued endpoint.
 import type { Browser, Page } from "playwright";
+import { Buffer } from "node:buffer";
 import { managedAccessText as text, statusTag } from "../../lib/text/managed_access.ts";
 import { managedSessionText } from "../../lib/text/managed_session.ts";
-import { fail } from "./harness.ts";
+import { fail, say, waitForPostedLine } from "./harness.ts";
+import { png } from "./png.ts";
+import { namedRoomRow } from "../support/conversation_row.ts";
 
 export async function proveManagedAccessEditor(browser: Browser, owner: Page, httpPort: number, control: string) {
 	await owner.click("#settingsBtn");
@@ -16,6 +19,19 @@ export async function proveManagedAccessEditor(browser: Browser, owner: Page, ht
 	// Issuance appends another held control. Keep observing the original issuer.
 	const held = controls.nth(await controls.count() - 1);
 	await held.getByRole("button", { name: text.manage, exact: true }).waitFor();
+	const viewport = owner.viewportSize();
+	await owner.setViewportSize({ width: 320, height: 844 });
+	const escaped = await access.locator(".entry-head .actions").evaluateAll((groups) =>
+		groups.flatMap((group) => {
+			const row = group.closest(".entry")!.getBoundingClientRect();
+			return [...group.querySelectorAll("button")].flatMap((button) => {
+				const box = button.getBoundingClientRect();
+				return box.left < row.left - 1 || box.right > row.right + 1 ? [button.textContent] : [];
+			});
+		})
+	);
+	if (escaped.length !== 0) fail(`access actions escape their row on a phone: ${escaped.join(", ")}`);
+	if (viewport != null) await owner.setViewportSize(viewport);
 	await held.getByRole("button", { name: text.issueAsk, exact: true }).click();
 	const issuing = owner.locator(".session-issue-modal");
 	await owner.fill("#sessionAccessLabel", "Page observer");
@@ -65,6 +81,7 @@ export async function proveManagedAccessEditor(browser: Browser, owner: Page, ht
 		await owner.click("#settingsClose");
 		await owner.reload();
 		await owner.waitForSelector("#settingsBtn");
+		await owner.locator("#roomList").getByText("mirror-one", { exact: true }).click();
 		await owner.click("#settingsBtn");
 		await owner.click("#sessionTab");
 		await owner.click("#sessionAccessOpen");
@@ -98,6 +115,10 @@ export async function proveManagedAccessEditor(browser: Browser, owner: Page, ht
 		await otherEditor.getByText(text.committedEdit, { exact: true }).waitFor();
 		await editor.getByRole("button", { name: text.saveLabel, exact: true }).click();
 		await editor.getByRole("button", { name: text.reapply, exact: true }).waitFor();
+		const nameEdit = editor.locator(".entry").filter({ has: owner.locator("#sessionGrantLabel") });
+		await nameEdit.getByRole("button", { name: text.reapply, exact: true }).waitFor();
+		await nameEdit.getByRole("button", { name: text.discard, exact: true }).waitFor();
+		await nameEdit.getByText("Current name: Another viewer committed.", { exact: true }).waitFor();
 		if (await owner.inputValue("#sessionGrantLabel") !== "Preserved first draft") {
 			fail("conflict erased the label draft");
 		}
@@ -117,7 +138,56 @@ export async function proveManagedAccessEditor(browser: Browser, owner: Page, ht
 		await editor.getByRole("radio", { name: /^Collaborator/ }).check();
 		await editor.getByRole("button", { name: text.savePermissions, exact: true }).click();
 		await observer.waitForSelector("#line:not([disabled])");
+		await observer.fill("#line", "Collaborator draft");
+		await owner.waitForFunction(() =>
+			(document.querySelector("#line") as HTMLTextAreaElement)?.value === "Collaborator draft"
+		).catch(async () => fail(`collaborator draft did not sync: ${await observer.locator("body").innerText()}`));
+		await say(observer, "Posted with collaborator access");
+		for (const page of [owner, observer]) {
+			await page.locator(".bubble").filter({ hasText: "Posted with collaborator access" }).first().waitFor();
+		}
+		await waitForPostedLine(observer, "Posted with collaborator access");
+		const posted = observer.locator(".row.mine .bubble").filter({ hasText: "Posted with collaborator access" });
+		await posted.hover();
+		await posted.getByLabel("More for this message", { exact: true }).click();
+		await observer.getByRole("menuitem", { name: "Edit", exact: true }).click();
+		await say(observer, "Edited with collaborator access");
+		for (const page of [owner, observer]) {
+			await page.locator(".bubble").filter({ hasText: "Edited with collaborator access" }).first().waitFor();
+		}
+		await observer.waitForSelector(".changing-bar", { state: "detached" });
+		await observer.setInputFiles("#filePick", {
+			name: "collaborator.png",
+			mimeType: "image/png",
+			buffer: Buffer.from(png),
+		});
+		await observer.waitForSelector('.composer-file:has-text("collaborator.png")');
+		await say(observer, "Uploaded with collaborator access");
+		await waitForPostedLine(observer, "Uploaded with collaborator access");
+		await owner.locator(".bubble").filter({ hasText: "Uploaded with collaborator access" }).locator("img")
+			.waitFor();
+		const upload = observer.locator(".bubble").filter({ hasText: "Uploaded with collaborator access" });
+		await upload.locator(".attach .why").filter({ hasText: "This access doesn't allow that action." }).waitFor();
+		await say(observer, "After an unopened collaborator file");
+		await owner.locator(".bubble").filter({ hasText: "After an unopened collaborator file" }).waitFor();
+		await waitForPostedLine(observer, "After an unopened collaborator file");
+		// Opening files is independent of participation. Granting it lets the
+		// existing attachment retry its original selection without another post.
+		await editor.getByRole("checkbox", { name: text.readFile, exact: true }).check();
+		await editor.getByRole("button", { name: text.savePermissions, exact: true }).click();
+		await editor.locator(".session-grant-permissions").getByText(text.committedEdit, { exact: true }).waitFor();
+		await upload.getByRole("button", { name: /^Retry collaborator\.png,/ }).click();
+		await upload.locator("img").waitFor();
+		await observer.waitForFunction(() =>
+			!document.querySelector(".draft-sync") &&
+			(document.querySelector("#line") as HTMLTextAreaElement)?.value === ""
+		).catch(async () => fail(`collaborator post did not complete: ${await observer.locator("body").innerText()}`));
+		await editor.getByRole("radio", { name: /^Administrator/ }).check();
+		await editor.getByRole("button", { name: text.savePermissions, exact: true }).click();
+		await editor.locator(".session-grant-permissions").getByText(text.committedEdit, { exact: true }).waitFor();
+		await proveNamedJoining(owner, observer);
 		await editor.getByRole("radio", { name: /^Observer/ }).check();
+		await editor.getByRole("radio", { name: /^None/ }).check();
 		await editor.getByRole("button", { name: text.savePermissions, exact: true }).click();
 		await observer.waitForSelector("#line[disabled]");
 		await editor.getByRole("switch", { name: text.activeLabel, exact: true }).click();
@@ -163,6 +233,42 @@ export async function proveManagedAccessEditor(browser: Browser, owner: Page, ht
 	} finally {
 		await context.close();
 	}
+}
+
+async function proveNamedJoining(owner: Page, visitor: Page): Promise<void> {
+	const room = "shared-access-room";
+	async function open() {
+		await visitor.click("#newRoomBtn");
+		await visitor.fill("#newRoomInput", room);
+		await visitor.press("#newRoomInput", "Enter");
+		await namedRoomRow(visitor, room, true, "membership-joined").waitFor({ timeout: 15_000 }).catch(async () =>
+			fail(`named join through shared access failed: ${await visitor.locator("body").innerText()}`)
+		);
+		await visitor.waitForFunction((room) => {
+			const line = document.querySelector<HTMLTextAreaElement>("#line");
+			return document.querySelector("#roomName")?.textContent === room && line != null && !line.disabled;
+		}, room);
+	}
+	async function leave() {
+		await say(visitor, "/leave");
+		await namedRoomRow(visitor, room, false, "membership-joined").waitFor({ state: "detached" });
+	}
+	// The directory belongs to the original session link. This viewer holds a
+	// separately issued grant. Both absent-name creation and public readmission
+	// must work without substituting the directory's initiating source.
+	await open();
+	await say(visitor, "Created through shared access");
+	await waitForPostedLine(visitor, "Created through shared access");
+	await leave();
+	await open();
+	await say(visitor, "Rejoined through shared access");
+	await waitForPostedLine(visitor, "Rejoined through shared access");
+	await namedRoomRow(owner, room, false, "membership-joined").waitFor();
+	const screenshot = Deno.env.get("GLOWCAP_MANAGED_ACCESS_SCREENSHOT");
+	if (screenshot != null) await visitor.screenshot({ path: screenshot, fullPage: true });
+	await leave();
+	await namedRoomRow(visitor, "mirror-one").click();
+	await visitor.waitForSelector("#line:not([disabled])");
 }
 
 /** Open the hold card from Session access, hold `control` there, and wait for it to close. */

@@ -7,6 +7,7 @@ from pathlib import Path
 import unittest
 
 from glowcap import relay
+from glowcap._errors import GlowcapError
 
 
 DESIGNATOR = "ab" * 32
@@ -16,6 +17,14 @@ CORPUS = json.loads(
 
 
 class RelayRouteTests(unittest.TestCase):
+    def test_managed_connector_refuses_native_alias_configuration(self) -> None:
+        config = relay.RelayConfig(
+            "ws://127.0.0.1:8080/relay",
+            relay_alias_url="wss://relay.example.test/relay",
+        )
+        with self.assertRaisesRegex(GlowcapError, "native relay provider"):
+            relay.connector(config)
+
     def test_dial_url_preserves_admitted_query_bytes(self) -> None:
         route = "wss://Relay.Example.test/bridge?second=%2f&first=one"
         self.assertEqual(

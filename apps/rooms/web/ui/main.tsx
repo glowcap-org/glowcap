@@ -1,6 +1,6 @@
 import { managedSessionText as managedText } from "../../lib/text/managed_session.ts";
 // The Rooms page entry, bundled to /page.js by rooms-web. Rust Wasm
-// admits durable startup choices; this module mounts their React projection.
+// admits durable startup choices. This module mounts their React projection.
 //
 // Rust owns local and attached session execution. React renders their shared
 // presentation without opening a second Host or owning session state.
@@ -26,7 +26,8 @@ import { reserveSelectionForAddress } from "./page_bootstrap.ts";
 import { RoomsPage } from "./page.ts";
 import { bindTabVisibility, RoomsPageProvider, RoomsProjectionProvider } from "./hooks.ts";
 import * as prefs from "./prefs.ts";
-import { openManagedSession } from "./session/managed/open.ts";
+import { ManagedSessionStartupFailure, openManagedSession } from "./session/managed/open.ts";
+import { attachedSessionFailureText } from "./session/attached_failure.ts";
 import { ManagedSessionProvider } from "./session/managed/context.tsx";
 import { ManagedProjection } from "./session/managed/projection.ts";
 import { presentationFiles } from "./session/managed/files.ts";
@@ -51,13 +52,13 @@ function report(source: string, error: unknown): void {
 const stopPreferences = bindViewPreferences(page.projection);
 addEventListener("pagehide", stopPreferences, { once: true });
 // The stylesheet refuses page scaling everywhere the root's `touch-action` is
-// honoured; this is WebKit's half, which arrives as its own gesture events.
+// honoured. This is WebKit's half, which arrives as its own gesture events.
 refusePageScaling();
 bindTabVisibility(page.projection);
-const browser = createRoomsBrowserController(page, navigateTo, addressOfActive, openWorkspace);
+const browser = createRoomsBrowserController(page, navigateTo, addressOfActive, () => openWorkspace("local"));
 let openingWorkspace: ReturnType<typeof openManagedSession> | null = null;
-function openWorkspace(): ReturnType<typeof openManagedSession> {
-	return openingWorkspace ??= openManagedSession(report).then((opened) => {
+function openWorkspace(selection: "saved" | "local" = "saved"): ReturnType<typeof openManagedSession> {
+	return openingWorkspace ??= openManagedSession(report, selection).then((opened) => {
 		page.managedSession = opened.session;
 		addEventListener("pagehide", () => {
 			void opened.session.close().catch((error) =>
@@ -65,6 +66,11 @@ function openWorkspace(): ReturnType<typeof openManagedSession> {
 			);
 		}, { once: true });
 		return opened;
+	}).catch((error) => {
+		// A failed opening can be retried after its owner has retired. Failed
+		// cleanup keeps the rejection so another Store cannot take its lock.
+		if (!(error instanceof ManagedSessionStartupFailure)) openingWorkspace = null;
+		throw error;
 	});
 }
 
@@ -167,7 +173,7 @@ async function start(): Promise<void> {
 		opened = await openWorkspace();
 	} catch (error) {
 		standAtFrontOfPrivilegedAddress();
-		await showSessionSetup("", refusalText(error));
+		await showSessionSetup("", attachedSessionFailureText(error));
 		return;
 	}
 	const { session: managed, local } = opened;

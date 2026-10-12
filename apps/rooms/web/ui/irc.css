@@ -1,7 +1,7 @@
 /* mIRC's sixteen colours, which every IRC client has drawn since the nineties
    and which a bridged line names by number. They are literal rather than tokens
-   on purpose: these are not this interface's palette and must not drift with it
-   — the author of that line picked colour four, and colour four is red. They
+   because they are not this interface's palette and must not drift with it:
+   the author of that line picked colour four, and colour four is red. They
    only ever appear on text that arrived carrying them. */
 .irc-fg-0 {
 	color: #ffffff;

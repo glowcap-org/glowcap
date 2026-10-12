@@ -14,10 +14,10 @@
 //! `conf_state.zig`.
 //!
 //!   * the promise-resolver bootstrap object (a `fulfill`/`break` to a minted
-//!     resolver export becomes an `op:resolve` on its paired answer);
-//!   * a `desc:handoff-give` delivered to the greeter (the recipient half) —
-//!     owned by `handoff.zig`;
-//!   * a sturdyref enliven to the enlivener (the gifter half) — owned by
+//!     resolver export becomes an `op:resolve` on its paired answer),
+//!   * a `desc:handoff-give` delivered to the greeter (the recipient half),
+//!     owned by `handoff.zig`,
+//!   * a sturdyref enliven to the enlivener (the gifter half), owned by
 //!     `handoff.zig`.
 
 const std = @import("std");
@@ -50,7 +50,7 @@ const PROMISE_RESOLVER = conf_state.PROMISE_RESOLVER;
 const STURDYREF_ENLIVENER = conf_state.STURDYREF_ENLIVENER;
 
 const host_ip = "127.0.0.1";
-/// The suite dials this fixed port; `--port=N` (threaded by
+/// The suite dials this fixed port, `--port=N` (threaded by
 /// `run-against-glowcap.sh` from `zig build ocapn-conformance -Dport=N`)
 /// moves it when 22055 is taken.
 const default_port: u16 = 22055;
@@ -245,7 +245,7 @@ fn releaseClosed(shared: *Shared) void {
 /// Everything a step classified but could not run under its callback latch:
 /// set up the sessions it opened, run the Host effects the interceptors
 /// deferred, and release the sessions it closed. A failed effect belongs to
-/// the session that raised it; the peer reports it and keeps serving.
+/// the session that raised it. The peer reports it and keeps serving.
 fn settleStep(shared: *Shared) void {
     for (shared.accepted.items) |session| admitAccepted(shared, session) catch |err|
         std.debug.print("glowcap-ocapn-peer: session setup failed: {s}\n", .{@errorName(err)});

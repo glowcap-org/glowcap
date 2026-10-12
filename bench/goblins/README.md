@@ -6,7 +6,7 @@ binding, and the same glowcap binding with time travel enabled. It compares
 latency, throughput, connection setup, and server memory.
 
 The harness holds the application source, call shape, and loopback transport
-constant. The runtimes and protocol implementations still differ, so read the
+constant. The runtimes and protocol implementations differ, so read the
 [methodology and caveats](METHODOLOGY.md) before interpreting a gap.
 
 To compare client-language overhead against one fixed glowcap host instead,
@@ -23,8 +23,8 @@ zig build bench-goblins -- --suite=registry
 zig build bench-goblins -- --suite=echo --smoke
 ```
 
-The command starts each server in its own process, waits for readiness, drives
-the client, samples memory, and stops the server.
+The command starts each server in its own process, waits for it to be ready,
+drives the client, samples memory, and stops the server.
 
 Generated reports go to `zig-out/bench-reports/`:
 
@@ -41,12 +41,12 @@ Each suite uses the same application source on both backends:
 
 | Suite | Conversation |
 | --- | --- |
-| `echo` (S0) | One request and reply; no capability passing |
+| `echo` (S0) | One request and reply. No capability passing |
 | `registry` (S1) | Look up a cell capability, then call `get` on it |
 | `mint` (S2) | Create a purse capability and deposit into it |
 | `taskboard` (S3) | Create a task, assign it, complete it, then read status |
 
-Calls are sequential. The benchmark does not measure concurrent load or
+Calls are sequential, so the benchmark measures neither concurrent load nor
 promise pipelining.
 
 ## What it reports
@@ -58,14 +58,14 @@ promise pipelining.
 - **Memory:** change in server RSS divided by open connections.
 
 The memory figure includes the Racket binding and one green thread per
-connection. It is not the Zig core's roughly 2 KiB design budget. RSS deltas
-inside a much larger managed runtime are noisy; use them as an order-of-
-magnitude comparison, not a precise allocation count.
+connection, so it is larger than the Zig core's roughly 2 KiB design budget.
+RSS deltas inside a larger managed runtime are noisy: use them for order of
+magnitude only.
 
 ## Snapshot and restore
 
-Snapshot measurement is separate because glowcap does not expose local
-snapshot and restore through the C ABI used by the shared harness.
+Snapshot measurement runs separately, because the C ABI the shared harness
+uses does not expose local snapshot and restore.
 
 ```sh
 zig build bench-snapshot
@@ -73,10 +73,10 @@ racket bench/goblins/snapshot.rkt
 ```
 
 Both commands sweep actor count and bytes per actor. The observed scaling
-supports the expected O(objects) snapshot shape and no payload-byte copying;
-it does not, by itself, prove the implementation mechanism. glowcap snapshots
-are opt-in per actor and use copy-on-write after a snapshot. Goblins shares
-immutable behaviors through its runtime.
+matches an O(objects) snapshot with no payload-byte copying, though timing
+alone does not prove the mechanism. glowcap snapshots are opt-in per actor and
+use copy-on-write after a snapshot. Goblins shares immutable behaviors through
+its runtime.
 
 ## Files
 

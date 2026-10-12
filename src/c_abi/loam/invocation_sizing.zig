@@ -1,4 +1,4 @@
-//! Pure managed-content demand projection; invocation and admission stay owned.
+//! Pure managed-content demand projection. Invocation and admission stay owned.
 const std = @import("std");
 const common = @import("common.zig");
 

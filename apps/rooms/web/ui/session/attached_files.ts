@@ -146,8 +146,8 @@ export class AttachedSessionFiles<F extends FileDescription = Attachment> {
 	}
 
 	/** Retire live attachment references when their attached transport is replaced.
-	 * A loaded object URL is independent of the transport and may keep rendering;
-	 * only views whose bytes still come from the dead session become lost. */
+	 * A loaded object URL is independent of the transport and may keep rendering.
+	 * Only views whose bytes still come from the dead session become lost. */
 	markLost(reason: string, directory?: string): void {
 		if (this.#frame != null) cancelAnimationFrame(this.#frame);
 		this.#frame = null;

@@ -79,7 +79,7 @@ engineTest(
 		});
 		assertEquals(e.effectiveEnd("messages", "m1"), 1_800);
 		// Dragging the right edge back to the recorded arrival is a
-		// real edit of the painted span — not a no-op.
+		// real edit of the painted span. Not a no-op.
 		e.dispatch({
 			kind: "move-event",
 			move: { kind: "resize-end", eventId: "m1s", newArrivalT: 1_500 },
@@ -130,7 +130,7 @@ engineTest(
 		e.dispatch({ kind: "set-peer-duration", peerId: "p", duration: 2_000 });
 		assertEquals(e.effectiveEnd("peers", "p"), 2_000);
 		// Dragging the leave marker back to its recorded t pins the
-		// painted end there — a real edit, not a no-op.
+		// painted end there. A real edit, not a no-op.
 		e.dispatch({
 			kind: "move-event",
 			move: { kind: "translate", eventId: "l1", newT: 1_000 },
@@ -163,7 +163,7 @@ engineTest(
 		// The parsed doc's entities carry no timing, so the engine's
 		// construction-time projection returns a FRESH doc object. The
 		// layout must follow the engine's doc, not the constructor
-		// argument — otherwise every later entities edit (here: the
+		// argument, otherwise every later entities edit (here: the
 		// unpin) recomputes against the abandoned object.
 		const e = new Engine(TimelineDocument.parse({
 			id: "stale-layout-doc",
@@ -205,8 +205,8 @@ engineTest(
 	() => {
 		// The shared fixture doc's peers carry timing DERIVED from
 		// their observations (peer-joined at t=0). Setting the start
-		// to that same value changes the span's authority — the user
-		// pins it, so observation growth stops moving it — which is
+		// to that same value changes the span's authority, the user
+		// pins it, so observation growth stops moving it, which is
 		// the pin-here rule applied to time. The no-op guard must not
 		// swallow it.
 		const e = new Engine(structuredClone(doc));
@@ -223,7 +223,7 @@ engineTest(
 			undefined,
 			"the authored span carries no derived marker",
 		);
-		// A second identical set IS a no-op — the span is authored now.
+		// A second identical set IS a no-op. The span is authored.
 		e.dispatch({ kind: "set-peer-start", peerId: "a", t: 0 });
 		e.undo();
 		assert(!e.canUndo, "exactly one history entry from the two dispatches");
@@ -235,7 +235,7 @@ engineTest(
 	() => {
 		// The whole live pipeline below the websocket: converter events
 		// appended after the entities were first projected still close
-		// them — the projection re-derives derived spans, so the world
+		// them. The projection re-derives derived spans, so the world
 		// drops the session and the departed peer.
 		const liveDoc: TimelineDocument = {
 			id: "live",
@@ -279,7 +279,7 @@ engineTest(
 		);
 		e.tick(20);
 		assert(findPeer(e.world, "bob") !== undefined, "bob joined");
-		// The close arrives LATER — after s1 and bob were projected.
+		// The close arrives LATER, after s1 and bob were projected.
 		primaryObservations(liveDoc).push(
 			{
 				id: "l4",
@@ -381,11 +381,11 @@ engineTest(
 	"deleting a recorded entity leaves no ghost across re-projection",
 	() => {
 		// The reported bug: record, switch to Build, delete a rogue
-		// peer, restart the playhead — the peer returns. Deletion
+		// peer, restart the playhead. The peer returns. Deletion
 		// removed the definition but spared the observations, and the
 		// projection re-synthesizes a definition for any id a creation
 		// observation mentions, so every re-projection resurrected the
-		// ghost. The cascade now purges the observations too.
+		// ghost. The cascade purges the observations too.
 		const rec: TimelineDocument = {
 			id: "rec",
 			duration: 5_000,
@@ -436,7 +436,7 @@ engineTest(
 		e.seekTo(200);
 		assert(findPeer(e.world, "rogue") !== undefined, "rogue is on stage");
 		e.dispatch({ kind: "delete-peer", peerId: "rogue" });
-		// Restart — the re-projection that used to resurrect the ghost.
+		// Restart. The re-projection must not resurrect the ghost.
 		e.restart();
 		e.seekTo(200);
 		assert(
@@ -453,7 +453,7 @@ engineTest(
 			),
 			"the rogue's observations are purged",
 		);
-		// Undo restores the whole family — observations included.
+		// Undo restores the whole family, observations included.
 		e.undo();
 		e.restart();
 		e.seekTo(200);
@@ -469,7 +469,7 @@ engineTest(
 	() => {
 		// The rename sibling of the delete-ghost bug: an observation
 		// left on the old id would resurrect a ghost there, and the
-		// renamed entity — matching no observations — would collapse to
+		// renamed entity, matching no observations, would collapse to
 		// eternal derived timing. The rename carries the observations.
 		const rec: TimelineDocument = {
 			id: "rec",

@@ -20,11 +20,18 @@ const IMAGE_LIMIT: usize = 4 * 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const OEMBED_TIMEOUT: Duration = Duration::from_secs(4);
 
+#[derive(Clone)]
+enum PreviewError {
+	Failure(FailureCode),
+	Admission(rooms_application::admission::Refusal),
+}
+
 pub(super) struct Preview {
+	admission: Rc<super::admission::Admission>,
 	tls: TlsConnector,
 	capacity: Arc<Semaphore>,
-	metadata: Rc<RefCell<cache::Pool<Result<Metadata, FailureCode>>>>,
-	images: Rc<RefCell<cache::Pool<Result<Image, FailureCode>>>>,
+	metadata: Rc<RefCell<cache::Pool<Result<Metadata, PreviewError>>>>,
+	images: Rc<RefCell<cache::Pool<Result<Image, PreviewError>>>>,
 }
 
 #[derive(Clone)]
@@ -56,8 +63,9 @@ enum MetadataReply {
 }
 
 impl Preview {
-	pub async fn open() -> Result<Self, String> {
+	pub async fn open(admission: Rc<super::admission::Admission>) -> Result<Self, String> {
 		Ok(Self {
+			admission,
 			tls: TlsConnector::from(Arc::new(rooms_platform::tls::system_config().await?)),
 			capacity: Arc::new(Semaphore::new(16)),
 			metadata: cache::Pool::new(128, 2 * 1024 * 1024, metadata_weight, result_ttl),
@@ -65,33 +73,50 @@ impl Preview {
 		})
 	}
 
-	pub async fn metadata(&self, url: &str, refresh: bool) -> Reply {
+	pub async fn metadata(&self, url: &str, refresh: bool, address: Option<std::net::IpAddr>) -> Reply {
 		let Some(url) = normalize_url(url) else {
 			return failure_for(FailureCode::LinkPreviewInvalidUrl);
 		};
 		if refresh {
 			cache::refresh(&self.metadata, &url);
 		}
-		let result = cache::coalesce(&self.metadata, url.clone(), load_metadata(self, url)).await;
+		let admission = self.admission.clone();
+		let loading = load_metadata(self, url.clone());
+		let result = cache::coalesce(&self.metadata, url, async move {
+			admission
+				.start(rooms_application::admission::Class::Preview, address)
+				.map_err(PreviewError::Admission)?;
+			loading.await.map_err(PreviewError::Failure)
+		})
+		.await;
 		match result {
 			Ok(metadata) => json(StatusCode::OK, &MetadataReply::Ready { ok: true, metadata }),
-			Err(code) => failure_for(code),
+			Err(error) => preview_failure(error),
 		}
 	}
 
-	pub async fn image(&self, url: &str) -> Reply {
+	pub async fn image(&self, url: &str, address: Option<std::net::IpAddr>) -> Reply {
 		let Some(url) = normalize_url(url) else {
 			return failure_for(FailureCode::LinkPreviewInvalidUrl);
 		};
-		match cache::coalesce(&self.images, url.clone(), load_image(self, url)).await {
+		let admission = self.admission.clone();
+		let loading = load_image(self, url.clone());
+		match cache::coalesce(&self.images, url, async move {
+			admission
+				.start(rooms_application::admission::Class::Preview, address)
+				.map_err(PreviewError::Admission)?;
+			loading.await.map_err(PreviewError::Failure)
+		})
+		.await
+		{
 			Ok(image) => hyper::Response::builder()
 				.status(StatusCode::OK)
 				.header("content-type", image.content_type)
 				.header("cache-control", "private, max-age=3600")
 				.header("x-content-type-options", "nosniff")
 				.body(http_body_util::Full::new(image.body))
-				.expect("validated preview image response"),
-			Err(code) => failure_for(code),
+				.unwrap_or_else(|_| failure_for(FailureCode::LinkPreviewContentUnsupported)),
+			Err(error) => preview_failure(error),
 		}
 	}
 }
@@ -162,6 +187,25 @@ fn failure_code(error: Error) -> FailureCode {
 	}
 }
 
+fn preview_failure(error: PreviewError) -> Reply {
+	match error {
+		PreviewError::Failure(code) => failure_for(code),
+		PreviewError::Admission(refusal) => {
+			let carrier = super::admission::reply(refusal);
+			let code = match refusal {
+				rooms_application::admission::Refusal::Throttled { .. } => FailureCode::RateLimited,
+				rooms_application::admission::Refusal::Capacity => FailureCode::AdmissionBusy,
+				rooms_application::admission::Refusal::TooLarge { .. } => FailureCode::RequestTooLarge,
+			};
+			let mut reply = failure(carrier.status(), code);
+			if let Some(retry) = carrier.headers().get("retry-after") {
+				reply.headers_mut().insert("retry-after", retry.clone());
+			}
+			reply
+		}
+	}
+}
+
 fn failure_for(code: FailureCode) -> Reply {
 	let status = match code {
 		FailureCode::LinkPreviewInvalidUrl => StatusCode::BAD_REQUEST,
@@ -176,16 +220,21 @@ fn failure_for(code: FailureCode) -> Reply {
 	failure(status, code)
 }
 
-fn result_ttl<T>(result: &Result<T, FailureCode>) -> Duration {
+fn result_ttl<T>(result: &Result<T, PreviewError>) -> Duration {
 	match result {
 		Ok(_) => Duration::from_secs(60 * 60),
-		Err(FailureCode::LinkPreviewBusy | FailureCode::LinkPreviewFailed) => Duration::ZERO,
-		Err(code) if code.definition().retry == rooms_application::failure::Retry::Soon => Duration::from_secs(30),
+		Err(
+			PreviewError::Admission(_)
+			| PreviewError::Failure(FailureCode::LinkPreviewBusy | FailureCode::LinkPreviewFailed),
+		) => Duration::ZERO,
+		Err(PreviewError::Failure(code)) if code.definition().retry == rooms_application::failure::Retry::Soon => {
+			Duration::from_secs(30)
+		}
 		Err(_) => Duration::from_secs(5 * 60),
 	}
 }
 
-fn metadata_weight(result: &Result<Metadata, FailureCode>) -> usize {
+fn metadata_weight(result: &Result<Metadata, PreviewError>) -> usize {
 	result.as_ref().map_or(64, |metadata| {
 		metadata.requested_url.len()
 			+ metadata.url.len()
@@ -201,7 +250,7 @@ fn metadata_weight(result: &Result<Metadata, FailureCode>) -> usize {
 	})
 }
 
-fn image_weight(result: &Result<Image, FailureCode>) -> usize {
+fn image_weight(result: &Result<Image, PreviewError>) -> usize {
 	result
 		.as_ref()
 		.map_or(64, |image| image.content_type.len() + image.body.len())

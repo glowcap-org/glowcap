@@ -26,7 +26,7 @@ const iroh_paths = &.{
     "src/net/transport/iroh/sidecar.zig",
 };
 
-/// One CapTP I/O spine (the forbid half of `checkCaptpIoSpine`; its
+/// One CapTP I/O spine (the forbid half of `checkCaptpIoSpine`. Its
 /// require-groups and walks stay bespoke in `source_check.zig`): no
 /// reintroduced `BlockingHost`, `net.Loop` alias, dual `dialTcp`/`dialIroh`
 /// Loop APIs, shared `ConnectTarget`, soft `@hasDecl(Backend` forks,

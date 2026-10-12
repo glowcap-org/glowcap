@@ -1,11 +1,11 @@
 // Reading a rooms failure out of whatever carried it.
 //
-// The taxonomy itself is `error_codes.ts` and imports nothing. This module is
-// the native half: what varies per binding is the carrier, and here an awaited
+// The taxonomy is `error_codes.ts`, which imports nothing. This module is the
+// runtime half. What varies per binding is the carrier, and here an awaited
 // send breaks as a `VowBroken` holding the wire's reason, so this is where that
 // reason is unwrapped before the portable `RoomsError.from` parses the code out
 // of it. Other client languages mirror the codes and read them through their
-// own binding's carrier; a browser has no `VowBroken` and reads the message
+// binding's carrier. A browser has no `VowBroken` and reads the message
 // directly, which is why the split exists.
 
 import { VowBroken } from "@glowcap/runtime";
@@ -28,10 +28,10 @@ export function roomsErrorOf(err: unknown): RoomsError | null {
  * declares its signatures looks like this from up here: the call returns
  * whatever happened to be in the register, and the binding reads it as a status.
  * Every glowcap status is a small negative integer, so a positive one, or one
- * far below the range, is not a status at all — and it is a different number on
- * each attempt, which is the other half of the tell.
+ * far below the range, is not a status at all. It is also a different number
+ * on each attempt, which is the other half of the tell.
  *
- * Worth deciding rather than printing, because the number alone sends whoever
+ * Worth deciding and not printing, because the number alone sends whoever
  * reads it looking at the transport, the network, and their own configuration,
  * none of which is the problem. The floor is well below the codes in use, so
  * this stays true as more are defined. */

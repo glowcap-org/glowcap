@@ -1,7 +1,7 @@
 //! The per-session capability verbs for `libglowcap_host`: publish / spawn,
 //! fetch / enliven, send / tell, vow projection, teardown, and diagnostics.
-//! Transport pumping lives in `session/pump.zig`; lifecycle lives in
-//! `session/lifecycle.zig`; turn-time verbs live in `turn.zig`.
+//! Transport pumping lives in `session/pump.zig`. Lifecycle lives in
+//! `session/lifecycle.zig`. Turn-time verbs live in `turn.zig`.
 
 const std = @import("std");
 
@@ -30,9 +30,9 @@ const GLOWCAP_ERR_WOULD_BLOCK = shared.GLOWCAP_ERR_WOULD_BLOCK;
 // ── Publish and spawn ────────────────────────────────────────────────────────
 
 /// Publish a hosted object a partner on this session can `fetch` by `name` (a
-/// swiss-number). The Host Vat owns the object; this session selects its first
+/// swiss-number). The Host Vat owns the object. This session selects its first
 /// Port projection. Releasing that session does not run `free`. On success,
-/// `free`, if non-null, runs exactly once at Host teardown; a failed
+/// `free`, if non-null, runs exactly once at Host teardown. A failed
 /// construction runs it after this call takes ownership. `*out_ref` receives
 /// the opaque Host-scoped capability.
 /// Refused inside a callback (ctx stays the caller's on a null-pointer or
@@ -85,9 +85,9 @@ pub fn glowcap_host_session_spawn(
 // ── Fetch and enliven ────────────────────────────────────────────────────────
 
 /// Fetch the partner capability published as `name`, minting a host vow
-/// whose id lands in `*out_vow`; the outcome arrives as that vow's SETTLE or
+/// whose id lands in `*out_vow`. The outcome arrives as that vow's SETTLE or
 /// FAIL action. A fulfilled far capability settles *already enrolled* under
-/// a node-unique token — recorded before the completion is queued, so a
+/// a node-unique token, recorded before the completion is queued, so a
 /// reply that immediately re-gifts it routes to the right exporter. Refused
 /// inside a callback.
 pub fn glowcap_host_session_fetch(
@@ -106,10 +106,10 @@ pub fn glowcap_host_session_fetch(
 }
 
 /// Enliven the complete canonical persistent sturdyref URI (ADR-0098), minting a
-/// host vow whose id lands in `*out_vow`; the live reference arrives as that
+/// host vow whose id lands in `*out_vow`. The live reference arrives as that
 /// vow's SETTLE action. The URI's transport and designator must match the
 /// selected session before the swiss namespace is consulted or wire traffic
-/// is emitted. A dedup-cache hit settles before this returns; a fresh enliven
+/// is emitted. A dedup-cache hit settles before this returns. A fresh enliven
 /// rides bootstrap-fetch. Refused inside a callback.
 pub fn glowcap_host_session_enliven(
     raw: ?*GlowcapHostSession,
@@ -127,13 +127,13 @@ pub fn glowcap_host_session_enliven(
 }
 
 /// Listen on a far capability this session holds (CapTP `op:listen`, ADR-0095)
-/// and mint a host vow that settles with the listen notification; the outcome
+/// and mint a host vow that settles with the listen notification. The outcome
 /// arrives as that vow's SETTLE or FAIL action. In 1.0, the target may be a
-/// far promise or live far object; a live object answers immediately. In
+/// far promise or live far object. A live object answers immediately. In
 /// glowcap-next, the target must be a far promise because shortening and
 /// settling are promise-only. A re-gifted promise routes to its exporter
 /// session transparently, and a give in the settlement auto-redeems exactly
-/// as a fetch's would. The vow is plain — a listen makes no claim the result
+/// as a fetch's would. The vow is plain: a listen makes no claim the result
 /// is a capability. Legal inside a callback.
 pub fn glowcap_host_session_listen(
     raw: ?*GlowcapHostSession,
@@ -187,15 +187,15 @@ pub fn glowcap_host_session_resolve(
 
 // ── Send, tell, vows, projections ────────────────────────────────────────────
 
-/// Eventual-send to `target` and mint a host vow for the answer; the outcome
+/// Eventual-send to `target` and mint a host vow for the answer. The outcome
 /// arrives as that vow's SETTLE or FAIL action. A NEAR target (an export
-/// this host bound) runs in-process; a FAR target routes through the node,
+/// this host bound) runs in-process. A FAR target routes through the node,
 /// so a redeemed or fetched token rides its exporter session
 /// transparently. A far argument foreign to the routed session is refused
-/// whole (`GLOWCAP_ERR_INVALID_ARGUMENT`) rather than mis-encoded; a retired
-/// token reports `GLOWCAP_ERR_NOT_FOUND`. `verb`/`args` are borrowed; the
-/// host copies what it queues. An empty verb — including `(NULL, 0)`, which
-/// the family's ptr+len contract admits — is a real message, not an error: it
+/// whole (`GLOWCAP_ERR_INVALID_ARGUMENT`) rather than mis-encoded. A retired
+/// token reports `GLOWCAP_ERR_NOT_FOUND`. `verb`/`args` are borrowed. The
+/// host copies what it queues. An empty verb (including `(NULL, 0)`, which
+/// the family's ptr+len contract admits) is a real message, not an error: it
 /// delivers positionally, the way Goblins invokes a capability. Legal inside
 /// a callback (the send encodes when the enclosing call unwinds).
 pub fn glowcap_host_session_send(
@@ -290,7 +290,7 @@ pub fn glowcap_host_vow_tell(
 
 /// Release one public Host vow. The handle remains a valid promise-pipeline
 /// target after settlement until this call succeeds. A far answer publishes
-/// its `op:gc-answer`; a non-OK return consumes nothing and is retryable.
+/// its `op:gc-answer`. A non-OK return consumes nothing and is retryable.
 pub fn glowcap_host_vow_release(host: ?*GlowcapHost, vow: u64) callconv(.c) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -300,7 +300,7 @@ pub fn glowcap_host_vow_release(host: ?*GlowcapHost, vow: u64) callconv(.c) i32 
 
 /// Pipeline an `op:index` projection against a far host vow, minting a new
 /// vow for the projected element. Same local-vow and unknown-vow refusals as
-/// `glowcap_host_vow_send`; an index above INT64_MAX is refused
+/// `glowcap_host_vow_send`. An index above INT64_MAX is refused
 /// `GLOWCAP_ERR_INVALID_ARGUMENT` (the wire index is a signed integer).
 pub fn glowcap_host_vow_index(host: ?*GlowcapHost, vow: u64, index: u64, out_vow: ?*u64) callconv(.c) i32 {
     shared.lastErrorClear();
@@ -316,7 +316,7 @@ pub fn glowcap_host_vow_index(host: ?*GlowcapHost, vow: u64, index: u64, out_vow
 
 /// Pipeline an `op:untag` projection against a far host vow, minting a new
 /// vow for the unwrapped payload (a single-value Tagged unwraps to that
-/// value; a variadic one to its value list). `tag` is borrowed.
+/// value. A variadic one to its value list). `tag` is borrowed.
 pub fn glowcap_host_vow_untag(host: ?*GlowcapHost, vow: u64, tag: ?[*]const u8, tag_len: usize, out_vow: ?*u64) callconv(.c) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -328,7 +328,7 @@ pub fn glowcap_host_vow_untag(host: ?*GlowcapHost, vow: u64, tag: ?[*]const u8, 
 
 /// Pipeline an `op:get` projection against a far host vow, minting a new
 /// vow for the named Struct field. Same local-vow and unknown-vow refusals as
-/// `glowcap_host_vow_send`; `field` is borrowed.
+/// `glowcap_host_vow_send`. `field` is borrowed.
 pub fn glowcap_host_vow_get(host: ?*GlowcapHost, vow: u64, field: ?[*]const u8, field_len: usize, out_vow: ?*u64) callconv(.c) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -407,7 +407,7 @@ pub fn glowcap_host_session_set_exporter_location(raw: ?*GlowcapHostSession, loc
 /// failure into `out` (the shared `GlowcapLastAbort` layout, byte views
 /// process-static). Returns `GLOWCAP_OK` when a failure has been recorded, or
 /// `GLOWCAP_ERR_WOULD_BLOCK` when none has. The flat per-feed return code
-/// names the failure family; this names the member.
+/// names the failure family. This names the member.
 pub fn glowcap_host_session_last_abort(raw: ?*GlowcapHostSession, out: ?*shared.GlowcapLastAbort) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -456,9 +456,9 @@ pub fn glowcap_host_session_partner_identity(
 /// Testify what this connection's realizer proved about its far end (ADR-0105):
 /// `designator` is the durable key that proof names, as a locator writes it. An
 /// iroh listener passes what `glowcap_iroh_conn_remote_node_id` read off the
-/// QUIC handshake; a WebRTC peer passes the identity its signaling authorized.
+/// QUIC handshake. A WebRTC peer passes the identity its signaling authorized.
 ///
-/// This library realizes nothing at the byte-fed tier — the embedder owns the
+/// This library realizes nothing at the byte-fed tier: the embedder owns the
 /// sockets, so the embedder is the realizer, and this is the only way that
 /// proof reaches a session. Without it the session reports unauthenticated
 /// durable provenance.

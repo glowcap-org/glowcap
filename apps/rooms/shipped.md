@@ -6,7 +6,7 @@ today.
 
 - *One implementation.* A single Rust implementation owns room and directory policy, durable authority, the session
   and its recovery, files, archives, operations, peering, IRC, and the bounded CommonMark message rendering. It runs
-  as the room server, the session service, the archive service, the web front, and the two IRC edges. In the
+  as the room server, the session service, the archive service, the web server, and the two IRC edges. In the
   browser it runs as Wasm, linked with glowcap's Zig Host in one module, and React renders what Rust observes.
 - *Managed session declarations.* `rooms-application::content` owns versioned workspace, custody and effect codecs,
   permission requirements, presets and browser metadata. Shared Loam checks dependencies and session applicability.
@@ -21,16 +21,29 @@ today.
   An owned inbox worker checks current admission before delivery, shares a bounded session queue budget,
   and drains pending calls before closing. The main page consumes automatic directory, room and direct supervision.
   Known connection failures are reported before restoration waits, preserving healthy siblings and exact source authority.
+  Exporter observation starts before DM readiness and survives a refused workspace expiry. An ended route
+  displays CLOSED and keeps its draft and history. Current room rosters remove departed members independently
+  of their directory registration and direct conversations.
+- *Work admission.* Configurable process-local budgets cover native peer work, validated shared grant ancestry,
+  receiving direct callbacks and expensive HTTP starts. Refusals preserve drafts and exact effect outcomes.
+  Reconnects retain debt, and cleanup has separate allowance and callback custody.
+  The [admission guide](../../docs/rooms/admission.md) owns configuration and attribution.
 - *Messages.* A message keeps its authored source on the wire and in archives. Raw HTML stays inert, remote images
   never load on their own, and links may use only approved schemes. A message can preview at most five validated
   URLs, which readers fetch through a same-origin service that refuses unsafe redirects and private addresses.
 - *Sending.* A Rust room sender rebuilds its ordered receipt from retained text, and releases rejected requests even
   after the caller cancels. It reuses acknowledged, immutable upload bytes for local display and recording, while
   other members still receive the complete message.
+- *Gesture feedback.* Managed gestures retain explicit ownership through settlement and result acquisition.
+  Shared controls delay progress decoration and announce a delayed wait. Draft sync keeps local text and a
+  persistent refusal. Line edits project over the accepted line until their one explicit outcome. Session
+  settings opens the retained receipt inventory, and local reads and acquisitions keep their declared bounds.
+  Correlated room echoes preserve optimistic bubble identity. The [UI contract](web/ui/README.md#failures-and-pending-work)
+  names timing, budgets and recovery behavior.
 - *History.* Room history is stored in files or PostgreSQL behind one index.
 - *Failure reporting.* Operations credentials follow the retry class of their failure, and IRC numerics follow stable
   failure codes. Direct-message cleanup tells a departed registration apart from a partner whose close stalled.
-  Room effects retain uncertainty after unusable acknowledgments; only refused dispatch proves absence.
+  Room effects retain uncertainty after unusable acknowledgments. Only refused dispatch proves absence.
   A live manager proof applies one policy change before returning a malformed reply and preserves that distinction.
 - *Sessions and skills.* `glowcap apps rooms session` exposes the Rooms session through the Zig command tree. The
   individual and team skills share its lifecycle and local inbox. They observe every joined room and DM and keep each

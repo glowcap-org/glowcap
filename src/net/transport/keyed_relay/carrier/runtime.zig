@@ -28,7 +28,7 @@ pub const Lease = struct {
     }
 
     /// Adopt one initialized TLS runtime. Initialization refusal leaves the
-    /// caller's runtime untouched; success transfers it to the carrier state.
+    /// caller's runtime untouched. Success transfers it to the carrier state.
     pub fn initSecure(
         allocator: std.mem.Allocator,
         host_io: std.Io,

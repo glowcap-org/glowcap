@@ -19,7 +19,7 @@ use std::time::Duration;
 
 const KEYED_TCP: &str = glowcap::TRANSPORT_KEYED_TCP;
 
-/// The policy crate names transports without a glowcap dependency; this
+/// The policy crate names transports without a glowcap dependency. This
 /// pins its names to the transport symbols glowcap owns.
 #[test]
 fn seat_transports_are_named_by_glowcaps_symbols() {

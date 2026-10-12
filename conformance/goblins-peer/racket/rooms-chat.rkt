@@ -1,5 +1,5 @@
 #lang racket/base
-;; rooms-chat.rkt — sit in a glowcap chat room as a real Spritely Goblins vat
+;; rooms-chat.rkt: sit in a glowcap chat room as a real Spritely Goblins vat
 ;; and talk.
 ;;
 ;; This is the Goblins counterpart of `zig build rooms-chat`: it
@@ -34,8 +34,8 @@
 ;;   racket -y rooms-chat.rkt "$(curl -s http://localhost:8080/locator)" \
 ;;     general goblins-carol
 ;;
-;; The trailing local-port argument is a TCP one — it is the port this vat's own
-;; netlayer binds — and an iroh locator refuses it, because an iroh vat is
+;; The trailing local-port argument is a TCP one. It is the port this vat's own
+;; netlayer binds, and an iroh locator refuses it, because an iroh vat is
 ;; reached by its endpoint key rather than by an address.
 ;;
 ;; The wire protocol lives in `rooms-client.rkt`, next door. What is worth

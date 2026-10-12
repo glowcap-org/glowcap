@@ -3,8 +3,8 @@ import { managedSessionText as managedText } from "../../../lib/text/managed_ses
 //
 // A pause is a standing fact about the link, not an event that happened once. A
 // toast is the wrong instrument for it twice over: a reader who looked away
-// misses it, and a reader who arrives afterwards — a reload, a new tab, a
-// browser opened tomorrow — is never told at all, because there was no event to
+// misses it, and a reader who arrives afterwards (a reload, a new tab, a
+// browser opened tomorrow) is never told at all, because there was no event to
 // deliver. What they get instead is a workspace with nothing in it and no
 // account of why, which is the shape of a broken application rather than a
 // paused one.

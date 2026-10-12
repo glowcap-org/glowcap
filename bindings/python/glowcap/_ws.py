@@ -1,14 +1,14 @@
 """The WebSocket byte transport for the keyed-relay rendezvous dial (ADR-0088).
 
 A ``keyed-relay`` peer holds an inbound socket at a relay under its key
-designator; the dialer opens the relay's rendezvous leg and the keyed OCapN
+designator. The dialer opens the relay's rendezvous leg and the keyed OCapN
 handshake runs end to end over it. This module adapts one client WebSocket to
 the three-verb transport record the byte-fed pump reads (see
 ``_dial._StreamTransport``): each binary message is one inbound chunk, and the
 host's stream delimiter owns framing, exactly as over TCP.
 
-The ``websockets`` package is an optional extra — the core binding keeps its
-stdlib-ctypes-only promise — so the import happens here, at dial time, and a
+The ``websockets`` package is an optional extra, the core binding keeps its
+stdlib-ctypes-only promise, so the import happens here, at dial time, and a
 missing package is a typed refusal naming the fix rather than an ImportError
 at module load.
 """

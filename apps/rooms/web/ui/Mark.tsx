@@ -1,7 +1,7 @@
 // The glowcap mark, live: a shader mushroom standing in a box the size the
 // caller asks for, with its light hanging around it.
 //
-// The box is the mushroom; the light reaches past it, so whatever holds the
+// The box is the mushroom. The light reaches past it, so whatever holds the
 // mark leaves its overflow visible. The control around the mark carries the
 // accessible name: the mark itself is decoration and says so.
 

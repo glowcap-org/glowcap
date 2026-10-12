@@ -1,5 +1,5 @@
 //! One demand-owned, reconnecting socket for a gateway network. Channel
-//! membership remains in the portable gateway; timers and receipts stay here.
+//! membership remains in the portable gateway. Timers and receipts stay here.
 use super::{Connection, Endpoint, Event, Events, Tls, WriteError};
 use futures_util::{StreamExt, stream::FuturesUnordered};
 use rooms_application::server::irc::{

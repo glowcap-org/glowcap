@@ -2,114 +2,17 @@
 // links before invoking any directory acquisition.
 /// <reference lib="dom" />
 import { assert, assertEquals } from "../assert.ts";
-import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
-import { ManagedNavigation } from "../../web/ui/session/managed/navigation.ts";
+import { deferred, viewer } from "../support/managed_viewer.ts";
 import { completeResult } from "../../web/ui/session/managed/completion.ts";
 import { type ManagedOperation, WorkspaceConflict } from "../../web/ui/session/managed/operation.ts";
 import { ResultRecipe } from "../../web/ui/session/managed/result_recipe.ts";
-import { initializeApplication } from "../support/application.ts";
-import type { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
 import type { ManagedHistory } from "../../web/ui/session/managed/history.ts";
 import type { RoomInfo } from "../../lib/directory_publications.ts";
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-});
-const { RoomsPage } = await import("../../web/ui/page.ts");
-const { createManagedController } = await import("../../web/ui/session/managed/controller.ts");
+import { fixture } from "../support/managed_controller.ts";
 const { createRoomsBrowserController } = await import("../../web/ui/controller/create_browser.ts");
+const { createManagedController } = await import("../../web/ui/session/managed/controller.ts");
 const { presentationFiles } = await import("../../web/ui/session/managed/files.ts");
-const { directoryId } = await import("../../web/ui/application.ts");
 const store = await import("../../web/ui/store.ts");
-await initializeApplication();
-function fixture(listed: RoomInfo[] = [], duringRead: () => void = () => {}) {
-	const page = new RoomsPage();
-	const current = snapshot();
-	const route = "127.0.0.1:1234";
-	const id = directoryId(route)!;
-	current.intent.directories.push({
-		id,
-		access: "exact-directory",
-		home: true,
-		nick: "ada",
-		nickAllocation: "exact",
-		standing: null,
-	});
-	const calls: unknown[][] = [];
-	const session = {
-		current,
-		refresh: () => Promise.resolve(current),
-		directoryRegistered: () => Promise.resolve(),
-		permits: () => true,
-		command: (name: string, args: string[]) => {
-			calls.push([name, args]);
-			return Promise.resolve({});
-		},
-		completeResult: () => Promise.resolve(),
-		workspace: {
-			directoryReader: (directory: string) => {
-				calls.push(["directoryReader", directory]);
-				return Promise.resolve({
-					namedRooms: () => {
-						duringRead();
-						return Promise.resolve(listed);
-					},
-					free: () => calls.push(["freeReader"]),
-				});
-			},
-		},
-		actions: {
-			publicRoom: (...args: unknown[]) => {
-				calls.push(["publicRoom", ...args]);
-				return Promise.resolve("room");
-			},
-			directory: (...args: unknown[]) => {
-				calls.push(["directory", ...args]);
-				return Promise.resolve();
-			},
-			run: (...args: unknown[]) => {
-				calls.push(args);
-				return Promise.resolve();
-			},
-			roomLink: (...args: unknown[]) => {
-				calls.push(["roomLink", ...args]);
-				return Promise.resolve("room");
-			},
-			createRoom: (...args: unknown[]) => {
-				calls.push(["createRoom", ...args]);
-				return Promise.resolve("room");
-			},
-		},
-	} as unknown as ManagedRoomsSession;
-	Object.assign(session, { navigation: new ManagedNavigation(session) });
-	session.navigation.select = (id: string) => {
-		session.navigation.dismissAcquisition();
-		calls.push(["select", [id]]);
-		return Promise.resolve();
-	};
-	page.managedSession = session;
-	const files = presentationFiles(page.projection, () => null);
-	const controller = createManagedController(
-		page,
-		{ setTheme() {}, showRoster() {}, aboutConversation() {} },
-		session,
-		files,
-		route,
-		{ refresh: () => Promise.resolve() } as unknown as ManagedHistory,
-	);
-	return {
-		page,
-		id,
-		route,
-		calls,
-		current,
-		controller,
-		close: () => {
-			files.close();
-			for (const key of [...page.projection.get().convs.keys()]) store.forgetConv(page.projection, key);
-		},
-	};
-}
 for (const closed of [false, true]) {
 	Deno.test(`direct rail close ${closed ? "dismisses saved entry" : "ends live connection"}`, async () => {
 		const f = fixture();
@@ -136,19 +39,19 @@ for (const superseded of [false, true]) {
 			return registered.promise;
 		};
 		session.actions.direct = (...args) => {
-			assertEquals(args, [f.id, "bob", false, "original-registration"]);
+			assertEquals(args.slice(0, 4), [f.id, "bob", false, "original-registration"]);
 			return Promise.resolve("saved");
 		};
 		try {
 			const reconnect = f.controller.recoverDm(dm.key);
 			await entered.promise;
-			if (superseded) session.navigation.dismissAcquisition();
+			if (superseded) session.openings.dismiss();
 			registered.resolve();
 			assertEquals(await reconnect, "");
 			assertEquals(f.calls.filter(([name]) => name === "select"), superseded ? [] : [["select", ["saved"]]]);
 		} finally {
 			registered.resolve();
-			await session.navigation.close();
+			await session.openings.close();
 			f.close();
 		}
 	});
@@ -162,12 +65,12 @@ Deno.test("showing the current address preserves a pending room acquisition; lea
 	});
 	let active = "/directory?dir=held";
 	const navigated: string[] = [];
-	const navigation = f.page.managedSession!.navigation;
+	const openings = f.page.managedSession!.openings;
 	const release = deferred<void>();
 	const selected: boolean[] = [];
-	const pending = navigation.acquire(async (current) => {
+	const pending = openings.run(async (attempt) => {
 		await release.promise;
-		selected.push(current());
+		selected.push(!attempt.signal.aborted);
 	});
 	try {
 		const browser = createRoomsBrowserController(
@@ -175,7 +78,7 @@ Deno.test("showing the current address preserves a pending room acquisition; lea
 			(path) => {
 				navigated.push(path);
 				// A fresh arrival at the directory supersedes acquisition.
-				navigation.dismissAcquisition();
+				openings.dismiss();
 			},
 			() => active,
 			() => Promise.reject(new Error("unexpected workspace open")),
@@ -340,7 +243,7 @@ for (const kind of ["name", "link", "creation"] as const) {
 			completed.resolve("room");
 			if (work != null) assertEquals(await work, { ok: true });
 			else await new Promise((resolve) => setTimeout(resolve, 0));
-			await f.page.managedSession!.navigation.close();
+			await f.page.managedSession!.openings.close();
 			assertEquals(f.page.projection.get().activeKey, directory.key);
 			assertEquals(f.calls.filter(([name]) => name === "select"), []);
 		} finally {

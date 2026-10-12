@@ -32,7 +32,7 @@ pub const transport_vocabulary_paths: []const []const u8 = &.{
     "site/content/examples.smd",
 };
 
-/// CapTP is transport-agnostic; only netlayers name transports. Living-state
+/// CapTP is transport-agnostic. Only netlayers name transports. Living-state
 /// surfaces that equate glowcap/OCapN with TCP fail here so the vocabulary
 /// cannot rot back. (The keyed-tcp resident-count heuristic stays bespoke in
 /// `source_check.zig`'s `checkTransportVocabulary`.)

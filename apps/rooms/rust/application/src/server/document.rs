@@ -1,6 +1,6 @@
 //! The version-one durable Rooms server document, `rooms.json`. The server's
 //! Host identity and room-link secret live here beside the small set of rooms
-//! somebody asked for durable authority over; live membership is never
+//! somebody asked for durable authority over. Live membership is never
 //! written. A document that fails the relations below is refused whole, and
 //! never rewritten into shape.
 use crate::{

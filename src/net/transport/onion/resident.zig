@@ -9,7 +9,7 @@
 //! Ed25519 public key and Tor does prove the far end holds it, but what it proves
 //! belongs to the rendezvous service rather than to the CapTP peer: the peer is
 //! whoever holds the local endpoint that service forwards to. ADR-0108 argues
-//! this at length; the consequence here is that the resident declares the default
+//! this at length. The consequence here is that the resident declares the default
 //! `address` scheme and asserts no channel key.
 //!
 //! Hosting needs a control endpoint. A resident configured without one can dial
@@ -51,7 +51,7 @@ pub const transport_name = known_transport.metadata().symbol;
 /// Build an onion locator without parsing or allocating. The service id is
 /// borrowed by the returned locator and must remain alive until the dial path
 /// has copied or retained it. Onion locators use the Goblins-compatible empty
-/// false hint spelling; direct-address hints have no meaning here.
+/// false hint spelling. Direct-address hints have no meaning here.
 pub fn locator(service_id: []const u8) model.PeerLocator {
     return .{
         .transport = transport_name,
@@ -61,7 +61,7 @@ pub fn locator(service_id: []const u8) model.PeerLocator {
 }
 
 /// The unframed byte-stream seam shared by native connections and the C
-/// provider. The caller owns the buffers; an empty buffer keeps the provider's
+/// provider. The caller owns the buffers. An empty buffer keeps the provider's
 /// host-side buffering as the only extra layer.
 pub const RawStream = struct {
     reader: Stream.Reader,
@@ -148,10 +148,10 @@ fn residentDial(
 /// Locator hints are ignored rather than refused. The designator already says
 /// where to dial, so a hint carries nothing this transport needs, and refusing a
 /// hinted locator would turn a partner's harmless extra field into a failed
-/// dial — including the glowcap-hinted form of an onion address, whose profile
+/// dial, including the glowcap-hinted form of an onion address, whose profile
 /// hints are read one tier up as partner knowledge (ADR-0118). What glowcap
 /// itself *emits on the wire* carries no hints, which is a separate rule and
-/// the one the pinned Goblins actually requires (ADR-0108).
+/// the one the pinned Goblins requires (ADR-0108).
 pub fn dial(
     io: std.Io,
     peer: *engine.Peer,
@@ -466,7 +466,7 @@ pub const Listener = struct {
 
     /// Wake a blocked accept without releasing listener storage. This is the
     /// cancellation half used by foreign runtimes whose blocking accept runs on
-    /// another OS thread; `deinit` follows after that call returns.
+    /// another OS thread. `deinit` follows after that call returns.
     pub fn shutdown(self: *Listener) void {
         self.gate.shutdown();
     }

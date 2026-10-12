@@ -62,11 +62,11 @@ const rooms_peer_dirs = [_][]const u8{
 /// A peer comes into being by dialing or by being dialed, and both halves have
 /// to wear the fleet's profile. `new Host()` and `listen(host, port)` each hand
 /// back the v1.0 Syrup floor instead, and the session that peer opens is then
-/// refused as a malformed frame — a message that points at the codec rather
+/// refused as a malformed frame, a message that points at the codec rather
 /// than at the line that minted the host. That mistake was made four times in
 /// one afternoon across demos, tests, and the server. That is the price of
 /// a convention rather than a check. `roomsHost` and `roomsListen` are the
-/// two front doors; a peer that genuinely wants the floor (proving glowcap
+/// two front doors. A peer that wants the floor (proving glowcap
 /// meets an interop partner there) says so on the line with
 /// `rooms-profile-exempt:` and a reason.
 pub fn checkRoomsPeerMinting(
@@ -108,7 +108,7 @@ pub fn checkRoomsPeerMinting(
                 if (std.mem.indexOf(u8, line, "new Host(") != null) {
                     try appendViolation(gpa, violations, "{s}:{d}: mints a peer with `new Host(` — a default Host speaks the v1.0 Syrup floor and the room refuses its frames; mint it through `roomsHost` in {s}", .{ path, line_no, authority });
                 }
-                // A qualified `listen` belongs to something else — `Deno.listen`
+                // A qualified `listen` belongs to something else, `Deno.listen`
                 // opens a socket, and a socket has no CapTP profile to get
                 // wrong. Only the bare call mints a glowcap peer.
                 const bare_listen = if (std.mem.indexOf(u8, line, "listen(")) |at|
@@ -133,7 +133,7 @@ pub fn checkRoomsPeerMinting(
     }
 }
 
-/// Rust owns input refusal classification; presentation must not reinterpret
+/// Rust owns input refusal classification, presentation must not reinterpret
 /// a Wasm/runtime failure as malformed text or initialize a TS Host to parse.
 pub fn checkRoomsInputParseFailures(
     io: std.Io,

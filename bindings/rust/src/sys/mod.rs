@@ -5,9 +5,9 @@
 //! [`host`] is the byte-fed host archive (`libglowcap_host`, ADR-0072), and
 //! each transport's externs live in their own submodule behind the matching
 //! Cargo feature, so a build declares the FFI for exactly the archives it links.
-//! Nothing in here escapes the crate; the safe wrappers above wrap it.
+//! Nothing in here escapes the crate. The safe wrappers above wrap it.
 //!
-//! The core and transport mirrors are deliberately wider than what the
+//! The core and transport mirrors are wider than what the
 //! wrappers call (each says so with its own file-wide `allow(dead_code)`): an
 //! extern declared here counts as a consumer for `zig build source-check`'s
 //! every-C-export-has-a-consumer gate, so the declaration set doubles as the

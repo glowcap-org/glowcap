@@ -3,7 +3,7 @@ id: ADR-0196
 status: accepted
 date: 2026-10-04
 tags: [publication, host, bindings, security]
-decision: "A fetch answers from the session's own publications first, then the Host's, then the durable provider, so nothing published outside a session can take over a name inside it. The receiver names the scope: Session.publish and Host.publish, with no third word; the Zig Host spells the session-scoped verb sessionPublish, as the C ABI spells glowcap_host_session_publish."
+decision: "A fetch answers from the session's own publications first, then the Host's, then the durable provider, so nothing published outside a session can take over a name inside it. The receiver names the scope: Session.publish and Host.publish, with no third word. The Zig Host spells the session-scoped verb sessionPublish, as the C ABI spells glowcap_host_session_publish."
 supersedes: []
 superseded_by: []
 amends: [ADR-0096]
@@ -14,10 +14,10 @@ amended_by: []
 
 ## Context
 
-Two publication scopes exist on purpose. A Session publication answers only
-the partner on that session; Rooms' archive proof, the introduction example and
-the CLI rely on that. A Host publication answers every session, so an
-introduction can hand it to a third peer.
+Two publication scopes exist. A Session publication answers only the partner on
+that session. Rooms' archive proof, the introduction example and the CLI rely on
+that. A Host publication answers every session, so an introduction can hand it
+to a third peer.
 
 A fetch consulted the Host table first. Publishing a Host name later therefore
 redirected a partner that had been fetching its own session's object under the
@@ -40,7 +40,7 @@ receiver: `glowcap_host_session_publish` and `glowcap_host_publish`.
 - The receiver names the scope. The bindings have `Session.publish` and
   `Host.publish`, with `unpublish` beside the latter. The Zig `Host` takes a
   session as an argument for session verbs, so its session-scoped verb is
-  `sessionPublish`, matching the C name; `Host.publish` is the Host scope.
+  `sessionPublish`, matching the C name. `Host.publish` is the Host scope.
 
 ## Alternatives Considered
 

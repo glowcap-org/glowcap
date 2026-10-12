@@ -4,7 +4,7 @@
 //! defined once in libglowcap_ocapn's `glowcap_uri_*` / `glowcap_locator_*` surface, so
 //! the Rust binding hand-rolls no percent codec and reaches the same grammar a
 //! TCP-only consumer does. [`parse_locator`] copies every borrowed view into an
-//! owned [`Locator`] before releasing the handle; [`format_peer_uri`] and
+//! owned [`Locator`] before releasing the handle. [`format_peer_uri`] and
 //! [`encode_peer_locator`] render through the same
 //! grammar. All of it is pure grammar over the always-linked core, so the whole
 //! module is available in every build, transports and async aside.
@@ -110,6 +110,8 @@ impl Locator {
 pub fn parse_locator(uri: &str) -> Result<Locator> {
 	let bytes = uri.as_bytes();
 	let mut raw: *mut sys::GlowcapLocator = core::ptr::null_mut();
+	// SAFETY: `raw` is a local out-parameter the callee fills with a new owned `GlowcapLocator`; `bytes` borrows `uri`
+	// for the whole call, and the callee parses it during the call without retaining the pointer.
 	check(unsafe { sys::glowcap_uri_parse_peer(bytes.as_ptr(), bytes.len(), &mut raw) })?;
 	OwnedLocator::adopt(raw)?.value()
 }
@@ -119,6 +121,8 @@ pub fn parse_locator(uri: &str) -> Result<Locator> {
 pub fn parse_sturdyref(uri: &str, captp_version: CaptpVersion) -> Result<SturdyRef> {
 	let bytes = uri.as_bytes();
 	let mut raw: *mut sys::GlowcapSturdyRef = core::ptr::null_mut();
+	// SAFETY: `raw` is a local out-parameter the callee fills with a new owned `GlowcapSturdyRef`; `bytes` borrows
+	// `uri` for the whole call, and the callee parses it during the call without retaining the pointer.
 	check(unsafe { sys::glowcap_uri_parse_sturdyref(captp_version.to_c(), bytes.as_ptr(), bytes.len(), &mut raw) })?;
 	OwnedSturdyRef::adopt(raw)?.value()
 }
@@ -132,6 +136,8 @@ impl OwnedLocator {
 			HintWireForm::BooleanFalse => sys::HINTS_BOOLEAN_FALSE,
 		};
 		let mut raw = core::ptr::null_mut();
+		// SAFETY: `locator.transport` and `locator.designator` are `String`s of the borrowed `locator`, live for the
+		// whole call; the callee copies both into the new locator it writes to the local out-parameter `raw`.
 		check(unsafe {
 			sys::glowcap_locator_new(
 				locator.transport.as_ptr(),
@@ -144,6 +150,9 @@ impl OwnedLocator {
 		})?;
 		let owned = Self::adopt(raw)?;
 		for (name, value) in &locator.hints {
+			// SAFETY: `owned.0` is the live handle `OwnedLocator::adopt` took from `glowcap_locator_new`, released only
+			// by `OwnedLocator`'s `Drop`; `name` and each `value` borrow `locator.hints` for the call, and the callee
+			// copies them into the locator before returning.
 			let rc = unsafe {
 				match value {
 					HintValue::String(value) => {
@@ -177,12 +186,17 @@ impl OwnedLocator {
 
 	pub(crate) fn clone_view(view: *const sys::GlowcapLocatorView) -> Result<Self> {
 		let mut raw = core::ptr::null_mut();
+		// SAFETY: `view` is a `GlowcapLocatorView` the caller borrowed from a live locator or sturdyref handle, valid
+		// for this call; `raw` is a local out-parameter the callee fills with a new owned locator that copies the view.
 		check(unsafe { sys::glowcap_locator_clone(view, &mut raw) })?;
 		Self::adopt(raw)
 	}
 
 	pub(crate) fn borrow_view(&self) -> Result<*const sys::GlowcapLocatorView> {
 		let mut view = core::ptr::null();
+		// SAFETY: `self.0` is this `OwnedLocator`'s handle from `glowcap_locator_new` or `adopt`, released only by its
+		// `Drop`; `view` is a local out-parameter the callee fills with a pointer borrowed from that handle until it is
+		// mutated or released.
 		check(unsafe { sys::glowcap_locator_borrow_view(self.0, &mut view) })?;
 		Ok(view)
 	}
@@ -223,18 +237,33 @@ impl OwnedLocator {
 			// the accessor writes out borrows from it until the next mutation,
 			// which `text` copies out of before returning.
 			check(unsafe { accessor(raw, &mut ptr, &mut len) })?;
+			// SAFETY: `text` reads the `ptr` and `len` the accessor just wrote above, which borrow from the same live
+			// `raw` handle with no mutation in between, and copies them into an owned `String` before returning.
 			unsafe { text(ptr, len) }
 		}
 
 		let mut count = 0;
+		// SAFETY: `self.0` is this `OwnedLocator`'s live handle, released only by its `Drop`; `count` is a local
+		// out-parameter the callee writes.
 		check(unsafe { sys::glowcap_locator_hint_count(self.0, &mut count) })?;
 		let mut hints = BTreeMap::new();
 		for index in 0..count {
+			// SAFETY: `GlowcapLocatorHintView` is a plain C struct of integers and null pointers; all-zero is a valid
+			// value, and `glowcap_locator_hint_at` fills it before it is read.
 			let mut hint: sys::GlowcapLocatorHintView = unsafe { core::mem::zeroed() };
+			// SAFETY: `self.0` is this `OwnedLocator`'s live handle, and `index` is below the `count` just read from
+			// it; `hint` is a local out-parameter the callee fills with views borrowed from the handle until it is
+			// mutated or released.
 			check(unsafe { sys::glowcap_locator_hint_at(self.0, index, &mut hint) })?;
+			// SAFETY: `hint.name` and `hint.name_len` were filled by `glowcap_locator_hint_at` just above and borrow
+			// from `self.0`, which is not mutated before `text` copies them into an owned `String`.
 			let name = unsafe { text(hint.name, hint.name_len)? };
 			let value = match hint.kind {
+				// SAFETY: `hint.bytes` and `hint.bytes_len` were filled by `glowcap_locator_hint_at` just above and
+				// borrow from `self.0`, which is not mutated before `text` copies them into an owned `String`.
 				sys::HINT_STRING => HintValue::String(unsafe { text(hint.bytes, hint.bytes_len)? }),
+				// SAFETY: `hint.bytes` and `hint.bytes_len` were filled by `glowcap_locator_hint_at` just above and
+				// borrow from `self.0`, which is not mutated before `bytes` is copied out with `to_vec`.
 				sys::HINT_BYTES => HintValue::Bytes(unsafe { bytes(hint.bytes, hint.bytes_len)?.to_vec() }),
 				sys::HINT_BOOLEAN if hint.boolean_value <= 1 => HintValue::Boolean(hint.boolean_value != 0),
 				sys::HINT_INTEGER => HintValue::Integer(hint.integer_value),
@@ -249,6 +278,8 @@ impl OwnedLocator {
 		}
 
 		let mut raw_wire_form = 0;
+		// SAFETY: `self.0` is this `OwnedLocator`'s live handle, released only by its `Drop`; `raw_wire_form` is a
+		// local out-parameter the callee writes.
 		check(unsafe { sys::glowcap_locator_hint_wire_form(self.0, &mut raw_wire_form) })?;
 		let hint_wire_form = match raw_wire_form {
 			sys::HINTS_MAP => HintWireForm::Map,
@@ -262,7 +293,11 @@ impl OwnedLocator {
 		};
 
 		Ok(Locator {
+			// SAFETY: `self.0` is this `OwnedLocator`'s live handle, and `sys::glowcap_locator_transport` is the
+			// accessor `field` expects; `field` copies the borrowed view into an owned `String` before returning.
 			transport: unsafe { field(self.0, sys::glowcap_locator_transport)? },
+			// SAFETY: `self.0` is this `OwnedLocator`'s live handle, and `sys::glowcap_locator_designator` is the
+			// accessor `field` expects; `field` copies the borrowed view into an owned `String` before returning.
 			designator: unsafe { field(self.0, sys::glowcap_locator_designator)? },
 			hints,
 			hint_wire_form,
@@ -285,11 +320,15 @@ impl OwnedSturdyRef {
 
 	fn value(&self) -> Result<SturdyRef> {
 		let mut view = core::ptr::null();
+		// SAFETY: `self.0` is this `OwnedSturdyRef`'s handle from `glowcap_uri_parse_sturdyref`, released only by its
+		// `Drop`; `view` is a local out-parameter the callee fills with a locator view borrowed from that handle.
 		check(unsafe { sys::glowcap_sturdyref_borrow_locator(self.0, &mut view) })?;
 		let locator = OwnedLocator::clone_view(view)?.value()?;
 
 		let mut ptr = core::ptr::null();
 		let mut len = 0;
+		// SAFETY: `self.0` is this `OwnedSturdyRef`'s live handle; `ptr` and `len` are local out-parameters the callee
+		// fills with the swissnum range borrowed from the handle.
 		check(unsafe { sys::glowcap_sturdyref_swissnum(self.0, &mut ptr, &mut len) })?;
 		let swissnum = if len == 0 {
 			Vec::new()
@@ -299,6 +338,8 @@ impl OwnedSturdyRef {
 				"OCapN returned a null sturdyref swissnum".to_string(),
 			));
 		} else {
+			// SAFETY: `ptr` is non-null here and `len` is nonzero, from `glowcap_sturdyref_swissnum` on the live
+			// `self.0`, which is not mutated before `to_vec` copies the range.
 			unsafe { core::slice::from_raw_parts(ptr, len) }.to_vec()
 		};
 		Ok(SturdyRef { locator, swissnum })
@@ -307,12 +348,16 @@ impl OwnedSturdyRef {
 
 impl Drop for OwnedSturdyRef {
 	fn drop(&mut self) {
+		// SAFETY: `self.0` is the handle `OwnedSturdyRef::adopt` took from `glowcap_uri_parse_sturdyref`; `Drop` runs
+		// once and nothing uses the handle afterwards.
 		unsafe { sys::glowcap_sturdyref_release(self.0) };
 	}
 }
 
 impl Drop for OwnedLocator {
 	fn drop(&mut self) {
+		// SAFETY: `self.0` is the handle `OwnedLocator::adopt` took, non-null by that check; `Drop` runs once and
+		// nothing uses the handle afterwards.
 		unsafe { sys::glowcap_locator_release(self.0) };
 	}
 }
@@ -331,219 +376,10 @@ unsafe fn view_to_string(ptr: *const c_uchar, len: usize) -> String {
 	String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(ptr, len) }).into_owned()
 }
 
-/// Format a peer locator as an `ocapn://<designator>.<transport>[?hints]` URI
-/// through the core grammar.
-pub fn format_peer_uri(transport: &str, designator: &str, hints: &BTreeMap<String, String>) -> Result<String> {
-	format_uri(transport, designator, None, hints)
-}
-
-/// Add opaque swiss authority to a typed peer locator and render a sturdyref
-/// under the selected CapTP profile.
-pub fn format_sturdyref(locator: &Locator, swissnum: &[u8], captp_version: CaptpVersion) -> Result<String> {
-	let mut hints = BTreeMap::new();
-	for (name, value) in &locator.hints {
-		let value = value
-			.as_str()
-			.ok_or_else(|| Error::from_code(sys::ERR_INVALID_ARGUMENT))?;
-		hints.insert(name.clone(), value.to_string());
-	}
-	format_uri(
-		&locator.transport,
-		&locator.designator,
-		Some((swissnum, captp_version)),
-		&hints,
-	)
-}
-
-fn format_uri(
-	transport: &str,
-	designator: &str,
-	swissnum: Option<(&[u8], CaptpVersion)>,
-	hints: &BTreeMap<String, String>,
-) -> Result<String> {
-	let keys: Vec<&[u8]> = hints.keys().map(|k| k.as_bytes()).collect();
-	let vals: Vec<&[u8]> = hints.values().map(|v| v.as_bytes()).collect();
-	let key_ptrs: Vec<*const c_uchar> = keys.iter().map(|k| k.as_ptr()).collect();
-	let val_ptrs: Vec<*const c_uchar> = vals.iter().map(|v| v.as_ptr()).collect();
-	let key_lens: Vec<usize> = keys.iter().map(|k| k.len()).collect();
-	let val_lens: Vec<usize> = vals.iter().map(|v| v.len()).collect();
-	let n = hints.len();
-
-	let (kp, klp, vp, vlp) = if n == 0 {
-		(
-			core::ptr::null(),
-			core::ptr::null(),
-			core::ptr::null(),
-			core::ptr::null(),
-		)
-	} else {
-		(
-			key_ptrs.as_ptr(),
-			key_lens.as_ptr(),
-			val_ptrs.as_ptr(),
-			val_lens.as_ptr(),
-		)
-	};
-
-	let t = transport.as_bytes();
-	let d = designator.as_bytes();
-	let mut cap: usize = 0;
-	let rc = unsafe {
-		if let Some((swiss, captp_version)) = swissnum {
-			sys::glowcap_uri_format_sturdyref(
-				captp_version.to_c(),
-				t.as_ptr(),
-				t.len(),
-				d.as_ptr(),
-				d.len(),
-				swiss.as_ptr(),
-				swiss.len(),
-				kp,
-				klp,
-				vp,
-				vlp,
-				n,
-				core::ptr::null_mut(),
-				0,
-				&mut cap,
-			)
-		} else {
-			sys::glowcap_uri_format_peer(
-				t.as_ptr(),
-				t.len(),
-				d.as_ptr(),
-				d.len(),
-				kp,
-				klp,
-				vp,
-				vlp,
-				n,
-				core::ptr::null_mut(),
-				0,
-				&mut cap,
-			)
-		}
-	};
-	if rc != sys::ERR_BUFFER_TOO_SMALL {
-		check(rc)?;
-		if cap == 0 {
-			return Ok(String::new());
-		}
-	}
-	loop {
-		let mut buf = vec![0u8; cap];
-		let mut out_len: usize = 0;
-		let rc = unsafe {
-			if let Some((swiss, captp_version)) = swissnum {
-				sys::glowcap_uri_format_sturdyref(
-					captp_version.to_c(),
-					t.as_ptr(),
-					t.len(),
-					d.as_ptr(),
-					d.len(),
-					swiss.as_ptr(),
-					swiss.len(),
-					kp,
-					klp,
-					vp,
-					vlp,
-					n,
-					buf.as_mut_ptr(),
-					cap,
-					&mut out_len,
-				)
-			} else {
-				sys::glowcap_uri_format_peer(
-					t.as_ptr(),
-					t.len(),
-					d.as_ptr(),
-					d.len(),
-					kp,
-					klp,
-					vp,
-					vlp,
-					n,
-					buf.as_mut_ptr(),
-					cap,
-					&mut out_len,
-				)
-			}
-		};
-		if rc == sys::OK {
-			buf.truncate(out_len);
-			return Ok(String::from_utf8_lossy(&buf).into_owned());
-		}
-		if rc == sys::ERR_BUFFER_TOO_SMALL && out_len > cap {
-			cap = out_len;
-			continue;
-		}
-		return Err(Error::from_code(rc));
-	}
-}
-
+mod format;
 #[cfg(all(feature = "async", any(feature = "tcp", all(test, feature = "iroh"))))]
-pub(crate) fn format_peer_locator(transport: &str, designator: &str, direct_addresses: &str) -> Result<String> {
-	let mut hints = BTreeMap::new();
-	if !direct_addresses.is_empty() {
-		hints.insert(
-			crate::abi_constants::HINT_DIRECT_ADDRESSES.to_string(),
-			direct_addresses.to_string(),
-		);
-	}
-	format_peer_uri(transport, designator, &hints)
-}
-
-/// Render a typed peer locator as its canonical `ocapn://` URI.
-///
-/// Keep locators typed while dialing and serving. Serialize only at text
-/// boundaries such as configuration, logs, and sturdyref construction.
-pub fn format_locator_uri(locator: &Locator) -> Result<String> {
-	let mut hints = BTreeMap::new();
-	for (name, value) in &locator.hints {
-		let value = value.as_str().ok_or_else(|| {
-			Error::with_detail(
-				sys::ERR_INVALID_ARGUMENT,
-				format!("locator hint {name:?} has no lossless URI spelling"),
-			)
-		})?;
-		hints.insert(name.clone(), value.to_owned());
-	}
-	format_peer_uri(&locator.transport, &locator.designator, &hints)
-}
-
-/// Split a bare designator as `host:port` through the core grammar
-/// (`glowcap_designator_host_port`). Prefer this over minting a peer URI
-/// just to call [`parse_locator`].
-pub fn designator_host_port(designator: &str) -> Result<(String, u16)> {
-	let mut host_ptr: *const c_uchar = core::ptr::null();
-	let mut host_len: usize = 0;
-	let mut port: u16 = 0;
-	check(unsafe {
-		sys::glowcap_designator_host_port(
-			designator.as_ptr(),
-			designator.len(),
-			&mut host_ptr,
-			&mut host_len,
-			&mut port,
-		)
-	})?;
-	Ok((unsafe { view_to_string(host_ptr, host_len) }, port))
-}
-
-/// Encode a complete typed locator as the canonical signed handoff record.
-pub fn encode_peer_locator(locator: &Locator) -> Result<Vec<u8>> {
-	let owned = OwnedLocator::new(locator)?;
-	let mut out: *mut u8 = core::ptr::null_mut();
-	let mut out_len: usize = 0;
-	check(unsafe { sys::glowcap_locator_record_encode(owned.borrow_view()?, &mut out, &mut out_len) })?;
-	let bytes = if out.is_null() || out_len == 0 {
-		Vec::new()
-	} else {
-		unsafe { core::slice::from_raw_parts(out, out_len) }.to_vec()
-	};
-	unsafe { sys::glowcap_locator_record_bytes_release(out, out_len) };
-	Ok(bytes)
-}
+pub(crate) use format::format_peer_locator;
+pub use format::{designator_host_port, encode_peer_locator, format_locator_uri, format_peer_uri, format_sturdyref};
 
 #[cfg(test)]
 mod tests {

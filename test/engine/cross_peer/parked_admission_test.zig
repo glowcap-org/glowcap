@@ -197,7 +197,7 @@ test "a permissive resolver cannot pass malformed signed widths into pending ret
         const receive_sig = crypto.sign(&recipient_secret, receive_signed);
         receive.signature = receive_sig.asBytes();
 
-        // The gift is deliberately absent, so a healthy envelope would reach
+        // The gift is absent, so a healthy envelope would reach
         // pending retention; only the width check can turn this one away.
         const calls_before = permissive.resolve_calls;
         const handoff = model.Handoff{ .receive = receive };

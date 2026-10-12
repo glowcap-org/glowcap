@@ -13,7 +13,7 @@ const SessionRef = @import("session_ref.zig").SessionRef;
 const driver = glowcap.driver;
 const model = glowcap.ocapn.model;
 
-/// Built-in demo actors (`greeter`, `echo`) live in `builtins.zig`; the public
+/// Built-in demo actors (`greeter`, `echo`) live in `builtins.zig`. The public
 /// entry point stays on this flat `ocapn` surface.
 pub const publishBuiltin = @import("builtins.zig").publishBuiltin;
 pub const builtin_names = @import("builtins.zig").names;
@@ -189,8 +189,8 @@ pub fn parseArgsList(gpa: std.mem.Allocator, raw: []const []const u8) ![]driver.
 }
 
 /// `#N` → the raw opaque capability id a prior fetch or reply printed (no
-/// I/O). Named targets need a bootstrap fetch first (`beginFetch` / `fetch`);
-/// this helper does not start one.
+/// I/O). Named targets need a bootstrap fetch first (`beginFetch` / `fetch`).
+/// This helper does not start one.
 pub fn parseImportTarget(name_or_import: []const u8) !?u64 {
     if (name_or_import.len >= 2 and name_or_import[0] == '#') {
         return std.fmt.parseInt(u64, name_or_import[1..], 10) catch return error.Usage;
@@ -199,7 +199,7 @@ pub fn parseImportTarget(name_or_import: []const u8) !?u64 {
 }
 
 /// `#N` → re-scope the raw capability id to this session's host (a stale or
-/// foreign id fails closed at the call); otherwise bootstrap-fetch by
+/// foreign id fails closed at the call). Otherwise bootstrap-fetch by
 /// published name.
 pub fn resolveTarget(session: *driver.Session, name_or_import: []const u8) !driver.Capability {
     if (try parseImportTarget(name_or_import)) |raw| return session.runtime.core.capabilityFromRaw(raw);
@@ -291,7 +291,7 @@ fn reportDial(ctx: *Ctx, target: []const u8) !u8 {
 }
 
 /// Whether `cmdDial` should keep `ctx.session` open after a successful dial.
-/// REPL and MCP fronts need it; bare argv dial does not.
+/// REPL and MCP fronts need it. Bare argv dial does not.
 pub fn retainSessionAfterDial(ctx: *const Ctx) bool {
     return ctx.front == .mcp or ctx.front == .repl;
 }
@@ -383,7 +383,7 @@ fn cmdTellResolved(ctx: *Ctx, pos: []const []const u8, session: *driver.Session,
 
 /// Fetch-success UX, shared by the blocking front here and the REPL's
 /// cooperative queue, so two renderers keep one spelling. The number is the
-/// opaque capability id (never a wire position, ADR-0096); `#N` feeds it back
+/// opaque capability id (never a wire position, ADR-0096). `#N` feeds it back
 /// to `call` / `tell`.
 pub const fetched_fmt = "fetched {s} → cap {d}";
 pub const fetch_next_fmt = "next: call {s} <verb> [args…]   or   call #{d} <verb> [args…]";
@@ -482,8 +482,8 @@ pub fn cmdInfo(ctx: *Ctx, parsed: *Parsed) !u8 {
             try argv.writeJsonString(&out, ctx.gpa, loc);
         }
         if (ctx.background_listener) |listener| {
-            // A listener that stopped accepting — a fault, or a one-partner
-            // listener that served its partner — reports why rather than
+            // A listener that stopped accepting (a fault, or a one-partner
+            // listener that served its partner) reports why rather than
             // claiming to be listening: the handle outlives the thread, so
             // its presence alone is not evidence of life.
             const stopped = listener.stop_reason.load(.acquire);

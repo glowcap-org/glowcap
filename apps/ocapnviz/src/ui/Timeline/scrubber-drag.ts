@@ -4,7 +4,7 @@
  * `Scrubber.tsx` owns the Pixi scene. `use-scrubber-pointers.ts`
  * owns the pointer listeners. This module owns the in-flight
  * gesture shape and what each mode does on move: rubber-band, row
- * reorder, and event retime. Hover stays with the pointer host —
+ * reorder, and event retime. Hover stays with the pointer host,
  * it is what the pointer is over, not what a drag is doing.
  */
 
@@ -26,35 +26,35 @@ export type DragMode =
 	| { kind: "pan"; lastClientX: number; lastClientY: number }
 	| {
 		kind: "event";
-		/** What was hit; carried so we can dispatch select on a
+		/** What was hit. Carried so we can dispatch select on a
 		 * no-move release or paint the halo during drag. */
 		hit: ScrubberHit;
 		/** Client-X at the start of the drag. New `t` is computed by
 		 * mapping the displacement through the current `pxPerMs`. */
 		startClientX: number;
-		/** Becomes true once displacement exceeds the drag threshold;
-		 * gates the transaction begin so pure clicks (no movement)
+		/** Becomes true once displacement exceeds the drag threshold.
+		 * Gates the transaction begin so pure clicks (no movement)
 		 * don't open a no-op undo step. */
 		moved: boolean;
 		/** True while an engine transaction is open. Flipped on the
-		 * first move above threshold; ended in `endDrag`. */
+		 * first move above threshold. Ended in `endDrag`. */
 		txOpen: boolean;
-		/** Modifier-resolved selection intent for a no-move release —
+		/** Modifier-resolved selection intent for a no-move release,
 		 *  the stage's vocabulary (`selectModeFromModifiers`): plain
 		 *  click replaces, shift adds, shift+option removes. Drag
 		 *  movement always operates on the dragged entity's cohort
-		 *  regardless of this value; the mode only steers the click. */
+		 *  regardless of this value. The mode only steers the click. */
 		selectMode: SelectMode;
 		/** True when the dragged entity was NOT in the selection at
-		 * pointerdown. Such a gesture is a select-only intent — drag
+		 * pointerdown. Such a gesture is a select-only intent, drag
 		 * movement is ignored so unselected entities cannot translate
-		 * or resize. Release still selects the entity; the user must
+		 * or resize. Release still selects the entity. The user must
 		 * click a second time on the now-selected entity to drag. */
 		selectOnly: boolean;
 		/** Snapshot of (eventId, originalT, originalArrivalT?) for
 		 * every event in the multi-selection at drag-start. Set
-		 * iff the dragged event is itself in the multi-selection
-		 * — that's the "drag any selected pill → all move together"
+		 * iff the dragged event is itself in the multi-selection,
+		 * that's the "drag any selected pill → all move together"
 		 * trigger. Captured at start so a mid-drag prop change can't
 		 * drift the math. */
 		bulkOriginals?: Array<{
@@ -71,7 +71,7 @@ export type DragMode =
 		startClientY: number;
 		currentClientX: number;
 		currentClientY: number;
-		/** Modifier mode latched at drag start — the stage marquee's
+		/** Modifier mode latched at drag start. The stage marquee's
 		 * vocabulary: replace, add (shift), remove (shift+option). */
 		mode: SelectMode;
 		moved: boolean;
@@ -96,7 +96,7 @@ export type DragMode =
 		startIndex: number;
 		/** Snapshot of the current ordered-entities list for this
 		 * category. The drag commits a new permutation of this
-		 * list — captured here so a mid-drag prop change (rare but
+		 * list, captured here so a mid-drag prop change (rare but
 		 * possible) doesn't drift the math. */
 		startOrder: string[];
 		startClientY: number;
@@ -110,7 +110,7 @@ export type DragMode =
 	| null;
 
 /** The observation event a hit's drag plan retimes, or null when the plan is
- *  entity-addressed — an authored peer or session, whose painted span no
+ *  entity-addressed. An authored peer or session, whose painted span no
  *  observation names. */
 export function eventIdOfPlan(hit: ScrubberHit): string | null {
 	const plan = hit.drag;
@@ -129,7 +129,7 @@ const EVENT_DRAG_THRESHOLD_PX = 4;
 /** Rubber-band drag: track the live corner, clamp the rect to the
  *  plot content bounds, stash for the paint loop. The unified pixi
  *  canvas spans the viewport unmasked, so an unclamped rect happily
- *  paints into sibling panels when the pointer wanders out — clamping
+ *  paints into sibling panels when the pointer wanders out, clamping
  *  here AND at commit makes WYSIWYG. */
 export function updateRubberBand(
 	e: PointerEvent<HTMLDivElement>,
@@ -160,7 +160,7 @@ export function updateRubberBand(
 
 /** Row-reorder drag: convert clientY delta into an insertion-index
  *  delta against the captured row pitch. Commit happens on pointerup
- *  in `endDrag`; this just tracks `drag.finalIndex`. */
+ *  in `endDrag`. This just tracks `drag.finalIndex`. */
 export function updateRowDrag(
 	e: PointerEvent<HTMLDivElement>,
 	drag: Extract<DragMode, { kind: "row-drag" }>,
@@ -175,7 +175,7 @@ export function updateRowDrag(
 	);
 }
 
-/** Event drag move — engages bulk-cohort + opens the undo txn on the
+/** Event drag move, engages bulk-cohort + opens the undo txn on the
  *  first above-threshold frame, then dispatches to the engine per the
  *  drag plan's kind. Mutates `drag` (moved/txOpen/bulkOriginals) and
  *  `snapLineRef` (snap guide x in canvas px). */
@@ -218,7 +218,7 @@ export function applyEventDragMove(
 	if (drag.selectOnly) return;
 	// selectOnly already implies a non-null drag plan (pointerdown
 	// forces selectOnly when `hit.drag === null`). The narrowing here
-	// is for the compiler — every downstream branch needs the plan
+	// is for the compiler. Every downstream branch needs the plan
 	// to read its eventId and times.
 	if (drag.hit.drag === null) return;
 	const plan = drag.hit.drag;
@@ -331,9 +331,9 @@ export function applyEventDragMove(
 			// is the same clamp the lane painter applies, so the diamond
 			// follows the pointer to the edge of its entity's span and
 			// stops there. `momentOf` names the entity, rather than the
-			// clamp naming one kind — a peer's update dragged past its
-			// arrival used to reach the engine unclamped, and the engine
-			// refused it once per pointer move, which reads as a burst of
+			// clamp naming one kind. A peer's update dragged past its arrival
+			// would reach the engine unclamped, and the engine would refuse it
+			// once per pointer move, which reads as a burst of
 			// "invalid edit" errors from one gesture. The engine still
 			// refuses out-of-span moves (it owns the rule); this stops the
 			// gesture from asking for one.
@@ -367,7 +367,7 @@ function engageEventDrag(
 	// Bulk engages only when the dragged event's entity is itself in
 	// the multi-selection, AND the plan is a body translate. Edge
 	// resizes (span / message) on a selected entity must NOT cohort-
-	// translate — that silently loses the resize intent the user
+	// translate. That silently loses the resize intent the user
 	// reached for. Moments (state-change diamonds) are individually
 	// targeted; sibling diamonds in the same session must not move.
 	// Pair-ends (peer-left / session-closed / message-delivered) are

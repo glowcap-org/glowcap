@@ -1,5 +1,5 @@
-//! The per-verb binding spines — promise, Rust connection, GC, dial, and
-//! listen — one shared shape per verb across the four bindings.
+//! The per-verb binding spines, promise, Rust connection, GC, dial, and
+//! listen, one shared shape per verb across the four bindings.
 //!
 //! `bindings/proofs/verb_spine/` is the behavioral half of this file: one
 //! scenario per binding, walking promise, dial, listen, and GC against a fixed
@@ -9,7 +9,7 @@
 //! proof's own first run found Racket still raising synchronously, with every
 //! marker here green. Each check states which of its marker lists that proof
 //! covers. A covered list is retired rather than kept beside the proof, since
-//! two authorities for one fact only drift; an uncovered one has nothing else
+//! two authorities for one fact only drift. An uncovered one has nothing else
 //! holding it and stays.
 
 const std = @import("std");
@@ -23,7 +23,7 @@ const extractBraceBlock = util.extractBraceBlock;
 const readSourceSubject = util.readSourceSubject;
 
 /// Binding spine Pass 3a: each binding keeps a named `promise` module for the
-/// RemotePromise / session-vow handle and pipelined projection. Grep-level —
+/// RemotePromise / session-vow handle and pipelined projection. Grep-level,
 /// catches silent deletes, not wrong semantics.
 /// `bindings/proofs/verb_spine/` covers the handle type, the `index`/`untag`/
 /// `get` projections with their `glowcap_host_vow_*` verbs, and the `failed`
@@ -56,7 +56,7 @@ pub fn checkBindingPromiseSpine(
             .path = "bindings/ts/runtime/promise.ts",
             // `failed` is the third state arm: a send that could not be issued
             // at all. It has to exist in every binding that has the other two,
-            // because `send` returns its handle synchronously — so without it
+            // because `send` returns its handle synchronously, so without it
             // the only way to report a closed session is to throw, which is a
             // synchronous failure channel on a promise and escapes the caller's
             // own `.catch`. Rust carried this arm alone for a while, and the
@@ -124,7 +124,7 @@ pub fn checkBindingPromiseSpine(
 }
 
 /// Binding spine Pass 5 (Rust): the one application `Ref` lives with
-/// `Argument` in `lib.rs`; `Caretaker` / `SessionShared` live in
+/// `Argument` in `lib.rs`, `Caretaker` / `SessionShared` live in
 /// `session_shared.rs`, not `session.rs`. Grep-level.
 /// `bindings/proofs/verb_spine/` covers none of this: every marker is about
 /// which Rust file owns a type, and behavior cannot see a module boundary.
@@ -177,8 +177,8 @@ pub fn checkBindingRustConnSpine(
 /// and the deterministic release path through `glowcap_host_ref_release`: a
 /// lifted capability answers, releases, and is then refused both a second
 /// release and a send through it. When a collector reclaims a handle is not
-/// observable from outside a binding, so the finalizer half — `trackArgument`,
-/// `drainGc`, and their queues — stays grep-held, as do the module names, the
+/// observable from outside a binding, so the finalizer half, `trackArgument`,
+/// `drainGc`, and their queues, stays grep-held, as do the module names, the
 /// session bans, and the Python private-reach bans.
 pub fn checkBindingGcSpine(
     io: std.Io,
@@ -251,7 +251,7 @@ pub fn checkBindingGcSpine(
         }
     }
 
-    // Python HostGc must not poke owner privates — GcHandle owns the seam.
+    // Python HostGc must not poke owner privates, GcHandle owns the seam.
     const py_gc = "bindings/python/glowcap/_gc.py";
     const py_gc_contents = root.readFileAlloc(io, py_gc, gpa, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read for GcHandle check with {s}", .{ py_gc, @errorName(err) });
@@ -265,7 +265,7 @@ pub fn checkBindingGcSpine(
     }
 
     // Python owning modules must use Session/Host binding-internal seams
-    // (raw/host/gc/hosted/…), not underscore reach-ins — the same class of
+    // (raw/host/gc/hosted/…), not underscore reach-ins, the same class of
     // smell as the pre-fix GC getattr path.
     const py_seam = [_]struct { path: []const u8, needles: []const []const u8 }{
         .{ .path = "bindings/python/glowcap/_pump.py", .needles = &.{ "session._", "host._" } },
@@ -388,7 +388,7 @@ pub fn checkBindingDialSpine(
 /// `bindings/proofs/verb_spine/`'s `listen-served` scene covers the plain-TCP
 /// listener's lifecycle: it opens, advertises a locator the same process dials,
 /// serves the accepted session, and closes. No other transport is covered, nor
-/// the consolidated Rust listener surface names, nor — the important gap — the
+/// the consolidated Rust listener surface names, nor, the important gap, the
 /// ACCEPTED listener-id routing list. Proving that needs one Host holding two
 /// listeners and a dial to each, so a binding that flattened accepts into one
 /// queue would still pass this scenario.
@@ -593,7 +593,7 @@ pub fn checkBindingListenSpine(
         }
     }
 
-    // Session must not re-export dial/listen — the barrel owns that graph.
+    // Session must not re-export dial/listen, the barrel owns that graph.
     const reexport_bans = [_]struct {
         path: []const u8,
         banned: []const []const u8,

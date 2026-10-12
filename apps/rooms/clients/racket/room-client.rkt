@@ -16,15 +16,15 @@
 ;; The Goblins verbs (`spawn`, `<-`, `on`, `methods`) work as they do in
 ;; Goblins; `connect`, `session-fetch`, and `session-send` do the peer/vat/import
 ;; plumbing. `dir-open` and `dir-enter` mirror the wire one-to-one and stay
-;; strict; the friendly "enter, opening it if new" behavior is a CLI convenience
-;; and lives in `client.rkt`. The room name is the directory's lookup key; the
+;; strict. The friendly "enter, opening it if new" behavior is a CLI convenience
+;; and lives in `client.rkt`. The room name is the directory's lookup key. The
 ;; room itself is the capability the directory returns.
 ;;
 ;; The wire grammar this reads, the verbs, the publication record, the watch and
 ;; room notification shapes, and the subscribe answer, comes from
 ;; `protocol-gen.rkt` beside this file, generated from
 ;; `tools/gen/rooms_protocol.zig` and shared with every sibling client. The
-;; checks below are this language's own; what they check against is the table.
+;; checks below are this language's own. What they check against is the table.
 
 (require "protocol-gen.rkt"
          "../../../_demo/bindings.rkt"
@@ -39,9 +39,9 @@
          (struct-out message) (struct-out presence))
 
 ;; Dial a transport-neutral rooms locator: an `ocapn://` URI goes over iroh, a
-;; bare `host:port` over TCP. The room's wire is identical either way; only how a
+;; bare `host:port` over TCP. The room's wire is identical either way. Only how a
 ;; member reaches it differs. A URI carrying direct-addresses dials those directly
-;; (relay-less Direct); a node-id-only URI resolves the peer through discovery.
+;; (relay-less Direct). A node-id-only URI resolves the peer through discovery.
 (define (dial locator)
   (cond
     [(string-contains? locator "://")
@@ -130,7 +130,7 @@
                     (null? more)))))))
 
 ;; One line in the room. `system?` is #t for the room's own announcements (a
-;; member joining, your welcome); otherwise `sender` is who said it. `presence` is
+;; member joining, your welcome). Otherwise `sender` is who said it. `presence` is
 ;; a `presence` struct on a membership-change system line, or #f.
 (struct message (sender text system? presence) #:transparent)
 
@@ -140,8 +140,8 @@
 ;; 'depart, or 'stay.
 (struct presence (kind names effect) #:transparent)
 
-;; The structured presence a room line carries after its display text —
-;; `(notify "room" text "roster" name …)` or `(notify "room" text kind nick)` —
+;; The structured presence a room line carries after its display text,
+;; `(notify "room" text "roster" name …)` or `(notify "room" text kind nick)`,
 ;; when the tag names a presence tail and the arguments are its shape. Ordinary
 ;; chat lines carry none, and a tail that does not fit reads as none, so the
 ;; line still draws.
@@ -164,7 +164,7 @@
 ;; The inbox actor runs inside a foreign behavior callback, which Racket CS
 ;; runs in atomic mode: nothing there may deschedule the thread. An
 ;; async-channel's put takes an internal lock that can, so the room's line
-;; queue is this atomic-safe mailbox instead — a lock-free box push
+;; queue is this atomic-safe mailbox instead: a lock-free box push
 ;; (`box-cas!`) plus a `semaphore-post`, both legal in atomic mode. The reader
 ;; side (`room-next`, an ordinary thread) waits on the semaphore and drains
 ;; the cell in arrival order through its own `pending` buffer. The count shares
@@ -205,7 +205,7 @@
   (semaphore-post (mailbox-sema mb)))
 
 ;; Reader-side only: the next value in arrival order. `timeout-seconds` of #f
-;; parks until one lands; a number returns #f when none arrives in time. The
+;; parks until one lands. A number returns #f when none arrives in time. The
 ;; timed wait syncs on the mailbox's own semaphore, so a caller with a
 ;; deadline never has to park a worker thread and kill it: a thread killed
 ;; mid-port-read can leave the port's lock held, and the process then hangs
@@ -265,7 +265,7 @@
   (error 'room-client "room-info does not follow the generated publication record"))
 
 ;; A wire null decodes to `(void)` in this binding, so that is the shape an
-;; unknown count and an absent offer arrive in; the struct keeps #f for both,
+;; unknown count and an absent offer arrive in. The struct keeps #f for both,
 ;; the value its readers already use for unknown.
 (define (wire-room fields)
   (and (fields-fit? PUBLICATION-FIELDS fields)
@@ -336,11 +336,11 @@
 
 ;; Subscribe to a room you already hold a reference to, on an open connection:
 ;; spawn an inbox actor the room can call back, hand it over, and start a
-;; background `session-serve` thread that keeps the connection pumped — the room's
+;; background `session-serve` thread that keeps the connection pumped: the room's
 ;; notifies run the inbox actor inside that serve, which enqueues each line
 ;; onto the room's channel for `room-next` to read.
 ;; One `notify` on the room inbox: enqueue the line for `room-next`. `notify` is
-;; variadic — a system line appends structured presence args after its text — so
+;; variadic, a system line appends structured presence args after its text, so
 ;; this reads the args by hand rather than through the fixed-arity `methods`
 ;; sugar. A `membershipEnded` tail is the room's last word to this inbox: the
 ;; reason is the line, `ended-box` keeps it, and the mailbox closes so the line
@@ -412,7 +412,7 @@
 (define (room-ended a-room)
   (unbox (room-ended-box a-room)))
 
-;; Leave the room and close the connection; the serve thread ends with it.
+;; Leave the room and close the connection. The serve thread ends with it.
 (define (room-leave a-room)
   (session-close! (room-session a-room))
   (define t (room-serve a-room))

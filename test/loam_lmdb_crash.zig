@@ -1,5 +1,5 @@
 //! Child process for loam-lmdb-crash-test. The parent kills the child after it
-//! reports a precise transaction boundary; no test hook enters production code.
+//! reports a precise transaction boundary. No test hook enters production code.
 const std = @import("std");
 const core = @import("loam_core");
 const Lmdb = @import("loam_lmdb").Lmdb;

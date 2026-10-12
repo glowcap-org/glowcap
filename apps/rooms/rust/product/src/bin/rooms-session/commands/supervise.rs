@@ -1,5 +1,5 @@
 //! Supervise only the process this start creates. Workspace and lifecycle leases
-//! make concurrent starts explicit; settings are durable before process launch.
+//! make concurrent starts explicit. Settings are durable before process launch.
 use super::{Failure, Options, request, workspace};
 use serde_json::{Value, json};
 use std::os::unix::process::CommandExt;
@@ -50,7 +50,7 @@ pub async fn start(options: &Options) -> Result<Value, Failure> {
 			.transpose()?
 			.unwrap_or_default();
 		settings.entry("transport".into()).or_insert("iroh".into());
-		for key in ["transport", "reachability", "relay-url"] {
+		for key in ["transport", "reachability", "relay-url", "relay-alias-url"] {
 			if let Some(value) = supplied.get(key) {
 				if running && settings.get(key).map(String::as_str) != Some(value) {
 					return Err(Failure::invalid("stop the session before changing transport settings"));

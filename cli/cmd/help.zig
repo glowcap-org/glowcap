@@ -11,7 +11,7 @@ const Flag = types.Flag;
 const Stream = enum { stdout, stderr };
 
 /// Write help for the node at the end of `path` (path[0] is root).
-/// `-h` / `--help` use stdout; parse errors use stderr (Cobra-shaped).
+/// `-h` / `--help` use stdout. Parse errors use stderr (Cobra-shaped).
 pub fn writeNodeHelp(io: std.Io, path: []const *const Command) !void {
     try writeNodeHelpTo(.{ .stream = .{ .io = io, .stream = .stdout } }, path);
 }

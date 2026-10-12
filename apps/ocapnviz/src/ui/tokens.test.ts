@@ -4,8 +4,8 @@
  * Each name in the class list is what a rule in controls.css matches on,
  * so dropping one changes how the cell is drawn without changing
  * anything a type checker can see. `ocv-btn` brings the box, the
- * surface and the focus ring from the control baseline; `is-segment`
- * joins the cell to its neighbours; `is-active` is chosen.
+ * surface and the focus ring from the control baseline, `is-segment`
+ * joins the cell to its neighbours, `is-active` is chosen.
  */
 
 import { assertEquals } from "@std/assert";

@@ -3,7 +3,7 @@ use super::check;
 use crate::{Result, sys::loam as ffi};
 
 /// Every value node, including roots and struct values. Struct keys count
-/// separately; bytes sums all leaf occurrences, keys, tags, digits and errors.
+/// separately. Bytes sums all leaf occurrences, keys, tags, digits and errors.
 /// Capabilities counts occurrences, including repeated identities.
 #[derive(Clone, Copy, Default)]
 pub struct ValueBounds {
@@ -18,6 +18,8 @@ impl ValueBounds {
 	pub fn forwarding_size_bound(self) -> Result<(usize, usize)> {
 		let (mut reply_bytes, mut call_bytes) = (0, 0);
 		check(
+			// SAFETY: this query takes no handle; `&self.raw()` is a temporary `GlowcapLoamValueBounds` that lives to
+			// the end of this statement, and `reply_bytes` and `call_bytes` are local out-parameters the callee writes.
 			unsafe { ffi::glowcap_loam_forwarding_size_bound(&self.raw(), &mut reply_bytes, &mut call_bytes) },
 			false,
 		)?;
@@ -42,7 +44,7 @@ pub struct InvocationBounds {
 	/// Application custody acquisitions, including repeated field accesses.
 	pub held_occurrences: usize,
 	pub receipt: bool,
-	/// A local dependent target; external forwarding has separate demand.
+	/// A local dependent target. External forwarding has separate demand.
 	pub dependent: bool,
 }
 impl InvocationBounds {
@@ -66,6 +68,8 @@ impl InvocationBounds {
 		};
 		let mut bytes = 0;
 		check(
+			// SAFETY: this query takes no handle; `&raw` is a local `GlowcapLoamInvocationBounds` borrowed for the call
+			// and read only during it, and `bytes` is a local out-parameter the callee writes.
 			unsafe { ffi::glowcap_loam_invocation_call_size_bound(&raw, &mut bytes) },
 			false,
 		)?;

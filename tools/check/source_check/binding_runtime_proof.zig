@@ -2,7 +2,7 @@
 //! from a runtime proof.
 //!
 //! Rust and TypeScript refuse a wrapper that names something undefined or calls
-//! it with the wrong arity; `cargo` and `deno check` are that proof. Python and
+//! it with the wrong arity, `cargo` and `deno check` are that proof. Python and
 //! Racket refuse nothing until the line runs, so a `glowcap_host_*` wrapper no
 //! gate ever executes can ship with an undefined name or a mismatched argument
 //! list in it and nothing in the tree will say so. Twice it did. This check is
@@ -38,14 +38,14 @@ const Binding = struct {
     /// symbol rather than calling it, so reading it as a call site would make
     /// every verb its own proof.
     ffi_tier: []const []const u8,
-    /// Run entrypoints belonging to this binding alone; `proof_roots` below
+    /// Run entrypoints belonging to this binding alone, `proof_roots` below
     /// applies to every binding.
     proof: []const []const u8,
 };
 
 /// Trees a `zig build` step executes. The hermetic per-binding proof families
 /// (`bindings/proofs/`) and the cross-implementation interop clients are the
-/// ones `ci/gates.sh` runs on every push and they carry every proven verb today;
+/// ones `ci/gates.sh` runs on every push and they carry every proven verb today,
 /// the demo apps and benchmark clients are run on demand and count the same,
 /// because what makes a call site proof is that a build step runs it.
 const proof_roots = [_][]const u8{ "bindings/proofs", "interop", "apps", "bench" };

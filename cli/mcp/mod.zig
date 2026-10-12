@@ -1,4 +1,4 @@
-//! Stdio MCP front — curated tools from the CapTP registry (ADR-0084).
+//! Stdio MCP front: curated tools from the CapTP registry (ADR-0084).
 const std = @import("std");
 const build_options = @import("build_options");
 const Ctx = @import("../ctx.zig").Ctx;
@@ -14,7 +14,7 @@ const Parsed = @import("../cmd/types.zig").Parsed;
 const McpCatalog = registry.McpCatalog;
 
 /// MCP stdio transport: one JSON-RPC message per line (newline-delimited).
-/// Cursor/Claude speak NDJSON; LSP-style length headers leave them stalled.
+/// Cursor/Claude speak NDJSON. LSP-style length headers leave them stalled.
 fn writeMessage(io: std.Io, body: []const u8) !void {
     try std.Io.File.stdout().writeStreamingAll(io, body);
     try std.Io.File.stdout().writeStreamingAll(io, "\n");
@@ -25,7 +25,7 @@ fn writeMessage(io: std.Io, body: []const u8) !void {
 /// A line longer than the read buffer raises `MessageTooLong` rather than
 /// killing the server. The rest of that line is discarded first, so the next
 /// read starts at a message boundary instead of part-way through the one we
-/// refused; the caller answers with an invalid-request error and carries on.
+/// refused. The caller answers with an invalid-request error and carries on.
 fn readMessage(gpa: std.mem.Allocator, reader: anytype) !?[]u8 {
     while (true) {
         const line = reader.interface.takeDelimiterInclusive('\n') catch |err| switch (err) {
@@ -73,7 +73,7 @@ fn appendToolSchema(out: *std.ArrayList(u8), gpa: std.mem.Allocator, cmd: *const
 /// not offer, and a client learns that from the empty capabilities it gets
 /// back.
 ///
-/// `2025-03-26` is deliberately absent even though its four methods match. It
+/// `2025-03-26` is absent even though its four methods match. It
 /// requires a server to accept a batch of requests in one array, and this one
 /// reads a single request per line. Claiming it would be claiming something the
 /// server does not do.
@@ -97,7 +97,7 @@ comptime {
     }
 }
 
-/// The revision to answer with. A client names the one it wants; the protocol
+/// The revision to answer with. A client names the one it wants. The protocol
 /// says to echo it back when we speak it, and otherwise to name one we do
 /// speak so the client can decide whether to carry on. A client that names
 /// nothing gets the oldest, which is the safest guess about what it can read.
@@ -188,7 +188,7 @@ pub fn idToJson(gpa: std.mem.Allocator, id: ?std.json.Value) !?[]u8 {
 
 /// Answer a request that parsed as JSON but is not a request this server can
 /// act on. A notification carries no id and JSON-RPC forbids answering it, so
-/// that one stays silent; everything else gets told why.
+/// that one stays silent. Everything else gets told why.
 fn refuseMalformedRequest(ctx: *Ctx, maybe_id: ?[]const u8, why: []const u8) !void {
     const id = maybe_id orelse return;
     try writeError(ctx.io, ctx.gpa, id, -32600, why);
@@ -266,7 +266,7 @@ fn handleToolsCall(ctx: *Ctx, id_json: []const u8, root: std.json.Value, catalog
 
 /// Build a `tools/call` JSON-RPC result body (no framing). Hermetic goldens parse this.
 /// Zig `print` treats `}}` as one literal `}`, so the two closing braces after
-/// `isError` are appended — a missing root `}` is what made Cursor drop the MCP
+/// `isError` are appended. A missing root `}` is what made Cursor drop the MCP
 /// connection on the first tool call.
 pub fn appendToolsCallResult(
     out: *std.ArrayList(u8),
@@ -287,8 +287,7 @@ pub fn appendToolsCallResult(
 ///
 /// The message goes through the escaper rather than straight into the format
 /// string. Some of these messages quote what the client sent, and a message
-/// with a quote in it used to produce a reply that was not JSON at all, which
-/// is a worse outcome than the error it was reporting.
+/// with a quote in it would produce a reply that is not JSON at all.
 fn writeError(io: std.Io, gpa: std.mem.Allocator, id_json: []const u8, code: i32, message: []const u8) !void {
     var body: std.ArrayList(u8) = .empty;
     defer body.deinit(gpa);
@@ -534,8 +533,8 @@ test "a client that names no version gets the oldest one we speak" {
 }
 
 test "a request with an id but no usable method gets an answer, not silence" {
-    // It used to fall out of the loop without a reply, and the client waited on
-    // one that was never coming. Every other failure on this loop answers.
+    // Falling out of the loop without a reply leaves the client waiting on
+    // one that never comes. Every other failure on this loop answers.
     const gpa = std.testing.allocator;
     for ([_][]const u8{
         "{\"jsonrpc\":\"2.0\",\"id\":1}",

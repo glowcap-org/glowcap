@@ -1,4 +1,4 @@
-//! One bounded disk queue; no filesystem operation runs on a Rooms turn.
+//! One bounded disk queue. No filesystem operation runs on a Rooms turn.
 use super::{failure::Failure, inbox::Inbox};
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -12,6 +12,13 @@ enum Work {
 	Resume(oneshot::Sender<Result<Value, Failure>>),
 	Close,
 }
+impl Work {
+	/// Reading the pending page and closing the journal observe without
+	/// changing it. Every other request mutates the journal.
+	fn is_mutation(&self) -> bool {
+		!matches!(self, Work::Pending(..) | Work::Close)
+	}
+}
 #[derive(Clone)]
 pub struct Worker {
 	tx: mpsc::Sender<Work>,
@@ -22,9 +29,15 @@ pub struct Owner {
 	pub worker: Worker,
 	task: tokio::task::JoinHandle<Result<Inbox, Failure>>,
 }
+/// A failed journal mutation is the observer's reported failure: the gap's
+/// own persistence failure wins when even the gap cannot be recorded.
+fn note_failure(inbox: &mut Inbox, changed: &watch::Sender<Option<Failure>>, error: &Failure) {
+	let persisted = inbox.mark_gap(error.clone());
+	changed.send_replace(Some(persisted.err().unwrap_or_else(|| error.clone())));
+}
 impl Owner {
 	pub async fn open(path: PathBuf) -> Result<Self, Failure> {
-		let (tx, mut rx) = mpsc::channel(128);
+		let (tx, mut rx) = mpsc::channel::<Work>(128);
 		let (changed, failure) = watch::channel(None);
 		let (wake, _) = watch::channel(());
 		let committed = wake.clone();
@@ -38,13 +51,12 @@ impl Owner {
 			}
 			let mut cursor = 0u64;
 			while let Some(work) = rx.blocking_recv() {
-				let mutation = !matches!(&work, Work::Pending(..) | Work::Close);
+				let mutation = work.is_mutation();
 				match work {
 					Work::Event(event, reply) => {
 						let result = inbox.append(event);
 						if let Err(error) = &result {
-							let persisted = inbox.mark_gap(error.clone());
-							changed.send_replace(Some(persisted.err().unwrap_or_else(|| error.clone())));
+							note_failure(&mut inbox, &changed, error);
 						}
 						let _ = reply.send(result);
 					}
@@ -56,15 +68,11 @@ impl Owner {
 					Work::Ack(ids, reply) => {
 						let result = inbox.acknowledge(&ids);
 						if let Err(error) = &result {
-							let persisted = inbox.mark_gap(error.clone());
-							changed.send_replace(Some(persisted.err().unwrap_or_else(|| error.clone())));
+							note_failure(&mut inbox, &changed, error);
 						}
 						let _ = reply.send(result);
 					}
-					Work::Gap(error) => {
-						let persisted = inbox.mark_gap(error.clone());
-						changed.send_replace(Some(persisted.err().unwrap_or(error)));
-					}
+					Work::Gap(error) => note_failure(&mut inbox, &changed, &error),
 					Work::Resume(reply) => {
 						let result = inbox.resume().map(|()| {
 							changed.send_replace(None);

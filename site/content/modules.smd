@@ -22,7 +22,7 @@ is the full account.
 | **HostRuntime** | The loop that runs `Session` and `Server`. It keeps one identity across several socket-backed sessions over the transports you register. |
 | **HostTurn** | The argument an object's `handle` gets. It carries the turn's arena for building replies and the Host for calling other objects. |
 | **Host** | The multi-session CapTP product: one identity, many sessions. It routes introductions between sessions and settles promise waits (Goblins calls a promise a *vow*). Its socket-free core lives in `driver/core`. |
-| **Bridge** | The Zig embedder that answers the Host's action queue (dial, flush, close, entropy) over a completion loop. Native bindings use the driver archive for that loop; the browser package drives the Host itself. |
+| **Bridge** | The Zig embedder that answers the Host's action queue (dial, flush, close, entropy) over a completion loop. Native bindings use the driver archive for that loop. The browser package drives the Host itself. |
 
 Use `Session` unless you need one of the lower-level responsibilities in the
 table. An introduction settles as a live capability because every `Session`
@@ -39,13 +39,12 @@ you can test it without a host runtime.
   borrows them, and IDs are plain values.
 - **model** is the CapTP vocabulary, independent of the bytes that carried it.
 - **codec** turns model values into wire bytes and back.
-  [Syrup](https://github.com/ocapn/syrup) is what Goblins speaks;
+  [Syrup](https://github.com/ocapn/syrup) is what Goblins speaks.
   [Cap'n Proto](https://capnproto.org/) is the second encoding.
   [Codecs]($link.page('codecs')) compares them.
 - **session** is the authority: import, export, and answer tables, and what is
   valid. A codec never decides whether a reference is allowed.
-- **engine** is the `Peer` above: feed frames, `step`, drain outbound, read
-  events. It only dispatches; session owns whether a reference is valid.
+- **engine** is the `Peer` above. It only dispatches.
 
 # Above the core
 
@@ -57,12 +56,10 @@ you can test it without a host runtime.
   [iroh](https://www.iroh.computer/) QUIC, `noise-tcp`,
   [WebRTC]($link.page('transports/webrtc')),
   [onion]($link.page('transports/onion')), then cleartext `tcp`,
-  `keyed-tcp`, and `inproc`, among others.
-  [Transports]($link.page('transports')) explains what a netlayer is;
-  [Choosing a transport]($link.page('transports/choosing')) is the decision
-  table.
+  `keyed-tcp`, and `inproc`, among others
+  ([Transports]($link.page('transports'))).
 - **loam** stores objects, and the capabilities they hold, across restarts.
-  Its core does no I/O; an optional LMDB module supplies the disk.
+  Its core does no I/O. An optional LMDB module supplies the disk.
   [Loam]($link.page('loam')) explains records, sleepy actors, and durable
   names.
 

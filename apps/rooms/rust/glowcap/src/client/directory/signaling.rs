@@ -9,8 +9,8 @@ pub use state::CleanupFailure;
 pub(crate) use state::Registry;
 use state::{State, wait, wake};
 
-/// One exact signaling capability. Managed workspaces supply a mediated name;
-/// baseline peers supply their held directory. Both use this exchange owner.
+/// One exact signaling capability. Managed workspaces supply a mediated name.
+/// Baseline peers supply their held directory. Both use this exchange owner.
 #[derive(Clone)]
 pub struct Route<D> {
 	caller: Caller<D>,
@@ -40,7 +40,7 @@ impl<D: Deadline> Route<D> {
 			.as_deref()
 			.or_else(|| self.caller.session().map(|session| session.as_ref()))
 	}
-	/// The embedding supplies its actually held directory, never a locator or
+	/// The embedding supplies its held directory, never a locator or
 	/// nickname. Its live exporter binds handoff routing to that introducer.
 	pub fn retain_introducer(&mut self, directory: &Ref) -> Result<(), Error> {
 		self.introducer = self.host().reference_session(directory)?.map(Rc::new);
@@ -51,7 +51,7 @@ impl<D: Deadline> Route<D> {
 	}
 	/// Verify source admission and the original upstream registration before
 	/// accepting an incoming transport. Baseline directory routes have no name
-	/// capability; their existing connection closure remains their boundary.
+	/// capability. Their existing connection closure remains their boundary.
 	pub async fn check(&self) -> Result<(), Error> {
 		if !self.exact_name {
 			return Ok(());
@@ -168,7 +168,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Route<D> {
 	}
 }
 impl<D: Deadline + Tasks + Clone + 'static> Exchange<D> {
-	/// Start once. The exchange owns the bounded attempt; dropping an answer
+	/// Start once. The exchange owns the bounded attempt. Dropping an answer
 	/// observation neither retries the offer nor loses its actual milestones.
 	pub fn offer(&self, description: &policy::Description) -> Result<(), Error> {
 		self.state.borrow_mut().core.start()?;

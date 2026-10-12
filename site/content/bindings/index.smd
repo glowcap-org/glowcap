@@ -20,7 +20,7 @@ these bindings with the Zig package, C ABI, CLI, and browser package.
 A `Session` gives you the verbs in the
 [bindings contract](https://github.com/jimisaacs/glowcap/blob/main/bindings/README.md).
 A `Host` is the multi-session product behind introductions
-([modules]($link.page('modules'))). A `Ref` is a capability in hand; pass it as
+([modules]($link.page('modules'))). A `Ref` is a capability in hand. Pass it as
 an argument and authority moves.
 
 | Binding | Entry point | Async idiom | Actor idiom |
@@ -30,14 +30,12 @@ an argument and authority moves.
 | [Python]($link.page('bindings/python')) | `Runtime`, `Session`, native values | `asyncio` | `spawn` over callables |
 | [Racket]($link.page('bindings/racket')) | `Runtime`, `session`, event structs | green threads + ports | Goblins-faithful |
 
-`Runtime.open(...)` installs transport authority once. `runtime.connect(locator)`
-returns an established session (handshake complete); per-operation options stay
-on that call.
+`Runtime.open(...)` installs transports once. `runtime.connect(locator)`
+returns a session whose handshake is complete.
 
-The TypeScript binding also runs in the browser, where `@glowcap/web` compiles
-the same `Session` API to WebAssembly. The browser side always dials
-rather than listens, and [In the browser]($link.page('bindings/browser')) is
-the browser setup guide.
+In the browser, `@glowcap/web` compiles the same `Session` API to WebAssembly.
+A browser dials but never listens. See
+[In the browser]($link.page('bindings/browser')).
 
 Stay at the level you need: synchronous verbs, the language's own async sockets,
 or the Goblins-shaped actor layer on top with near-call and eventual-send
@@ -47,7 +45,7 @@ or the Goblins-shaped actor layer on top with near-call and eventual-send
 
 The packages and archives live in a glowcap checkout. Pin a commit, run
 `zig build`, and use the binding in that tree. Bindings find
-`zig-out/lib` by default; set `GLOWCAP_LIB_DIR` if the archives live elsewhere.
+`zig-out/lib` by default. Set `GLOWCAP_LIB_DIR` if the archives live elsewhere.
 
 The [binding README](https://github.com/jimisaacs/glowcap/blob/main/bindings/README.md)
 has the path for each language. Compose

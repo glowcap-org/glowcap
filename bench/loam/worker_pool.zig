@@ -1,4 +1,4 @@
-//! Four persistent native workers. Posting lends one request; completion
+//! Four persistent native workers. Posting lends one request, completion
 //! returns its buffer custody. Store/Host installation stays on the owner.
 const std = @import("std");
 const w = @import("workload.zig");

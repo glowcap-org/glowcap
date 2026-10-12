@@ -15,7 +15,7 @@ export interface RoomAuthorityChange {
 }
 
 /** The opaque durable-publication identity carried by a Rooms sturdyref.
- * Applications compare it for lifecycle synchronization; transport, codec,
+ * Applications compare it for lifecycle synchronization. Transport, codec,
  * and CapTP profile selection remain owned below this layer. */
 export function roomAuthorityToken(sturdyref: string): string {
 	const token = swissDecoder.decode(parseRoomsSturdyref(sturdyref).swissnum);

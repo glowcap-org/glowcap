@@ -17,12 +17,14 @@ pub const Selected = struct {
 };
 
 /// One transport profile served by a multiplexed resident. Several profiles
-/// may name the same resident; the runtime polls each resident once.
+/// may name the same resident. The runtime polls each resident once.
 pub const Registration = struct {
     profile: model.transport.Metadata,
     resident: net.MultiplexedResident,
 };
 
+/// The installed package's owner callbacks. Implementors are unknown at this
+/// declaration, so `same_configuration` keeps an `anyerror` return set.
 pub const Owner = struct {
     ctx: *anyopaque,
     same_configuration: *const fn (installed: *anyopaque, candidate: *anyopaque) anyerror!bool,

@@ -1,5 +1,5 @@
 //! Attached-session events. Admission validates the whole notice before
-//! retaining any attachment capabilities; transport custody stays in the binding.
+//! retaining any attachment capabilities. Transport custody stays in the binding.
 use crate::{
 	archive::Coordinates,
 	fields::{List, SafeInteger, Text},
@@ -27,13 +27,16 @@ pub enum Presence {
 		on: bool,
 	},
 	Roster {
-		names: List<Text<32, true>, 512>,
+		names: List<Text<32, true>, { crate::server::rooms::MAX_ROSTER_SEEN }>,
 	},
 	Join {
 		name: Text<32, true>,
 	},
 	Leave {
 		name: Text<32, true>,
+	},
+	Offline {
+		names: List<Text<32, true>, { crate::server::rooms::MAX_ROOM_OFFLINE }>,
 	},
 	Away {
 		name: Text<32, true>,
@@ -75,16 +78,21 @@ impl<'de> Deserialize<'de> for Presence {
 				let r: Record = read(raw.get())?;
 				Ok(Self::Typing { name: r.name, on: r.on })
 			}
-			crate::protocol_data::ROSTER => {
+			crate::protocol_data::ROSTER | crate::protocol_data::OFFLINE => {
 				#[derive(Deserialize)]
 				#[serde(deny_unknown_fields)]
-				struct Record {
+				struct Record<const N: usize> {
 					#[serde(rename = "kind")]
 					_kind: serde::de::IgnoredAny,
-					names: List<Text<32, true>, 512>,
+					names: List<Text<32, true>, N>,
 				}
-				let r: Record = read(raw.get())?;
-				Ok(Self::Roster { names: r.names })
+				if tag.kind == crate::protocol_data::ROSTER {
+					let r: Record<{ crate::server::rooms::MAX_ROSTER_SEEN }> = read(raw.get())?;
+					Ok(Self::Roster { names: r.names })
+				} else {
+					let r: Record<{ crate::server::rooms::MAX_ROOM_OFFLINE }> = read(raw.get())?;
+					Ok(Self::Offline { names: r.names })
+				}
 			}
 			crate::protocol_data::JOIN | crate::protocol_data::LEAVE => {
 				#[derive(Deserialize)]
@@ -220,6 +228,15 @@ pub struct Event<C> {
 	pub attachments: Vec<Attachment<C>>,
 }
 
+fn names_bytes<const N: usize>(names: &List<Text<32, true>, N>) -> usize {
+	names.capacity() * core::mem::size_of::<Text<32, true>>()
+		+ names
+			.as_slice()
+			.iter()
+			.map(|name| name.text().heap_bytes())
+			.sum::<usize>()
+}
+
 impl<C> Event<C> {
 	/// Transfer attachment custody independently of the retained event metadata.
 	pub fn into_parts(self) -> (Event<()>, Vec<Attachment<C>>) {
@@ -242,7 +259,7 @@ impl<C> Event<C> {
 		};
 		(metadata, self.attachments)
 	}
-	/// Metadata graph capacity; the adapter separately charges capability custody.
+	/// Metadata graph capacity. The adapter separately charges capability custody.
 	pub fn retained_bytes(&self) -> usize {
 		let history = self.history.as_ref().map_or(0, |h| {
 			h.source.heap_bytes() + h.generation.heap_bytes() + h.id.heap_bytes()
@@ -251,14 +268,8 @@ impl<C> Event<C> {
 			Presence::Typing { name, .. } | Presence::Join { name } | Presence::Leave { name } => {
 				name.text().heap_bytes()
 			}
-			Presence::Roster { names } => {
-				names.0.capacity() * core::mem::size_of::<Text<32, true>>()
-					+ names
-						.as_slice()
-						.iter()
-						.map(|name| name.text().heap_bytes())
-						.sum::<usize>()
-			}
+			Presence::Roster { names } => names_bytes(names),
+			Presence::Offline { names } => names_bytes(names),
 			Presence::Away { name, reason } => name.text().heap_bytes() + reason.text().heap_bytes(),
 			Presence::Seat {
 				name,

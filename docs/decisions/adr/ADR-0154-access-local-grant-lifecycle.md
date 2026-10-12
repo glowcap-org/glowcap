@@ -3,7 +3,7 @@ id: ADR-0154
 status: accepted
 date: 2026-09-14
 tags: [access, grants, architecture]
-decision: "managed access owns runtime policy algebra and local grant lifecycle; applications declare operation meanings without reimplementing grant mutation or ancestor enforcement."
+decision: "managed access owns runtime policy algebra and local grant lifecycle. Applications declare operation meanings without reimplementing grant mutation or ancestor enforcement."
 supersedes: []
 superseded_by: []
 amends: [ADR-0153]
@@ -22,14 +22,14 @@ model before any actor adapter or language binding exposes them.
 
 An application should declare what an operation needs. It should not coordinate
 ancestor traversal, revocation propagation, or permission intersection itself.
-The [managed access architecture](../../planning/loam/access/architecture.md) assigns those
+The [managed access architecture](../../loam/access-architecture.md) assigns those
 algorithms to managed access and content facts to the application.
 
 ## Decision
 
 Add `Policy`, `Terms`, `GrantId`, and `GrantLedger` to `glowcap.loam.access.core`.
 They import no runtime and introduce no actor, Host, driver, or scheduler.
-These initial APIs are trusted model operations. Grant IDs select data; they
+These initial APIs are trusted model operations. Grant IDs select data. They
 are not use capabilities, control capabilities, or authorization credentials.
 
 ### Runtime policy algebra
@@ -37,7 +37,7 @@ are not use capabilities, control capabilities, or authorization credentials.
 Each ledger copies one immutable schema descriptor. Stable keys declare up to
 64 Boolean permissions and 16 unsigned constraint fields with lower-bound or
 upper-bound operators. Keys must be unique and sorted within each namespace.
-A schema identity fixes the keys, their order, and their meaning; reusing an
+A schema identity fixes the keys, their order, and their meaning. Reusing an
 identity for a changed descriptor is invalid embedding behavior.
 
 Policy values bind their compact representation to that schema identity.
@@ -50,7 +50,7 @@ Application requirements name the permissions and committed facts relevant to
 one effect. For example, a history check supplies the message's creation
 sequence to a declared lower-bound field. An upload operation supplies its
 size to an upper-bound field. The application must include every relevant
-requirement; omitting a content fact does not prove that content unrestricted.
+requirement. Omitting a content fact does not prove that content unrestricted.
 The initial model has no fact-relation hooks, alternatives, or projections.
 Unsupported semantics must be implemented in the shared vocabulary before a
 binding can expose them.
@@ -65,7 +65,7 @@ content/access transactions or durable operation receipts.
 Trusted owner issuance creates an independent root. Child issuance names an
 existing local grant and can only narrow every current ancestor's configured
 terms and immutable ceiling. The child records that bounded ceiling forever.
-Its delegation allowance is strictly smaller than its parent's; total depth,
+Its delegation allowance is strictly smaller than its parent's. Total depth,
 child count, and retained record count have explicit limits. Parent links
 are immutable and always point to an earlier record, so issuance cannot cycle.
 
@@ -77,12 +77,12 @@ any child. Separate grant paths never implicitly combine their permissions.
 
 Pause is temporary. Revocation is terminal for the branch, including descendants
 whose own records remain active or paused. Effective status gives revocation
-precedence over pause. Resume and edit refuse a revoked dependency; independent
+precedence over pause. Resume and edit refuse a revoked dependency. Independent
 roots and sibling branches remain unaffected. Revocation works even after the
 scope's resource is gone, and repeats on the same revoked record are idempotent.
 
 Grant slots are retained, including tombstones and their child counts. They
-are never reused; generation checks reject another incarnation. A fresh empty
+are never reused. Generation checks reject another incarnation. A fresh empty
 ledger with a previously used owner identity is not restoration. This prevents
 old IDs from silently selecting newly issued authority. Capacity exhaustion
 refuses issuance, and revision exhaustion refuses state changes without wrap.
@@ -90,9 +90,9 @@ refuses issuance, and revision exhaustion refuses state changes without wrap.
 ### Ownership and cost
 
 Initialization allocates the configured record capacity. Terms copy policy
-values inline; exact and subtree scopes need no further allocation. Selected
+values inline. Exact and subtree scopes need no further allocation. Selected
 scopes copy at most the scope module's bounded selection size. Issuance copies
-both ceiling and configured selections; editing copies the replacement before
+both ceiling and configured selections. Editing copies the replacement before
 releasing the old selection. Inputs may therefore borrow a current record.
 Every potentially failing allocation finishes before a mutation commits.
 
@@ -114,7 +114,7 @@ Failed mutations return an error without a change. An event is produced only
 after the state it describes has committed. The model does not own an event
 loop or queue, and event delivery never replaces current authority checks.
 
-The [observation contract](../../planning/loam/access/architecture.md#observable-access-changes)
+The [observation contract](../../loam/access-architecture.md#observable-access-changes)
 requires the access module's actor integration to expose scoped change subscriptions over
 CapTP. Delivery, retention, replay, and transaction events for resource moves
 remain unimplemented. Raw model events must not expose hidden authority
@@ -123,8 +123,8 @@ relationships to remote observers.
 ## CapTP and application integration
 
 The intended use and management surfaces are capabilities callable across
-CapTP. The resource owner enforces the selected grant on every protected act;
-a separately held control capability authorizes remote edits. Passing a facet
+CapTP. The resource owner enforces the selected grant on every protected act.
+A separately held control capability authorizes remote edits. Passing a facet
 preserves its exact grant dependency across copies. Neither serialization of
 an ID nor receipt of an access description creates stronger access.
 
@@ -132,20 +132,20 @@ The hosting layer must bind calls to owner-issued authority and enforce each
 controller's management ceiling before invoking the trusted model. The access module's
 owner transaction layer must coordinate graph, grant, and opaque content
 changes. Applications declare their content effects and execute selected
-storage effects; they must not reproduce grant algorithms or coordinate
+storage effects. They must not reproduce grant algorithms or coordinate
 independent commits themselves.
 
 [ADR-0155](ADR-0155-access-prepared-grant-writes.md) adds prepared grant writes
 and exact storage completion. The complete owner and hosting layers remain
 unimplemented. The ledger has only original and local-parent sources, with no retained upstream
 capability representation. Cross-owner enforcement remains an explicit hosted
-dependency in the plan; a local ID cannot substitute for it. No CapTP messages,
+dependency in the plan. A local ID cannot substitute for it. No CapTP messages,
 wire schemas, persistent formats, C ABI, or Rust bindings change here. Rooms
 continues to use its existing grant machinery.
 
-The [implementation plan](../../planning/rooms/access-grants.md) owns the
-remaining work. This amendment advances the local grant boundary of ADR-0153;
-its resource identity and containment decisions remain unchanged.
+The [implementation plan](../../planning/rooms.md) owns the remaining work. This
+record advances the local grant boundary of ADR-0153 and leaves its resource
+identity and containment decisions unchanged.
 
 ## Evidence
 

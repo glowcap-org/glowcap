@@ -81,7 +81,7 @@ impl<D: Deadline> Workspace<D> {
 		})
 	}
 	/// This facade exposes only the form declaration. Submission is an effect
-	/// with separate receipt and credential custody; it cannot escape this reader.
+	/// with separate receipt and credential custody. It cannot escape this reader.
 	pub async fn bridge_form_reader(&self, seat: custody::Coordinate) -> Result<Ref, Error> {
 		self.reader("bridge-form-reader", &[coordinate_text(seat)?.into()])
 			.await

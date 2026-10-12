@@ -15,6 +15,10 @@ SIGKILLed if `--kill-after` was given and it outlives that grace period.
 Escalating by default would hard-kill callers that pass no grace, which is a
 harsher contract than the `timeout` they replaced.
 
+Unlike GNU, a fired deadline says so on stderr, after any replayed output. A
+build step that runs many of these at once otherwise shows a stopped child as
+a bare failure, indistinguishable from one that failed on its own.
+
 `--quiet-success` spools the child's combined output to a temporary file. A
 failure replays it exactly. A successful check emits nothing.
 
@@ -151,7 +155,7 @@ def main() -> int:
 
     # Cancellation from a CI runner or a terminal must reach the child, which
     # is in its own session and would otherwise outlive us. Relay the signal
-    # that actually arrived. A Ctrl-C the child sees as SIGTERM is a different
+    # that arrived. A Ctrl-C the child sees as SIGTERM is a different
     # event. Then apply the same escalation a deadline gets, reap, and exit
     # 128+N so the caller sees what killed it. SIGINT is relayed here rather
     # than left to raise `KeyboardInterrupt`, because returning from a handler
@@ -171,7 +175,9 @@ def main() -> int:
     except subprocess.TimeoutExpired:
         signal_group(process, signal.SIGTERM)
         escalate(process, args.kill_after)
-        return finish(124)
+        code = finish(124)
+        print(f"run-with-timeout: {command[0]} reached its {args.timeout:g}s deadline and was stopped", file=sys.stderr)
+        return code
 
 
 if __name__ == "__main__":

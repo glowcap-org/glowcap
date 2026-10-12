@@ -4,7 +4,7 @@
 //! with the Host implementation and its process-owner adapter.
 
 /// One reported trace fact (`glowcap_host_set_trace`). The kind selects the
-/// live fields; string views are borrowed for the callback only.
+/// live fields. String views are borrowed for the callback only.
 pub const GLOWCAP_TRACE_SESSION_OPEN: u32 = 0;
 pub const GLOWCAP_TRACE_MESSAGE: u32 = 1;
 pub const GLOWCAP_TRACE_SESSION_CLOSE: u32 = 2;
@@ -17,7 +17,7 @@ pub const GlowcapTraceEvent = extern struct {
     /// `GLOWCAP_TRACE_MESSAGE`: nonzero when the message left this host.
     outbound: u8,
     /// `GLOWCAP_TRACE_SESSION_OPEN`: what proved the partner's durable name,
-    /// as a `GLOWCAP_DURABLE_PROVENANCE_*` value — the same fact
+    /// as a `GLOWCAP_DURABLE_PROVENANCE_*` value: the same fact
     /// `glowcap_host_session_partner_identity` reports, not a second
     /// spelling of it. A consumer that only asked "was it proved" cannot
     /// tell a partner claiming no durable name from one whose claim nothing
@@ -29,12 +29,12 @@ pub const GlowcapTraceEvent = extern struct {
     codec: u32,
     /// `GLOWCAP_TRACE_SESSION_OPEN`: the negotiated `GLOWCAP_CAPTP_*`.
     captp_version: u32,
-    /// `GLOWCAP_TRACE_SESSION_OPEN`: the partner's OCapN Designator —
-    /// dialed, or claimed by its hello. Borrowed.
+    /// `GLOWCAP_TRACE_SESSION_OPEN`: the partner's OCapN Designator,
+    /// dialed or claimed by its hello. Borrowed.
     ///
     /// Half a name on its own. OCapN requires a designator and a transport
     /// together to tell two locations apart, so the same key reached over
-    /// `iroh` and over `keyed-relay` is two locators — and which one
+    /// `iroh` and over `keyed-relay` is two locators, and which one
     /// carried the session decides how the name could have been proved.
     designator: ?[*]const u8,
     designator_len: usize,
@@ -56,17 +56,17 @@ pub const GlowcapTraceEvent = extern struct {
     verb: ?[*]const u8,
     verb_len: usize,
     /// `GLOWCAP_TRACE_MESSAGE`: the message's wire frame, borrowed. Both
-    /// directions carry it — the fact sites sit at the wire boundary
+    /// directions carry it: the fact sites sit at the wire boundary
     /// (inbound dispatch, the outbound drain).
     frame: ?[*]const u8,
     frame_len: usize,
     /// `GLOWCAP_TRACE_MESSAGE`: how long the frame really was. Equal to
     /// `frame_len` on the callback seam, which borrows the frame where it
-    /// sits; larger when a queued record clipped the frame to its payload
+    /// sits. Larger when a queued record clipped the frame to its payload
     /// window (`glowcap_host_set_trace_queue`).
     frame_total_len: usize,
     /// Records the host dropped between the previous record and this one.
-    /// Always zero on the callback seam, which drops nothing; a queued
+    /// Always zero on the callback seam, which drops nothing. A queued
     /// record reports the gap its ring could not hold.
     dropped: u64,
     /// `GLOWCAP_TRACE_MESSAGE`: a tag over the frame's bytes, naming this one

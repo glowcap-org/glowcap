@@ -1,6 +1,6 @@
 ---
 .title = "The relay",
-.description = "A relay carries a browser peer's keyed CapTP session over a WebSocket to a peer that has a socket. Only bytes cross it; it holds no capability of yours.",
+.description = "A relay carries a browser peer's keyed CapTP session over a WebSocket to a peer that has a socket. Only bytes cross it. It holds no capability of yours.",
 .date = .date("2026-07-21T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
@@ -15,11 +15,10 @@ The session's keys stay at the two ends
 
 The keyed `op:start-session` handshake and every capability that follows it run
 between the browser and the far peer. The relay never parses a frame and never
-holds a capability; on a cleartext path it can still read every byte. Native
-providers and the browser's managed connector both speak `noise-relay`. When
-the intermediary must see only ciphertext, the byte-fed Host owns the sealing.
-The session's authority is the keys at its two ends, so the relay carries a
-session without being party to it.
+holds a capability. On a cleartext path it can still read every byte, so use
+`noise-relay` when the relay must see only ciphertext. Native providers and the
+browser's managed connector both speak it, and the byte-fed Host owns the
+sealing.
 
 # Reaching the other side
 
@@ -30,13 +29,12 @@ reaches the far side two ways.
 
 The browser names a target and the relay dials it. The reference relay reads
 the target off the WebSocket's query: `?to=host:port` opens a TCP socket, and
-`?locator=<ocapn-uri>` opens an iroh channel. The rooms app embeds the same
-pump behind its own `/relay?target=<locator>` route and classifies the
-locator through the same `glowcap_host_plan_dial` a native dial uses; that
-route is the app's, not the reference contract. Either way the relay then
-pipes the WebSocket to whatever it dialed.
+`?locator=<ocapn-uri>` opens an iroh channel. The relay then pipes the
+WebSocket to whatever it dialed. Rooms embeds the same pump behind its own
+`/relay?target=<locator>` route and classifies the locator with
+`glowcap_host_plan_dial`, as a native dial does.
 
-[The browser names the peer it wants; the relay dials it over tcp or iroh and pipes the two together. The keyed session runs end to end, and the relay only moves bytes.]($image.siteAsset('diagram-relay-dial.svg'))
+[The browser names the peer it wants. The relay dials it over tcp or iroh and pipes the two together. The keyed session runs end to end, and the relay only moves bytes.]($image.siteAsset('diagram-relay-dial.svg'))
 
 The dial policy is the embedding app's. The [rooms demo]($link.page('examples'))
 pins its TCP target to the room server, so a classified TCP dial reaches the room
@@ -52,54 +50,48 @@ the held socket. The room that made the introduction carries no part of the
 session
 ([ADR-0088](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md)).
 
-[One browser registers and waits; the other redeems an introduction by cold-dialing that identity. The relay bridges the held socket to the dialer, and the keyed session runs end to end between the two browsers.]($image.siteAsset('diagram-relay-rendezvous.svg'))
+[One browser registers and waits. The other redeems an introduction by cold-dialing that identity. The relay bridges the held socket to the dialer, and the keyed session runs end to end between the two browsers.]($image.siteAsset('diagram-relay-rendezvous.svg'))
 
 Both paths run through one byte pump, so rendezvous and direct dialing share
 their backpressure and teardown behavior.
 
 # Bounded resources
 
-A relay carries other peers' sessions, so it bounds what it holds. Backpressure on
-both legs caps the bytes in flight: a stalled reader stops the relay reading its
-partner, and the stall reaches the sender instead of accumulating in the
-middle. An idle timeout reclaims silent sessions. A relayed connection costs
-buffers but no CapTP session state. An embedding app adds its own ceilings on
-the live-session and held-registration counts as admission policy, which the
-[rooms demo]($link.page('examples')) sets. The relay counts bytes and sessions, never
-messages, because it reads none.
+Backpressure on both legs caps the bytes in flight: a stalled reader stops the
+relay reading its partner, so the stall reaches the sender instead of piling up
+in the middle. An idle timeout reclaims silent sessions. A relayed connection
+costs buffers but no CapTP session state. The embedding app sets its own limits
+on live sessions and held registrations, as the
+[rooms demo]($link.page('examples')) does. The relay counts bytes and sessions,
+never messages, because it reads none.
 
 # The same contract on every runtime
 
-The relay is a small contract an embedder runs in its own runtime.
-`@glowcap/relay` is the Deno reference; Python, Rust, and Racket provide the
+`@glowcap/relay` is the Deno reference. Python, Rust, and Racket provide the
 same forwarding, backpressure, and idle-reclaim behavior.
 
 # Locators
 
-A transport symbol (`iroh`, `noise-tcp`, `keyed-tcp`, `webrtc`, `inproc`, and
-the rest) is how you name a peer.
-The relay is a WebSocket that forwards bytes to someone who already has one of
-those names. It does not publish itself as a transport.
-[Choosing a transport]($link.page('transports/choosing')) lists them.
-
-A `keyed-relay` locator names the waiting peer's key. The dialing host uses its
-configured relay URL to reach that waiting peer
+A `keyed-relay` locator names the waiting peer's key, and the dialing host
+reaches it through its configured relay URL
 ([ADR-0088](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md)).
-`noise-relay` uses the same forwarding path and seals the CapTP stream before
-it begins. Peers dialing an ordinary netlayer never touch the relay service.
-The [Noise guide]($link.page('transports/noise')) covers the sealed path.
+`noise-relay` uses the same path and seals the CapTP stream before it begins.
+Peers on other transports (`iroh`, `noise-tcp`, `keyed-tcp`, `webrtc`,
+`inproc`) never touch the relay.
+[Choosing a transport]($link.page('transports/choosing')) lists them all, and
+the [Noise guide]($link.page('transports/noise')) covers the sealed path.
 
 # Dial
 
 Choose `noise-relay` for an end-to-end sealed stream. Use `keyed-relay` only
-when the relay and network are already trusted. Each tab below stops once the
-transport-specific runtime and locator are ready; the binding page owns the
-common connect, fetch, and call workflow.
+when the relay and network are already trusted. Each tab stops once the
+runtime and locator are ready, and the binding page covers connect, fetch, and
+call.
 
 The snippets use `wss://` with platform trust: native code passes `.system`,
 and the bindings use the host WebSocket. The native provider also accepts
-cleartext `ws` on a network you already trust. Live public-certificate
-evidence remains on the roadmap.
+cleartext `ws` on a network you already trust. It has not been tested live
+with a public certificate.
 
 ```=html
 <!-- site-examples:dial:relay GENERATED by `zig build gen-site-examples`; edits are overwritten -->
@@ -449,15 +441,10 @@ deno run --allow-net --allow-ffi --allow-env --allow-read \
 ```
 
 It relays wherever a WebSocket points it, named by `?to=` or `?locator=`, and
-reclaims a silent session once its idle timeout passes (`GLOWCAP_RELAY_IDLE_MS`,
-one minute by default). Allowlists of targets and limits on admission are up to
-the application that embeds it. The Rooms relay
-([`relay.rs`](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/rust/services/src/web/relay.rs))
-is an example of adding both. The
-[relay README](https://github.com/jimisaacs/glowcap/blob/main/bindings/ts/relay/README.md)
-covers the package itself, and the Python, Rust, and Racket relays take the
-same relay contract.
-
-The [rooms]($link.page('examples')) chat and its browser direct messages run
-over a real relay, and [the TypeScript binding]($link.page('bindings/ts')) is
-where the browser peer lives.
+reclaims a silent session after `GLOWCAP_RELAY_IDLE_MS` (one minute by
+default). Target allowlists and admission limits belong to the embedding app,
+as in the Rooms
+[`relay.rs`](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/rust/services/src/web/relay.rs).
+The [relay README](https://github.com/jimisaacs/glowcap/blob/main/bindings/ts/relay/README.md)
+covers the package. The browser peer lives in
+[the TypeScript binding]($link.page('bindings/ts')).

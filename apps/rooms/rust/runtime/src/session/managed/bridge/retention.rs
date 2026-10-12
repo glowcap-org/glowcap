@@ -5,8 +5,8 @@ use std::{future::Future, pin::Pin};
 use tokio::sync::Mutex;
 
 /// One scalar subscriber uses the existing session feeds. At most one complete
-/// reconciliation future retains the journal fence and bounded document bytes;
-/// a deadline drops only its observer. Retry and close resume that same future.
+/// reconciliation future retains the journal fence and bounded document bytes.
+/// A deadline drops only its observer. Retry and close resume that same future.
 pub(in crate::session::managed) struct Owner<P: Tasks> {
 	worker: Mutex<Membership<P>>,
 	_budget: Rc<supervision::Budget<P>>,
@@ -25,12 +25,12 @@ impl<P: Tasks + Deadline + Clone + 'static> Owner<P> {
 			move |mut signals| async move {
 				let mut pending: Option<Pin<Box<dyn Future<Output = Result<()>>>>> = None;
 				loop {
-					if pending.is_none() {
+					let cleanup = pending.get_or_insert_with(|| {
 						let credentials = credentials.clone();
 						let writer = writer.clone();
-						pending = Some(Box::pin(async move { credentials.reconcile(&writer).await }));
-					}
-					let result = match platform.within(20_000, pending.as_mut().unwrap()).await {
+						Box::pin(async move { credentials.reconcile(&writer).await })
+					});
+					let result = match platform.within(20_000, cleanup).await {
 						Some(result) => {
 							pending.take();
 							result

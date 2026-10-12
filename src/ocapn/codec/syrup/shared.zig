@@ -28,7 +28,7 @@ const model = @import("model");
 /// exhaustive over the message tag, so a new `model.Message` kind fails to
 /// compile here until it is named, and the decoder (which builds its dispatch
 /// over the same tag set) gains the entry in the same breath. `op:gc-exports`
-/// is not a mechanical transform of the kind name, which is exactly why the
+/// is not a mechanical transform of the kind name, which is why the
 /// mapping is explicit.
 pub fn messageOp(comptime kind: std.meta.Tag(model.Message)) []const u8 {
     return switch (kind) {
@@ -52,35 +52,35 @@ pub const Error = error{
     UnsupportedMessage,
     UnsupportedReference,
     /// The exact-size encoder's measure and fill passes disagreed. Both pass
-    /// through one generic walker, so caller data cannot induce this; keeping
+    /// through one generic walker, so caller data cannot induce this. Keeping
     /// it typed still contains an encoder defect to the operation instead of
     /// terminating an embedding process.
     EncoderInvariantViolation,
-    /// The buffer ends inside a message — a leaf reader ran past the available
+    /// The buffer ends inside a message, a leaf reader ran past the available
     /// bytes. This is an internal framing signal, not a public decode failure:
     /// the whole-frame `decodeBody` folds it into `MalformedFrame` (a frame
     /// must be complete), while the streaming `decodePrefix` surfaces it as
     /// `.incomplete` so the caller reads more bytes. No structurally-valid
     /// frame ever yields it from `decodeBody`.
     Incomplete,
-    /// The in-flight message cannot fit inside the streaming byte cap — a
+    /// The in-flight message cannot fit inside the streaming byte cap, a
     /// length prefix declared a body past `max_frame_bytes`, or the decode walk
     /// crossed it. Like `Incomplete`, this is an internal framing signal: only
     /// `decodePrefix` can raise it (it threads the cap into the walk per
-    /// ADR-0029) and it surfaces as the `.too_large` verdict; whole-frame entry
+    /// ADR-0029) and it surfaces as the `.too_large` verdict. Whole-frame entry
     /// points decode uncapped and never yield it.
     FrameTooLarge,
 };
 
-/// The error set of the mutually-recursive encode/decode walkers — the encoder
+/// The error set of the mutually-recursive encode/decode walkers, the encoder
 /// cycle, where `writeArgument`, `writeArgumentList`, and `writeCanonicalSet`
 /// call one another, and the handoff readers. Zig cannot infer an error set
 /// around a recursive cycle, so
 /// these would otherwise have to fall back to the fully-erased error set and lose
-/// exhaustiveness at every call site. Naming the union — the codec's structural
-/// `Error`, the allocator's `OutOfMemory`, and `NoSpaceLeft` — keeps them
-/// precisely typed. (`NoSpaceLeft` is unreachable: unsigned decimal write is
-/// hand-rolled into a 20-byte stack buffer sized for a u64; the name stays so
+/// exhaustiveness at every call site. Naming the union, the codec's structural
+/// `Error`, the allocator's `OutOfMemory`, and `NoSpaceLeft`, keeps them
+/// typed. (`NoSpaceLeft` is unreachable: unsigned decimal write is
+/// hand-rolled into a 20-byte stack buffer sized for a u64. The name stays so
 /// WalkError callers do not churn.)
 pub const WalkError = Error || std.mem.Allocator.Error || error{NoSpaceLeft};
 

@@ -1,10 +1,10 @@
-//! Live real-internet iroh reachability (Milestone 1): two glowcap peers
+//! Live real-internet iroh reachability: two glowcap peers
 //! reach each other by node id ALONE over n0's public relay and DNS/pkarr
 //! discovery with no direct-address hints and no in-process address book.
 //!
 //! Both endpoints bind with the `.discovery` posture (`presets::N0`: the
 //! number-0 relays plus DNS/pkarr discovery). The server publishes its node
-//! info to pkarr on bind; the client dials the server by its 64-hex node id with
+//! info to pkarr on bind. The client dials the server by its 64-hex node id with
 //! an empty hint set, so a session that opens proves the dial was resolved over
 //! real discovery infrastructure and carried over a real relay / hole-punched
 //! path, not hinted and not loopback-booked. It is the live counterpart of the
@@ -15,7 +15,7 @@
 //! reachable direct address, which a NAT'd host or container does not have, so
 //! its dial-by-id is unreachable there and cannot be a portable build check. The
 //! `connect(locator)` dialers still settle/retry under `.discovery_no_relay` on the
-//! same propagation principle (it resolves by id); only a *live build check* for
+//! same propagation principle (it resolves by id). Only a *live build check* for
 //! it is infeasible without a publicly-addressable host.
 //!
 //! Not part of the in-tree check (needs network). This step touches public n0
@@ -28,7 +28,7 @@
 //! What this proves. Two endpoints in one process prove the discoverability
 //! claim end to end: resolve a peer by id over real DNS/pkarr, then reach it.
 //! True cross-NAT hole-punching between two *distinct* NATs needs two hosts on
-//! two networks; run this driver's two halves on separate machines to exercise
+//! two networks. Run this driver's two halves on separate machines to exercise
 //! that seam. The single-process form proves everything reachable from one host.
 
 const std = @import("std");
@@ -47,8 +47,8 @@ const greeting = "hello over the public internet";
 const Greeter = harness.StaticReplyActor("greet", greeting);
 
 /// Server half: accept one partner discovered over the public network signing
-/// with `secret` — the endpoint's own key, so the dialing client's identity pin
-/// verifies the node id it dialed — publish the greeter, serve until the
+/// with `secret`, the endpoint's own key, so the dialing client's identity pin
+/// verifies the node id it dialed, publish the greeter, serve until the
 /// client hangs up.
 const hostOnce = harness.AcceptServeOne(
     Greeter,
@@ -69,7 +69,7 @@ const publish_settle_ms: u64 = 8_000;
 
 /// Dial by id alone, retrying while discovery has not yet resolved the partner.
 /// Only a dial-stage `ConnectionLost` (the sidecar's "no addressing information"
-/// while the publish propagates) is retried; a post-dial fault is a real
+/// while the publish propagates) is retried. A post-dial fault is a real
 /// failure and surfaces immediately.
 fn callByIdOnlyRetrying(
     io: std.Io,
@@ -104,7 +104,7 @@ fn callByIdOnlyRetrying(
     }
 }
 
-/// Client half: dial the server by node id ALONE — empty hint set — over real
+/// Client half: dial the server by node id ALONE, empty hint set, over real
 /// n0 discovery, then fetch and call the greeter so the discovered session is
 /// proven to carry real traffic.
 fn callByIdOnly(
@@ -139,10 +139,10 @@ pub fn main(init: std.process.Init) !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    // A fresh random seed per run (never a fixed one — the node id is
+    // A fresh random seed per run (never a fixed one, the node id is
     // published to public pkarr), shared between the endpoint and the accept
-    // signing key so the session key equals the node id the client dials —
-    // which the client's dial-side identity pin now verifies.
+    // signing key so the session key equals the node id the client dials,
+    // which the client's dial-side identity pin verifies.
     var server_seed: [32]u8 = undefined;
     io.randomSecure(&server_seed) catch |err| {
         std.debug.print("iroh-reachability: drawing the server seed failed: {s}\n", .{@errorName(err)});

@@ -1,8 +1,10 @@
-// A refused result candidate can be recomposed; its receipt and selections stay
+// A refused result candidate can be recomposed. Its receipt and selections stay
 // fixed. Keep scalar witnesses, never a workspace snapshot or capability mirror.
 import { type ConversationIntent, type DirectoryIntent, fieldKey, type WorkspaceSnapshot } from "./model.ts";
+import type { LineAdoption } from "./completed_line.ts";
 
 export class ResultRecipe {
+	line?: LineAdoption;
 	readonly #destinations = new Map<string, string>();
 	readonly #targets = new Map<string, string>();
 	#source: string | null = null;

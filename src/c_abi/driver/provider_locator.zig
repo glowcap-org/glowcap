@@ -47,7 +47,7 @@ const Capture = struct {
 };
 
 /// The execution-model-neutral listener locator contract. Stream providers
-/// use their listener handle as `ctx`; multiplexed providers use their
+/// use their listener handle as `ctx`. Multiplexed providers use their
 /// listener context. The callback ABI is otherwise identical.
 pub const Listener = struct {
     ctx: ?*anyopaque,

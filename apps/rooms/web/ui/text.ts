@@ -1,6 +1,6 @@
 // Text the interface derives from a name or message, with no DOM in sight.
-// Markdown structure and mention effects live in the shared application path;
-// this module retains presentation vocabulary such as emoji and IRC runs.
+// Markdown structure and mention effects live in the shared application path.
+// This module retains presentation vocabulary such as emoji and IRC runs.
 
 import {
 	type Conv,
@@ -37,7 +37,7 @@ import {
  *
  * Not that there is nothing here: the session has stopped telling this browser
  * what it holds, and the rows may well still exist. Nor any of the invitations
- * the ordinary empty texts make — joining a room and messaging a member are both
+ * the ordinary empty texts make, joining a room and messaging a member are both
  * closed to a reader in this state, and a surface that suggests one is offering
  * an act that will be refused.
  *
@@ -47,7 +47,7 @@ import {
 export { nothingWhilePaused } from "../../lib/text/directory.ts";
 
 /** How a directory's connection reads in words. The dot beside it carries the
- * same fact in shape and color; this is what a reader who has neither gets.
+ * same fact in shape and color. This is what a reader who has neither gets.
  *
  * The one wording of a phase. Everything that says one in a sentence asks
  * `phaseWord` for it, so a row cannot read out the raw token while the card
@@ -74,8 +74,8 @@ export function phaseWord(session: SessionPhase): string {
  *
  * The four connection words are a directory's. This sentence names that
  * directory in the same words the rail and the connection row already use, so
- * a card cannot say the directory is "away" — which is how a person steps
- * out — while the row beside it says reconnecting. */
+ * a card cannot say the directory is "away", which is how a person steps
+ * out, while the row beside it says reconnecting. */
 export function directoryDmBlocked(session: SessionPhase): string {
 	return session === "connected" ? "" : dmBlockedWhile(phaseWord(session));
 }
@@ -121,7 +121,7 @@ export function dirConnection(session: SessionPhase, statusText: string): DirCon
  * The phase and not the sentence beside it. The caption line is already spent
  * naming the directory, and that name is what attributes the news, so a
  * sentence long enough to push the name off the line would take the
- * attribution with it. What the directory is actually doing is one press away
+ * attribution with it. What the directory is doing is one press away
  * in the card the same caption opens, which has room for both. */
 export function dirStanding(session: SessionPhase): string {
 	return session === "connected" ? "" : PHASE_SAID[session];
@@ -151,8 +151,8 @@ export interface DirNamed {
  * that goes with them, or nothing at all while this tab holds one directory and
  * saying so would be noise.
  *
- * A union rather than a nullable pair, so the broken state — a color with no
- * name behind it — stays unspellable. */
+ * A union rather than a nullable pair, so the broken state, a color with no
+ * name behind it, stays unspellable. */
 export type DirWhere = DirNamed | { name: null; mark: undefined };
 
 /** The name and color of a directory a surface has already been told about.
@@ -175,9 +175,9 @@ export function dirWhere(dir: DirId, home: DirId | null, dirs: ReadonlyMap<DirId
  * One producer for the one line, by one priority rule. The connection's story
  * wins while there is one, as the plain phase word: this line is under the
  * reader's own name, so it says how they stand rather than narrating what a
- * connection is doing. The net layer's own sentences — reaching this
- * locator, entering that room — are about a directory, and the card
- * describing that directory is where they are read; a forty-character
+ * connection is doing. The net layer's own sentences (reaching this
+ * locator, entering that room) are about a directory, and the card
+ * describing that directory is where they are read. A forty-character
  * locator in the reader's standing line says nothing about the reader and
  * crowds out the one thing this line is for. A settled connection lets that
  * word through: their standing when they set one, worn in the roster's away
@@ -202,7 +202,7 @@ export function footState(
 
 /** A locator is escaped for a wire, and what comes back out of one is not a name:
  * a port reads as `127.0.0.1%3A6000` until the escaping is undone. Undone only
- * for the name — the locator itself is copied and dialled exactly as it arrived,
+ * for the name: the locator itself is copied and dialled exactly as it arrived,
  * from `DirId`, never from this. A malformed escape is left as it is rather than
  * throwing, because a directory that named itself badly still has to appear. */
 function readable(text: string): string {
@@ -237,7 +237,7 @@ export function directoryName(id: DirId, home: DirId | null): string {
 }
 
 /** How a room is named in speech and in the tab title. A public room is its
- * hash-name; a private one is only its label, because that label is not a name
+ * hash-name. A private one is only its label, because that label is not a name
  * anybody can enter. The lock that stands in for the hash is drawn, not spelled. */
 export function roomCalled(id: string, held: boolean): string {
 	return held ? id : "#" + id;
@@ -247,8 +247,8 @@ export function roomCalled(id: string, held: boolean): string {
  * its own.
  *
  * A public room is a name on that directory, so the locator is the directory's
- * and that is not a bug. A private room is a live reference this session holds
- * — nothing to copy until `/link` mints a sturdyref. A direct line was
+ * and that is not a bug. A private room is a live reference this session holds.
+ * Nothing to copy until `/link` mints a sturdyref. A direct line was
  * introduced on the directory and has no room address at all. */
 export function conversationReach(
 	conv: { type: "room"; held: boolean; id: string; link?: string } | { type: "dm" },
@@ -313,7 +313,7 @@ export function dayLabel(at: number): string {
  *
  * It is not one measure, though, and saying so is the caller's job. A name is
  * held to its length and a message to what it costs on the wire, which is its
- * UTF-8 bytes — so a reader writing anything but Latin met a message refused
+ * UTF-8 bytes. So a reader writing anything but Latin met a message refused
  * thousands of characters below the number this sentence had just given them,
  * and the further their script is from ASCII the further off it was. The unit
  * has no default: a new limit is measured one way or the other, and which one
@@ -328,7 +328,7 @@ export function tooLong(noun: string, max: number, unit: "characters" | "bytes")
  * direct line has no room in its path at all, and a room is whatever answered
  * the address a reader typed. What arrives is drawn into the log and walked by
  * the rich-text pass, so an unbounded line is an unbounded amount of both, and
- * an author nobody can name is a line this app cannot attribute honestly.
+ * an author nobody can name is a line this app cannot attribute accurately.
  *
  * Refused rather than cut. A sentence cut in half can say the opposite of what
  * it said, and this app would be the one saying it. */
@@ -387,9 +387,9 @@ export function substituteEmoji(text: string): string {
 
 /** What may appear in a name, written once for everything that reads one.
  *
- * Wider than this app's own names on purpose. A room bridged to IRC carries
+ * Wider than this app's own names. A room bridged to IRC carries
  * members whose nicks were legal there, and IRC has allowed `[ ] \ ` _ ^ { | }`
- * since before this app existed — so `@some[nick]` has to highlight, notify and
+ * since before this app existed. So `@some[nick]` has to highlight, notify and
  * complete like any other. Reading a name is a question about syntax rather
  * than about authority, which is why it is settled here rather than by a mode
  * somebody turns on: there is no version of this page where that name should be
@@ -407,7 +407,7 @@ export const MENTION_QUERY = new RegExp(String.raw`^[${NAME_CHARS}]*$`);
 
 /** The names that reach a whole room rather than one person.
  *
- * IRC never had these — it had operators and a channel notice — but every chat
+ * IRC never had these, it had operators and a channel notice, but every chat
  * since has converged on the same handful of words, and a reader's fingers know
  * them. All three are kept rather than one blessed spelling, because a person
  * arriving from another client should be understood rather than corrected.
@@ -424,7 +424,7 @@ export { ROOM_MENTIONS } from "./limits.ts";
  * Every spelling above is understood, because a person arriving from another
  * client should be read rather than corrected. Only these two are suggested,
  * because a list is a recommendation and five ways to say one thing is not a
- * recommendation — it is five ways to wonder which is right. Liberal in what it
+ * recommendation. It is five ways to wonder which is right. Liberal in what it
  * accepts, brief in what it proposes. */
 export const ROOM_MENTIONS_OFFERED: readonly string[] = ["here", "room"];
 
@@ -432,7 +432,7 @@ export const ROOM_MENTIONS_OFFERED: readonly string[] = ["here", "room"];
  *
  * The tighter of what this app allows and what the room says of itself, so a
  * room with nothing to say about it is capped exactly as before. One answer,
- * read both by the counter that warns and by the send that refuses — two
+ * read both by the counter that warns and by the send that refuses, two
  * numbers here would eventually disagree, and the disagreement would be a
  * message a reader was told they could send and then could not. */
 export function lineRoom(
@@ -457,7 +457,7 @@ export function lineRoom(
  *
  * Both caps are watched. A room bridged somewhere else may carry less than
  * this app does, and finding that out by having a message cut in half on the
- * far side is finding out too late; where it asks for no less, the app's own
+ * far side is finding out too late, where it asks for no less, the app's own
  * cap is still a wall a pasted log walks into, better met before pressing
  * Send. Only a room's own cap is named, though, because that is the
  * one a reader has no way to know about.
@@ -518,9 +518,9 @@ export interface IrcRun {
 
 /** Split a line into runs by the formatting in force across each.
  *
- * A toggle flips its own state and leaves the rest alone; a reset clears all of
+ * A toggle flips its own state and leaves the rest alone. A reset clears all of
  * them. Reverse swaps foreground and background, which is how IRC says
- * "highlight" — kept as the swap rather than resolved here, because the palette
+ * "highlight", kept as the swap rather than resolved here, because the palette
  * it swaps within belongs to the stylesheet. */
 export function ircRuns(text: string): IrcRun[] {
 	const runs: IrcRun[] = [];

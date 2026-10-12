@@ -5,7 +5,7 @@
  * routing lives in `dispatch.ts`. This module owns the create cases:
  * collide-or-mint an id, write identity into `doc.entities`, and commit
  * so the playable range covers the new mark.
- * Reposition still refreshes the stage on Engine; its document pin
+ * Reposition still refreshes the stage on Engine. Its document pin
  * write lives in `placement.ts`. Update, delete, and retiming already
  * delegate into `authoring/`.
  */
@@ -29,8 +29,8 @@ export function spawnPeer(
 	ctx: AuthoringContext,
 	intent: Extract<BuilderIntent, { kind: "add-peer" }>,
 ): string | undefined {
-	// User-supplied id wins over the auto-mint. Collision-rejecting
-	// — emit `collisionError` and short-circuit (the doc is
+	// User-supplied id wins over the auto-mint. Collision-rejecting,
+	// emit `collisionError` and short-circuit (the doc is
 	// untouched at this point so no rollback needed). Matches the
 	// `rename-*` paths' UX.
 	let peerId: string;
@@ -50,7 +50,7 @@ export function spawnPeer(
 	// source of truth.
 	// Seed timing alongside identity. Start = now (authoring t);
 	// duration implicit ("alive until something says otherwise").
-	// See docs/data-model.md — entity.timing is the display
+	// See docs/data-model.md, entity.timing is the display
 	// source-of-truth.
 	const peerTiming: TimeSpan = {
 		start: explicitBound(ctx.clock.t),
@@ -78,7 +78,7 @@ export function spawnSession(
 	// reader who drags a session onto one is asking for two sessions to
 	// share that end, and the answer is that they cannot. Two ends
 	// claiming one address may be one host twice or an impostor beside
-	// an honest one, and nothing has proved which — so a shared node
+	// a real one, and nothing has proved which. So a shared node
 	// would be this app asserting they are the same party. The node that
 	// IS shared between sessions is the peer, and attributing the end is
 	// how it becomes one.

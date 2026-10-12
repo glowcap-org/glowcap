@@ -3,7 +3,7 @@ id: ADR-0099
 status: accepted
 date: 2026-07-31
 tags: [actors, scheduling, vat, resilience, memory]
-decision: "A Vat queues owned turns in bounded, reclaimable batches attributed to an ingress; admission is atomic under per-ingress turn and byte caps, resource exhaustion is an actor-layer refusal, generic Vat drives rotate fairly, and Host batch drives isolate each Port to its own ingress budget."
+decision: "A Vat queues owned turns in bounded, reclaimable batches attributed to an ingress. Admission is atomic under per-ingress turn and byte caps, resource exhaustion is an actor-layer refusal, generic Vat drives rotate fairly, and Host batch drives isolate each Port to its own ingress budget."
 supersedes: []
 superseded_by: []
 amends: [ADR-0036]
@@ -15,7 +15,7 @@ amended_by: []
 ## Status
 
 Accepted and shipped. `actors.Vat` owns bounded ingress queues and fair generic
-rotation; the standard Host owns one Vat and assigns one ingress to each
+rotation. The standard Host owns one Vat and assigns one ingress to each
 session Port. Host batch drives consume only the attributed ingress, so a
 runaway connection is refused without draining or condemning a sibling. The
 same admission and queue-reclamation contract applies to a pure-local Vat with
@@ -38,7 +38,7 @@ Host types and pure-local callers need the same bounded behavior.
 ### Queue storage is bounded and reclaimable
 
 The Vat owns queued messages in bounded chunks or batches. Enqueue performs the
-one ownership copy required to outlive the caller; queueing adds no second
+one ownership copy required to outlive the caller. Queueing adds no second
 message-tree copy. A chunk is released as soon as its final borrowing turn
 settles, even while other ingresses still have pending work. Nested drives may
 exhaust a chunk but cannot recycle it under an outer turn still reading one of
@@ -46,15 +46,15 @@ its messages. No arena or retained capacity waits for total Vat quiescence
 before it can shrink.
 
 Chunk and retained-spare capacity have explicit checked bounds. Queue turn,
-byte, and single-chunk limits are runtime configuration with bounded defaults;
-the Vat-wide spare has a checked static bound. Oversized single turns are
-measured against the byte limit before allocation rather than receiving an
-exceptional unbounded chunk.
+byte, and single-chunk limits are runtime configuration with bounded defaults.
+The Vat-wide spare has a checked static bound. An oversized single turn is
+measured against the byte limit before allocation and never receives an
+unbounded chunk.
 
 ### Every turn has an ingress
 
-An ingress is an opaque actor-layer id. A Host Port owns one id; pure-local use
-has a local ingress rather than a synthetic network Port. A turn spawned or
+An ingress is an opaque actor-layer id. A Host Port owns one id. Pure-local use
+has a local ingress. A turn spawned or
 sent causally from another turn remains charged to that ingress until the
 causal batch ends. An embedder cannot erase attribution by bouncing work
 through a local actor.
@@ -64,12 +64,10 @@ through a local actor.
 Each ingress has pending-turn and pending-owned-byte caps. The Vat computes the
 complete admission charge before mutating a queue. If either cap would be
 exceeded, it refuses with the actor-layer `ResourceExhausted` reason and
-enqueues nothing. Host and bindings project that typed reason; they do not
-invent transport aborts or partially enqueue a message before discovering the
-limit.
+enqueues nothing. Host and bindings project that typed reason.
 
 The same rule applies to pure-local ingress. Configuration may grant different
-caps, but no ingress receives an implicit unbounded class.
+caps, and no ingress is unbounded.
 
 ### Scheduling is fair under a turn budget
 
@@ -86,13 +84,13 @@ handler is still an application concern.
 
 The standard Host uses the stronger session-isolation form: a batch drive runs
 only the Port ingress that caused it. Host's dirty-session worklist chooses the
-next Port; the Vat does not drain a sibling merely because both are runnable.
+next Port. The Vat does not drain a sibling because both are runnable.
 A Port whose attributed ingress exceeds its configured local-turn budget is
 condemned while every other Port remains live. That includes a Port whose
 handler submitted the work to the condemned ingress: attribution follows the
 destination Port selected by the Host operation, not the callback stack that
-requested it. Fair ring rotation remains the contract of a generic Vat
-drive and nested local drive, not a claim that the Host ignores Port attribution.
+requested it. Fair ring rotation is the contract of a generic Vat drive and
+nested local drive.
 
 ## Required evidence
 
@@ -113,7 +111,7 @@ Acceptance evidence is:
    and Host/Vat footprint deltas under empty, ordinary, and pressure traffic.
 
 Items 1, 2, 4, and 5 are held by
-[`test/actors/vat/ingress_test.zig`](../../../test/actors/vat/ingress_test.zig); the allocator
+[`test/actors/vat/ingress_test.zig`](../../../test/actors/vat/ingress_test.zig). The allocator
 half of items 4 and 6 is held by
 [`test/actors/vat_alloc_budget_test.zig`](../../../test/actors/vat_alloc_budget_test.zig)
 and [`test/actors/vat_footprint_budget_test.zig`](../../../test/actors/vat_footprint_budget_test.zig).
@@ -122,23 +120,13 @@ Item 3 is held by
 The Host shell ceiling is compile-time enforced in
 [`src/driver/core/host.zig`](../../../src/driver/core/host.zig).
 
-## Migration order
+## Shipped state and measurements
 
-1. Introduce actor-layer ingress ids, atomic admission accounting, and the typed
-   refusal on the current Vat without changing Host composition.
-2. Replace the monolithic queue arena with bounded reclaimable chunks and pin
-   copy/allocation budgets.
-3. Add budgeted fair rotation and pure-local evidence.
-4. Give each ADR-0096 Port an ingress id, then move the standard Host to one Vat
-   and run the multi-session pressure scenarios.
-
-## Migration standing and measurements
-
-All four steps ship as of 2026-08-01. `actors.Vat` owns opaque ingress ids,
+`actors.Vat` owns opaque ingress ids,
 pre-clone atomic admission, per-ingress counters, independently reclaimable
 queue chunks, and one-turn fair rotation. The pure-local tests cover turn,
-cumulative-byte, and single-chunk refusal independently; causal attribution;
-per-ingress FIFO; close-after-drain; nested-drive message lifetime; and
+cumulative-byte, and single-chunk refusal independently, causal attribution,
+per-ingress FIFO, close-after-drain, nested-drive message lifetime, and
 allocator release while another ingress remains runnable.
 
 The standard Host owns one Vat, opens one ingress per session Port, and drives
@@ -149,11 +137,11 @@ without failing the connection whose handler caused the enqueue.
 The checked measurements are:
 
 - a warmed local enqueue-and-drive batch performs zero general-purpose
-  allocations;
-- the Vat is charged once per Host, independent of session count;
-- the fixed queue chunk is 4,152 bytes, below its 4,224-byte metadata ceiling;
-- the one Vat-wide spare retains at most 4,096 payload-arena bytes;
-- the per-session `HostSession` ceiling is 528 bytes.
+  allocations
+- the Vat is charged once per Host, independent of session count
+- the fixed queue chunk is 4,152 bytes, below its 4,224-byte metadata ceiling
+- the one Vat-wide spare retains at most 4,096 payload-arena bytes
+- the per-session `HostSession` ceiling is 528 bytes
 
 [The footprint table](../../ladder.md#2-performance-at-scale) records the current
 session and Host budgets.
@@ -162,11 +150,11 @@ session and Host budgets.
 
 - Host capability identity, Port projection, gifts, and publication are
   ADR-0096's decisions.
-- The Vat remains single-threaded. This adds no preemption, parallel actor
-  execution, hidden I/O, or ambient scheduler thread.
+- The Vat is single-threaded, with no preemption, parallel actor execution,
+  hidden I/O, or scheduler thread.
 - Backpressure on transport frame queues remains a net/engine concern. This
   record starts after a delivery becomes actor work.
-- Exact policy defaults may change with measurements; unbounded admission and a
+- Exact policy defaults may change with measurements. Unbounded admission and a
   never-reclaiming queue are forbidden.
 
 ## Alternatives Considered
@@ -185,15 +173,15 @@ session and Host budgets.
 
 ## Consequences
 
-- `actors.Vat` gains ingress ids, per-ingress counters, bounded queue chunks,
+- `actors.Vat` has ingress ids, per-ingress counters, bounded queue chunks,
   budgeted drive, and a typed resource-exhaustion result.
-- ADR-0036's drive-to-total-quiescence FIFO remains historical behavior; FIFO
-  is now per ingress and a drive may yield at its budget.
+- FIFO order is per ingress and a drive may yield at its budget, which amends
+  ADR-0036's drive-to-total-quiescence FIFO.
 - Host Ports supply ingress identity but do not own actor queues or scheduling
-  policy. Host batch drives select one ingress; generic Vat drives use fair
+  policy. Host batch drives select one ingress. Generic Vat drives use fair
   rotation.
-- Allocation, retained-capacity, and progress checks become acceptance evidence
-  for the shared-Vat migration rather than being hidden inside ADR-0096.
+- Allocation, retained-capacity, and progress checks are acceptance evidence
+  for the shared Vat.
 
 ## Notes
 

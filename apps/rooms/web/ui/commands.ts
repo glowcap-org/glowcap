@@ -2,14 +2,14 @@
 //
 // A chat client usually ships every command it can imagine and lets the server
 // refuse the ones you may not use. Permission is a check, the client holds the
-// whole vocabulary, and "can I do this" is answered twice — once hopefully in
+// whole vocabulary, and "can I do this" is answered twice, once hopefully in
 // the client and once for real on the other side.
 //
 // This is built on OCapN, where that is the wrong shape. Permission is not a
 // check, it is possession: you can ask a room to do something exactly when you
 // hold a reference that does it. So the commands a reader has are the ones they
-// hold in *this* conversation, and the list is not a second permission check —
-// it is simply what is there. A direct line does not offer `/invite`; a room
+// hold in *this* conversation, and the list is not a second permission check.
+// It is what is there. A direct line does not offer `/invite`. A room
 // that never handed over `/topic` does not either. Two members of one room can
 // see two different command lists, and neither client contains a role, a rank,
 // or an `if (isOperator)`.
@@ -38,18 +38,18 @@
 // yours?" and trusting the answer, an identity check standing in for an
 // authority. The capability answer is smaller: posting a line hands back a
 // reference to the line it made, and holding that reference is the authority to
-// change or withdraw it. No ownership is asked about, because none has to be; a
+// change or withdraw it. No ownership is asked about, because none has to be. A
 // member who does not hold the handle cannot form the request at all.
 //
 // `/topic` is the same shape one level up. Subscribing answers with the
-// authority to say what the room is about, so every member holds it — the room
-// has no ranks to hand out — and a member can pass it to a bot that keeps the
+// authority to say what the room is about, so every member holds it, the room
+// has no ranks to hand out, and a member can pass it to a bot that keeps the
 // topic without the room learning what a bot is.
 //
 // What that buys beyond tidiness is the thing roles are usually invented for. A
 // handle can be given away, so a member can pass one to somebody they want to be
 // able to take their line down, and a room can hand its own copy to whoever it
-// wants moderating — without the room ever growing a concept of a moderator, and
+// wants moderating, without the room ever growing a concept of a moderator, and
 // without every client learning to draw one. Delegation is the mechanism rather
 // than a feature built on top of it.
 //
@@ -90,7 +90,7 @@ export function actionIn(text: string): string | null {
  *
  * The other reading half, beside `actionIn`. A notice is somebody speaking
  * rather than something happening, so unlike an action it keeps its author's
- * name; what it gives up is the notification, so that is why a reader sends
+ * name. What it gives up is the notification, so that is why a reader sends
  * one. */
 export function noticeIn(text: string): string | null {
 	const named = commandIn(text);

@@ -240,11 +240,12 @@ p, li {
   margin-right: auto;
 }
 
-/* The attached session is a phone, and a phone is a portrait: hold it at a
-   phone's width so it reads as one rather than as a tall wall. Both
-   selectors here carry the same two attribute tests as the frame rule
-   above, so they match its specificity and win by coming later. */
-.prose figure:has(img[src*="/rooms-session-attached-"][src$=".webp"]) {
+/* The attached sessions are phones, and a phone is a portrait: hold each at
+   a phone's width so it reads as one rather than as a tall wall. These
+   selectors carry the same two attribute tests as the frame rule above, so
+   they match its specificity and win by coming later. */
+.prose figure:has(img[src*="/rooms-session-attached-"][src$=".webp"]),
+.prose figure:has(img[src*="/rooms-directories-phone-"][src$=".webp"]) {
   max-width: 24rem;
   margin-left: auto;
   margin-right: auto;
@@ -295,12 +296,16 @@ p, li {
 }
 
 .prose .objects-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  /* Wrapped lines always fill: a card grows to its share, so a row's last
+     line is a full-width band rather than a narrow card stranded beside
+     empty space, at every width. */
+  display: flex;
+  flex-wrap: wrap;
   gap: 0.85rem;
 }
 
 .prose .object {
+  flex: 1 1 14rem;
   padding: 0.9rem 1.05rem 1rem;
   background: var(--paper-raised);
   border: 1px solid var(--rule);

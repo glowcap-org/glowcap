@@ -6,7 +6,7 @@ The opaque application capability :class:`Ref` the
 behavior's :class:`Forward` tail-forward, and the :data:`Argument` and
 :data:`Behavior` type aliases. Pure data: no FFI, no I/O.
 There is one value vocabulary from application through FFI. Re-exported from the
-:mod:`glowcap` package; import from there.
+:mod:`glowcap` package. Import from there.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ class Ref:
     ``id`` is an opaque identity in the Host that produced the handle. It is
     never a wire position and does not reveal whether the target is local,
     remote, or handoff-routed. Python ``==`` and hashing compare only that
-    immutable identity; occurrence-local release and GC state do not change
+    immutable identity. Occurrence-local release and GC state do not change
     Target equality.
     """
 
@@ -49,7 +49,7 @@ class Ref:
     def _live(self) -> "Ref":
         """Return this capability for ABI marshalling.
 
-        Refused once the capability has been released. Release deliberately
+        Refused once the capability has been released. Release
         spends this occurrence's retain. Another occurrence may keep the same
         Host identity live, so local dispatch and ABI projection both check
         this occurrence before use.
@@ -62,7 +62,7 @@ class Ref:
 
 
 def _ref_from_id(id: int) -> Ref:
-    """Binding-internal Host mint; intentionally absent from package exports."""
+    """Binding-internal Host mint. Absent from package exports."""
     return Ref(id, _REF_MINT)
 
 
@@ -78,7 +78,7 @@ class Keyword(str):
 class ErrorValue:
     """A fulfilled OCapN Error value.
 
-    Returning this is data; raising an exception is the separate operation
+    Returning this is data. Raising an exception is the separate operation
     that breaks a reply.
     """
 
@@ -105,12 +105,12 @@ class Struct:
 
 
 class Forward:
-    """A behavior's tail-forward of its answer to another capability — the
+    """A behavior's tail-forward of its answer to another capability: the
     binding's `Turn.forward` (ADR-0064). Return ``Forward(target, verb, args)``
     from a behavior and the answer resolves from ``target <- verb(args)``
     instead of from a value: a target this side hosts composes in process, a
     far target defers the answer until the forwarded reply settles. It is the
-    whole mechanism behind a caretaker/attenuator — each is an ordinary actor
+    whole mechanism behind a caretaker/attenuator: each is an ordinary actor
     whose behavior forwards (or raises to refuse), so the proxy is a plain
     :class:`Ref` you delegate and may call locally or over the wire alike."""
 

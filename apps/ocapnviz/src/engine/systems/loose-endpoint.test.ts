@@ -12,7 +12,7 @@ Deno.test("a loose end is a node on the stage, and its edge is drawn", () => {
 	//
 	// It was asserted before it was true. `endpointNodeId` reached the layout
 	// while the materializer minted world entities only from `doc.entities.peers`,
-	// so the loose end had no entity and no position — and `sessionCurve`, which
+	// so the loose end had no entity and no position, and `sessionCurve`, which
 	// looked ends up with `findPeer`, returned null and dropped the whole edge
 	// along with every message on it. Nothing failed; the session simply was
 	// not there.
@@ -62,8 +62,8 @@ Deno.test("a loose end is a node on the stage, and its edge is drawn", () => {
 });
 
 Deno.test("a loose end is placed by the layout, not left at the origin", () => {
-	// The layout already solved for this node — `endpointNodeId` seeds it into
-	// the force graph — but the write-back walked peers alone, so the entity
+	// The layout already solved for this node, `endpointNodeId` seeds it into
+	// the force graph, but the write-back walked peers alone, so the entity
 	// kept the origin it was minted at and its edge was drawn to (0, 0). A
 	// node the solver placed and the world did not is worse than an unplaced
 	// one: it looks like a position rather than an absence.
@@ -145,7 +145,7 @@ Deno.test("authored loose ends are placed apart, not stacked on the origin", () 
 	// The sibling above carries a `session-opened` observation, which is how it
 	// reached the layout at all. A session authored in Build has a definition
 	// and nothing that announced it, and both walks over the node set are walks
-	// over observations — so every such end fell through to the origin and any
+	// over observations. So every such end fell through to the origin and any
 	// two of them landed on the same spot. Both ends of a peer-to-peer session
 	// hid it, because a peer has a position of its own.
 	const session = (id: string) =>

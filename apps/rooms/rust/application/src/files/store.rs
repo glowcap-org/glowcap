@@ -96,7 +96,7 @@ impl FileStore {
 	}
 
 	/// Reserve before allocation. Failure leaves every existing upload intact.
-	/// Allocation is one intentional owned buffer per upload; write copies each
+	/// Allocation is one owned buffer per upload. Write copies each
 	/// incoming chunk into that buffer once, and reads borrow it for encoding.
 	pub fn attach(&mut self, member: &FileMember, description: FileDescription) -> Result<Upload, FileError> {
 		self.check(&member.key)?;
@@ -251,14 +251,14 @@ impl FileStore {
 		Ok(())
 	}
 	/// Monotonic host time is supplied by the platform. Advancing to a deadline
-	/// expires that upload; later writes cannot re-arm its retired generation.
+	/// expires that upload. Later writes cannot re-arm its retired generation.
 	pub fn advance(&mut self, now_ms: u64) -> Result<(), FileError> {
 		self.observe_time(now_ms)?;
 		self.collect();
 		Ok(())
 	}
 	/// Observe an event's host time without scanning unrelated files. Each
-	/// operation checks the records it touches; timer delivery reclaims all.
+	/// operation checks the records it touches. Timer delivery reclaims all.
 	pub(crate) fn observe_time(&mut self, now_ms: u64) -> Result<(), FileError> {
 		if now_ms < self.now {
 			return Err(FileError::ClockReversed);
@@ -314,6 +314,10 @@ impl FileStore {
 		let record = &self.records[&id];
 		let (size, room) = (record.bytes.len(), record.room);
 		while self.usage.held_bytes > self.limits.held_bytes - size || self.usage.held_files >= self.limits.held_files {
+			#[expect(
+				clippy::expect_used,
+				reason = "`admit` reserved held capacity for every pending file, so pressure past the limit means something older is held"
+			)]
 			self.expire(*self.held.front().expect("held global pressure"));
 		}
 		loop {
@@ -331,9 +335,18 @@ impl FileStore {
 			if bytes <= self.limits.room_bytes - size && count < self.limits.room_files {
 				break;
 			}
+			#[expect(
+				clippy::expect_used,
+				reason = "the loop found room pressure, so at least one held file in this room was counted into `oldest`"
+			)]
 			self.expire(oldest.expect("held room pressure"));
 		}
-		self.records.get_mut(&id).expect("finishing upload").phase = Phase::Held;
+		#[expect(
+			clippy::expect_used,
+			reason = "`finish` is called by `write` and `commit_post` with an id they just read from `records`"
+		)]
+		let record = self.records.get_mut(&id).expect("finishing upload");
+		record.phase = Phase::Held;
 		self.usage.pending_bytes -= size;
 		self.usage.pending_files -= 1;
 		self.usage.held_bytes += size;

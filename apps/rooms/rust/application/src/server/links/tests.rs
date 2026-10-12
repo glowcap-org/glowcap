@@ -6,7 +6,7 @@ use crate::server::document::Document;
 use alloc::vec::Vec;
 
 /// A kept document for a server with one linked room, a steward, a
-/// manager, and a managed room under it; the derivation vectors below are
+/// manager, and a managed room under it. The derivation vectors below are
 /// fixed over this document.
 const KEPT: &str = r#"{"version":1,"identitySeed":"0101010101010101010101010101010101010101010101010101010101010101","roomLinkSecret":"0202020202020202020202020202020202020202020202020202020202020202","linkedRooms":["Garden","~00000000000000000000000000000001"],"revokedRooms":["old"],"roomLinkGenerations":[{"name":"garden","generation":3}],"stewards":[{"name":"garden","generation":1,"issued":true}],"managers":[{"name":"~00000000000000000000000000000001","generation":2,"issued":false},{"name":"old","generation":1,"issued":true}],"managedRooms":[{"id":"~00000000000000000000000000000001","name":"Garden","generation":2,"policy":{"visibility":"listed","entry":"open","speaking":"moderated"}}],"topics":[{"name":"garden","topic":"seedlings"},{"name":"~00000000000000000000000000000001","topic":"kept"}]}"#;
 const MANAGED: &str = "~00000000000000000000000000000001";

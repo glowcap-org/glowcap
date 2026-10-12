@@ -10,7 +10,7 @@ import { applicationModule } from "../application.ts";
 
 const PENDING = "rooms.delete-browser-data";
 
-/** Mark this tab for deletion; the caller reloads it. */
+/** Mark this tab for deletion. The caller reloads it. */
 export function requestBrowserDataDeletion(): void {
 	sessionStorage.setItem(PENDING, "yes");
 }

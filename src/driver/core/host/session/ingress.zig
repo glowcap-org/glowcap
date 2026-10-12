@@ -1,7 +1,7 @@
 //! Inbound admission and Host-latched dispatch for a byte-fed session.
 //!
 //! Stream delimiting and retained-tail ownership stay in the sibling session
-//! wire owner; this internal leaf supplies the supported Host ingress verbs
+//! wire owner. This internal leaf supplies the supported Host ingress verbs
 //! through direct aliases in `host.zig`.
 
 const std = @import("std");
@@ -17,19 +17,18 @@ const Host = host_mod.Host;
 const HostError = host_mod.HostError;
 const HostSession = session_wire.HostSession;
 
-/// Feed one inbound frame the embedder read from its own transport
-/// (borrowed for the call): dispatch what it surfaces into the vat — the
-/// before-serve hook claims withdraw resolves and auto-redeems gives, and
-/// settle listeners fire inside this call — then pump the node actions the
-/// dispatch queued and encode every touched session's outbound. On a
-/// dispatch failure the peer projects a typed `op:abort` onto the outbound
-/// queue; the flush action is still queued so the embedder writes it
-/// before closing the transport.
+/// Feed one inbound frame the embedder read from its own transport (borrowed
+/// for the call): dispatch what it surfaces into the vat (the before-serve hook
+/// claims withdraw resolves and auto-redeems gives, and settle listeners fire
+/// inside this call), then pump the node actions the dispatch queued and encode
+/// every touched session's outbound. On a dispatch failure the peer projects a
+/// typed `op:abort` onto the outbound queue. The flush action is still queued
+/// so the embedder writes it before closing the transport.
 pub fn feed(self: *Host, session: *HostSession, frame: foundation.FrameView) !void {
     try self.checkSession(session);
     // A sealed session's wire is the sealed byte stream; a whole plaintext
-    // frame fed around the channel would bypass exactly what the channel
-    // proves, so it is refused rather than admitted unsealed.
+    // frame fed around the channel would bypass what the channel proves, so it
+    // is refused rather than admitted unsealed.
     if (session.sealed != null) return HostError.SealedSessionBytesOnly;
     try self.checkOutboundAdmission(session);
     host_pump.dispatchUnderLatch(self, session, struct {
@@ -62,14 +61,13 @@ pub fn feed(self: *Host, session: *HostSession, frame: foundation.FrameView) !vo
     };
 }
 
-/// Feed raw bytes from a byte-stream transport. Each bare codec frame must
-/// be wrapped as one canonical Syrup byte string (`length:body`). This
-/// method owns split prefixes/bodies, coalesced outer frames, the bounded
-/// tail, and the handshake pause. With no pending tail it parses the
-/// borrowed chunk in place and retains only an incomplete suffix; while a
-/// tail is active, extending it is the one bounded copy. Whole-frame
-/// callers continue to use `feed`; intrinsically message-framed transports
-/// do not add this envelope.
+/// Feed raw bytes from a byte-stream transport. Each bare codec frame must be
+/// wrapped as one canonical Syrup byte string (`length:body`). This method owns
+/// split prefixes/bodies, coalesced outer frames, the bounded tail, and the
+/// handshake pause. With no pending tail it parses the borrowed chunk in place
+/// and retains only an incomplete suffix, while a tail is active, extending it
+/// is the one bounded copy. Whole-frame callers continue to use `feed`.
+/// Intrinsically message-framed transports do not add this envelope.
 pub fn feedBytes(self: *Host, session: *HostSession, bytes: []const u8) !void {
     try self.checkOwnedSession(session);
     try Host.checkLive(session);
@@ -99,8 +97,8 @@ pub fn feedBytes(self: *Host, session: *HostSession, bytes: []const u8) !void {
 }
 
 /// Feed one packet from the transport shape this session was minted with.
-/// Byte-stream packets are arbitrary chunks carrying ADR-0110's outer envelope;
-/// message-framed packets are exactly one bare codec frame. The transport
+/// Byte-stream packets are arbitrary chunks carrying ADR-0110's outer envelope.
+/// Message-framed packets are exactly one bare codec frame. The transport
 /// profile, not the binding or adapter language, owns that distinction.
 pub fn feedTransportPacket(self: *Host, session: *HostSession, packet: []const u8) !void {
     return switch (session.wire_framing) {
@@ -131,13 +129,13 @@ fn feedMessagePacket(self: *Host, session: *HostSession, packet: []const u8) !vo
 
 /// The sealed arm of `feedBytes` (ADR-0107): stage the wire bytes on the
 /// channel, then consume whole handshake messages and records. Handshake
-/// completion binds the channel's verified remote before any plaintext is
-/// fed, each opened record's plaintext runs the same tail-and-parse the
-/// unsealed arm runs, and a produced handshake reply marks the session
-/// dirty so the embedder is woken to write it. A channel refusal condemns
-/// the session without an abort echo and surfaces to the caller; the
-/// session's own hello pause boundary holds — remaining ciphertext stays
-/// staged and `HostSession.resumeFeed` resumes it.
+/// completion binds the channel's verified remote before any plaintext is fed,
+/// each opened record's plaintext runs the same tail-and-parse the unsealed arm
+/// runs, and a produced handshake reply marks the session dirty so the embedder
+/// is woken to write it. A channel refusal condemns the session without an
+/// abort echo and surfaces to the caller. At the opening hello the pause
+/// boundary holds: remaining ciphertext stays staged and
+/// `HostSession.resumeFeed` resumes it.
 fn feedSealedBytes(self: *Host, session: *HostSession, channel: *foundation.sealed.SealedChannel, bytes: []const u8) !void {
     if (bytes.len == 0 and !session.feed_tail.isActive() and !channel.hasStagedInbound()) return;
     const was_open = session.served.port.peer.sessionIsOpen();
@@ -207,19 +205,18 @@ fn feedSealedBytes(self: *Host, session: *HostSession, channel: *foundation.seal
     };
 }
 
-/// Serve one already-polled event under the host — the per-event verb for
-/// an embedder loop that polls its sessions' peers itself (a
-/// completion loop's serve hook). Shares the `feed`/`feedBytes` latch and
-/// `finishDispatch` tail: the crossed-hellos hook and the resolve
-/// interceptor run, settle listeners fire under the callback latch, and
-/// the node pump runs at the unwind.
+/// Serve one already-polled event under the host. This is the per-event verb
+/// for an embedder loop that polls its sessions' peers itself (a completion
+/// loop's serve hook). Shares the `feed`/`feedBytes` latch and `finishDispatch`
+/// tail: the crossed-hellos hook and the resolve interceptor run, settle
+/// listeners fire under the callback latch, and the node pump runs at the
+/// unwind.
 ///
 /// The batch subtlety: the unwind's pump (`drainWork`, then `Served.driveFed`,
 /// then `drainEvents`) polls and serves every event *still queued* on this
-/// session's peer, so a loop's per-event hook typically fires once per
-/// inbound batch — its own `pollEvent` loop then finds null. That is
-/// correct, not lossy: every event is served through the one
-/// `Served.serveEvent` spine either way.
+/// session's peer, so a loop's per-event hook typically fires once per inbound
+/// batch, and its own `pollEvent` loop then finds null. That loses nothing:
+/// every event is served through the one `Served.serveEvent` spine either way.
 ///
 /// This verb, not a raw `session.served.serveEvent`, is the embedder's
 /// entry: the raw call would run settle listeners un-latched (a listener's

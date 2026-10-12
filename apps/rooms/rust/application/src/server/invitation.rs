@@ -1,5 +1,5 @@
 //! One retryable invitation claim, shared by every entrance it answers.
-//! The hosting room owns lifetime and membership policy; this state owns
+//! The hosting room owns lifetime and membership policy. This state owns
 //! receipt competition and the single successful admission.
 use alloc::string::String;
 

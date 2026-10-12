@@ -1,6 +1,6 @@
-// The CapTP host — multi-session CapTP product over the byte-fed host archive
+// The CapTP host: multi-session CapTP product over the byte-fed host archive
 // (libglowcap_host, ADR-0072). Goblins' `mycapn` is two roles: the product maps
-// to this `Host`, the router tables map to `engine.Node` that the host owns — never
+// to this `Host`, the router tables map to `engine.Node` that the host owns, and never
 // a single-type equation. The `GlowcapHost` owns every decision: the retained
 // identity, live-session directory, routing, transparent three-party
 // redemption, and the gifter half's origination. What lives here is only what
@@ -128,7 +128,7 @@ export abstract class HostState {
 	// A loop drive failure outlives table teardown so promises observed after
 	// the loop failed receive the original cause rather than a generic close.
 	protected _terminalVowFailure: GlowcapError | null = null;
-	// The first failure from work deliberately detached from its immediate
+	// The first failure from work detached from its immediate
 	// caller. The next verb head consumes the exact cause before doing more work.
 	protected _backgroundFailure: unknown | null = null;
 	// FIFO of settled-but-unobserved vow ids, for the eviction cap.
@@ -168,8 +168,8 @@ export abstract class HostState {
 	protected readonly _behaviorEntries = new Map<bigint, BehaviorEntry>();
 	// The native loop that owns this Host's handle, when this wrapper was
 	// adopted over a loop's host (ADR-0112). In that mode the C loop is the
-	// action drain — the kick verbs nudge a loop step instead of running the
-	// binding drain — and release belongs to `DriverLoop.close`.
+	// action drain: the kick verbs nudge a loop step instead of running the
+	// binding drain, and release belongs to `DriverLoop.close`.
 	protected _driverLoop: DriverLoopHandle | null = null;
 	// The shared close-activity notifier (wake-all): a close driver arms it
 	// before reading native close progress, and every native verb that can
@@ -177,7 +177,7 @@ export abstract class HostState {
 	// while no arm is outstanding.
 	protected _closeActivity: { promise: Promise<void>; resolve: () => void } | null = null;
 
-	/** A host with identity `seed` (32 bytes; omitted draws a fresh random one —
+	/** A host with identity `seed` (32 bytes; omitted draws a fresh random one:
 	 * entropy at the binding boundary, never inside the sans-io host). `codec`,
 	 * `captpVersion`, and `features` are this Host's signed profile offer;
 	 * each session settles version and codec with its partner, falling back to
@@ -444,8 +444,8 @@ export abstract class HostState {
 
 	/** Binding-internal (the trampoline's async-behavior arm): defer `turn`'s
 	 * answer onto a fresh resolver vow and settle it when `pending` does
-	 * (ADR-0102). The settle re-enters on the runtime's microtask queue — the
-	 * top-level re-entry the host requires — and carries plain data only: a
+	 * (ADR-0102). The settle re-enters on the runtime's microtask queue (the
+	 * top-level re-entry the host requires) and carries plain data only: a
 	 * value the settle refuses (a capability, per the off-turn contract)
 	 * breaks the answer with the refusal's reason instead of stranding it.
 	 * False when the deferral itself refused; the caller breaks the turn. */

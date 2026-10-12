@@ -3,12 +3,12 @@
 //! capability (an unresolved import promise) must be refused with
 //! `Error.UncallableTarget`, not silently coerced into an object turn:
 //! pipelining rides the returned Promise (`Promise.send`), never a promise-kind
-//! target. The shapes that are not capabilities at all — a promise-kind local
-//! export, a bare answer-promise — cannot even be lifted into the opaque
+//! target. The shapes that are not capabilities at all, a promise-kind local
+//! export, a bare answer-promise, cannot even be lifted into the opaque
 //! surface: the Host refuses them at the lift, so the facade has nothing to
 //! gate.
 //!
-//! Driven over TCP loopback — the owning tier multiplexes its blocking waits
+//! Driven over TCP loopback, the owning tier multiplexes its blocking waits
 //! with poll, so it binds fd-backed transports only (ADR-0090). The positive
 //! control is a genuine far object that still calls and settles. That shows
 //! the gate refuses on _kind_, not by over-rejecting every capability.
@@ -27,7 +27,7 @@ const ip = std.Io.net;
 
 const frame_cap = 4096;
 
-/// Session options for a real loopback dial. The budgets are finite on purpose:
+/// Session options for a real loopback dial. The budgets are finite:
 /// an unbounded CapTP wait against a partner that goes quiet does not fail the
 /// suite, it wedges the test binary, which reads as a hang rather than a bug.
 const dial_opts: driver.SessionOptions = .{
@@ -337,7 +337,7 @@ fn clientAsserts(allocator: std.mem.Allocator, io: std.Io, address: ip.IpAddress
     ));
 
     // A genuine promise-kind capability (a fresh promise import, lifted
-    // through the core escape — the opaque surface itself never mints one
+    // through the core escape, the opaque surface itself never mints one
     // from a send): every eventual-send verb must refuse it, never coerce it
     // into an object turn.
     const fresh_promise_position: u64 = 40;

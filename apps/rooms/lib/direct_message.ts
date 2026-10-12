@@ -1,12 +1,12 @@
 // One direct line to one peer, and the handle it hands back.
 //
-// The room introduced the two of you and stepped out, so everything here runs
-// on a connection between the two peers. Which side opened it decides what is
-// possible: a line this side redeemed owns its connection and can be closed, a
-// line riding the connection a peer opened to us cannot.
+// The directory introduced the two of you and stepped out, so everything here
+// runs on a connection between the two peers. Which side opened it decides what
+// is possible: a line this side redeemed owns its connection and can be closed,
+// and a line riding the connection a peer opened to us cannot.
 //
-// A message answers with a handle the receiver minted, so a sender can change
-// or take back what the receiver is looking at — the direct sibling of the
+// A message answers with a handle the receiver created, so a sender can change
+// or take back what the receiver is looking at. It is the direct sibling of the
 // reference a room answers a post with, except the durable owner here is the
 // person you are talking to.
 
@@ -61,7 +61,7 @@ export interface DirectMessageReceiver {
 	): void | Promise<void>;
 }
 
-/** Parse the one direct inbox protocol for a public inbox or a reply route. */
+/** Parse the direct inbox protocol for a public inbox or a reply route. */
 export function directMessageReceiverBehavior(
 	receiver: DirectMessageReceiver,
 	sessionFor: () => Session | null = currentSession,
@@ -172,26 +172,26 @@ export function directMessageReceiverBehavior(
 
 /** How many live lines ride each redeemed exporter connection.
  *
- * A redeem to an exporter this host has already dialed resolves the *same*
- * live session rather than opening a second one — `sendRedeeming` says so, and
- * `zig build rooms-dm-reredeem` proves it. So two lines to one member
- * share one connection, and "did a route come back" is not the same question
- * as "did this line open it". Closing on the first answer hangs up a
- * connection the other line is still talking on.
+ * A redeem to an exporter this host has already dialed resolves the same live
+ * session instead of opening a second one (`sendRedeeming` does this, and
+ * `zig build rooms-dm-reredeem` proves it). So two lines to one member share
+ * one connection, and "did a route come back" is not the same question as "did
+ * this line open it". Closing on the first answer hangs up a connection the
+ * other line is still talking on.
  *
- * Held weakly and keyed by the session itself, so a connection dropped without
- * a close takes its row with it rather than pinning one forever. */
+ * Held weakly and keyed by the session, so a connection dropped without a
+ * close takes its row with it instead of pinning one forever. */
 const linesOnSession = new WeakMap<Session, number>();
 
 /** A live, direct line to one member, obtained by introduction. `DirectMessage.open`
  * asks the directory to introduce you and wraps the redeemed capability. `say`
- * then delivers a message straight to that member over your own connection. The
- * directory is not on the message path. It vouched for the introduction once, and
- * after that the two of you talk without it.
+ * then delivers a message straight to that member over your connection. The
+ * directory is not on the message path. It vouched for the introduction once,
+ * and after that the two of you talk without it.
  *
- * The line is bidirectional. It hosts a reply inbox on the very connection the
+ * The line is bidirectional. It hosts a reply inbox on the connection the
  * redeem opened and hands it to the member with each message, so the member
- * answers you back over that same connection — even though you never listen.
+ * answers you back over that same connection even though you never listen.
  * The receiver passed to `open` handles that reply route's direct protocol. */
 
 export class DirectMessage {
@@ -199,7 +199,7 @@ export class DirectMessage {
 	#dm: Ref | null;
 	#replyInbox: Ref | null;
 	// Whether this line dialed the connection it rides. A redeemed introduction
-	// opens one to the member and owns it; a send-only line rides the directory's
+	// opens one to the member and owns it. A send-only line rides the directory's
 	// and must never close it, since everything else the tab is doing is on it.
 	#ownsSession: boolean;
 	#spent = false;
@@ -207,7 +207,7 @@ export class DirectMessage {
 	readonly peerRegistrationId: string;
 
 	/** Whether the connection this line rides is still open. A line outlives
-	 * the peer that went offline, and every send on it fails; asking first lets
+	 * the peer that went offline, and every send on it fails. Asking first lets
 	 * a caller re-introduce instead of spending a message to find out. */
 	get live(): boolean {
 		return this.#session.sessionOpen;
@@ -249,12 +249,12 @@ export class DirectMessage {
 	 * A redeemed introduction is a connection to the member, held open for as
 	 * long as the line is. Dropping the reference to a `DirectMessage` does not
 	 * end that connection, and the reply inbox this side exported stays live on
-	 * it; closing does both, and releases the imported capability with the
+	 * it. Closing does both, and releases the imported capability with the
 	 * session that carried it. A send-only line dialed nothing and rides the
-	 * directory's connection, so closing it is a no-op rather than a hang-up on
+	 * directory's connection, so closing it is a no-op and not a hang-up on
 	 * everything else the caller is doing.
 	 *
-	 * The peer is unaffected: nothing was taken from them, and a later `open`
+	 * The peer is unaffected. Nothing was taken from them, and a later `open`
 	 * redeems a fresh introduction. */
 	async close(): Promise<void> {
 		// Spent once. A second close would decrement a count this line has
@@ -264,7 +264,7 @@ export class DirectMessage {
 			const rest = (linesOnSession.get(this.#session) ?? 1) - 1;
 			if (rest > 0) {
 				// Another line is still talking on this connection. Give back
-				// what was this line's — the imported capability — and leave the
+				// what was this line's, the imported capability, and leave the
 				// connection to the lines that are still using it.
 				this.#releaseRefs();
 				linesOnSession.set(this.#session, rest);
@@ -281,11 +281,11 @@ export class DirectMessage {
 			return;
 		}
 		// A send-only line rides the directory's connection, which the tab still
-		// needs, so closing is not an option — but the member's capability was
-		// this line's to hold and is now nobody's. Give it back, so the exporter
-		// can drop the matching export instead of keeping it alive for the life
-		// of the tab. The handle is spent afterwards; `say` on a closed line
-		// throws rather than reaching whatever that position names next.
+		// needs, so closing is not an option. The member's capability was this
+		// line's to hold and is now nobody's. Give it back so the exporter can
+		// drop the matching export instead of keeping it alive for the life of
+		// the tab. The handle is spent afterwards, and `say` on a closed line
+		// throws instead of reaching whatever that position names next.
 		this.#releaseRefs();
 		this.#spent = true;
 	}
@@ -337,7 +337,7 @@ export class DirectMessage {
 			// Name the direct connection for whoever is watching the live timeline.
 			// Only a redeemed one: a send-only line rides the directory's connection,
 			// whose partner is the room and not this member. The annotation is a
-			// claim about what the session carries, never identity — a consumer may
+			// claim about what the session carries, never identity. A consumer may
 			// display it and must not merge or split peers on it.
 			if (via) annotateSession(via, { label: peer });
 			// Count this line onto the connection before handing it over, so a
@@ -367,7 +367,7 @@ export class DirectMessage {
 		// The peer answers with a handle to this line when it is one that can be
 		// changed, the direct sibling of the reference a room's `post` answers, and
 		// a `PostedLine` holds it the same way. A peer may grant no editing
-		// authority, in which case the line is simply said.
+		// authority, in which case the line is just said.
 		return line instanceof Ref ? new PostedLine(this.#session, line) : null;
 	}
 
@@ -389,7 +389,7 @@ export class DirectMessage {
 	 *
 	 * The reference is the invitation: it crosses as a handoff and arrives as a
 	 * working reference to the room, with nothing asked of the room or the
-	 * directory and nothing durable minted anywhere. The label is what the
+	 * directory and nothing durable created anywhere. The label is what the
 	 * sender calls it. */
 	async handRoom(label: string, room: Ref): Promise<void> {
 		await ask(this.#session, this.#target(), HAND_ROOM, [label, room], "they did not answer being handed a room");
@@ -427,7 +427,7 @@ export class DirectMessage {
 	 *
 	 * Two strings: what to call it, and a link (`Room.link`) they can redeem.
 	 * The offer survives every connection under it, which `handRoom` cannot
-	 * say; the price was the durable mint the link cost. */
+	 * say. The price is the durable link it costs. */
 	async offerRoom(label: string, link: string): Promise<void> {
 		await ask(this.#session, this.#target(), OFFER_ROOM, [label, link], "they did not answer being offered a room");
 	}
@@ -449,7 +449,7 @@ export class DirectMessage {
 	}
 
 	/** Deliver one direct message with files. Each file is a capability hosted
-	 * on this direct session; the receiver pulls bounded chunks through it, so
+	 * on this direct session. The receiver pulls bounded chunks through it, so
 	 * this works unchanged over every transport that can carry the DM itself. */
 	async sendFiles(sources: AttachmentSource[], text = ""): Promise<PostedLine | null> {
 		const args: Argument[] = this.#replyInbox ? [text, this.#replyInbox] : [text];
@@ -472,8 +472,8 @@ export class DirectMessage {
 		this.#session.release(attachment.blob);
 	}
 
-	/** Flag whether we are typing to this peer — the direct sibling of
-	 * `Room.setTyping`, with the same posture: fire-and-forget (`tell`), so a
+	/** Flag whether we are typing to this peer. This is the direct sibling of
+	 * `Room.setTyping` with the same posture: fire-and-forget (`tell`), so a
 	 * lost flag costs nothing and never blocks a keystroke, and an inbox that
 	 * predates the verb breaks the tell silently. */
 	typing(on: boolean): Promise<void> {

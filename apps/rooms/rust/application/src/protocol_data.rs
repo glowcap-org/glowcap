@@ -92,4 +92,5 @@ pub const UNREGISTERED: &str = "unregistered";
 pub const TRUNCATED: &str = "truncated";
 pub const ROSTER: &str = "roster";
 pub const JOIN: &str = "join";
+pub const OFFLINE: &str = "offline";
 pub const SEAT: &str = "seat";

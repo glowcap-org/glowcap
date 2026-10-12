@@ -4,11 +4,11 @@
 //! resolution math computes: they install listeners, queue and drain pipelined
 //! calls, anchor and settle projections, and fire listeners when the local
 //! resolve seam settles an answer. The engine spine calls into them from
-//! `Peer.step`'s settlement tail and from inbound dispatch; like the rest of
+//! `Peer.step`'s settlement tail and from inbound dispatch. Like the rest of
 //! the engine they are sync and no-I/O.
 //!
-//! The pure half — what falls out of a settled answer, with no `Peer` in sight —
-//! lives in `pipeline_resolution.zig`; this file re-exports its surface so
+//! The pure half, what falls out of a settled answer, with no `Peer` in sight,
+//! lives in `pipeline_resolution.zig`. This file re-exports its surface so
 //! `engine.pipeline.<name>` still names the whole resolve seam.
 //!
 //! On ownership: anything that produces an owned message takes ownership of what
@@ -48,7 +48,7 @@ pub const prepareImportedPromiseFires = listener_drain.prepareImportedPromiseFir
 
 /// The answer authority behind an inbound promise target. A wire
 /// `desc:answer` names the answer directly. A wire `desc:export` naming one of
-/// our local promise exports decodes as `.near`; the session's explicit
+/// our local promise exports decodes as `.near`. The session's explicit
 /// export-to-answer link gives both forms one queue and settlement authority.
 /// An object export with the same integer remains an object because the export
 /// slot kind wins before the promise link is consulted.
@@ -89,6 +89,8 @@ pub const PreparedPipelinedCall = struct {
     }
 
     pub fn commit(self: *PreparedPipelinedCall, peer: *Peer) !void {
+        // `preparePipelinedCall` set `message` in the same prepare/commit
+        // pair. The unset state is a caller bug, not a peer-reachable one.
         const message = self.message orelse unreachable;
         self.message = null;
         switch (self.action) {
@@ -103,10 +105,10 @@ pub const PreparedPipelinedCall = struct {
 
 /// Handle an inbound `op:deliver` that pipelines against an answer we owe,
 /// returning whether it was handled. A non-promise target or an unknown answer
-/// returns `false` (the caller surfaces it normally); every known answer is
+/// returns `false` (the caller surfaces it normally). Every known answer is
 /// handled here and returns `true`.
 ///
-/// A still-pending answer queues the owned call until we resolve it; an
+/// A still-pending answer queues the owned call until we resolve it. An
 /// enqueue refusal (e.g. the queue cap) propagates and the session frees the
 /// call. A settled answer dispatches the call right now, through the same
 /// `dispatchDrainedCall` path a queued call takes on drain, against its kept
@@ -135,6 +137,8 @@ pub fn preparePipelinedCall(
     // rather than reading the status flag is what keeps a call that arrives
     // while the answer's own resolve is still a queued outbound message from
     // being misrouted; it sees the real value and dispatches against it.
+    // Presence is certain because `pipelinedAnswer` above gated this name
+    // through `hasInboundAnswer` in the same dispatch.
     const target = peer.session_state.answerTargetNamed(answer) orelse unreachable;
     if (peer.session_state.answerPayloadForTarget(target)) |payload| {
         if (peer.session_state.answerPayloadStoredResolution(payload) != null)
@@ -153,8 +157,8 @@ pub fn preparePipelinedCall(
 /// each against the resolution (ADR-0007 § Queue ownership and drain).
 /// `desc:answer` carries one answer position, so every queued target is flat.
 /// Drain the local consequences of settlement: pipelined calls,
-/// anchored projections, then listeners — in that order (ADR-0007 § Queue
-/// ownership and drain; ADR-0050 for projections).
+/// anchored projections, then listeners, in that order (ADR-0007 § Queue
+/// ownership and drain, ADR-0050 for projections).
 pub fn drainAnswerConsequencesTarget(
     peer: *Peer,
     target: session.AnswerTarget,
@@ -192,13 +196,16 @@ fn drainPipelinedCalls(
     while (index < calls.len) {
         const queued = calls[index];
         index += 1;
+        // `stepPending` computed `consequence` non-null exactly when this
+        // payload had queued work (its `has_consequences` conditional), so
+        // the drain cannot see both.
         try dispatchDrainedCall(peer, queued, consequence orelse unreachable);
     }
 }
 
-/// Answer an inbound `op:get` / `op:index` (ADR-0050; CapTP § op:get
-/// "Receiving"): the projected answer is already installed by apply;
-/// anchor the projection on the receiver's answer. The receiver names a
+/// Answer an inbound `op:get` / `op:index` (ADR-0050, CapTP § op:get
+/// "Receiving"): the projected answer is already installed by apply.
+/// Anchor the projection on the receiver's answer. The receiver names a
 /// promise, a `desc:answer` (`.promise`) or an export position that is an
 /// inbound answer (`.near`, the same flip `installAnswerListener`
 /// handles). Any other receiver can never settle to a value here, so the
@@ -261,6 +268,9 @@ fn drainProjections(
     while (index < projections.len) {
         const projection = projections[index];
         index += 1;
+        // `stepPending` computed `consequence` non-null exactly when this
+        // payload had queued work (its `has_consequences` conditional), so
+        // the drain cannot see both.
         try applyProjectionOutcome(peer, projection, consequence orelse unreachable);
     }
 }
@@ -304,7 +314,7 @@ fn applyProjectionOutcome(
 /// Settle one projection (taking ownership): send the projected resolve for
 /// its answer through the full resolve seam, so chained projections,
 /// pipelined calls, and listeners on the projected answer all drain. The
-/// projected payload borrows its source resolution; `sendCopying` clones it
+/// projected payload borrows its source resolution. `sendCopying` clones it
 /// (the named boundary copy). A projected answer the application already
 /// settled is left as it is.
 fn resolveProjection(peer: *Peer, projection: session.Projection, projected: model.Resolution) !void {
@@ -414,8 +424,8 @@ fn deliverDrainedCallLocally(peer: *Peer, queued: model.Message, near: model.Nea
         return error.LocalDeliveryCapExceeded;
     }
     // Re-target at the export the resolution named. A delivery to a local
-    // export is wire-shaped as `desc:export` (a `far` here) — the same shape
-    // a directly-received deliver to that export carries — so the synthesized
+    // export is wire-shaped as `desc:export` (a `far` here), the same shape
+    // a directly-received deliver to that export carries, so the synthesized
     // event is indistinguishable from one that arrived on the wire.
     // The rewritten call is serialized into its own frame below, so its heap
     // is always released here regardless of the append outcome.

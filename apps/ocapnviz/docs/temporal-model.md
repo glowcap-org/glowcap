@@ -103,8 +103,8 @@ Three rules produce the gap between intrinsic and effective.
    is running with one end unattributed, so that end constrains nothing and the
    attached end decides.
 
-Constraints never mutate the document. When a parent moves, nothing fans out;
-every descendant's effective value recomputes on the next read. So document
+Constraints never mutate the document. When a parent moves, nothing fans out.
+Every descendant's effective value recomputes on the next read. So document
 mutations stay one entity at a time, undo records the user's authored change
 rather than a cascaded clamp, and growing a parent back restores what it had
 clamped with no redo. The schema cascade in `engine/schema/cascade.ts` still
@@ -148,5 +148,5 @@ and flight. It reads stored values, and when a stored value differs from the
 effective one it renders an indicator beside the field naming the reason, such
 as "stored 10s, effective 8s, session ends at 8s." When they agree it stays
 quiet. Clearing a field sets `explicit: false` and shows the inherited value as
-a placeholder; setting it explicit again snapshots the currently inherited value
+a placeholder. Setting it explicit again snapshots the currently inherited value
 so nothing jumps.

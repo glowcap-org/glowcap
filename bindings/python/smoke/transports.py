@@ -227,7 +227,7 @@ def _address_of(sock: "socket.socket") -> str:
 
 # The SOCKS endpoint for the checks that never dial: an absolute Unix socket path,
 # which is the other form OnionNetlayer accepts and the one a distribution's Tor
-# actually offers. Nothing is bound there, so a check that reached it would fail
+# offers. Nothing is bound there, so a check that reached it would fail
 # rather than quietly connect somewhere.
 _ABSENT_SOCKS = "/run/glowcap-smoke/absent.socks"
 
@@ -236,7 +236,7 @@ def _fake_socks(sock: "socket.socket", wrote: list[bytes]) -> None:
     """Answer one SOCKS5 handshake, then record the first bytes the dialer sent.
 
     The fake does not proxy. A real Tor splices the circuit onto the service's
-    forward target; what the transport owes is that the stream is a transparent byte
+    forward target. What the transport owes is that the stream is a transparent byte
     pipe positioned after the reply, so this stands in for the far peer directly.
     """
     conn, _ = sock.accept()
@@ -287,7 +287,7 @@ def _listen_with_auth(auth_kind: int, secret) -> str:
 def _loop_archive_stepping_parity() -> None:
     """The driver archive from Python (ADR-0112): two stepping loops,
     the server driven by a plain thread, the client parked on the readiness
-    descriptor via asyncio — dial as an operation id, session as an OPENED event,
+    descriptor via asyncio: dial as an operation id, session as an OPENED event,
     vow outcomes as COMPLETION events routed through the adopted wrapper
     Host's vow table, and a hangup. The server publishes through its own
     wrapper Host, so the trampoline, the fetch's settle (a real ``Ref``),
@@ -446,7 +446,7 @@ def _onion_against_a_fake_daemon() -> None:
         # Stand in for Tor forwarding a circuit: connect to the local endpoint the
         # listener bound and told the daemon about.
         add_onion = next(line for line in seen if line.startswith("ADD_ONION"))
-        # `PORT=<virtual>,<target>` — the target is what follows the comma.
+        # `PORT=<virtual>,<target>`: the target is what follows the comma.
         forward = add_onion.split("PORT=", 1)[1].split(",", 1)[1]
         host, port = forward.rsplit(":", 1)
         with socket.create_connection((host, int(port))):

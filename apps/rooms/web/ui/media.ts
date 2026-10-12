@@ -20,15 +20,15 @@ export type MediaKind = "image" | "video" | "audio" | "file";
  * rather than waiting to be asked.
 
  * A picture appears in the line the way it does in every chat client, so a
- * small one is fetched on arrival; anything larger, or anything that is not a
+ * small one is fetched on arrival. Anything larger, or anything that is not a
  * picture, waits behind its own control. `silenced` is the one thing that
  * overrides that: a member the reader has told this window to stop showing is
  * not somebody it should be fetching from on its own, and for a direct message
  * the fetch would reach that person's own host. The reference is kept either
  * way, so unignoring and pressing the file still works.
  *
- * One answer, because four places ask it — a room line arriving, a direct
- * message arriving, and each of their refiles — and a rule stated four times is
+ * One answer, because four places ask it (a room line arriving, a direct
+ * message arriving, and each of their refiles) and a rule stated four times is
  * a rule that ends up meaning four things. */
 export function fetchesOnArrival(
 	file: { readonly mime: string; readonly size: number },

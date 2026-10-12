@@ -2,8 +2,8 @@
 ;; S1: a registry that hands back capability references. `lookup` mints a fresh
 ;; cell capability (via `mint-cap`) holding the looked-up key and returns it; the
 ;; client then invokes `get` on that returned capability over the wire. This
-;; exercises the heart of CapTP — passing a live capability reference across the
-;; connection and invoking it — as two sequential round-trips.
+;; exercises the heart of CapTP, passing a live capability reference across the
+;; connection and invoking it, as two sequential round-trips.
 ;;
 ;; Promise pipelining (invoking the returned promise before it resolves) is
 ;; deliberately not exercised: the client resolves the capability first and then

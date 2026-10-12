@@ -1,5 +1,5 @@
 /**
- * React hook adapter for the pointer FSM — implements § 8.1 of the
+ * React hook adapter for the pointer FSM, implements § 8.1 of the
  * interaction model.
  *
  * Attaches native pointer listeners to a host element, runs each
@@ -47,14 +47,14 @@ export type SurfacePointerHandlers = {
 /** Make a hit producer for a host surface. Returning `null` from
  *  `makeHit` skips the pointer-down (the gesture won't initiate).
  *  Used by surfaces whose host element extends past the relevant
- *  region — e.g., the Stage marker covers the canvas but should
+ *  region, e.g., the Stage marker covers the canvas but should
  *  ignore clicks over the chrome that bleed through. */
 export type MakeHit<SurfId extends SurfaceId = SurfaceId> = (
 	ev: { clientX: number; clientY: number; target: EventTarget | null },
 ) => (Hit & { surface: SurfId }) | null;
 
 /** The surface's live FSM state. The machine is the authority on what the
- *  surface is doing — only it knows what a press resolved to — so readers that
+ *  surface is doing, only it knows what a press resolved to, so readers that
  *  must agree with the gesture take it from here. The cursor is the one that
  *  matters: it reports what is happening, and re-deriving that from live key
  *  or pointer state gets the Space-released-mid-drag case wrong.
@@ -101,7 +101,7 @@ export function useSurfacePointer<SurfId extends SurfaceId = SurfaceId>(
 	});
 	// Box callbacks + context in refs so the listener attachment is
 	// stable across re-renders. The effect's dep is the `host`
-	// element itself — when it appears (e.g. async PixiJS init), the
+	// element itself. When it appears (e.g. async PixiJS init), the
 	// effect re-runs and the listeners attach.
 	const handlersRef = useRef(handlers);
 	handlersRef.current = handlers;
@@ -130,11 +130,11 @@ export function useSurfacePointer<SurfId extends SurfaceId = SurfaceId>(
 	>(() => {});
 	const previousSpaceHeldRef = useRef(ctx.spaceHeld);
 	// Down-time hit, preserved across the press → dragging transition.
-	// The FSM's `dragging` state intentionally drops `ctxAtDown` (a
+	// The FSM's `dragging` state drops `ctxAtDown` (a
 	// drag-in-flight has no use for the down's hit; the FSM emits
 	// `drag-end` with the snapshot alone). But pointer-up still needs
-	// to dispatch SOMETHING with a `ctxAtUp.hit` for the type signature
-	// — and when the user releases off-surface, the up-time hit-test
+	// to dispatch SOMETHING with a `ctxAtUp.hit` for the type signature,
+	// and when the user releases off-surface, the up-time hit-test
 	// returns null. Falling back to this ref keeps the commit firing
 	// for release-off-surface marquees / drags.
 	const hitAtDownRef = useRef<Hit | null>(null);
@@ -164,7 +164,7 @@ export function useSurfacePointer<SurfId extends SurfaceId = SurfaceId>(
 				target: ev.target,
 			});
 			if (!hit) return;
-			// Cross-surface lock — bail if another surface owns the
+			// Cross-surface lock, bail if another surface owns the
 			// gesture. The root guard normally suppresses this event
 			// before reaching us, but defending here keeps the FSM
 			// honest when the guard isn't installed (tests).
@@ -196,7 +196,7 @@ export function useSurfacePointer<SurfId extends SurfaceId = SurfaceId>(
 		// One teardown for every way a gesture ends with nothing to commit: the
 		// system taking the pointer back, a window blur, and any of the finish paths
 		// arriving in a state `hasSomethingToCommit` refuses. The FSM's `cancel` is
-		// what unwinds a drag in flight, so every one of them has to reach it —
+		// what unwinds a drag in flight, so every one of them has to reach it,
 		// spelled once here rather than repeated at each caller, where one copy
 		// going missing is invisible until an interrupted drag leaves a
 		// transaction open.
@@ -209,7 +209,7 @@ export function useSurfacePointer<SurfId extends SurfaceId = SurfaceId>(
 		// What the window watch calls. A drag the reader finished is ENDED, not
 		// cancelled: the watch fires when the pointer this surface holds goes up
 		// anywhere, and letting go is finishing. Cancelling instead is what discarded
-		// a marquee on a fast drag — a buttonless pointermove reaches the window
+		// a marquee on a fast drag. A buttonless pointermove reaches the window
 		// while the button is coming up mid-motion, the watch calls this, and the
 		// whole selection went with it before the surface's own pointerup ever
 		// arrived.
@@ -227,7 +227,7 @@ export function useSurfacePointer<SurfId extends SurfaceId = SurfaceId>(
 		};
 
 		const onPointerMove = (ev: PointerEvent) => {
-			// Phantom-drag recovery — the button is up and we never heard the
+			// Phantom-drag recovery, the button is up and we never heard the
 			// pointerup (off-document, OS chrome, or a release delivered mid-motion,
 			// where a move can carry `buttons: 0` ahead of the up).
 			//
@@ -242,7 +242,7 @@ export function useSurfacePointer<SurfId extends SurfaceId = SurfaceId>(
 			// (`Timeline/Scrubber.tsx`'s `endDrag`).
 			//
 			// Only a drag commits. A press that never moved has nothing in flight, and
-			// ending it would fire a click — at wherever the pointer happens to be
+			// ending it would fire a click, at wherever the pointer happens to be
 			// when the news arrives, which may be nowhere near what was pressed.
 			if (
 				machineRef.current.fsm.kind !== "idle" && (ev.buttons & 1) === 0
@@ -258,7 +258,7 @@ export function useSurfacePointer<SurfId extends SurfaceId = SurfaceId>(
 				target: ev.target,
 			});
 			// Held so a gesture can be ended when the news arrives with no event of
-			// its own — the window watch below has only the fact that it is over.
+			// its own. The window watch below has only the fact that it is over.
 			lastSeenRef.current = { snapshot, hit };
 			dispatch(machineRef.current, {
 				kind: "pointer-move",
@@ -291,7 +291,7 @@ export function useSurfacePointer<SurfId extends SurfaceId = SurfaceId>(
 			});
 			// If hit went null (cursor moved off the surface during a
 			// press/drag), fall back to the captured down hit so the
-			// gesture commits against the original target — critical for
+			// gesture commits against the original target, critical for
 			// marquee drags whose release lands outside the host (Bug 3:
 			// "release off-stage should commit the highlights"). FSM
 			// tracks ctxAtDown on `pressed`; the hook ref covers the
@@ -323,7 +323,7 @@ export function useSurfacePointer<SurfId extends SurfaceId = SurfaceId>(
 		 * The window watch (`watchGestureEnd`) reports that the pointer this surface
 		 * holds has gone up somewhere it could not see. There is no position to read,
 		 * and none is needed: what a drag commits is what it was already showing, and
-		 * every surface keeps that itself — a marquee's rect, a node's last target.
+		 * every surface keeps that itself. A marquee's rect, a node's last target.
 		 * All this has to supply is the fact that the gesture is over.
 		 *
 		 * The hit falls back to the one captured at pointer-down, the same fallback
@@ -358,12 +358,12 @@ export function useSurfacePointer<SurfId extends SurfaceId = SurfaceId>(
 		 * On an ordinary release this arrives AFTER the pointerup that already
 		 * committed, and lands on an idle machine where it does nothing. When it
 		 * arrives while a drag is still in flight it is the last thing we will hear,
-		 * and the reader has let go — so it ends the gesture for the same reason the
+		 * and the reader has let go, so it ends the gesture for the same reason the
 		 * phantom-move recovery does, and cancelling instead is what threw a
 		 * marquee's whole selection away on a fast release.
 		 *
 		 * `pointercancel` below is NOT this. That one means the system took the
-		 * gesture back — a palm landing on a trackpad, a touch turned into a scroll —
+		 * gesture back, a palm landing on a trackpad, a touch turned into a scroll,
 		 * and there the reader never finished, so cancelling is the honest answer.
 		 */
 		const onLostCapture = (ev: PointerEvent) => {

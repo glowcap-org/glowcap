@@ -85,4 +85,26 @@ pub(super) async fn run(
 	command(workspace, 8, "setStanding", &[""]).await;
 	applied(host, seat, "").await;
 	command(workspace, 9, "setDraft", &["conversation", ""]).await;
+	let before = host.send(seat, "standing-count", &[]).await.unwrap().as_i64().unwrap();
+	host.send(seat, "refuse-next-standing", &[]).await.unwrap();
+	command(workspace, 10, "setStanding", &["refused preference"]).await;
+	assert!(
+		environment::within(2_000, async {
+			while host.send(seat, "standing-refusals", &[]).await.unwrap().as_i64() != Some(1) {
+				environment::yield_turn().await;
+			}
+		})
+		.await
+		.is_some(),
+		"the upstream must actually refuse before this recovery proof"
+	);
+	command(workspace, 11, "setStanding", &["latest preference"]).await;
+	applied(host, seat, "latest preference").await;
+	assert_eq!(
+		host.send(seat, "standing-count", &[]).await.unwrap().as_i64(),
+		Some(before + 1),
+		"a refused preference cannot apply later before the newer intent"
+	);
+	command(workspace, 12, "setStanding", &[""]).await;
+	applied(host, seat, "").await;
 }

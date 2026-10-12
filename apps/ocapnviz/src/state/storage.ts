@@ -1,8 +1,8 @@
 /**
  * Best-effort browser preference storage.
  *
- * Preferences may disappear when storage is unavailable, full, or forbidden;
- * none of those platform policies may prevent the visualizer from starting or
+ * Preferences may disappear when storage is unavailable, full, or forbidden.
+ * None of those platform policies may prevent the visualizer from starting or
  * changing view state. This is the one boundary that absorbs those failures.
  */
 

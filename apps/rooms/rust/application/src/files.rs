@@ -1,6 +1,6 @@
 //! Hosted Rooms files: one host-wide budget with independent room lifetimes.
 //! Capability handles are minted here, never reconstructed from wire ids.
-//! The owner drives mutations and time; reads borrow bytes until encoding ends.
+//! The owner drives mutations and time. Reads borrow bytes until encoding ends.
 mod failure;
 pub mod identity;
 mod line;
@@ -140,14 +140,14 @@ pub enum FileError {
 }
 
 /// A scope token is held by the room owner. Dropping it immediately disables
-/// its blobs; close_room additionally reclaims their storage in the same turn.
+/// its blobs. `close_room` also reclaims their storage in the same turn.
 #[derive(Debug)]
 pub struct FileRoom {
 	key: Key,
 	life: Rc<ScopeLife>,
 }
 
-/// One exact membership generation. Its pending uploads end with it; completed
+/// One exact membership generation. Its pending uploads end with it. Completed
 /// posted files last until their room or line retires them.
 #[derive(Debug)]
 pub struct FileMember {
@@ -206,7 +206,7 @@ impl Upload {
 }
 
 /// The line's ownership, separate from the blob read capability. This cannot
-/// be cloned. Dropping it disables every blob alias; retire reclaims promptly.
+/// be cloned. Dropping it disables every blob alias. Retire reclaims promptly.
 #[derive(Debug)]
 pub struct HostedFile {
 	blob: Blob,

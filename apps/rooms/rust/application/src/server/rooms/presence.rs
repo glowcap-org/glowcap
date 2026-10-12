@@ -8,9 +8,34 @@ use crate::{
 	room::stewardship::Kind,
 	server::links::Authority,
 };
-use alloc::{string::String, vec::Vec};
+use alloc::{string::String, sync::Arc, vec::Vec};
 
 impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
+	/// A return clears the display-only name, including a changed spelling.
+	pub(super) fn returning_name(&mut self, key: &RoomKey, nick: &str, effects: &mut Effects<C, R>) {
+		let Some(room) = self.rooms.get_mut(key) else {
+			return;
+		};
+		if let Some(old) = room.forget_offline(nick)
+			&& old != nick
+		{
+			self.broadcast(key, effects, Notice::Forgotten(old), None);
+		}
+	}
+	/// Arrivals hear the current online roster first, then bounded offline names.
+	pub(super) fn offline_roster(&self, key: &RoomKey, connection: C, inbox: R, effects: &mut Effects<C, R>) {
+		let room = &self.rooms[key];
+		if !room.offline.is_empty() {
+			effects.tell(
+				connection,
+				inbox,
+				Notice::Offline {
+					names: room.offline.iter().map(|name| name.nick.clone()).collect(),
+					count: room.members.len(),
+				},
+			);
+		}
+	}
 	/// Say `notice` to every member of `key`, skipping `except`.
 	pub(super) fn broadcast(&self, key: &RoomKey, effects: &mut Effects<C, R>, notice: Notice, except: Option<C>) {
 		let Some(room) = self.rooms.get(key) else {
@@ -44,6 +69,13 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		effects.presence.push(member.connection);
 		let count = room.members.len();
 		let listed = room.policy.is_listed();
+		// The bounded display copy survives the independently owned notice. An
+		// empty room closes immediately and needs no retained offline name.
+		let evicted = if how == Departure::Disconnected && count != 0 {
+			room.remember_offline(member.nick.clone())
+		} else {
+			None
+		};
 		// A same-connection resubscribe keeps the uploads and invitations its
 		// continuing connection owns; every other ending cuts what the
 		// membership let into the room.
@@ -53,36 +85,37 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			self.retire_invitations_from(key, minter);
 		}
 		effects.release(member.connection, member.inbox);
-		match how {
-			Departure::Left | Departure::Ended => {
-				self.broadcast(
-					key,
-					&mut effects,
-					Notice::Leave {
-						nick: member.nick.clone(),
-						count,
-					},
-					None,
-				);
-				// The record is drawn before the room is forgotten: a closed
-				// event names the room by what it was.
-				let entry = self.rooms[key].info();
-				if count == 0 {
-					effects.extend(self.forget_room(key));
-					if listed {
-						effects.events.push(Event::Room {
-							kind: RoomChange::Closed,
-							entry,
-						});
-					}
-				} else if listed {
-					effects.events.push(Event::Room {
-						kind: RoomChange::Count,
-						entry,
-					});
-				}
+		let notice = match how {
+			Departure::Left | Departure::Ended => Notice::Leave {
+				nick: member.nick,
+				count,
+			},
+			Departure::Disconnected => Notice::Offline {
+				names: Arc::from([member.nick]),
+				count,
+			},
+			Departure::Continued | Departure::Replaced => return effects,
+		};
+		if let Some(nick) = evicted {
+			self.broadcast(key, &mut effects, Notice::Forgotten(nick), None);
+		}
+		self.broadcast(key, &mut effects, notice, None);
+		// The record is drawn before the room is forgotten: a closed
+		// event names the room by what it was.
+		let entry = self.rooms[key].info();
+		if count == 0 {
+			effects.extend(self.forget_room(key));
+			if listed {
+				effects.events.push(Event::Room {
+					kind: RoomChange::Closed,
+					entry,
+				});
 			}
-			Departure::Continued | Departure::Replaced => {}
+		} else if listed {
+			effects.events.push(Event::Room {
+				kind: RoomChange::Count,
+				entry,
+			});
 		}
 		effects
 	}
@@ -164,7 +197,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			let membership = self.rooms[&key].member_of(connection).map(|member| member.key);
 			match membership {
 				Some(membership) => {
-					effects.extend(self.leave_member(&key, membership, None, Departure::Left));
+					effects.extend(self.leave_member(&key, membership, None, Departure::Disconnected));
 				}
 				None => {
 					let room = &self.rooms[&key];
@@ -263,7 +296,12 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 				self.public.remove(&public);
 			}
 		}
-		let room = self.rooms.get_mut(&key).expect("checked above");
+		let Some(room) = self.rooms.get_mut(&key) else {
+			return Err(super::Refusal::coded(
+				crate::failure::FailureCode::NoSuchRoom,
+				alloc::format!("no room named \"{old_name}\""),
+			));
+		};
 		room.name = managed.name.clone();
 		room.policy = managed.policy;
 		let entry_id = String::from(room.entry_id.as_str());
@@ -279,7 +317,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			effects.events.push(Event::Room {
 				kind: RoomChange::Closed,
 				entry: crate::directory::RoomInfo {
-					count: crate::fields::Nullable::Value(crate::fields::SafeInteger::new(0).expect("zero")),
+					count: crate::fields::Nullable::Value(crate::fields::SafeInteger::ZERO),
 					..old_entry
 				},
 			});

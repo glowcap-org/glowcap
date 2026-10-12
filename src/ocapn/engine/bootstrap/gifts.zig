@@ -2,7 +2,7 @@
 //!
 //! The registry owns every retained gift row, its exact cumulative requested
 //! bytes, and the replay counters that make withdrawal single-use. Bootstrap
-//! orchestration verifies certificates and builds settlements; this module
+//! orchestration verifies certificates and builds settlements. This module
 //! alone admits, replaces, validates, consumes, and releases gift authority.
 
 const std = @import("std");
@@ -36,7 +36,7 @@ pub const ProjectedLocalTarget = struct {
 };
 
 /// A live gifter session named by a signed give. Deposits remain owned by that
-/// session's registry; the public key authenticates the give.
+/// session's registry. The public key authenticates the give.
 pub const GifterSession = struct {
     /// Node-local session identity for scheduler dependency routing. It conveys
     /// no wire authority, but every resolver must identify the live session it
@@ -99,11 +99,11 @@ fn borrowedEnvelopeClaim(receive: model.view.HandoffReceive) WithdrawEnvelopeCla
 pub const GiftPayload = union(enum) {
     /// Provenance-only: no capability rode the deposit (the cross-peer give
     /// routing path). Withdrawable by the recipient named here, whom the
-    /// withdrawal's signed give must match — a bootstrap `deposit-gift` names no
+    /// withdrawal's signed give must match, a bootstrap `deposit-gift` names no
     /// recipient at deposit, so the signed give names one at withdraw and the
     /// signature check binds it. Never empty: `deposit` refuses an empty key.
     provenance: []const u8,
-    /// The gifter deposited a session-independent protocol reference; it is
+    /// The gifter deposited a session-independent protocol reference. It is
     /// returned verbatim on a successful withdraw.
     verbatim_cap: model.Reference,
     /// Stable identity supplied by the local-object composition. No swiss name
@@ -112,7 +112,7 @@ pub const GiftPayload = union(enum) {
 };
 
 /// One deposited, not-yet-consumed gift. The registry owns everything the
-/// `payload` arm holds; rows are freed precisely on overwrite, on withdraw, or
+/// `payload` arm holds. Rows are freed on overwrite, on withdraw, or
 /// at `deinit`.
 const GiftEntry = struct {
     payload: GiftPayload,
@@ -130,8 +130,8 @@ pub const HandoffCountCommitError = counts.CommitError;
 pub const PreparedHandoffCount = counts.Prepared;
 
 /// One CapTP session's gift and handoff-count authority. Deposits made on this
-/// session live in the lazy store; receives arriving on this session use the
-/// accepted count; standalone and next-profile gives redeemed through this
+/// session live in the lazy store. Receives arriving on this session use the
+/// accepted count. Standalone and next-profile gives redeemed through this
 /// session use the emitted count. Node-composed V1 redemption supplies its
 /// compatibility cursor without moving receive-side authority here.
 ///
@@ -224,7 +224,7 @@ pub const GiftRegistry = struct {
     }
 
     /// Deposit (or re-deposit) a gift whose capability the registry adopts. On
-    /// success the registry owns `gifted`; on error the caller keeps it.
+    /// success the registry owns `gifted`. On error the caller keeps it.
     pub fn depositOwned(
         self: *GiftRegistry,
         allocator: std.mem.Allocator,
@@ -360,7 +360,7 @@ pub const GiftRegistry = struct {
 
     /// The owned-message form of the withdraw check. Production validates the
     /// borrowed view arm by arm (`validateWithdrawEnvelopeView`, then
-    /// `validateWithdrawGiftClaim`); this whole-message form is reached only
+    /// `validateWithdrawGiftClaim`). This whole-message form is reached only
     /// by tests that hold an owned `HandoffReceive`.
     pub fn validateWithdraw(
         self: *const GiftRegistry,
@@ -433,7 +433,7 @@ pub const GiftRegistry = struct {
     };
 
     /// Public only for the sibling bootstrap orchestrator. Preparation borrows
-    /// existing authority and allocates nothing; commit consumes infallibly.
+    /// existing authority and allocates nothing. Commit consumes infallibly.
     pub fn prepareWithdrawCommit(
         gifts: *GiftRegistry,
         claim: WithdrawGiftClaim,
@@ -450,7 +450,7 @@ pub const GiftRegistry = struct {
 
     /// The owned-message form of a withdraw: validate, prepare, and commit in
     /// one call. Production runs those steps separately across the dispatch
-    /// transaction; this form is reached only by tests.
+    /// transaction. This form is reached only by tests.
     pub fn applyWithdraw(
         self: *GiftRegistry,
         deposited: *GiftRegistry,
@@ -463,7 +463,7 @@ pub const GiftRegistry = struct {
     }
 
     /// Consume one prepared gift with no allocation or failure. `self` owns the
-    /// receiver-side replay counter; `deposited` owns the gifter-side row.
+    /// receiver-side replay counter. `deposited` owns the gifter-side row.
     pub fn commitWithdraw(
         self: *GiftRegistry,
         deposited: *GiftRegistry,
@@ -472,6 +472,8 @@ pub const GiftRegistry = struct {
         prepared: PreparedWithdrawCommit,
     ) ?model.Reference {
         self.acceptHandoffCount(@max(self.acceptedHandoffCount() orelse 0, prepared.handoff_count));
+        // `prepareWithdrawCommit` borrowed `prepared.gift` from this store in
+        // the same synchronized turn.
         const store = deposited.store orelse unreachable;
         const kv = store.gifts.fetchRemove(prepared.gift) orelse unreachable;
         store.retained_bytes -= admittedEntryRetainedBytes(kv.key, kv.value.payload);

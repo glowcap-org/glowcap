@@ -8,7 +8,7 @@ use rooms_application::content::session::{custody, records, workspace};
 pub struct References;
 pub struct Metadata;
 /// Candidates distinguish newly held authority from an unchanged committed
-/// occurrence. Only dispatch restores retained authority; staging copies edges.
+/// occurrence. Only dispatch restores retained authority. Staging copies edges.
 #[derive(Clone, PartialEq, Eq)]
 pub enum Field {
 	Held(Ref),
@@ -101,7 +101,7 @@ pub fn decode(input: Invocation<'_>) -> Result<Record> {
 /// Decode and validate bounded payloads without restoring capability fields.
 /// Only selected occurrences are subsequently requested from shared hosting.
 /// The walk covers at most MAX_PAGES and MAX_AUTHORITY_BYTES. Rust owns the
-/// decoded intent and field-location spines through this callback; Loam owns
+/// decoded intent and field-location spines through this callback. Loam owns
 /// prepared page bytes. Neither decode nor its locations grant invocation.
 pub fn metadata(input: Invocation<'_>) -> Result<workspace::Record<Metadata, BoundResource>> {
 	decode_with(input, |page, coordinate, field| {
@@ -143,7 +143,7 @@ fn decode_with<R: custody::References>(
 }
 
 /// The codec owns page ordering. These temporary spines borrow its payloads
-/// through one shared staging call; only Loam's candidate survives the callback.
+/// through one shared staging call. Only Loam's candidate survives the callback.
 pub fn replace(call: &mut Call<'_>, input: Invocation<'_>, record: &mut Record) -> Result<()> {
 	rooms_application::content::session::bridge::retire(record);
 	rooms_application::content::session::outgoing::retire(record);
@@ -195,7 +195,7 @@ pub fn replace(call: &mut Call<'_>, input: Invocation<'_>, record: &mut Record) 
 }
 
 /// Receipt changes preserve every workspace and custody page. Re-encode only
-/// the bounded receipt window; shared staging keeps the untouched physical rows.
+/// the bounded receipt window. Shared staging keeps the untouched physical rows.
 pub fn replace_effects(call: &mut Call<'_>, input: Invocation<'_>, record: &Record) -> Result<()> {
 	let pages = input
 		.graph
@@ -255,16 +255,13 @@ pub fn replace_effects(call: &mut Call<'_>, input: Invocation<'_>, record: &Reco
 		.iter()
 		.copied()
 		.enumerate()
-		.map(|(at, page)| {
-			if at == sequence_page && sequence.is_some() {
-				GraphPage::Write {
-					schema: page.schema(),
-					payload: sequence.as_deref().expect("advanced line sequence"),
-					fields: &sequence_fields,
-				}
-			} else {
-				GraphPage::Keep(page)
-			}
+		.map(|(at, page)| match sequence.as_deref() {
+			Some(payload) if at == sequence_page => GraphPage::Write {
+				schema: page.schema(),
+				payload,
+				fields: &sequence_fields,
+			},
+			_ => GraphPage::Keep(page),
 		})
 		.chain(
 			effects

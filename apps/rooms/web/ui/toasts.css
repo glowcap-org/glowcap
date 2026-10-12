@@ -1,5 +1,5 @@
 /* Transient notices. While a native modal is open the stack is a child of it,
-   so a press lands; the dialog covers the viewport and makes everything else
+   so a press lands. The dialog covers the viewport and makes everything else
    inert. Geometry is the same either way: pinned to the top edge, each notice
    taking its own width. */
 
@@ -108,7 +108,7 @@
 .toast-more:focus-visible .said-show {
 	text-decoration: underline;
 }
-/* The ring is the base rule's; this only rounds the corners it follows. */
+/* The ring is the base rule's. This only rounds the corners it follows. */
 .toast-more:focus-visible {
 	border-radius: var(--radius-chip);
 }

@@ -2,7 +2,7 @@
 //!
 //! The wire-path contract is that every allocation and copy is forbidden,
 //! intentional, or measured. The inbound steady-state path is pinned by
-//! `test/engine/alloc_budget_test.zig`; this is the outbound counterpart. It
+//! `test/engine/alloc_budget_test.zig`. This is the outbound counterpart. It
 //! locks the number of heap allocations one `encodeMessage` of a fixed small
 //! message costs, so a future change that doubles the encoder's allocation
 //! traffic fails loudly instead of slipping past the gate.

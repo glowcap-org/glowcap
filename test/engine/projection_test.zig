@@ -66,7 +66,7 @@ test "releasing an intermediate answer preserves its accepted projection" {
     try peer_fixture.receiveAnsweredOperation(&peer, "<8'op:untag<11'desc:answer11+>4\"task12+>");
     try peer_fixture.receiveAnsweredOperation(&peer, "<8'op:index<11'desc:answer12+>1+13+>");
 
-    // Position 12 is no longer available to future pipeline operations, but
+    // Position 12 is unavailable to future pipeline operations, but
     // the index already accepted against this exact incarnation still owns a
     // consequence of its settlement.
     try peer.recvBorrowed(.{ .bytes = "<13'op:gc-answers[12+]>", .shape = .byte });

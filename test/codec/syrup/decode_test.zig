@@ -64,7 +64,7 @@ test "Syrup decodes an unrecognised captp-version rather than calling the frame 
     // whoever reads the abort and puts the judgement in two decoders instead of
     // the one validator that owns it. The codec reports what the bytes say; the
     // session decides. `session.validate` refuses this as `CaptpVersionMismatch`
-    // — the upstream suite's `invalid-version` probe reads that abort.
+    // (the upstream suite's `invalid-version` probe reads that abort).
     //
     // The length prefix here is 9, matching `ocapn-1.0`. An earlier spelling of
     // this test declared 8, so the frame was malformed for a length reason and
@@ -239,8 +239,8 @@ test "Syrup decode refuses a Set carrying a duplicate element" {
 
 test "a single collection wider than the decode element cap is refused" {
     // Collection width is untrusted, and every later walk over a
-    // collection — the lazy view's len/at, session validation, owned
-    // materialization — is linear in the element count. The codec caps a
+    // collection, the lazy view's len/at, session validation, owned
+    // materialization, is linear in the element count. The codec caps a
     // single list / set / struct at 1 << 20 elements
     // (`max_collection_elements` in syrup/decode/syntax.zig, the width sibling of
     // `max_decode_nesting`) and refuses past it during the slice walk, before
@@ -442,8 +442,8 @@ test "Syrup decode rejects non-byte frame shape" {
 test "Syrup decodes a foreign record argument as Tagged, so a Goblins break payload survives" {
     // The exact shape a live Goblins peer answers a refused withdraw with: a
     // resolver-callback deliver whose break payload is a bare exception
-    // record. The record's label lands as the tag — the reason text
-    // `engine.events.breakReasonFromPayload` reads — instead of the whole
+    // record. The record's label lands as the tag, the reason text
+    // `engine.events.breakReasonFromPayload` reads, instead of the whole
     // frame dying as malformed.
     const frame = "<10'op:deliver<11'desc:export1+>[5'break<16'exn:fail:mystery>]ff>";
     const body = try syrup.decodeBody(.{ .bytes = frame, .shape = .byte });

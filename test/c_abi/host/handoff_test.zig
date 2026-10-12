@@ -137,7 +137,7 @@ test "libglowcap_host: the full three-party handoff through the C surface — on
     // The test is the dial executor: open the recipient's own connection to
     // the exporter, drive it open, and report it back. The withdraw, its
     // settle, and the vow's fulfillment all pump inside the report. The
-    // exporter publishes nothing on this session by hand — withdrawal projects
+    // exporter publishes nothing on this session by hand, withdrawal projects
     // the exact deposited target onto this Port.
     var e_accepts_r: ?*cd.GlowcapHostSession = null;
     try expectOk(openAccepted(exporter, "tcp", 3, &e_accepts_r));

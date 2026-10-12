@@ -70,7 +70,7 @@ pub enum Act {
 	},
 	RevokeRoomLink(String),
 	RevokeRegistration(String),
-	/// By the session's operator id; the caller's own connection stays.
+	/// By the session's operator id. The caller's own connection stays.
 	Disconnect(String),
 	/// By the room generation's exact entry id.
 	RemoveRoom(String),

@@ -1,7 +1,7 @@
 //! SIGINT/SIGTERM drain for CLI services and finite product operations.
 //!
 //! Handlers only set a flag (async-signal-safe). Long waits must poll the flag
-//! (chunked sleep, `waitAcceptable`, `stepReadable`) — Zig's threaded Io retries
+//! (chunked sleep, `waitAcceptable`, `stepReadable`). Zig's threaded Io retries
 //! on EINTR and treats accept-after-close `BADF` as a programmer panic, so a
 //! stop path must not close a listen FD another thread is blocked in `accept` on.
 const std = @import("std");
@@ -37,7 +37,7 @@ pub fn requestStop() void {
 }
 
 /// Drain a finite operation on INT/TERM. The operation owns its cleanup and
-/// returns only caller-scoped data; cancellation waits for that cleanup and
+/// returns only caller-scoped data. Cancellation waits for that cleanup and
 /// observes the operation's actual result, including completion racing a signal.
 pub fn interruptible(comptime Payload: type, io: std.Io, comptime operation: anytype, args: std.meta.ArgsTuple(@TypeOf(operation))) anyerror!Payload {
     install();

@@ -1,5 +1,5 @@
 /**
- * Interaction architecture — type module.
+ * Interaction architecture, type module.
  *
  * Mirror of § 2 of `docs/interaction-model.md`. This
  * file is the SINGLE source of truth for the types that flow through
@@ -11,9 +11,9 @@
  *
  * No React, no Pixi, no DOM. Trivially fixturable.
  *
- * `AppMode` is intentionally NOT in this file — modes are a UI
+ * `AppMode` is NOT in this file, modes are a UI
  * shortcut, not an architectural concept (§ 1.1 of the doc). The
- * resolver and FSM never read mode; they read `activeTool`.
+ * resolver and FSM never read mode. They read `activeTool`.
  */
 
 // ─────────────────────── Selection state (§ 2.1) ───────────────────────
@@ -31,7 +31,7 @@ export type EntityKind = "peer" | "endpoint" | "session" | "message";
 
 export type EntityRef = { kind: EntityKind; id: string };
 
-/** Encoded form used as a Set key — JS Sets can't dedupe object
+/** Encoded form used as a Set key, JS Sets can't dedupe object
  *  refs by value, so we serialize to `"<kind>:<id>"`. */
 export type EntityRefKey = `${EntityKind}:${string}`;
 
@@ -55,12 +55,12 @@ export type SelectionState = {
 	/** Inspector follow target. The current entity moves to the most
 	 *  recent selection member and is null when nothing is selected.
 	 *  Null when nothing is anchored (selection size 0 implies
-	 *  anchor null; selection size ≥ 1 implies anchor set). */
+	 *  anchor null. Selection size ≥ 1 implies anchor set). */
 	anchor: EntityRef | null;
-	/** THE selection. The set of entities the user has selected;
+	/** THE selection. The set of entities the user has selected.
 	 *  property edits, group delete, group drag, group nudge all
 	 *  operate on this set. Heterogeneous: peers, sessions, and
-	 *  messages may coexist. There is no separate "multi" — a
+	 *  messages may coexist. There is no separate "multi", a
 	 *  selection of size 1 is still the selection. */
 	selection: ReadonlySet<EntityRefKey>;
 };
@@ -72,8 +72,8 @@ export const EMPTY_SELECTION: SelectionState = {
 
 /** The identity side of a document: which entities it declares, by kind and id.
  *
- *  Named on its own because the one question it answers — does this document
- *  still hold this entity — is asked from outside the store too, and a caller
+ *  Named on its own because the one question it answers, does this document
+ *  still hold this entity, is asked from outside the store too, and a caller
  *  with a document in hand can ask it directly (`documentHolds`). */
 export type DeclaredEntities = {
 	peers?: Readonly<Record<string, unknown>> | undefined;
@@ -87,13 +87,13 @@ export type SelectionAction =
 	| { kind: "add-to-selection"; entities: ReadonlySet<EntityRefKey> }
 	| { kind: "remove-from-selection"; entities: ReadonlySet<EntityRefKey> }
 	// Drop whatever the document no longer holds. Undo and redo move
-	// ids under the selection — a rename taken back leaves it pointing
-	// at a name nothing answers to — and this is how it catches up.
+	// ids under the selection, a rename taken back leaves it pointing
+	// at a name nothing answers to, and this is how it catches up.
 	// `undoWithSelection` / `redoWithSelection` in `builder/selection-history.ts`
 	// are what dispatch it, and the top bar and the Cmd-Z binding both
 	// take history back through them.
 	| { kind: "reconcile-with-doc"; entities: DeclaredEntities }
-	// Surgical id rewrite after a rename — see `selection-store.ts`
+	// Surgical id rewrite after a rename, see `selection-store.ts`
 	// for why this is distinct from `set-selection`.
 	| {
 		kind: "rename-entity";
@@ -239,8 +239,8 @@ export function stageHitFor(ref: EntityRef): Hit {
 // ─────────────────────── Gesture context (§ 2.4) ────────────────────────
 
 /** Modifier-resolved intent of a selection gesture (click or
- * marquee), one grammar across every surface — stage sprites, stage
- * marquee, timeline pills, timeline marquee — so the same modifier
+ * marquee), one grammar across every surface, stage sprites, stage
+ * marquee, timeline pills, timeline marquee, so the same modifier
  * combo means the same thing wherever the user selects:
  *   plain          → replace   (selection becomes the hits)
  *   shift          → add       (already-in is a no-op)
@@ -284,7 +284,7 @@ export type BuilderTool = NavigationTool | AuthoringTool;
  * what those surfaces already do: the Timeline's hosts never read the active
  * tool on the way to a click, so a lane click selects whatever tool is chosen.
  * Naming that here makes the Timeline's cursor agree with the Timeline's click
- * in both directions — no build-tool cursor promising something a lane cannot
+ * in both directions. No build-tool cursor promising something a lane cannot
  * do, and no missing selection preview under a modifier the lane does honour.
  */
 export function navigationToolOf(tool: BuilderTool): NavigationTool {
@@ -294,7 +294,7 @@ export function navigationToolOf(tool: BuilderTool): NavigationTool {
 /** Two-click tools maintain in-flight state: the node already picked and
  *  waiting for its partner. Null when no two-click sequence is mid-flight.
  *
- *  A node, not a peer — Send Message arms an end nothing has attributed
+ *  A node, not a peer, Send Message arms an end nothing has attributed
  *  exactly as it arms a peer, so `nodeId` may be an endpoint's stage id.
  *
  *  The host owns it: the Stage holds the armed pick in its `armedNode` prop
@@ -326,10 +326,10 @@ export type SurfaceGestureCtx = Omit<GestureContext, "hit">;
 export type RubberBandMode = SelectMode;
 
 export type DefaultVerb =
-	// Pointer-down verbs — resolved at pointer-down; drive both click
+	// Pointer-down verbs, resolved at pointer-down; drive both click
 	// and drag effects. The FSM decides click vs drag from threshold.
 	| { kind: "select-or-drag-peer"; peerId: string; entityRef: EntityRef }
-	/** An unattributed end drags and selects exactly as a peer does; the verb
+	/** An unattributed end drags and selects exactly as a peer does. The verb
 	 *  is separate so the handler knows which table holds its position. */
 	| {
 		kind: "select-or-drag-endpoint";
@@ -339,12 +339,12 @@ export type DefaultVerb =
 	| { kind: "select-edge"; sessionId: string; entityRef: EntityRef }
 	| { kind: "select-message"; messageId: string; entityRef: EntityRef }
 	/** Sweep a rectangle and commit what it covers into the selection. Two
-	 *  surfaces start one — the empty stage and an empty timeline lane — so the
+	 *  surfaces start one, the empty stage and an empty timeline lane, so the
 	 *  verb names the gesture and the hit says where it happened. */
 	| { kind: "rubber-band"; mode: RubberBandMode }
 	| { kind: "scrub" }
 	| { kind: "pan-view" } // overview drag
-	/** `eventId` is null for a pill no observation names — see the hit's own
+	/** `eventId` is null for a pill no observation names, see the hit's own
 	 *  note in § 2.3's union above. */
 	| {
 		kind: "select-or-drag-event";
@@ -367,7 +367,7 @@ export type DefaultVerb =
 
 /**
  * A tool that picks two nodes in turn: one click arms a node, the next names
- * its partner. One list, so a third such tool is added in one place — and
+ * its partner. One list, so a third such tool is added in one place, and
  * `isTwoClickTool` is its runtime reading, for the surfaces that hold a
  * `BuilderTool` and need to know which kind they have.
  */
@@ -382,11 +382,11 @@ export type ToolCreateVerb =
 	| {
 		kind: "two-click-pick";
 		tool: TwoClickTool;
-		/** The stage node picked. A peer, or — for `send-message` — an end
-		 *  nothing has attributed; the two share one node namespace.
+		/** The stage node picked. A peer, or, for `send-message`, an end
+		 *  nothing has attributed. The two share one node namespace.
 		 *
 		 *  First-pick vs second-pick disambiguated by the adapter via
-		 *  `toolState` — when null this is the first pick; when non-
+		 *  `toolState`, when null this is the first pick, when non-
 		 *  null with matching tool this is the second. */
 		nodeId: string;
 	};
@@ -395,7 +395,7 @@ export type ResolvedGesture =
 	| { tier: "space-pan"; verb: { kind: "pan-surface" } }
 	| { tier: "hand-tool"; verb: { kind: "pan-surface" } }
 	| { tier: "tool-create"; verb: ToolCreateVerb }
-	/** The active tool claims this surface and declines it — a stage node the
+	/** The active tool claims this surface and declines it. A stage node the
 	 *  tool cannot use. It carries no verb because nothing happens: no ring
 	 *  lights, no click acts, and the cursor says so before the click rather
 	 *  than an error saying so after it.
@@ -440,7 +440,7 @@ export type FsmForeground =
 
 export type PointerMachineState = {
 	fsm: FsmForeground;
-	/** Hover tracking — updated on every pointer-move regardless of
+	/** Hover tracking, updated on every pointer-move regardless of
 	 *  fsm. Read by cursor / status-hint derivations. */
 	hover: { surface: SurfaceId; hit: Hit } | null;
 };
@@ -467,8 +467,8 @@ export type PointerEvent_ =
 	| {
 		kind: "pointer-up";
 		snapshot: PointerSnapshot;
-		/** Up-time context; used to re-resolve the click verb if no
-		 *  drag occurred (D — modifier-at-up wins for click). */
+		/** Up-time context. Used to re-resolve the click verb if no
+		 *  drag occurred (D, modifier-at-up wins for click). */
 		ctxAtUp: GestureContext;
 	}
 	| { kind: "space-down" }

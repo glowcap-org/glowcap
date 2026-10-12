@@ -265,16 +265,22 @@ def check_web_and_directory(deadline, image):
 
 def check_session(deadline, image):
     name = container_name("session")
-    ready = "/session-state/admin.sturdyref"
+    volume = container_name("session-state")
+    ready = "/run/rooms-session/admin.sturdyref"
     passed = False
     try:
-        started = run(
-            deadline, "docker", "run", "--detach", "--name", name,
-            "--entrypoint", "/runtime/bin/glowcap", image,
-            "apps", "rooms", "session", "serve", "--dir=/session-state",
-            "--transport=tcp", "--reachability=direct", f"--readiness-file={ready}",
-        )
-        assert started.stdout.strip(), "Docker did not return a session container ID"
+        run(deadline, "docker", "volume", "create", volume)
+
+        def start():
+            started = run(
+                deadline, "docker", "run", "--detach", "--name", name,
+                "--mount", f"type=volume,source={volume},target=/session-state",
+                "--tmpfs", "/run/rooms-session:mode=0700",
+                "--entrypoint", "/runtime/bin/glowcap", image,
+                "apps", "rooms", "session", "serve", "--dir=/session-state",
+                "--transport=iroh", "--reachability=discovery", f"--readiness-file={ready}",
+            )
+            assert started.stdout.strip(), "Docker did not return a session container ID"
 
         def readiness():
             return run(
@@ -283,15 +289,42 @@ def check_session(deadline, image):
                 check=False,
             )
 
+        def management():
+            return run(deadline, "docker", "exec", name, "/runtime/bin/glowcap",
+                       "apps", "rooms", "session", "ready",
+                       "--file=/session-state/control.sturdyref").stdout.strip()
+
+        start()
         capability = wait_for(deadline, "Rooms session", readiness, name).stdout.strip()
         assert capability.startswith("ocapn://"), capability
+        control = management()
+        assert control != capability, "management shares the workspace publication"
+        run(deadline, "docker", "restart", "--time", "5", name)
+        assert wait_for(deadline, "restarted Rooms session", readiness, name).stdout.strip() == capability, (
+            "container restart changed the session locator or workspace publication"
+        )
+        assert management() == control, "container restart changed session management"
+        stop(name, True)
+        start()
+        assert wait_for(deadline, "recreated Rooms session", readiness, name).stdout.strip() == capability, (
+            "container recreation changed the session locator or workspace publication"
+        )
+        assert management() == control, "container recreation changed session management"
         passed = True
     except Exception:
         logs = cleanup_run("docker", "container", "logs", name)
         sys.stderr.write(f"session container logs:\n{logs.stdout}{logs.stderr}")
         raise
     finally:
-        stop(name, passed)
+        try:
+            stop(name, passed)
+        finally:
+            removed = cleanup_run("docker", "volume", "rm", volume)
+            if removed.returncode != 0:
+                message = f"could not remove owned session volume {volume}: {removed.stderr}"
+                if passed:
+                    raise AssertionError(message)
+                sys.stderr.write(message + "\n")
 
 
 def main():
@@ -304,7 +337,7 @@ def main():
         inspect_runtime_inventory(deadline, image, Path(temporary))
         check_web_and_directory(deadline, image)
         check_session(deadline, image)
-    print("glowcap-image: bounded image, exact product inventory, browser, directory and session passed")
+    print("glowcap-image: bounded image, exact product inventory, browser, directory and durable session restart passed")
 
 
 if __name__ == "__main__":

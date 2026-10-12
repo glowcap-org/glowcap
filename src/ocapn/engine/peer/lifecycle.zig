@@ -22,7 +22,7 @@ pub const NegotiatingOptions = struct {
     /// Verify the partner's `op:start-session` signature. Stub-key in-process
     /// fixtures are the only callers that disable it.
     verify_partner_handshake: bool = true,
-    /// Shared staged-plus-encoded outbound ceiling; null leaves a raw Peer
+    /// Shared staged-plus-encoded outbound ceiling. Null leaves a raw Peer
     /// unlimited until a Host installs its explicit waterline.
     outbound_high_water_bytes: ?usize = null,
 };

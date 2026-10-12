@@ -68,7 +68,7 @@ export function provider(config: IrohConfig): import("@glowcap/runtime").DriverP
 }
 
 /** Configure an explicit byte-fed iroh connector. Native applications should
- * normally prefer `provider`; this form is for embedders that deliberately own
+ * normally prefer `provider`; this form is for embedders that own
  * the channel pump. */
 export function connector(config: IrohConfig): Connector {
 	return new Connector([TRANSPORT_IROH], async (host, loc, request) => {
@@ -144,7 +144,7 @@ export async function _connectIroh(
 	// and releases the sidecar connection, stops the readiness loop (closing
 	// the dup'd fd), and releases the netlayer. The connection is minted
 	// against `host`, so the session's identity (a give's `recipient_key`) and
-	// the host's live-session directory agrees — what a three-party handoff requires
+	// the host's live-session directory agrees. A three-party handoff requires this
 	// (ADR-0009/ADR-0056).
 	const transport = new IrohChannel(conn, loop, netlayer, true);
 	const cancelTransport = (): void => {
@@ -242,7 +242,7 @@ export class IrohServer extends DriverServer {
  * because `reachability` is (see `IrohConfig`). `secretSeed` is a 32-byte
  * Ed25519 secret key for a stable endpoint id, or omitted for a fresh random
  * one shared with the `Host`. Pass `host` only when it was built from the same
- * seed — one identity for netlayer and session (ADR-0075). The no-Host path
+ * seed, so netlayer and session share one identity (ADR-0075). The no-Host path
  * registers the endpoint with the generic native loop. A supplied Host is
  * transferred to that loop transactionally. Needs the iroh ABI library
  * (`zig build iroh-abi`).

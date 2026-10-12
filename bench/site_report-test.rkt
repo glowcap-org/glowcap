@@ -101,7 +101,7 @@
       (check-equal? (car (hash-ref (hash-ref g "echo") 'goblins)) 0.36)
       (check-equal? (cdr (hash-ref (hash-ref g "echo") 'goblins)) 2077)
       (check-equal? (cdr (hash-ref (hash-ref g "taskboard") 'glowcap)) 2430)
-      ;; The third series — glowcap with time-travel on for all actors — parses
+      ;; The third series, glowcap with time-travel on for all actors, parses
       ;; (the longer backend name must not be swallowed by the `glowcap` prefix).
       (check-equal? (car (hash-ref (hash-ref g "echo") 'glowcap-tt)) 0.07)
       (check-equal? (cdr (hash-ref (hash-ref g "taskboard") 'glowcap-tt)) 2300)
@@ -116,9 +116,9 @@
       (check-equal? (car (hash-ref p 'by_objects)) (list 64 1125 2292))
       (check-equal? (car (hash-ref g 'by_objects)) (list 64 7750 3667))
       (define region (snapshot-region p g))
-      ;; Snapshot and restore stay; the divergence chart and its mutable-vs-
-      ;; persistent vocabulary were pulled off the public page — that detail
-      ;; lives only in the benchmark programs' own .md reports now.
+      ;; The page shows snapshot and restore. The divergence chart and its
+      ;; mutable-vs-persistent vocabulary live only in the benchmark programs'
+      ;; .md reports.
       (check-true (regexp-match? #px"Snapshot \\(µs by actor count\\)" region))
       (check-true (regexp-match? #px"shared O\\(objects\\) trend" region))
       (check-false (regexp-match? #px"Divergence|glowcap mutable|glowcap persistent|entries / actor" region)))

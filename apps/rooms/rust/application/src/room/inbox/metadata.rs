@@ -18,6 +18,7 @@ pub enum Metadata<T> {
 	Presence(Presence<T>),
 	Facts(Facts<T>),
 	Receipt(u64),
+	Operation(T),
 }
 impl<T> Metadata<T> {
 	pub fn map<U>(self, mut f: impl FnMut(T) -> U) -> Metadata<U> {
@@ -25,6 +26,7 @@ impl<T> Metadata<T> {
 			Self::Presence(value) => Metadata::Presence(value.map(f)),
 			Self::Facts(value) => Metadata::Facts(value.map(&mut f)),
 			Self::Receipt(request) => Metadata::Receipt(request),
+			Self::Operation(operation) => Metadata::Operation(f(operation)),
 		}
 	}
 }
@@ -41,6 +43,7 @@ pub enum Presence<T> {
 	Roster { names: Vec<T> },
 	Join { name: T },
 	Leave { name: T },
+	Offline { names: Vec<T> },
 	Away { name: T, reason: T },
 	// Keep bridge-only seat details out of every ordinary queued line.
 	Seat(Box<Seat<T>>),
@@ -99,6 +102,14 @@ pub fn presence<A: ArgumentView>(args: &[A]) -> Option<Presence<&str>> {
 		crate::protocol_data::LEAVE => Presence::Leave {
 			name: text(args, 3, 32, false)?,
 		},
+		crate::protocol_data::OFFLINE if args.len() - 3 <= crate::server::rooms::MAX_ROOM_OFFLINE => {
+			Presence::Offline {
+				names: args[3..]
+					.iter()
+					.map(|a| a.text().filter(|s| !s.is_empty() && bounded(s, 32)))
+					.collect::<Option<Vec<_>>>()?,
+			}
+		}
 		crate::protocol_data::AWAY => Presence::Away {
 			name: args.get(3)?.text()?,
 			reason: args.get(4).and_then(ArgumentView::text).unwrap_or(""),
@@ -155,6 +166,9 @@ impl<T> Presence<T> {
 			},
 			Self::Join { name } => Presence::Join { name: f(name) },
 			Self::Leave { name } => Presence::Leave { name: f(name) },
+			Self::Offline { names } => Presence::Offline {
+				names: names.into_iter().map(f).collect(),
+			},
 			Self::Away { name, reason } => Presence::Away {
 				name: f(name),
 				reason: f(reason),
@@ -181,7 +195,7 @@ impl<T> Presence<T> {
 	}
 	pub fn visit(&self, mut f: impl FnMut(&T)) {
 		match self {
-			Self::Roster { names } => names.iter().for_each(f),
+			Self::Roster { names } | Self::Offline { names } => names.iter().for_each(f),
 			Self::Join { name } | Self::Leave { name } => f(name),
 			Self::Away { name, reason } => {
 				f(name);

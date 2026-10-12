@@ -3,7 +3,7 @@
  *
  * A leaf: no React, no tokens, no engine. It sits apart from
  * `identifier.tsx` (which re-exports it, so panels keep one import) because
- * the stage needs the same shortening with no DOM in sight — the label a
+ * the stage needs the same shortening with no DOM in sight. The label a
  * node wears is measured by the layout solver long before anything draws it.
  */
 

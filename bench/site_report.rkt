@@ -9,7 +9,7 @@
 ;; `<!-- bench:<name> -->` markers, the same "tool writes into a committed
 ;; file" pattern as gen-header. Surrounding prose is left untouched. There is no
 ;; stale-check: bench numbers vary by machine, so the page is a dated snapshot
-;; you refresh on purpose, not a gated invariant.
+;; you refresh, not a gated invariant.
 ;;
 ;; Parsers and renderers are pure and exercised by site_report-test.rkt; only
 ;; `main` runs benches and writes the file.

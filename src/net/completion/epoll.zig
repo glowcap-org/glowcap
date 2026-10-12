@@ -55,7 +55,7 @@ pub const Backend = struct {
     ready: completion.ReadyQueue,
     /// A control failure discovered after an operation already completed.
     /// The completion is returned first so the loop can retire its borrow and
-    /// accounting; the next poll reports this exact backend failure.
+    /// accounting. The next poll reports this exact backend failure.
     deferred_error: ?anyerror = null,
     buffer_pool: BufferPool,
     listener_ip4: [4]u8,
@@ -198,11 +198,17 @@ pub const Backend = struct {
         if (events == 0) std.debug.assert(self.pending.remove(fd));
     }
 
-    /// Submissions register with epoll as they are made; nothing waits.
+    /// Submissions register with epoll as they are made. Nothing waits.
     pub fn flush(_: *Backend) !void {}
 
     /// Nothing here waits on a timer: every completion arrives through the
     /// descriptor.
+    /// A platform listener is bound when `openListener` returns; nothing
+    /// pends.
+    pub fn listenerPending(_: *const Backend, _: Fd) bool {
+        return false;
+    }
+
     pub fn waitBoundMs(_: *const Backend, requested_ms: i32) i32 {
         return requested_ms;
     }
@@ -528,7 +534,7 @@ pub const Backend = struct {
         };
     }
 
-    /// The interface every listener binds; `openListener` chooses only the
+    /// The interface every listener binds. `openListener` chooses only the
     /// port.
     pub fn listenerIp4(self: *const Backend) [4]u8 {
         return self.listener_ip4;

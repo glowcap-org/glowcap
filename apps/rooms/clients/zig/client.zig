@@ -321,7 +321,7 @@ fn dialIroh(io: std.Io, allocator: std.mem.Allocator, uri: []const u8, state: *S
 }
 
 /// One caller-owned peer and its bounded frame buffers, shared by TCP and
-/// iroh. `BlockingSession` is the transport-neutral one-connection face; the
+/// iroh. `BlockingSession` is the transport-neutral one-connection face. The
 /// owning `Session` face multiplexes pollable sockets and therefore is not the
 /// contract for an iroh userspace stream.
 fn dialVia(
@@ -382,9 +382,9 @@ fn membershipSeatFromArg(arg: model.Argument) !actors.Ref {
 /// Enter-or-open lives here because it materializes settled outcomes through the
 /// Zig driver's blocking `session.call`; see `_demo/rooms_cli.{py,rkt,rs}` for the
 /// same CLI leniency in other languages.
-/// Enter the named room, opening it if it does not exist. The wire stays strict
-/// — `enter` breaks if there is no such room, `open` breaks if the name is taken
-/// — so this tries `enter`, falls back to `open`, and on a creation race falls
+/// Enter the named room, opening it if it does not exist. The wire stays strict (
+/// `enter` breaks if there is no such room, `open` breaks if the name is taken)
+/// so this tries `enter`, falls back to `open`, and on a creation race falls
 /// back to `enter` once more. The settled outcomes are materialized into a
 /// scratch arena that frees here; the returned far ref is POD and outlives it.
 fn enterOrOpen(session: *driver.BlockingSession, allocator: std.mem.Allocator, directory: actors.Ref, room_name: []const u8) !actors.Ref {

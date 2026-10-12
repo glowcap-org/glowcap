@@ -16,16 +16,13 @@ amended_by: [ADR-0162]
 Functional `become` (ADR-0060) lets a persistent actor produce its next state
 without mutating in place, which is what makes its snapshots pure
 pointer-sharing. But if the actor rebuilds its whole state value every turn,
-`become` is O(size), losing the cheap _incremental_ mutation Goblins gets from
-Racket's persistent data structures. To make `become` O(log n) with structural
-sharing: and to back the map-shaped benchmark apps (registry, mint/purse, task
-board): glowcap needs a persistent immutable map.
+`become` is O(size), losing the incremental mutation Goblins gets from Racket's
+persistent data structures. To make `become` O(log n) with structural sharing,
+and to back the map-shaped benchmark apps (registry, mint/purse, task board),
+glowcap needs a persistent immutable map.
 
-The risk this engages is scope: glowcap is "a native Zig OCapN/CapTP substrate,"
-and a collections library is the part of the time-travel work that most
-stretches that. This ADR settles the containment so the addition holds the
-vision line rather than trading it for a general-purpose library nobody asked
-the substrate to own.
+A collections library stretches glowcap's scope as an OCapN/CapTP substrate, so
+this ADR contains the addition.
 
 ## Decision
 
@@ -37,15 +34,14 @@ version, so a persistent actor that stores its state in it gets O(log n)
 snapshot. Non-atomic refcounts suffice for the same reasons as ADR-0060: the vat
 is single-threaded and the immutable trie is acyclic.
 
-Containment is the decision as much as the structure:
+Containment is part of the decision:
 
-- It is a **sharp leaf module**, not a general collections package: one
-  `PersistentMap`, no persistent vector or set (those are follow-on work, not
-  built here).
+- It is a leaf module, not a general collections package: one `PersistentMap`,
+  with no persistent vector or set.
 - It supports actor snapshots through `glowcap.loam.collections.PersistentMap`.
   Direct internal consumers import `loam_collections`. Both paths use the same
-  leaf; neither requires a store, a backend, or managed resource state.
-- It **imports nothing from the protocol layers**. It is a `core` layer in
+  leaf. Neither requires a store, a backend, or managed resource state.
+- It imports nothing from the protocol layers. It is a `core` layer in
   build.zig's `layer_table` with an empty import set, so the actor-layer import
   law (ADR-0040) is untouched and `arch-check`, the architecture rule layer
   list, and [`docs/architecture.md`](../../../docs/architecture.md) gain the
@@ -55,18 +51,16 @@ Containment is the decision as much as the structure:
 
 - **No general collections library.** Only the map exists. A persistent vector,
   set, or ordered map is not implemented.
-- **Not required by the vat itself.** The Vat does not import `loam_collections`;
-  functional `become` works with any state type. The map only makes a large
+- **Not required by the vat.** The Vat does not import `loam_collections`, and
+  functional `become` works with any state type. The map makes a large
   persistent actor's `become` cheap.
 
 ## Alternatives Considered
 
 - **Put the map in `foundation`.** Rejected: `foundation` owns bytes, IDs, and
-  frame ownership; a persistent map is the wrong semantic neighbor and would
-  blur that module's responsibility.
-- **Skip it; rebuild actor state each `become`.** Rejected: O(size) `become`
-  loses the incremental cheapness that is the whole point of tier 3, and the
-  benchmark could not show parity with Goblins's structural sharing.
+  frame ownership, and a persistent map would blur that.
+- **Skip it and rebuild actor state each `become`.** Rejected: O(size) `become`
+  loses the incremental cost that tier 3 exists for.
 
 ## Consequences
 

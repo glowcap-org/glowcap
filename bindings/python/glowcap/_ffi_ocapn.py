@@ -3,18 +3,18 @@ archive.
 
 Nothing here is public. The ergonomic surface in :mod:`glowcap` reaches the
 symbols through ``_lib`` and the ctypes ``Structure`` types this module
-defines; a consumer never imports this module. Keeping the ctypes layer in one
+defines. A consumer never imports this module. Keeping the ctypes layer in one
 internal module per archive is what lets the public package read as just the
 connection/value API it offers.
 
-This module loads exactly one archive, ``libglowcap_ocapn`` (ADR-0059): the
-shared ``glowcap_*`` vocabulary — context, the locator grammar, the ABI
+This module loads one archive, ``libglowcap_ocapn`` (ADR-0059): the
+shared ``glowcap_*`` vocabulary: context, the locator grammar, the ABI
 version, ``glowcap_last_error``, and the managed-frame release. The driver and
 transport archives are symbol-disjoint companions, each loaded by its own
 internal module (:mod:`glowcap._ffi_host`, :mod:`glowcap._ffi_tcp`,
 :mod:`glowcap._ffi_inproc`, :mod:`glowcap._ffi_iroh`). They reuse the
-``Structure`` types defined here by *layout* — the same way the C headers
-share ``glowcap_ocapn.h`` — so importing one transport never loads another.
+``Structure`` types defined here by *layout*, the same way the C headers
+share ``glowcap_ocapn.h``, so importing one transport never loads another.
 """
 
 from __future__ import annotations
@@ -206,7 +206,7 @@ def _read_last_error(fn) -> str | None:
     """Read an archive's thread-local last-error slot into a string, or ``None``
     when empty. ``fn`` is the archive's two-pass C reader ``(buffer, cap) ->
     length``: probe the length with a NULL buffer, then copy into a right-sized
-    buffer. Every archive family — core, the driver, the transports — reads its
+    buffer. Every archive family, core, the driver, the transports, reads its
     own slot through this, so the two-pass discipline lives in one place."""
     length = fn(None, 0)
     if length == 0:

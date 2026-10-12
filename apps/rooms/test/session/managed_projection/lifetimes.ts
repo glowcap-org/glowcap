@@ -2,7 +2,40 @@
 import { assert, assertEquals } from "../../assert.ts";
 import * as store from "../../../web/ui/store.ts";
 import { dirId } from "../../../web/ui/types.ts";
-import { fixture, room } from "./fixture.ts";
+import { direct, fixture, room } from "./fixture.ts";
+
+for (const target of [room, direct]) {
+	for (const saved of [false, true]) {
+		Deno.test(`explicit ${target().kind} selection leaves directory view, saved selection: ${saved}`, () => {
+			const f = fixture();
+			try {
+				const view = store.ensureDirectory(f.page.projection, dirId("directory"));
+				store.switchTo(f.page.projection, view.key);
+				store.setDraft(f.page.projection, "/help");
+				const row = { ...target(), id: "new-conversation" };
+				f.current.intent.conversations.push(row);
+				if (saved) f.current.intent.active = row.id;
+				f.apply();
+				assertEquals(store.activeConv(f.page.projection)?.key, view.key);
+				f.navigation.choice = { id: row.id, operation: "first-choice" };
+				f.projection.apply();
+				assertEquals(f.selected().persistId, row.id);
+				assertEquals(store.draftFor(f.page.projection, view.key).text, "/help");
+				// A pending selection save must not undo a subsequent directory choice.
+				store.switchTo(f.page.projection, view.key);
+				f.apply();
+				assertEquals(store.activeConv(f.page.projection)?.key, view.key);
+				// Choosing the same room again is a new gesture, even while its
+				// earlier selection receipt still waits for acknowledgment.
+				f.navigation.choice = { id: row.id, operation: "next-choice" };
+				f.projection.apply();
+				assertEquals(f.selected().persistId, row.id);
+			} finally {
+				f.close();
+			}
+		});
+	}
+}
 
 for (const retirement of ["notice", "snapshot", "replacement"] as const) {
 	Deno.test(`managed room line numbers retire with membership: ${retirement}`, () => {
@@ -139,6 +172,93 @@ Deno.test("choosing a different directory nickname does not report an outage", (
 		assertEquals(view?.requestedNick, "bo");
 		assertEquals(view?.session, "connected");
 		assertEquals(view?.statusText, "");
+	} finally {
+		f.close();
+	}
+});
+
+for (const change of ["kind", "directory", "name", "publication", "unpublish"] as const) {
+	Deno.test(`managed ${change} preserves only the same persistent conversation`, () => {
+		const f = fixture();
+		try {
+			const before = f.selected();
+			store.deliver(
+				f.page.projection,
+				before.key,
+				store.chatItem(f.page.projection, "bo", "old identity", false),
+			);
+			f.stage("old recipient draft");
+			const row = f.current.intent.conversations[0];
+			assert(row.kind === "room", "managed projection contract");
+			if (change === "kind") f.current.intent.conversations = [direct()];
+			if (change === "name") row.name = "renamed room";
+			if (change === "unpublish") {
+				delete row.publication;
+				delete row.publicEntry;
+			}
+			if (change === "publication") {
+				row.publicEntry = { access: "directory-access" };
+				row.publication = "another-publication";
+			}
+			if (change === "directory") {
+				row.directory = "another-directory";
+				f.current.intent.directories.push({
+					...f.current.intent.directories[0],
+					id: row.directory,
+					home: false,
+				});
+			}
+			f.apply();
+			const after = f.selected();
+			assertEquals(after.persistId, before.persistId);
+			if (change === "kind" || change === "directory") {
+				assertEquals(store.historyOf(f.page.projection, after.key), []);
+				assertEquals(
+					store.draftFor(f.page.projection, after.key).text,
+					f.current.intent.conversations[0].draft,
+				);
+			} else {
+				assertEquals(store.historyOf(f.page.projection, after.key).length, 1);
+				assertEquals(after.key, before.key);
+				assertEquals(store.draftFor(f.page.projection, after.key).text, "old recipient draft");
+			}
+		} finally {
+			f.close();
+		}
+	});
+}
+
+Deno.test("room traffic cannot enable the composer before the accepted seat, and late installation restores it", () => {
+	const row = room();
+	assert(row.kind === "room", "room fixture");
+	row.inbox = "joining-inbox";
+	const f = fixture(row);
+	try {
+		f.projection.activity({
+			cursor: "early",
+			event: {
+				target: { kind: "room", id: row.id },
+				notice: { kind: "line", from: "bo", text: "already here" },
+			},
+		});
+		assertEquals((f.selected() as import("../../../web/ui/types.ts").RoomConv).membership === "joined", false);
+		f.apply();
+		row.seat = "accepted-seat";
+		f.apply();
+		assertEquals((f.selected() as import("../../../web/ui/types.ts").RoomConv).membership, "joined");
+		f.projection.activity({
+			cursor: "ended",
+			event: {
+				target: { kind: "room", id: row.id },
+				notice: { kind: "ended" },
+			},
+		});
+		f.apply();
+		assertEquals((f.selected() as import("../../../web/ui/types.ts").RoomConv).membership, "unavailable");
+		row.inbox = "replacement-inbox";
+		row.seat = "replacement-seat";
+		f.apply();
+		assertEquals((f.selected() as import("../../../web/ui/types.ts").RoomConv).membership, "joined");
 	} finally {
 		f.close();
 	}

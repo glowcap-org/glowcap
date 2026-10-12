@@ -1,10 +1,9 @@
-// The rail: the lists of rooms and direct messages, the field that names a
+// The sidebar: the lists of rooms and direct messages, the field that names a
 // new one, the filter over them, and the foot with the reader's own name.
 //
-// Most of these are what a control says aloud rather than what it shows,
-// because the rail is dense and a screen reader gets no punctuation to tell
-// two halves of a name apart. Moved here verbatim from the rail's components
-// so the product's voice can be read in one place.
+// Most of these are what a control says aloud rather than what it shows. The
+// sidebar is dense, and a screen reader gets no punctuation to tell two halves
+// of a name apart.
 
 /** The field that names a room, and the control beside it. */
 export function railCreateOrOpenIn(where: string): string {
@@ -42,7 +41,7 @@ export const dmJoinARoomFirst = "Join a room to message someone from the roster.
 export const dmStart = "Start a direct message";
 export const dmMemberNamePlaceholder = "member name";
 
-/** The filter over the rail. */
+/** The filter over the sidebar. */
 export const filterNameLabel = "Name";
 export const filterNamePlaceholder = "part of a name";
 export const filterDirectoryLabel = "Directory";
@@ -53,10 +52,21 @@ export const filterUnread = "Unread";
 export const filterCaughtUp = "Caught up";
 export const filterNothingToChoose = "Nothing to choose from yet";
 export function filterChangeSaid(title: string, count: string): string {
-	return `${title}. Change what the rail shows. ${count}`;
+	return `${title}. Change what the sidebar shows. ${count}`;
 }
 export function filterChooseSaid(title: string): string {
-	return `${title}. Choose what the rail shows. Nothing is hidden`;
+	return `${title}. Choose what the sidebar shows. Nothing is hidden`;
+}
+/** How much of the sidebar is on screen, as the two numbers alone. The heading
+ * has room for these and not for a sentence. */
+export function filterCount(shown: number, total: number): string {
+	return `${shown} of ${total}`;
+}
+/** The same fact written out, for a reader who hears the name rather than
+ * sees the badge. Both come from `filterCount`, so what is seen and what is
+ * said match. */
+export function filterCountSaid(shown: number, total: number): string {
+	return `${filterCount(shown, total)} shown`;
 }
 export const filterShowEverything = "Show everything";
 
@@ -71,8 +81,8 @@ export function footReleaseName(nick: string, where: string): string {
 export function footReleasedName(nick: string, where: string): string {
 	return `Released ${nick} on ${where}.`;
 }
-/** The names are already a comma list, so the turn to where you are needs
- * the one separator a comma cannot be. */
+/** The names are already a comma list, so where you are starts a new
+ * sentence, which a screen reader pauses on. */
 export function footStandingLabel(who: string, said: string): string {
-	return `${who} — where you are: ${said}`;
+	return `${who}. Where you are: ${said}`;
 }

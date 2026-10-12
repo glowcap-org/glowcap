@@ -35,7 +35,7 @@ pub fn Machine(comptime Self: type) type {
         const Listener = Self.Listener;
         const Fd = Self.Fd;
 
-        /// Keep the first resident-wide failure; `drain_ready` reports it.
+        /// Keep the first resident-wide failure. `drain_ready` reports it.
         pub fn latch(self: *Self, err: anyerror) void {
             if (self.failure == null) self.failure = err;
         }

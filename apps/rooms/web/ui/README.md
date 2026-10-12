@@ -7,7 +7,7 @@ on the wire.
 
 ## Layout
 
-The page has two columns. On the left is a rail listing rooms and direct lines. On the right is the workarea for the
+The page has two columns. On the left is a sidebar listing rooms and direct lines. On the right is the workarea for the
 conversation you have open: a topbar, the message log, and the composer at the bottom.
 
 - **The conversation card.** Pressing the room or direct-message name in the topbar opens a card with what this tab
@@ -21,8 +21,8 @@ conversation you have open: a topbar, the message log, and the composer at the b
 
 Visual rules:
 
-- The topbar stripe and the welcome card take their color from the rail row that opened the conversation. The rail
-  header's teal-to-orange fade never changes, and orange controls stay orange.
+- The topbar stripe and the welcome card take their color from the sidebar row that opened the conversation. The
+  sidebar header's teal-to-orange fade never changes, and orange controls stay orange.
 - Wrapped prose on a card, a notice, or the welcome panel never ends with a single word on its last line. A heading on a
   card breaks into even halves.
 - A long refusal shows two lines where it appeared, and Show opens the rest on its own card.
@@ -44,16 +44,16 @@ Vite splits the code at the points where a reader is already waiting for somethi
 
 - The opening screen in `page.html` covers the boot module, the Wasm runtime, and whichever comes next: the session
   choice or the session shell. That next chunk starts loading as soon as the page knows which one it needs, so the
-  splash screen never fades into a second wait.
-- Once a session exists, Operations is its own chunk, and each pane is another. The directory pane's shell stays in the
+  splash screen does not fade into a second wait.
+- Once a session exists, Operations is its own chunk, and each page is another. The directory page's shell stays in the
   Operations chunk, so opening it does not show two loading shimmers in a row.
 - Help's parts catalog is the last chunk.
-- Hovering or focusing the control that opens a chunk starts its download. A failed prefetch stays silent; if the chunk
+- Hovering or focusing the control that opens a chunk starts its download. A failed prefetch stays silent. If the chunk
   is still missing, opening the surface is what explains it.
 - If `import()` refuses a required chunk, the opening screen is marked lost. That rejection does not reach the window's
   error handler, so the page handles it directly.
-- While a chunk loads, the page shows the same quiet shimmer a pane uses while waiting for its first answer from the
-  server.
+- While a chunk loads, the page shows the same quiet shimmer an Operations page uses while waiting for its first answer
+  from the server.
 
 The component folders follow visual ownership:
 
@@ -67,7 +67,7 @@ The component folders follow visual ownership:
 State lives in three places:
 
 - **The store.** One Zustand store holds the facts the page draws, and components subscribe through `useRoomsState`
-  selectors. It has no persistence middleware and holds no live capability. Rust holds every reference; the store holds
+  selectors. It has no persistence middleware and holds no live capability. Rust holds every reference. The store holds
   only what to draw.
 - **The component.** State that belongs to one control stays in that component, such as an open emoji tray or the
   composer caret.
@@ -76,7 +76,7 @@ State lives in three places:
 
 ## Shared form parts
 
-Every card and pane builds its forms from one set of parts. The styles are in `forms.css`, beside the components
+Every card and page builds its forms from one set of parts. The styles are in `forms.css`, beside the components
 `Field`, `Confirm`, `ModalHead`, and `Button`. Help's parts catalog shows each part next to the others.
 
 ### Fields
@@ -99,7 +99,9 @@ control.
 ### Actions and confirmation
 
 The actions a surface offers sit in an `actions` row at the end of the line they belong to, with the committing action
-last. Only a card's own footer spans the full width.
+last. Only a card's own footer spans the full width. A row holds at most two acts, which fit a card on any screen. A
+well that offers more gives each its own line with `EntryActs`: the subject, then its one act at the column's right
+edge. An act that answers a status, such as Reconnect, sits on the line that states it.
 
 When one slot shows different actions by state, each gets its own `key`. React otherwise reuses the element, and a click
 that changes the state runs its default action on the new one, so a Done that becomes a submit button submits the form.
@@ -118,7 +120,7 @@ out and stays inside the card. Choosing to keep returns focus to the action that
   row may hold what its answer opens, such as the checkboxes under Custom, lined up with the row's words.
 - **Sections** are an overline title over a `well`.
 
-Session setup, the Session, Holdings, and Reachability tabs, the room and directory cards, and every Operations pane use
+Session setup, the Session, Holdings, and Reachability tabs, the room and directory cards, and every Operations page use
 only these parts. A form in one of them looks like a form in all the others.
 
 The Settings tabs are divided by subject:
@@ -141,9 +143,9 @@ above that form, so the reader sees what is at stake where they left it.
 A file picker is a `FilePick`: the platform's own file input, made transparent and laid over a face the page draws. The
 page does this because the platform's control cannot be styled.
 
-## The operator pane
+## The operator page
 
-The operator pane is built for a directory with more rows than fit on one page.
+The operator page is built for a directory with more rows than fit on one page.
 
 - Each inventory offers its rows as sources with two parts: the lowercased text a search matches, which every row
   provides, and the work of building the row, which only rows on the requested page pay for.
@@ -156,8 +158,8 @@ The operator pane is built for a directory with more rows than fit on one page.
 
 ## How a form decides its answers
 
-An empty field is an answer to a question, not leftover state. Opening a room from a link, pressing "add a room" in the
-rail, and loading the page fresh ask different questions, and one saved form cannot answer all three.
+An empty field is an answer to a question. Opening a room from a link, pressing "add a room" in the
+sidebar, and loading the page fresh ask different questions, and one saved form cannot answer all three.
 
 `intent.ts` decides. Every surface that can put a question in front of the reader files an **act**: a record of where
 the reader came from and what that names. Each field then takes its value from the strongest evidence available:
@@ -195,7 +197,7 @@ value across screens needs one.
 The join card, in `joining.ts`, is where this is used.
 
 - It states what it is answering once, in its opening line. A card reached by following an address is answering that
-  address. A card opened from the rail is not answering anything in particular.
+  address. A card opened from the sidebar is not answering anything in particular.
 - Pasting a room link into the locator field retitles that field and redeems the link, instead of asking for a room name
   on a peer.
 - While the named directory has not yet answered this tab, the card's one button is Connect. Pressing it waits for an
@@ -210,12 +212,19 @@ The connection words separate a directory that never answered from one that answ
   reconnects, the directory shows not connected, and its card offers Retry connection, which starts a fresh reconnect
   window.
 
-When a directory drops, the rooms you already joined stay in the rail and show not connected. These words describe a
-directory. A person who is not in a room is described as offline.
+When a directory drops, the rooms you already joined stay in the sidebar and show not connected. These words describe a
+directory. The roster lists current room members. Leaving removes that membership,
+while their messages remain. Directory registration and a direct line have their
+own lifetimes, so leaving a room does not disconnect either.
 
-### The rail's room panel
+A direct line displays CLOSED when its saved route has ended and needs a fresh
+introduction. Its history remains readable. Exporter loss closes the exact saved
+DM even if readiness failed. A refused workspace update retains that retirement
+for retry.
 
-While the join card fills the workarea, the rail's room panel is a second view of the same card: one room name, one
+### The sidebar's room panel
+
+While the join card fills the workarea, the sidebar's room panel is a second view of the same card: one room name, one
 lock, one destination. Both read from the card's answers, and a change on either side shows on both.
 
 - Picking a directory in the panel writes the card's locator, just as typing in the panel's field writes the card's room
@@ -238,10 +247,9 @@ preference:
 3. **The surface that owns the claim**, for a condition that stays true. For example, the directory card says so while
    nobody can reach you for direct messages.
 4. **A toast**, for a failure whose home is already gone.
-5. **A modal**, only when nothing can continue until the reader answers. Today that means the join card and taking a
-   capability.
+5. **A modal**, only when nothing can continue until the reader answers. That means the join card and taking a capability.
 
-Logging a failure the reader should see to the console instead is the same as hiding it. `zig build source-check`
+Logging a failure to the console that the reader should see hides it. `zig build source-check`
 refuses a bare `console.error` in the page, except in the three files that own a reader-facing surface of their own.
 
 A success is also shown where the action happened:
@@ -250,28 +258,78 @@ A success is also shown where the action happened:
   put.
 - Or as the well changing into what the action made, such as a link's copy field replacing the button that created it.
 
-A form whose only response to success is that nothing visibly happens has not answered the reader.
+A form that shows nothing on success has not answered the reader.
 
-Work in progress follows the same rule and blocks nothing:
+Pending work belongs to the initiating gesture. `session/managed/lifecycle.ts` records its owner, phase and outcome
+separately. Preparation, admission, settlement, acquisition and completion remain owned through notifications. The
+session-effect bar lists retained operations explicitly left without an owner after a failure or restoration. An
+interrupted reply never proves that a mutation failed.
+Session settings also opens the retained receipt inventory explicitly, including terminal unknown outcomes whose
+observation has ended. An empty inventory says that there are no unfinished changes.
 
-- A space that will be filled shimmers, like an attachment on its way in.
-- A pressed control shows busy in place (`Button`'s `busy`, or a listener switch partway through flipping). Only the
-  pressed control spins; siblings that would race it are disabled.
-- A press that waits runs once, and a second press while it is in flight is the same press. `useAsyncAction` in
-  `async_action.ts` owns the busy state, the refusal, the stop signal, and dropping an answer for a card that has
-  closed.
-- Gestures take turns only to be admitted. Once the session admits one, it settles on its own, so a direct line that
-  takes a while to open never holds back a post. The control that asked keeps spinning until its own work settles, and
-  nothing else on the page waits for it.
-- Controller verbs that tell their own failure, such as leaving, closing, and standing, settle when their work does and
-  never reject. A control awaits one to show busy without catching the failure a second time.
-- An action whose verb takes an `AbortSignal` keeps saying what it is doing and offers a way to stop it
-  (`WorkingAction`, as on the join card and a directory's retry).
-- Work that affects the whole tab is a sentence in the rail's footer ("entering #x…", or the reconnect narration).
-- The word beside a spinner names the action actually running. A peering row that is still publishing says
-  "publishing…", rather than showing its busy state on the Revoke button beside it.
+`session/managed/gestures.ts` covers the generated command inventory. Repeated controls share their submitted request.
+New posts keep distinct operation identities even when their text is equal. Mutations of one line conflict, as do
+retirement and use of its conversation or directory. Independent rooms continue. Only admission takes turns on the
+workspace revision. Settlement and draft synchronization proceed independently. The existing effect limit bounds
+retained gestures. Saturation asks the reader to finish or recover work already held. `local_gestures.ts` checks
+acquisition and controller read coverage. Acquisitions retain at most 32 requests, shared workspace reads at most eight
+workers, and each composer permits one queued submission beside its active send. History keeps one serialized read owner
+and previews use the existing bounded cache. Startup makes one pass over the eight-receipt inventory. The capability
+caller bounds each observation at 15 seconds. The runtime owns its 20-second executor observation windows. The UI adds
+no transient retry loop. Only proved revision conflicts permit up to four admissions, each checked against the original
+selection. Simple workspace settings fence their original value. Retention also fences unfinished erasure.
+Unrelated room supervision leaves these settings available. Diagnostics on a retained operation show its elapsed time, owners and last eight phase transitions without
+storing message bodies or capabilities. Session resource counts include active workers, reads, receipts, listeners and
+subscriptions and return to zero on close.
 
-Every sentence a reader sees lives in `lib/text/`, so the product's voice can be read in one place.
+Presentation follows `presentation.ts`:
+
+| Feedback                                                                                 | Delay                        |
+| ---------------------------------------------------------------------------------------- | ---------------------------- |
+| Pressed control's busy decoration                                                        | 400ms                        |
+| Sending message                                                                          | 1s                           |
+| Joining or reconnecting decoration                                                       | 2s                           |
+| Failure, permission change, disabling a conflicting control, releasing a settled control | Immediate                    |
+| Supported Stop action                                                                    | Immediate, in reserved space |
+
+Each run has a monotonic start time and a retirement token. Background-tab wake reads elapsed time and current state. A
+feedback slot may hand off to a confirmed result for the remainder of its 500ms minimum. A surface without a truthful
+result treatment clears progress immediately. Neither the minimum nor a delayed spinner extends the effect, keeps a
+settled control disabled, or postpones a failure.
+
+`useAsyncAction` owns a control's refusal and cancellation signal. Stop requests cancellation at the worker. Its
+existing run remains shared until it drains. Closing a card drops its presentation, while the session keeps admitted
+work and its original receipt. A committed effect with a failed acquisition recovers that acquisition. A partial file
+send retains its posted line. No recovery path creates a replacement send from the bubble's text.
+
+Text edits project a pending version over the accepted line. A newer accepted update wins when the edit settles.
+Withdrawal hides only the initiating line's pending change. Its place and refusal remain visible. Standing projects
+the pending change over accepted state. Draft synchronization retains editable local text and one persistent retry notice
+inside the composer above its text field. Long diagnostics open through the notice's detail card. Retry requires
+current participation access. A retained committed request completes without opening privileged receipt recovery.
+Access edits keep conflict and uncertain-result recovery beside the original control, with the current name or
+permission summary when the control can inspect a conflicting edit. Recovery remains reachable when refresh
+removes editing powers. Entry action groups wrap within their row on phones.
+Typing expires with its authority and records a bounded diagnostic instead of a toast per keystroke. Sidebar-close and
+archive-drop refusals stay on their rows. Closing a surface or choosing a different conversation prevents a late
+completion from reopening the original controls.
+
+A room post carries a bounded operation identity to its own membership's notification. The page reconciles that identity
+with its optimistic bubble before rendering an echo. Nickname, text and arrival order establish no match. The optimistic
+DOM node survives confirmation. Other viewers' posts remain distinct. Room presentation follows the persistent
+conversation id. Membership generation still retires line authority. Archive refresh preserves unaffected rows, and a
+retired request cannot resurrect a revoked row.
+
+Progress and results use scoped status regions. Refusals use the initiating surface's alert. Keyboard and pointer
+activation share the same guard. Reduced motion changes animation without removing state information or Stop.
+
+`async_action_test.ts` covers cancellation and timing boundaries. The managed admission, acquisition, draft, projection
+and send-receipt suites cover ownership, exact replay, overlap and identity. `rooms-web-responsiveness` runs the
+production page as two people over a delayed transport, observes intermediate DOM mutations, and reports the browser,
+event volume, queue peak and input latency, enforcing 100ms local feedback and 50ms main-thread task budgets on its
+declared profile.
+
+Every sentence a reader sees lives in `lib/text/`.
 `zig build source-check` refuses a reader-facing string literal in a component.
 
 ## Files in the log
@@ -289,7 +347,7 @@ Two things keep the log from jumping as files arrive. The sender measures a pict
 records that size, so a reader reserves the right space before the bytes arrive. That space shimmers while the bytes are
 on their way, so the reader can see a picture is coming.
 
-The viewer is an overlay over the whole interface. It sits beside Settings in `App.tsx`, not inside a message. Clicking
+The viewer is an overlay over the interface. It sits beside Settings in `App.tsx`, not inside a message. Clicking
 its backdrop dismisses it, as does Escape, which dismisses every overlay the same way. It has none of Settings' frame.
-Settings is a panel because it is a form with fields and a title; a picture is the content itself, and a frame would
+Settings is a panel because it is a form with fields and a title. A picture is the content itself, and a frame would
 only take space from it.

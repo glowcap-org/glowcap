@@ -3,7 +3,7 @@ id: ADR-0131
 status: accepted
 date: 2026-08-25
 tags: [rooms, capabilities, persistence, browser, security]
-decision: "A Rooms reader explicitly selects one whole-archive sturdyref in the archive-peer form Settings opens. The browser validates it with a bounded read before an ordered recorder swap, keeps the bearer below presentation state, and stores it in browser local storage only when the reader opts in. An unreachable selected peer becomes visibly unavailable and receives no device-store fallback; retry preserves the original remember choice, while returning to device history is a separate action."
+decision: "A Rooms reader explicitly selects one whole-archive sturdyref in the archive-peer form Settings opens. The browser validates it with a bounded read before an ordered recorder swap, keeps the bearer below presentation state, and stores it in browser local storage only when the reader opts in. An unreachable selected peer becomes visibly unavailable and receives no device-store fallback. Retry preserves the original remember choice, while returning to device history is a separate action."
 supersedes: []
 superseded_by: []
 amends: [ADR-0130]
@@ -26,13 +26,13 @@ without the reader choosing that custody.
 
 ## Decision
 
-The archive-peer form Settings opens accepts an archive sturdyref in a secret input. The page
-parses it, connects, enlivens the object, and makes one bounded `read` before
+The archive-peer form in Settings accepts an archive sturdyref in a secret
+input. The page parses it, connects, enlivens the object, and makes one bounded `read` before
 changing the recorder. One page-owned selection controller serializes candidate
 validation, target activation, selection metadata, and retirement, so concurrent
 submissions cannot leave those facts naming different peers. A failed candidate
 leaves the current recorder untouched. The presentation store receives only a
-label and connection state; the sturdyref, session, and archive reference remain
+label and connection state. The sturdyref, session, and archive reference remain
 with that controller.
 
 Changing targets first drains writes assigned to the old target. Reads already
@@ -50,11 +50,11 @@ remembered peer.
 
 When a remembered peer cannot be reached at startup, the page selects an
 unavailable target and says so. It does not write those lines to IndexedDB.
-(ADR-0144 later separated the read side: an unavailable peer no longer hides
+(Under ADR-0144 the read side differs: an unavailable peer does not hide
 records the device store already holds, because the combined view's per-keeper
-attribution is the merge policy this record's fallback rejection asked for.)
+attribution is the merge policy this fallback rejection called for.)
 The same state change follows an operation that fails after the peer's session
-has ended; later operations refuse quickly until retry or an explicit return to
+has ended. Later operations refuse quickly until retry or an explicit return to
 the device recorder. A record refusal or unavailable blob remains local to that
 operation and does not falsely mark a live peer unavailable. Turning history off
 stops future peer writes, but cannot claim to erase a remote archive whose

@@ -5,7 +5,7 @@ const c = common.c;
 
 /// Reserve bounded live custody and start a fresh or advanced restart marker.
 /// Advance and execute ordinary attachment work until live_marker succeeds.
-/// A null prior creates a marker; a prior name selects trusted startup metadata.
+/// A null prior creates a marker. A prior name selects trusted startup metadata.
 pub fn glowcap_loam_live_start(raw: ?*c.GlowcapLoamAttachment, prior: ?*const c.GlowcapLoamObject, capacity: u32) callconv(.c) i32 {
     common.shared.lastErrorClear();
     const owner = attached.attachment(raw) catch |err| return common.code(err);
@@ -46,7 +46,7 @@ pub fn glowcap_loam_live_marker(raw: ?*c.GlowcapLoamAttachment, out_marker: ?*c.
 }
 
 /// The confirmed generation advances on every restart of this marker row.
-/// It is descriptive lifetime metadata; pending and failed startup zero output.
+/// It is descriptive lifetime metadata. Pending and failed startup zero output.
 pub fn glowcap_loam_live_generation(raw: ?*c.GlowcapLoamAttachment, out_generation: ?*u64) callconv(.c) i32 {
     common.shared.lastErrorClear();
     const output = out_generation orelse return common.shared.GLOWCAP_ERR_NULL_POINTER;

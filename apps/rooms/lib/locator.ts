@@ -1,18 +1,19 @@
 // DENO-SPECIFIC: dialing a rooms locator.
 //
 // The rooms server, its clients, the web bridge, and the orchestrator all carry
-// the server's address as one string, so a member dials the same way regardless
-// of transport: a `hostname:port` dials over TCP; an `ocapn://<nodeid>.iroh?…`
-// URI dials over iroh's encrypted QUIC; an `ocapn://<serviceid>.onion` URI
-// dials through Tor — directly from a terminal, or through serve.ts's `/relay`
-// byte pipe from a browser (which has no socket API); an
-// `ocapn://<key>.webrtc` URI is the default browser-to-browser door for both
-// DMs and a tab-hosted session, signaled through a directory. A tab-hosted
-// session sturdyref names that directory in its `signaling-directory` hint so
-// Attach does not guess the attaching tab's page. An
-// `ocapn://<key>.noise-relay?…` URI is that same door when DMs use the sealed
-// relay. The browser connector reads a noise-relay locator's rendezvous-relay
-// hint and opens it as a rendezvous bridge, often the same `/relay`.
+// the server's address as one string, so a member dials the same way
+// regardless of transport. A `hostname:port` dials over TCP. An
+// `ocapn://<nodeid>.iroh?…` URI dials over iroh's encrypted QUIC. An
+// `ocapn://<serviceid>.onion` URI dials through Tor, directly from a terminal
+// or through serve.ts's `/relay` byte pipe from a browser (which has no socket
+// API). An `ocapn://<key>.webrtc` URI is the default browser-to-browser door
+// for both DMs and a tab-hosted session, signaled through a directory. A
+// tab-hosted session sturdyref names that directory in its
+// `signaling-directory` hint so Attach does not guess the attaching tab's page.
+// An `ocapn://<key>.noise-relay?…` URI is that same door when DMs use the
+// sealed relay. The browser connector reads a noise-relay locator's
+// rendezvous-relay hint and opens it as a rendezvous bridge, often the same
+// `/relay`.
 
 import { addressDesignator, listen, locator as tcpLocator, type Server } from "@glowcap/tcp";
 import { DIRECTORY } from "./protocol.ts";
@@ -49,7 +50,7 @@ export function loopbackTcpDesignator(port: number): string {
 }
 
 /** Turn the server's announce token into a dial locator: a bare port becomes a
- * `127.0.0.1:<port>` TCP locator; an `ocapn://` URI passes through unchanged. */
+ * `127.0.0.1:<port>` TCP locator. An `ocapn://` URI passes through unchanged. */
 export function announceToLocator(token: string): string {
 	return /^\d+$/.test(token) ? loopbackTcpDesignator(Number(token)) : token;
 }
@@ -109,7 +110,7 @@ export function roomsSturdyrefLocator(sturdyref: string): Locator {
 
 /** Locator hint naming the directory that routes WebRTC signaling for a
  * tab-hosted session sturdyref. A bare `webrtc` designator does not say which
- * directory filed the answering inbox; Attach reads this instead of guessing
+ * directory filed the answering inbox. Attach reads this instead of guessing
  * the attaching tab's page directory. */
 export const WEBRTC_SIGNALING_DIRECTORY_HINT = "signaling-directory";
 
@@ -133,32 +134,31 @@ export function roomsLocator(locator: string): Locator {
 	return tcpLocator(hostname, port);
 }
 
-/** Say a parsed locator back in the spelling a rooms peer dials.
+/** Say a parsed locator back in the form a rooms peer dials.
  *
- * The inverse of `roomsLocator`, and here beside it because the two spellings
- * are one decision: a caller that reads an address out of somewhere else — the
- * locator inside a room link, say — needs it back in the form `dial` accepts,
- * and a second place deciding that would be a second grammar. A TCP peer is
- * written as the `host:port` shorthand, which is exactly its designator and
- * carries the whole address; every other transport is written as its complete
- * URI, hints and all, because the hints are part of what makes it dialable. */
+ * The inverse of `roomsLocator`, kept beside it because the two forms are one
+ * decision. A caller that reads an address out of somewhere else, such as the
+ * locator inside a room link, needs it back in the form `dial` accepts, and a
+ * second place deciding that would be a second grammar. A TCP peer is written
+ * as the `host:port` shorthand, which is its designator and carries the whole
+ * address. Every other transport is written as its complete URI, hints and
+ * all, because the hints are part of what makes it dialable. */
 export function roomsAddress(locator: Locator): string {
 	return locator.transport === TRANSPORT_TCP ? locator.designator : formatLocatorUri(locator);
 }
 
-/** Mint a Host for a rooms peer.
+/** Create a Host for a rooms peer.
  *
- * Every rooms peer — the server, a terminal client, a browser tab, a test —
- * needs a Host that speaks the Rooms wire posture because both ends of an
- * OCapN session must name a coherent profile
- * and a default Host speaks the v1.0 Syrup interop floor. Spelling
- * `new Host(...)` at each site is how a fleet drifts: one site keeps the
- * default, its sessions refuse every frame, and the failure reads as a
- * malformed frame rather than a disagreement. So the fleet's peers are
- * built here, once.
+ * Every rooms peer (the server, a terminal client, a browser tab, a test)
+ * needs a Host that speaks the Rooms wire posture, because both ends of an
+ * OCapN session must name a coherent profile and a default Host speaks the
+ * v1.0 Syrup interop floor. Writing `new Host(...)` at each site lets a fleet
+ * drift: one site keeps the default, its sessions refuse every frame, and the
+ * failure reads as a malformed frame and not as a disagreement. So the peers
+ * are built here, once.
  *
- * `seed` pins the retained OCapN identity (the iroh endpoint shares it);
- * omitted, the host takes a fresh one. */
+ * `seed` pins the retained OCapN identity (the iroh endpoint shares it).
+ * Omitted, the host takes a fresh one. */
 export function roomsHost(seed?: Uint8Array, posture: RoomsHostPosture = "full"): Host {
 	return new Host(seed, roomsHostOptions(posture));
 }
@@ -166,12 +166,12 @@ export function roomsHost(seed?: Uint8Array, posture: RoomsHostPosture = "full")
 /** Listen for rooms peers on `bindHost:port`.
  *
  * A rooms peer comes into being two ways, by dialing and by being dialed, and
- * both have to wear the profile. `listen`'s own default host speaks the v1.0
- * Syrup floor, so a room server that takes it accepts sessions no rooms peer
- * can hold — and the refusal reads as a malformed frame, which sends the next
- * reader looking at the codec rather than at who minted the host. This is the
+ * both have to wear the profile. `listen`'s default host speaks the v1.0 Syrup
+ * floor, so a room server that takes it accepts sessions no rooms peer can
+ * hold, and the refusal reads as a malformed frame, which sends the next
+ * reader looking at the codec and not at who created the host. This is the
  * accepting half of `roomsHost`, and `zig build source-check` keeps the rooms
- * tree calling it rather than the raw `listen`.
+ * tree calling it and not the raw `listen`.
  *
  * `advertisedHost` is the dialable hostname signed into the listener's
  * locator, which a wildcard bind requires because it has no address of its
@@ -189,20 +189,19 @@ export function roomsListen(
  * a webrtc URI through directory signaling (the default browser-to-browser door
  * for DMs and a tab-hosted session), a noise-relay URI over the sealed relay
  * (the same door when DMs use relay), otherwise `hostname:port` over TCP. In the
- * browser, iroh and onion ride `/relay?target=`; webrtc uses the directory;
+ * browser, iroh and onion ride `/relay?target=`, webrtc uses the directory, and
  * noise-relay opens the locator's rendezvous-relay hint. A `host` keys the dial
- * with the host's
- * retained OCapN identity and live-session handoff directory (a member's listen endpoint
- * and its room dial share one Host, so an inbox it publishes giftably is the one
- * a caller's redeem withdraws). Omitted, the dial gets a fresh identity, which is
- * all an ordinary client needs.
+ * with the host's retained OCapN identity and live-session handoff directory (a
+ * member's listen endpoint and its room dial share one Host, so an inbox it
+ * publishes giftably is the one a caller's redeem withdraws). Omitted, the dial
+ * gets a fresh identity, which is all an ordinary client needs.
  *
- * A browser and a terminal dial the same way; the browser's `connect` rides the
- * relay transparently.
+ * A browser and a terminal dial the same way, and the browser's `connect` rides
+ * the relay transparently.
  *
- * Either way the session speaks the rooms profile: a dial with no host of its
- * own mints one through `roomsHost`, so the codec and the CapTP version travel
- * together rather than one of them being passed loose. */
+ * Either way the session speaks the rooms profile. A dial with no host creates
+ * one through `roomsHost`, so the codec and the CapTP version travel together
+ * and are not passed loose. */
 export function dial(locator: string, runtime: RoomsRuntime, signal?: AbortSignal): Promise<Session> {
 	if (isUriLocator(locator)) {
 		const loc = roomsLocator(locator);

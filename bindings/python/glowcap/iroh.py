@@ -1,7 +1,7 @@
 """Idiomatic Python API for Glowcap's optional encrypted-QUIC transport.
 
-The public module is deliberately only a facade. ``_iroh_native`` owns the C
-archive endpoint and provider lifecycle; ``_iroh_async`` projects that owner
+The public module is only a facade. ``_iroh_native`` owns the C
+archive endpoint and provider lifecycle. ``_iroh_async`` projects that owner
 onto asyncio and the ordinary Session API. Neither layer owns CapTP semantics.
 """
 

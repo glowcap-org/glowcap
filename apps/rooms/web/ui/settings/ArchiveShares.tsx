@@ -22,9 +22,14 @@ export function IssuedArchiveShares({ archiveTarget }: { archiveTarget: ArchiveT
 	const [busy, setBusy] = useState<string | null>(null);
 	const [revision, setRevision] = useState(0);
 	const generation = useRef(0);
+	const target = useRef(archiveTarget);
+	const working = useRef<string | null>(null);
 	useEffect(() => {
 		const own = ++generation.current;
-		setShares([]);
+		if (target.current !== archiveTarget) {
+			target.current = archiveTarget;
+			setShares([]);
+		}
 		setWhy("");
 		setBusy(null);
 		// On the whole target, not on whether a peer is reached: the list is
@@ -44,6 +49,8 @@ export function IssuedArchiveShares({ archiveTarget }: { archiveTarget: ArchiveT
 	}, [session, archiveTarget, revision]);
 	if (!reachesPeer(archiveTarget)) return null;
 	const revoke = async (id: string) => {
+		if (working.current != null) return;
+		working.current = id;
 		const own = generation.current;
 		setBusy(id);
 		setWhy("");
@@ -51,10 +58,15 @@ export function IssuedArchiveShares({ archiveTarget }: { archiveTarget: ArchiveT
 			const refused = await session.revokeIssuedArchiveShare(id);
 			if (generation.current !== own) return;
 			setWhy(refused);
-			if (refused === "") setRevision((value) => value + 1);
+			if (refused === "") {
+				generation.current++;
+				setShares((rows) => rows.filter((row) => row.id !== id));
+				setRevision((value) => value + 1);
+			}
 		} catch (error) {
 			if (generation.current === own) setWhy(refusalText(error));
 		} finally {
+			working.current = null;
 			if (generation.current === own) setBusy(null);
 		}
 	};

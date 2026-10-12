@@ -9,6 +9,7 @@ use std::{collections::BTreeMap, path::PathBuf};
 pub use storage::{PostgresConfig, Storage};
 
 pub struct Config {
+	pub admission: rooms_application::admission::Settings,
 	/// Where the server document, its history, and its lock live. Without
 	/// one the server is process-local: a fresh identity each start, and
 	/// nothing kept past it.
@@ -23,7 +24,7 @@ pub struct Config {
 	/// The boot capabilities to mint and publish.
 	pub asked: Asked,
 	/// The loopback port the live timeline endpoint binds while `trace` is
-	/// asked; zero takes an ephemeral one.
+	/// asked. Zero takes an ephemeral one.
 	pub trace_port: u16,
 	pub trace_publish: Option<String>,
 	pub trace_connect: Option<String>,
@@ -36,6 +37,10 @@ pub const HELP: &str =
 	"rooms-server [--state=<directory>] [--transport=iroh|tcp|onion] [--history] [--storage=<directory|postgres-url>]
   --state=<directory>  keep the server document, history, and operator choices here across restarts
   --history  keep the last lines of listed rooms
+  --admission-scale=<1..100>  scale default work allowances (default: 1)
+  --admission-rates=<class=burst/per-minute,...>  absolute per-class overrides
+  --admission-rows=<1..65536>  retained subject row cap (default: 8192)
+  --admission-aggregate-scale=<1..100>  deployment pool multiplier (default: 1)
   --storage=<directory|postgres-url>  keep lines in files or a PostgreSQL database
   --storage-password-file=<path>  read the database password from a file instead of the URL
   --reachability=discovery|direct  iroh reachability (default: discovery)
@@ -89,7 +94,11 @@ impl Config {
 				return Err(Error::refused("options use --name=value"));
 			};
 			let (key, value) = option.split_once('=').unwrap_or((option, "1"));
-			if !KEYS.contains(&key) && !FLAGS.contains(&key) && !Transport::OPTIONS.contains(&key) {
+			if !KEYS.contains(&key)
+				&& !FLAGS.contains(&key)
+				&& !Transport::OPTIONS.contains(&key)
+				&& !rooms_application::admission::Settings::OPTIONS.contains(&key)
+			{
 				return Err(Error::refused(format!("unknown server option: --{key}")));
 			}
 			if !FLAGS.contains(&key) && !option.contains('=') {
@@ -141,6 +150,24 @@ impl Config {
 				.map_err(|_| Error::refused("--trace-port must be an integer from 0 through 65535"))?,
 		};
 		Ok(Some(Self {
+			admission: rooms_application::admission::Settings::parse_from(
+				|key| {
+					value(key).map(|v| {
+						(
+							v,
+							if named.contains_key(key) {
+								rooms_application::admission::Source::Argument
+							} else {
+								rooms_application::admission::Source::Environment
+							},
+						)
+					})
+				},
+				8192,
+				1,
+			)
+			.map_err(String::from)
+			.map_err(Error::refused)?,
 			state: value("state").map(PathBuf::from),
 			transport,
 			history,

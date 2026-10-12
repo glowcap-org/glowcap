@@ -1,5 +1,5 @@
 //! Browser realization of keyed-relay and noise-relay. Locator hints select
-//! the rendezvous endpoint; the Host owns framing, Noise and peer admission.
+//! the rendezvous endpoint. The Host owns framing, Noise and peer admission.
 use crate::{AcceptedTransport, ChannelDesignator, Connector, Error, Host, Locator, Result, Session, abi_constants::*};
 use std::time::Duration;
 use web_sys::Url;
@@ -113,7 +113,7 @@ pub fn dial_url(locator: &Locator) -> Result<String> {
 
 /// Hold one registration until a caller pairs with it, then accept that
 /// session. The application bounds and replenishes its registration seats.
-/// The supplied locator is this Host's public identity and relay profile;
+/// The supplied locator is this Host's public identity and relay profile.
 /// registration_url names the relay's registration endpoint, before `?id=`.
 /// Cancellation retires the channel through the Host's normal close custody.
 pub async fn accept(host: &Host, locator: &Locator, registration_url: &str, handshake: Duration) -> Result<Session> {

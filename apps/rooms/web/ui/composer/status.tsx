@@ -10,7 +10,7 @@
 // the conversation is closed, the draft is past the cap. A passing line is
 // true only now: somebody is at their keyboard, and in a moment they are not.
 // They sit beside each other rather than taking turns, so neither has to lose
-// for the other to be read. That is also what makes the row honest by
+// for the other to be read. That is also what makes the row truthful by
 // construction. Stacking them in one box and fading them in turn would make "one at a
 // time" a promise kept by a stylesheet rule per pair of lines, only as
 // complete as the pairs somebody thought to write: a read-only session with a
@@ -104,7 +104,7 @@ export function ComposerStatus(
 									/* The hint is up only while the field has the caret, and a
 								    press would take the caret and the hint with it before the
 								    press landed. Keeping the caret where it is on mousedown is
-								    what lets the click arrive; the stylesheet keeps the hint up
+								    what lets the click arrive. The stylesheet keeps the hint up
 								    while this control has focus for the keyboard's sake. */
 								}
 								<button

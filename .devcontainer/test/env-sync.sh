@@ -82,7 +82,6 @@ require_literal "${dockerfile}" "ZIG_GLOBAL_CACHE_DIR=${ZIG_CACHE_DIR}" "Dockerf
 require_literal "${dockerfile}" "UV_TOOL_DIR=${UV_TOOL_DIR}" "Dockerfile UV_TOOL_DIR"
 require_literal "${dockerfile}" "UV_TOOL_BIN_DIR=${UV_TOOL_BIN_DIR}" "Dockerfile UV_TOOL_BIN_DIR"
 require_literal "${dockerfile}" "UV_PYTHON_INSTALL_DIR=${UV_PYTHON_INSTALL_DIR}" "Dockerfile UV_PYTHON_INSTALL_DIR"
-require_literal "${dockerfile}" "PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH}" "Dockerfile PLAYWRIGHT_BROWSERS_PATH"
 require_literal "${dockerfile}" "CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR}" "Dockerfile CLAUDE_CONFIG_DIR"
 require_literal "${dockerfile}" "CURSOR_CONFIG_DIR=${CURSOR_STATE_DIR}" "Dockerfile CURSOR_CONFIG_DIR"
 require_literal "${dockerfile}" "CURSOR_DATA_DIR=${CURSOR_STATE_DIR}" "Dockerfile CURSOR_DATA_DIR"
@@ -96,7 +95,6 @@ require_literal "${devcontainer_json}" "\"ZIG_GLOBAL_CACHE_DIR\": \"${ZIG_CACHE_
 require_literal "${devcontainer_json}" "\"UV_CACHE_DIR\": \"${UV_CACHE_DIR}\"" "devcontainer.json UV_CACHE_DIR"
 require_literal "${devcontainer_json}" "\"npm_config_cache\": \"${NPM_CACHE_DIR}\"" "devcontainer.json npm_config_cache"
 require_literal "${devcontainer_json}" "\"PIP_CACHE_DIR\": \"${PIP_CACHE_DIR}\"" "devcontainer.json PIP_CACHE_DIR"
-require_literal "${devcontainer_json}" "\"PLAYWRIGHT_BROWSERS_PATH\": \"${PLAYWRIGHT_BROWSERS_PATH}\"" "devcontainer.json PLAYWRIGHT_BROWSERS_PATH"
 require_literal "${devcontainer_json}" "\"CLAUDE_CONFIG_DIR\": \"${CLAUDE_CONFIG_DIR}\"" "devcontainer.json CLAUDE_CONFIG_DIR"
 require_literal "${devcontainer_json}" "\"CURSOR_CONFIG_DIR\": \"${CURSOR_STATE_DIR}\"" "devcontainer.json CURSOR_CONFIG_DIR"
 require_literal "${devcontainer_json}" "\"CURSOR_DATA_DIR\": \"${CURSOR_STATE_DIR}\"" "devcontainer.json CURSOR_DATA_DIR"
@@ -188,6 +186,11 @@ require_literal "${dockerfile}" "util-linux zsh" "Dockerfile installs zsh, the p
 require_literal "${dockerfile}" "-s /bin/zsh vscode" "Dockerfile workspace user login shell is zsh"
 require_literal "${dir}/pane/host/.bashrc" "\"\${container}\" /bin/zsh" "the pane runtime execs the image's /bin/zsh"
 require_literal "${dir}/image/verify-toolchains.sh" "/bin/zsh --version" "image verify checks the zsh the pane runtime execs"
+# Managed tools: the image links the checkout's dispatcher onto PATH; the
+# hooks owe wiring only; strict installation proof is its own online gate.
+require_literal "${dir}/image/tool-links.sh" "/workspaces/glowcap/.devcontainer/tools/wrapper.sh" "tool links target the checkout dispatcher"
+require_literal "${dir}/tools/wrapper.sh" "glowcap_require_devcontainer" "the dispatcher refuses the host side"
+require_literal "${dir}/hooks/post-create.sh" "tools/wrapper.sh" "post-create checks the dispatcher wiring, not tool installs"
 require_absent "${dir}/image/verify-toolchains.sh" "GLOWCAP_DEVCONTAINER_DIR:-" "verify-toolchains locates itself like every other image script"
 require_literal "${dir}/hooks/post-create.sh" "bash \"\${dir}/image/verify-toolchains.sh\"" "post-create verifies the checkout's pins against the installed tools"
 require_absent "${dir}/hooks/post-create.sh" "GLOWCAP_DEVCONTAINER_DIR=\"\${dir}\" bash" "post-create does not retarget verify-toolchains via GLOWCAP_DEVCONTAINER_DIR"
@@ -281,7 +284,7 @@ EOF
 # rule covers both. A file moved without one of its callers is caught here
 # rather than at somebody's next rebuild.
 #
-# The exceptions are the paths this directory deliberately does not track: a
+# The exceptions are the paths this directory does not track: a
 # checkout's own .env and its pane configuration, each written locally and
 # each named in prose by the files that read it.
 devcontainer_untracked() {
@@ -411,7 +414,10 @@ while IFS= read -r shell_file; do
         echo "${shell_file#"${dir}/"}: invoked directly, so it must be executable" >&2
         exit 1
     fi
-done < <(find "${dir}/bin" "${dir}/hooks" "${dir}/image" "${dir}/test" -name '*.sh' | sort)
+done < <(
+    find "${dir}/bin" "${dir}/hooks" "${dir}/image" "${dir}/test" -name '*.sh' | sort
+    find "${dir}/tools" -maxdepth 1 -name '*.sh' | sort
+)
 
 while IFS= read -r shell_file; do
     if [[ "$(git_mode "${shell_file}")" != 100644 ]]; then
@@ -420,6 +426,7 @@ while IFS= read -r shell_file; do
     fi
 done < <(
     find "${dir}/lib" -name '*.sh' | sort
+    find "${dir}/tools/lib" -name '*.sh' | sort
     printf '%s\n' "${dir}/pins.sh" "${dir}/checksums.sh"
 )
 

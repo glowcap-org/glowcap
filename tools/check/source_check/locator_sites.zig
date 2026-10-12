@@ -1,10 +1,6 @@
-//! The Zig call sites held to the core locator grammar. Callers with parsed
-//! addresses use `locatorFromAddress`; callers with text already in hand use
-//! `locator`. Neither hand-formats host:port, and each row bans the exact
-//! shortcut its file once took. Consumed by `captp_io_spine.zig`.
-
-// Zig callers with parsed addresses use locatorFromAddress; callers with
-// text already in hand use locator. Neither hand-formats host:port.
+//! Zig call sites use complete advertised locators or transport-owned locator
+//! constructors. Each row bans the shortcut its file once took. Consumed by
+//! `captp_io_spine.zig`.
 pub const zig_demo_locator = [_]struct { path: []const u8, required: []const u8, banned: []const []const u8 }{
     .{
         .path = "apps/tasks/zig/client.zig",
@@ -18,7 +14,7 @@ pub const zig_demo_locator = [_]struct { path: []const u8, required: []const u8,
     },
     .{
         .path = "examples/zig/02_introduce_and_redeem.zig",
-        .required = "tcp.locatorFromAddress(",
+        .required = ".advertisedLocator()",
         .banned = &.{ "lastIndexOfScalar(u8, bound, ':')", "127.0.0.1:{d}" },
     },
     .{

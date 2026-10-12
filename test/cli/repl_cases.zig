@@ -58,7 +58,7 @@ test "complete suggests verbs for empty line" {
     }
     try std.testing.expect(saw_call);
     // Every REPL-only meta command Tab-completes, and the derived help footer
-    // names each one — the single `meta.entries` owner cannot drift from either.
+    // names each one, the single `meta.entries` owner cannot drift from either.
     for (cli.repl_meta.entries) |entry| {
         var saw = false;
         for (out[0..n]) |c| {
@@ -137,7 +137,7 @@ test "layout compute split stacked compact" {
     try std.testing.expect(menu.menu_h >= 3);
     try std.testing.expectEqual(menu.main_h, menu.transcript_h + menu.menu_h + menu.prompt_h);
     try std.testing.expectEqual(@as(u16, 24), menu.status_h + menu.stage_h + menu.strip_h + menu.main_h);
-    // Prompt stays in the REPL column — never wider than repl_w.
+    // Prompt stays in the REPL column, never wider than repl_w.
     try std.testing.expect(menu.repl_w < menu.cols);
 }
 

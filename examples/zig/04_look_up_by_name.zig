@@ -1,8 +1,8 @@
-//! 04 — Look up a service by name.
+//! 04: Look up a service by name.
 //!
 //! A client asks the server's bootstrap object for a capability, naming it with
 //! a swiss-number. This is the engine-level machinery beneath the fetch-by-name
-//! that chapter 01 rides; chapter 05 pre-wires the import by hand instead.
+//! that chapter 01 rides, chapter 05 pre-wires the import by hand instead.
 //! The server never writes a fetch handler. It maps the swiss-number to a
 //! capability, and the runtime answers the inbound fetch on its own.
 //!

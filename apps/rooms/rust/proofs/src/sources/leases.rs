@@ -1,4 +1,4 @@
-//! Sender leases protect exact backing before the first read; retirement wins.
+//! Sender leases protect exact backing before the first read. Retirement wins.
 use super::*;
 
 pub(super) fn run() {

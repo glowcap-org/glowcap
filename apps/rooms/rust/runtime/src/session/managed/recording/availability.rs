@@ -6,7 +6,7 @@ use std::cell::RefCell;
 /// The recording supervisor shares one fixed cell with its private content
 /// callback. It retains only the canonical field key and a borrowed exporter
 /// Session shell, never archive authority or a URI. Selection replacement
-/// releases that observation; pending recordings keep their own exact writer.
+/// releases that observation. Pending recordings keep their own exact writer.
 /// The existing retention task waits on this session alongside its shared wake
 /// feed, so monitoring adds no polling loop, task, or authority inventory.
 #[derive(Default)]
@@ -64,5 +64,6 @@ impl Availability {
 	}
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
+#[cfg(not(target_arch = "wasm32"))]
 mod tests;

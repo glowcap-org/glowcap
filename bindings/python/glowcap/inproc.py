@@ -3,15 +3,15 @@ archive, surfaced à la carte.
 
 This is the socket-free sibling of :mod:`glowcap.tcp`: two peers in one process
 wired by in-process pipes, with no kernel transport. The C listener adds a wake
-descriptor for reactor integration; no application bytes flow through it. It is
+descriptor for reactor integration. No application bytes flow through it. It is
 a companion to the core :mod:`glowcap` module, mirroring the C ABI's
 symbol-disjoint archive split (ADR-0059). Importing it loads
-``libglowcap_net_transport_inproc`` on top of the core ``libglowcap_ocapn``; it
+``libglowcap_net_transport_inproc`` on top of the core ``libglowcap_ocapn``. It
 shares the core's frame, context, and value layout but adds the
 ``glowcap_inproc_*`` family with its own thread-local last-error.
 
-A listener binds to an opaque string *designator* — any token, not a
-``host:port`` — and a dialer names that same designator. The frame shuttle is
+A listener binds to an opaque string *designator*, any token, not a
+``host:port``, and a dialer names that same designator. The frame shuttle is
 otherwise identical to TCP's, so the same machinery drives a full OCapN
 conversation over it without touching a socket:
 
@@ -188,7 +188,7 @@ class InprocListener(_NativeHandleOwner):
     def readiness_fd(self) -> int:
         """Return the borrowed wake descriptor for reactor integration.
 
-        The listener owns it; callers must not close it or retain it after
+        The listener owns it. Callers must not close it or retain it after
         :meth:`close`.
         """
         out = ctypes.c_int32()
@@ -200,7 +200,7 @@ class InprocListener(_NativeHandleOwner):
 
 
 class InprocNetlayer(_NativeHandleOwner):
-    """Owns the in-process switchboard and its one I/O backend; outlives the
+    """Owns the in-process switchboard and its one I/O backend. Outlives the
     connections and listeners made from it. Released on :meth:`release` / context
     exit."""
 

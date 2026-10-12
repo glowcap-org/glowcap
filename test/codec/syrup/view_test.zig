@@ -68,7 +68,7 @@ test "neutral view projects every Syrup-encodable argument arm" {
     };
     // Promise target: a `Far` target would decode to an un-re-encodable `Near`
     // target (see `expectBodyByteRoundTrip`). Object-kind refs only: the far/
-    // import promise-kind is intentionally not on the wire (`Far`→`<desc:export>`
+    // import promise-kind is not on the wire (`Far`→`<desc:export>`
     // drops it), covered separately by the desc:import-promise kind test above.
     try expectBodyByteRoundTrip(model.CaptpVersion.v1_0, .{ .deliver = .{
         .target = .{ .promise = .{ .answer_position = .from(7) } },

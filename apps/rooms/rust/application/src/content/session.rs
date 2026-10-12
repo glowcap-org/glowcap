@@ -1,6 +1,7 @@
 //! Session schema declarations shared by metadata and contract proofs. Runtime
 //! adoption requires shared saved-reference and management operations first.
 pub mod bridge;
+pub mod continuing;
 pub mod custody;
 pub mod dispatch;
 pub mod effects;
@@ -33,7 +34,7 @@ pub const SUPPORTED: &[Permission] = &[
 	ReadArchive,
 ];
 
-/// Explicit configured values; no stored preset name or effective policy cache.
+/// Explicit configured values. No stored preset name or effective policy cache.
 /// Session history is a projection gate. Each upstream conversation retains its
 /// own canonical identity, generation and history boundary.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -43,12 +44,16 @@ impl Terms {
 	pub fn new(values: &[Permission]) -> Result<Self, InvalidPolicy> {
 		validate(values, SUPPORTED)?;
 		let ordered = Permission::ALL.iter().copied().filter(|p| values.contains(p)).collect();
+		#[expect(
+			clippy::expect_used,
+			reason = "`validate` admitted only `SUPPORTED` permissions, and the list is bounded by `SUPPORTED.len()`"
+		)]
 		Ok(Self(List::new(ordered).expect("validated supported permissions")))
 	}
 	pub fn permissions(&self) -> &[Permission] {
 		self.0.as_slice()
 	}
-	/// Prepare a complete candidate; refusal leaves the original terms unchanged.
+	/// Prepare a complete candidate. Refusal leaves the original terms unchanged.
 	/// No prerequisite or management power is silently added by a preset.
 	pub fn apply(&self, preset: Preset) -> Result<Self, InvalidPolicy> {
 		let fields = preset.group().fields();
@@ -139,9 +144,9 @@ impl Preset {
 		match self {
 			Self::Observer => "Sees rooms and conversations as they happen, and changes nothing.",
 			Self::Collaborator => "Also posts, joins and acts, using the access this workspace already holds.",
-			Self::NoCustody => "Can't add, remove or share what the workspace holds.",
+			Self::NoCustody => "Can't import keys or links, replace the workspace or manage recovery.",
 			Self::Administrator => {
-				"Can also replace the workspace, manage and share its keys and links, finish interrupted changes and use operator tools."
+				"Can also replace the workspace, manage and share its keys and links, recover unresolved changes and use operator tools."
 			}
 		}
 	}

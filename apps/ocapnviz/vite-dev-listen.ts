@@ -7,9 +7,9 @@
  *
  * Vite's Host-header allowlist is a second gate, against DNS rebinding, not a
  * bind. `localhost` is always allowed. A published port arrives with whatever
- * name the operator typed — a `.local` hostname, a LAN IP, a forwarded editor
- * URL — and cataloging those names in the repo would pin one machine. A wide
- * bind already accepted unknown TCP clients; `allowedHosts: true` is the HTTP
+ * name the operator typed, a `.local` hostname, a LAN IP, a forwarded editor
+ * URL, and cataloging those names in the repo would pin one machine. A wide
+ * bind already accepted unknown TCP clients, `allowedHosts: true` is the HTTP
  * face of that same decision. Loopback keeps Vite's default allowlist.
  */
 

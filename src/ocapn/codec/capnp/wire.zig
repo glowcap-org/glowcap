@@ -128,19 +128,19 @@ fn signExtend30(value: u30) i32 {
 ///
 /// The backing list begins with the one-word segment table, followed by words
 /// appended in segment order. Pointers are back-patched with an offset computed
-/// from their physical index; the leading table shifts every segment index by
+/// from their physical index. The leading table shifts every segment index by
 /// the same amount, so those relative offsets remain the Cap'n Proto offsets.
 ///
 /// Capacity precondition: the builder encodes a message that fits the wire
-/// format's structural limits — a segment under 2^32 words, list word-counts
+/// format's structural limits, a segment under 2^32 words, list word-counts
 /// under 2^29, and composite element-counts under 2^30. Those bounds are what the
 /// pointer fields can express, and the length casts in `offsetTo`,
 /// `compositeTag`, `setListPtr`, and the two finish methods assume them. A
-/// `model.Message` reaching those limits is on the order of tens of gigabytes — not constructible
+/// `model.Message` reaching those limits is on the order of tens of gigabytes, not constructible
 /// in practice (it would exhaust memory first) and never produced by decode,
 /// which bounds an inbound frame to `max_frame_bytes`. The casts therefore name a
 /// precondition the local caller is responsible for, not a path inbound bytes
-/// can reach; the inbound side is bounds-checked separately in the decoder.
+/// can reach. The inbound side is bounds-checked separately in the decoder.
 pub const Builder = struct {
     /// The segment table sits in the backing list rather than in a second
     /// buffer, so `finishOwned` hands the whole allocation to the frame.
@@ -178,7 +178,7 @@ pub const Builder = struct {
         self.words.deinit(allocator);
     }
 
-    /// Append `n` zeroed words; return the segment index of the first.
+    /// Append `n` zeroed words. Return the segment index of the first.
     pub fn allocWords(self: *Builder, allocator: std.mem.Allocator, n: usize) !usize {
         std.debug.assert(self.words.items.len >= frame_header_words);
         const start = self.words.items.len;

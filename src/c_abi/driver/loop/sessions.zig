@@ -16,6 +16,7 @@ const reentrancyCode = @import("events.zig").reentrancyCode;
 /// Resolve a live remote capability's exporter session and ensure that one
 /// loop-owned application handle claims it before the pointer is returned.
 /// Repeated calls for an already claimed session return the same handle.
+/// Callback-safe: claiming does not drive I/O or dispatch another callback.
 pub export fn glowcap_driver_claim_reference_exporter(
     raw: ?*c.GlowcapDriverLoop,
     reference: ?*const shared.GlowcapReference,
@@ -23,11 +24,30 @@ pub export fn glowcap_driver_claim_reference_exporter(
 ) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
-    if (reentrancyCode(inst, "claim_reference_exporter")) |code| return code;
+    if (!(inst.stepping and inst.runtime.withinCallback())) {
+        if (reentrancyCode(inst, "claim_reference_exporter")) |code| return code;
+    }
     const ref = reference orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out_session orelse return GLOWCAP_ERR_NULL_POINTER;
     const session = inst.runtime.claimReferenceExporter(ref.id) catch |err| return errToCode(err);
     slot.* = if (session) |hs| ch.embedding.sessionHandle(hs) else null;
+    return GLOWCAP_OK;
+}
+
+/// Claim the loop's single application handle for a borrowed exporter session.
+/// The pointer must still be live and belong to this loop. This idempotent
+/// ownership operation is callback-safe and performs no I/O or dispatch.
+pub export fn glowcap_driver_claim_exporter_session(
+    raw: ?*c.GlowcapDriverLoop,
+    session: ?*ch.GlowcapHostSession,
+) i32 {
+    shared.lastErrorClear();
+    const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
+    if (!(inst.stepping and inst.runtime.withinCallback())) {
+        if (reentrancyCode(inst, "claim_exporter_session")) |code| return code;
+    }
+    const hs = ch.embedding.sessionFrom(session) orelse return GLOWCAP_ERR_NULL_POINTER;
+    inst.runtime.claimExporterSession(hs) catch |err| return errToCode(err);
     return GLOWCAP_OK;
 }
 
@@ -75,7 +95,7 @@ pub export fn glowcap_driver_session_lifecycle_state(
 }
 
 /// Release one loop-owned session: flush what it queued, drop its wire, and
-/// free the session — the loop spelling of `glowcap_host_session_release`,
+/// free the session. This is the loop spelling of `glowcap_host_session_release`,
 /// which must not be called on sessions this loop minted. Queued events
 /// naming the session are invalidated by the wire-map removal and skipped
 /// lazily at drain, so release does not scan the event backlog.
@@ -97,11 +117,11 @@ pub export fn glowcap_driver_session_release(
 /// finished its post-open setup (its publishes and spawns), so a partner's
 /// pipelined first frames can no longer outrun the objects they name. A
 /// session surfaced by an OPENED or ACCEPTED event holds its inbound until
-/// this call — handshake frames were never held, and bytes that arrived early
+/// this call (handshake frames are never held), and bytes that arrived early
 /// wait unread (a stream socket's kernel buffer; a resident link's bounded
-/// parking) and replay in order now. Idempotent; a session already delivering
+/// parking) and replay in order. Idempotent. A session already delivering
 /// is a no-op. Replaying resident bytes may invoke a `GlowcapHostBehavior`
-/// synchronously before this call returns; a binding must install its Host
+/// synchronously before this call returns. A binding must install its Host
 /// delivery context first. Every binding runtime calls this from its serve path.
 pub export fn glowcap_driver_session_serve(
     raw: ?*c.GlowcapDriverLoop,

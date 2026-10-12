@@ -1,8 +1,10 @@
 //! The sans-io session serve core (`Served`): an `actors.Port` over a borrowed
-//! `engine.Peer`, the serve loop, and the byte-fed drive. Socket-free — the
+//! `engine.Peer`, the serve loop, and the byte-fed drive. It is socket-free: the
 //! `driver_core` layer's I/O ban keeps it that way. `BlockingSession` (in the
 //! `driver` layer) composes one of these with a `net.Connection` for the
-//! blocking socket path (ADR-0072).
+//! blocking socket path (ADR-0072). The callback types keep `anyerror` return
+//! sets: their implementors are application code unknown at these
+//! declarations.
 
 const std = @import("std");
 
@@ -12,20 +14,21 @@ const engine = @import("engine");
 const actors = @import("actors");
 
 const gc = @import("gc.zig");
+const pending_send = @import("pending_send.zig");
 const vocab = @import("vocab.zig");
 const Error = vocab.Error;
 const Exported = vocab.Exported;
 
 /// A hook run before the vat serves each drained event. Return true to claim
-/// the event and skip the vat's serve dispatch; a hook error propagates out of
+/// the event and skip the vat's serve dispatch. A hook error propagates out of
 /// the driver surface that drove the serve loop.
 pub const BeforeServeHook = *const fn (ctx: ?*anyopaque, served: *Served, event: *engine.Event) anyerror!bool;
 
 /// A drive polled an event and then could not serve it. The event is
 /// already owned by (and deinitialized with) the drive, so retrying the drive
 /// cannot replay it. The Host must condemn the session rather than treating
-/// this as retryable allocator pressure. OOM after this boundary — local-turn
-/// driving or outbound encoding — remains the ordinary retryable `OutOfMemory`.
+/// this as retryable allocator pressure. OOM after this boundary (local-turn
+/// driving or outbound encoding) remains the ordinary retryable `OutOfMemory`.
 pub const DriveError = error{EventServeOutOfMemory};
 
 /// A loop driver's per-session setup callback: publish the objects this
@@ -37,7 +40,7 @@ pub const Publish = *const fn (ctx: ?*anyopaque, served: *Served, vat: *actors.V
 /// Adapter options for a CapTP session's serve core. Stateless GC is driver
 /// policy, not CapTP semantics added below the engine. Crossed-hellos is
 /// host-tier serve policy: it runs in the host's `before_serve` hook, not
-/// here, and its `CrossedHellos` table is sans-io and lockless by contract —
+/// here, and its `CrossedHellos` table is sans-io and lockless by contract:
 /// one thread drives one host (ADR-0072).
 pub const ServeOptions = struct {
     /// Emit `op:gc-exports` / `op:gc-answers` after each inbound deliver/resolve
@@ -55,7 +58,7 @@ pub const default_loop_local_turn_budget: usize = 4096;
 
 /// The sans-io serve core: an `actors.Port` over one borrowed `engine.Peer`,
 /// with the serve loop and the byte-fed drive. The peer is caller-owned (stable
-/// address); this borrows it. It reads no
+/// address) and is borrowed here. It reads no
 /// socket: a caller feeds inbound frames with `feedBorrowed` and drains outbound
 /// with `takeOutbound`, owning its own loop (ADR-0072). `BlockingSession` composes
 /// one of these with a `net.Connection` for the blocking socket path.
@@ -70,7 +73,7 @@ pub const Served = struct {
     /// unbounded, the blocking one-connection-per-thread posture.
     local_turn_budget: ?usize = null,
     /// Turns consumed in the current resumable local-work epoch. `null` means
-    /// no local work is currently being resumed; a finite Host scheduler may
+    /// no local work is currently being resumed. A finite Host scheduler may
     /// yield between these turns, but it must not confuse that yield with a
     /// fresh batch or reset the per-session amplification cap.
     budgeted_local_turns: ?usize = null,
@@ -91,7 +94,7 @@ pub const Served = struct {
 
     /// Bind a sans-io serve core over `peer`. The caller owns the loop and
     /// sockets, feeds inbound frames with `feedBorrowed`, and drains outbound
-    /// with `takeOutbound`; `deinit` frees only this Port. The caller owns the
+    /// with `takeOutbound`. `deinit` frees only this Port. The caller owns the
     /// Vat passed to the drive methods. This is the driving mode the C ABI's
     /// `libglowcap_host` and a browser ride.
     pub fn over(allocator: std.mem.Allocator, peer: *engine.Peer) Served {
@@ -222,7 +225,7 @@ pub const Served = struct {
         return self.port.peer.takeOutbound();
     }
 
-    /// Whether an encoded outbound frame is queued — the cheap emptiness
+    /// Whether an encoded outbound frame is queued, the cheap emptiness
     /// probe a pump reads before telling its embedder to flush.
     pub fn hasOutbound(self: *const Served) bool {
         return self.port.peer.hasOutbound();
@@ -236,9 +239,9 @@ pub const Served = struct {
     /// Serve one already-polled event: retain a partner abort, run the
     /// `before_serve` hook, dispatch into the vat unless the hook claimed it, then
     /// emit stateless GC only for vat-served events. This is the one per-event
-    /// serve spine — a socket `step`, a completion loop, and a byte-fed feed all
+    /// serve spine: a socket `step`, a completion loop, and a byte-fed feed all
     /// serve through it, so they serve identically. The `before_serve` hook is the
-    /// injection point for I/O-tier serve policy (node claim, crossed-hellos); it
+    /// injection point for I/O-tier serve policy (node claim, crossed-hellos). It
     /// reaches what it needs through its `ctx`, keeping this sans-io. The caller
     /// owns the event's lifetime.
     pub fn serveEvent(self: *Served, vat: *actors.Vat, event: *engine.Event) !void {
@@ -260,7 +263,7 @@ pub const Served = struct {
     /// The loop drivers' post-batch policy in one spelling: drive one inbound
     /// batch's queued local turns within `budget` (a high-fan-out loop's
     /// per-connection amplification cap), and treat `.more_pending` as the
-    /// runaway error a loop closes that one connection on — a single message
+    /// runaway error a loop closes that one connection on, since a single message
     /// that amplifies past its budget must not stall or grow in memory. The
     /// Scale paths ride this through `Host` + `Bridge` (TCP `net.TcpLoop`,
     /// iroh `completion.Loop(iroh.Backend, iroh.DialResolver)`). The blocking
@@ -275,7 +278,7 @@ pub const Served = struct {
 
     /// The blocking serve loop: serve every event the peer surfaced, then drive
     /// queued local turns to quiescence (or to `local_turn_budget`, when one is
-    /// configured). Transport-free — a socket `step` and a byte-fed
+    /// configured). Transport-free: a socket `step` and a byte-fed
     /// `feedBorrowed` both drive it, so they serve identically. A loop driver
     /// may instead call `serveEvent` per event and `drivePostBatch` with its
     /// budget directly, sharing the same per-event spine.
@@ -300,7 +303,7 @@ pub const Served = struct {
     }
 
     /// Copy an inbound `op:abort`'s kind and bounded message into `last_abort`.
-    /// A message longer than the buffer is truncated; a malformed abort view is
+    /// A message longer than the buffer is truncated. A malformed abort view is
     /// ignored, leaving any earlier retention in place.
     fn retainAbort(self: *Served, event: *const engine.Event) void {
         const body = event.view() catch |err| {
@@ -325,7 +328,7 @@ pub const Served = struct {
 
     /// Spawn a local actor at a fresh export position and return a capability
     /// to it (see `spawnAt`, the same operation in its turn-time form). The
-    /// position is reserved here; the partner can address the capability only
+    /// position is reserved here. The partner can address the capability only
     /// once it first marshals onto the wire, or after an explicit grant
     /// through `peer.exportObject` (ADR-0074).
     pub fn spawn(self: *Served, vat: *actors.Vat, comptime Behavior: type, initial: Behavior) !Exported {
@@ -339,7 +342,7 @@ pub const Served = struct {
 
     /// Publish an actor a partner can `fetch` by `name` (a swiss-number). Name
     /// first, matching every binding's `publish`. This is the
-    /// `registerBootstrapCap`, spawn, and publish sequence; every driver
+    /// `registerBootstrapCap`, spawn, and publish sequence. Every driver
     /// surface publishes through its `Served`, so it is defined once here.
     /// Returns the capability at its allocated export position, carrying the
     /// vat-local `ref` so the publisher can keep talking to its own actor.
@@ -355,7 +358,7 @@ pub const Served = struct {
         try self.port.bindExport(vat, ref, position);
         // The export binding roots the actor; the spawn root transfers to it
         // (ADR-0101), so a session-published object lives exactly as long as
-        // some relationship — this binding, a lift, a gift — holds it.
+        // some relationship (this binding, a lift, a gift) holds it.
         vat.releaseActor(switch (ref) {
             .local => |id| id,
             .far => unreachable,
@@ -398,7 +401,7 @@ pub const Served = struct {
     /// partner's answer: eventual-send `fetch(name)` to the permanently
     /// addressable bootstrap export. This is the one definition of the
     /// bootstrap-fetch deliver shape. `BlockingSession.fetch` drives the returned
-    /// promise to settlement; the byte-fed `Host`'s fetch rides the same
+    /// promise to settlement. The byte-fed `Host`'s fetch rides the same
     /// deliver with a host vow instead of a blocking wait.
     pub fn sendBootstrapFetch(self: *Served, vat: *actors.Vat, name: []const u8) !actors.Vow {
         return self.port.send(
@@ -410,7 +413,7 @@ pub const Served = struct {
 
     /// Ask the partner how `target` settles, returning a vow for that
     /// settlement (CapTP `op:listen`, ADR-0095). In 1.0, `target` may be a far
-    /// promise or live far object; a live object answers immediately. In
+    /// promise or live far object. A live object answers immediately. In
     /// glowcap-next, `target` must be a far promise because shortening and
     /// settling are promise-only. This is how an introducing session's proxy
     /// for a third party's promise (ADR-0009) is waited on: the notification
@@ -421,7 +424,7 @@ pub const Served = struct {
     }
 
     /// Eventual-send `msg` to `target` (`<-`), returning a vow to observe with
-    /// `on`. A far send goes on the wire; the next drive flushes it.
+    /// `on`. A far send goes on the wire. The next drive flushes it.
     pub fn send(self: *Served, vat: *actors.Vat, target: actors.Ref, msg: actors.Message) !actors.Vow {
         return self.port.send(vat, target, msg);
     }
@@ -455,111 +458,24 @@ pub const Served = struct {
         return self.port.on(vat, vow, listener);
     }
 
-    /// A cooperative fetch-then-deliver in flight, the caller-owned context
-    /// `beginSendNamed` / `beginTellNamed` chain through. The caller keeps it
-    /// alive and address-stable until the terminal listener fires (or the
-    /// session tears down), then frees the owned message clone with `deinit`.
-    /// `stage` says which leg an outcome came from: a break delivered while
-    /// `stage == .fetching` is the fetch's own refusal (an unpublished name),
-    /// so a UI can attribute it without parsing reasons.
-    pub const PendingSend = struct {
-        served: *Served,
-        vat: *actors.Vat,
-        /// Owns the verb and args clone from begin until `deinit`: the send
-        /// happens later, inside the fetch vow's listener, after the caller's
-        /// borrowed message may already be gone.
-        msg_arena: std.heap.ArenaAllocator,
-        verb: []const u8 = "",
-        args: []const model.Argument = &.{},
-        mode: Mode = .send,
-        stage: Stage = .fetching,
-        terminal: actors.Listener,
-        completion: ?Completion = null,
-
-        pub const Mode = enum { send, tell };
-        pub const Stage = enum { fetching, delivering };
-        pub const Completion = struct {
-            ctx: ?*anyopaque,
-            func: *const fn (?*anyopaque) void,
-        };
-
-        pub fn deinit(self: *PendingSend) void {
-            self.msg_arena.deinit();
-        }
-
-        fn onFetch(ctx: ?*anyopaque, resolution: actors.Resolution) void {
-            const self: *PendingSend = @ptrCast(@alignCast(ctx.?));
-            const target: actors.Ref = switch (resolution) {
-                .fulfilled => |value| switch (value) {
-                    .reference => |reference| switch (reference) {
-                        .far => |far| .{ .far = far },
-                        else => return self.fireBroken("fetch did not resolve to a capability"),
-                    },
-                    else => return self.fireBroken("fetch did not resolve to a capability"),
-                },
-                // A fetch break forwards verbatim (a cancel or timeout arrives
-                // here too); `stage` still reads `.fetching`, which is how the
-                // caller attributes it. A bootstrap fetch never fulfills with
-                // an introduction, so `.give` rides the same forward rather
-                // than earning an arm it cannot reach.
-                .broken, .give => return self.fire(resolution),
-            };
-            self.stage = .delivering;
-            const msg: actors.Message = .{ .verb = self.verb, .args = self.args };
-            switch (self.mode) {
-                .send => {
-                    // Registering the terminal on the new vow inside this
-                    // listener call is the vat's documented re-entrancy: the
-                    // fire removed this entry first, and a disconnect's
-                    // `breakFarVows` re-checks for registrations made during
-                    // the break, so the chained vow can never strand.
-                    const vow = self.served.send(self.vat, target, msg) catch |err| return self.fireBroken(@errorName(err));
-                    self.served.on(self.vat, vow, .{ .ctx = self, .func = onTerminal }) catch |err| return self.fireBroken(@errorName(err));
-                },
-                .tell => {
-                    self.served.tell(self.vat, target, msg) catch |err| return self.fireBroken(@errorName(err));
-                    self.fire(.{ .fulfilled = .{ .void = {} } });
-                },
-            }
-        }
-
-        fn onTerminal(ctx: ?*anyopaque, resolution: actors.Resolution) void {
-            const self: *PendingSend = @ptrCast(@alignCast(ctx.?));
-            self.fire(resolution);
-        }
-
-        fn fireBroken(self: *PendingSend, reason: []const u8) void {
-            self.fire(.{ .broken = reason });
-        }
-
-        fn fire(self: *PendingSend, resolution: actors.Resolution) void {
-            const terminal = self.terminal;
-            if (self.completion) |completion| {
-                self.completion = null;
-                completion.func(completion.ctx);
-            }
-            terminal.func(terminal.ctx, resolution);
-        }
-    };
-
     /// Begin a cooperative fetch-then-send: fetch the capability published as
     /// `name` and, when it fulfills, eventual-send `msg` to it, the terminal
     /// outcome (or the first break) firing `terminal` exactly once. No I/O is
-    /// driven here; the caller pumps its loop until the listener fires. `msg`
-    /// is borrowed only for this call — the verb and args are cloned into
+    /// driven here. The caller pumps its loop until the listener fires. `msg`
+    /// is borrowed only for this call. The verb and args are cloned into
     /// `pending`, which the caller keeps address-stable until the fire and
     /// then reclaims with `PendingSend.deinit`. This is the non-blocking
     /// spelling of the fetch-then-call an event-loop UI cannot express with
     /// the blocking `call`, so the chaining lives here once instead of as a
     /// shadow state machine in every embedder.
-    pub fn beginSendNamed(self: *Served, vat: *actors.Vat, pending: *PendingSend, name: []const u8, msg: actors.Message, terminal: actors.Listener) !void {
+    pub fn beginSendNamed(self: *Served, vat: *actors.Vat, pending: *pending_send.PendingSend, name: []const u8, msg: actors.Message, terminal: actors.Listener) !void {
         return self.beginDeliverNamed(vat, pending, name, msg, .send, terminal, null);
     }
 
     /// `beginSendNamed`'s fire-and-forget arm: fetch `name`, then `tell` it
     /// `msg`. The terminal fires `.fulfilled = .void` once the tell is queued
     /// (there is no answer to await), or the fetch's break.
-    pub fn beginTellNamed(self: *Served, vat: *actors.Vat, pending: *PendingSend, name: []const u8, msg: actors.Message, terminal: actors.Listener) !void {
+    pub fn beginTellNamed(self: *Served, vat: *actors.Vat, pending: *pending_send.PendingSend, name: []const u8, msg: actors.Message, terminal: actors.Listener) !void {
         return self.beginDeliverNamed(vat, pending, name, msg, .tell, terminal, null);
     }
 
@@ -569,11 +485,11 @@ pub const Served = struct {
     pub fn beginSendNamedCompleting(
         self: *Served,
         vat: *actors.Vat,
-        pending: *PendingSend,
+        pending: *pending_send.PendingSend,
         name: []const u8,
         msg: actors.Message,
         terminal: actors.Listener,
-        completion: PendingSend.Completion,
+        completion: pending_send.PendingSend.Completion,
     ) !void {
         return self.beginDeliverNamed(vat, pending, name, msg, .send, terminal, completion);
     }
@@ -582,11 +498,11 @@ pub const Served = struct {
     pub fn beginTellNamedCompleting(
         self: *Served,
         vat: *actors.Vat,
-        pending: *PendingSend,
+        pending: *pending_send.PendingSend,
         name: []const u8,
         msg: actors.Message,
         terminal: actors.Listener,
-        completion: PendingSend.Completion,
+        completion: pending_send.PendingSend.Completion,
     ) !void {
         return self.beginDeliverNamed(vat, pending, name, msg, .tell, terminal, completion);
     }
@@ -594,12 +510,12 @@ pub const Served = struct {
     fn beginDeliverNamed(
         self: *Served,
         vat: *actors.Vat,
-        pending: *PendingSend,
+        pending: *pending_send.PendingSend,
         name: []const u8,
         msg: actors.Message,
-        mode: PendingSend.Mode,
+        mode: pending_send.PendingSend.Mode,
         terminal: actors.Listener,
-        completion: ?PendingSend.Completion,
+        completion: ?pending_send.PendingSend.Completion,
     ) !void {
         pending.* = .{
             .served = self,
@@ -614,6 +530,6 @@ pub const Served = struct {
         pending.verb = try arena.dupe(u8, msg.verb);
         pending.args = try model.cloneArgumentSlice(arena, msg.args);
         const vow = try self.sendBootstrapFetch(vat, name);
-        try self.port.on(vat, vow, .{ .ctx = pending, .func = PendingSend.onFetch });
+        try self.port.on(vat, vow, .{ .ctx = pending, .func = pending_send.PendingSend.onFetch });
     }
 };

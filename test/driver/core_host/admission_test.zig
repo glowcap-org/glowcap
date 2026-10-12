@@ -205,10 +205,10 @@ test "session release refuses an ingress disagreement before consuming the handl
     const session = try host.openDialedLocator(tcpLocator("127.0.0.1:7067"));
     const peer_handle = session.peer_handle;
 
-    // Inject the lifecycle disagreement the public release used to treat as
-    // unreachable. The Vat no longer owns the ingress, while the Host shell
-    // still does; release must surface that fact without tracing a close,
-    // changing lifecycle, or freeing the caller's session handle.
+    // Inject a lifecycle disagreement: the Vat does not own the ingress, while
+    // the Host shell still does. Release must surface that fact without
+    // tracing a close, changing lifecycle, or freeing the caller's session
+    // handle.
     try host.vat.cancelIngress(session.served.port.ingress, "injected retirement");
     try std.testing.expectError(error.UnknownIngress, host.releaseSession(session));
     try std.testing.expect(host.sessions.get(peer_handle) == session);
@@ -253,7 +253,7 @@ test "byte-fed iroh dial pin: a hello claiming another identity is refused; a sa
     }
 
     // A peer advertising a *different* identity than the one dialed is refused
-    // before the session opens — the claim pin, the check that survives
+    // before the session opens, the claim pin, the check that survives
     // fresh session keys (ADR-0097).
     {
         const other_seed = @as([32]u8, @splat(0x43));

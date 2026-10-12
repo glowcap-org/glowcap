@@ -1,6 +1,6 @@
 /* ── Attachments ──────────────────────────────────────────────────────── */
 /* One send owns one attachment stack inside its bubble. Each child still owns
-   its transfer and control state; the stack is only the visual statement that
+   its transfer and control state. The stack is only the visual statement that
    the files travelled together. */
 .attachment-set {
 	display: flex;
@@ -10,7 +10,7 @@
 }
 /* Multiple pictures become one compact gallery without becoming one transfer.
    Six tracks admit complete rows of one, two, or three balanced thumbnails.
-   Every tile remains its own openable attachment; non-image siblings span the
+   Every tile remains its own openable attachment. Non-image siblings span the
    gallery so their readable row treatment is not squeezed into a thumbnail. */
 .attachment-set.image-grid {
 	display: grid;
@@ -76,7 +76,7 @@
 .attachment-set.image-grid > .image-tile img {
 	object-fit: cover;
 }
-/* A video plays where it was posted; this takes it full size. It sits out of
+/* A video plays where it was posted. This takes it full size. It sits out of
    the way of the player's own controls, which own the bottom edge. */
 .attach-media .expand {
 	position: absolute;
@@ -248,7 +248,7 @@
 /* A file held over the conversation. The whole column is the target, so the
    whole column says so: a dashed hairline in the page's ink at the card
    radius, the ordinary sign for "this takes a drop", and a veil light enough
-   that the conversation underneath stays readable. Nothing is amber; the
+   that the conversation underneath stays readable. Nothing is amber. The
    drop is an invitation, not an alarm. The words get a place of their own, a
    raised chip in the middle with the clip on it, which rises in as the file
    arrives so the offer reads as made rather than switched on. */
@@ -313,7 +313,7 @@
 	border: 1px solid var(--rule);
 	border-radius: var(--radius-control);
 	/* This remains a compact file object, not a miniature title button. The
-	   title contributes its interaction grammar below; the persistent surface,
+	   title contributes its interaction grammar below. The persistent surface,
 	   type mark, and metadata are what distinguish an attachment. */
 	background: color-mix(in srgb, var(--accent) 6%, var(--paper-raised));
 	transition: background .12s ease, border-color .12s ease;
@@ -362,8 +362,8 @@
 }
 
 /* ── Where you are ─────────────────────────────────────────────────────────
-   The same control at all three levels — the foot of the rail for the reader,
-   the directory card for one directory, a room's header for one room — so it
+   The same control at all three levels (the foot of the rail for the reader,
+   the directory card for one directory, a room's header for one room) so it
    is drawn once and each site only says where it sits. */
 .standing {
 	position: relative;
@@ -424,7 +424,7 @@
    control that opened it.
 
    Everything a popover is by default is undone here, because this is not a
-   panel — it is the box a panel is measured from. It has no paint of its own
+   panel. It is the box a panel is measured from. It has no paint of its own
    and no size of its own; `Menu.tsx` gives it the holder's rectangle and keeps
    it there. What it provides is a containing block in the one place the top
    layer does not have one, so a menu inside it can go on saying `top: calc(100%
@@ -500,7 +500,7 @@
 	outline: 2px solid var(--accent-ink);
 	outline-offset: 2px;
 }
-/* In the rail's foot the whole identity lockup is the trigger; its shape and
+/* In the rail's foot the whole identity lockup is the trigger. Its shape and
    seat live with the rail in rails.css. */
 /* In the directory card, a labelled row like the card's other facts. */
 .dircard-standing {

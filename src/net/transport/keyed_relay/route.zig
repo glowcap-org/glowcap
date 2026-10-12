@@ -1,6 +1,6 @@
 //! Relay-owned URL, hint, and rendezvous-query policy.
 //!
-//! Views borrow their admitted input. Long-lived residents retain that storage;
+//! Views borrow their admitted input. Long-lived residents retain that storage.
 //! WebSocket carriers receive the parsed route and never reinterpret locators.
 
 const std = @import("std");
@@ -14,7 +14,7 @@ pub const rendezvous_query = "rendezvous";
 pub const register_query = "id";
 
 /// Locator hint carrying the relay endpoint at which the designator is
-/// registered. It is routing advice, not a second identity field; the
+/// registered. It is routing advice, not a second identity field. The
 /// rendezvous query remains keyed by the locator designator.
 pub const rendezvous_relay_hint = "rendezvous-relay";
 
@@ -50,8 +50,8 @@ pub const Scheme = enum {
     }
 };
 
-/// One fully selected relay-channel request. The relay owns the query meaning;
-/// a carrier receives only the validated endpoint and request-target pieces.
+/// One fully selected relay-channel request. The relay owns the query meaning.
+/// A carrier receives only the validated endpoint and request-target pieces.
 pub const OpenRequest = struct {
     endpoint: RelayUrl,
     leg: Leg,
@@ -85,7 +85,7 @@ pub const RelayUrl = struct {
     /// explicit port, while a defaulted port remains absent.
     authority: []const u8,
     port: u16,
-    /// The path including its leading `/`; empty means `/`.
+    /// The path including its leading `/`. Empty means `/`.
     path: []const u8,
     /// The fixed query including its leading `?`, when the deployment URL
     /// carries one. The relay appends its owned query pair after this slice.
@@ -238,7 +238,7 @@ fn hexValue(byte: u8) ?u8 {
 }
 
 /// Parse the optional relay-route hint once for every relay execution model. A
-/// present hint must be one bounded, non-empty string URL; duplicate names are
+/// present hint must be one bounded, non-empty string URL. Duplicate names are
 /// invalid even when their values agree.
 pub fn relayHint(hints: model.Hints) error{InvalidRelayHint}!?RelayUrl {
     var selected: ?RelayUrl = null;

@@ -180,7 +180,7 @@
               ("name" . "echo")
               ("swiss" . ,(bytes->string/latin-1 ECHO-SWISS-NUM))
               ("sturdyref-path" . ,(url-base64-encode ECHO-SWISS-NUM))))
-           ;; Emitted after echo's line on purpose: raw-swiss consumers take
+           ;; Emitted after echo's line: raw-swiss consumers take
            ;; the first `swiss` line as the echo cap.
            (emit-ndjson
             `(("event" . "cap-published")

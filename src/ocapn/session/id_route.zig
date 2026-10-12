@@ -58,7 +58,7 @@ const IdentityRouteValidator = struct {
 };
 
 /// Validate an identity locator without materializing its route list. Session
-/// admission uses this on borrowed codec views; dial planning follows it with
+/// admission uses this on borrowed codec views. Dial planning follows it with
 /// the owned parser above.
 pub fn validateLocator(locator: anytype) Error!?crypto.PeerKey {
     if (!std.mem.eql(u8, locator.transport, model.transport.id)) return null;

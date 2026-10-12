@@ -17,13 +17,13 @@
  */
 
 /** What a dialog should do about one keystroke. Null means "nothing this
- *  layer decides", which leaves the browser's own behavior in place — a
+ *  layer decides", which leaves the browser's own behavior in place, a
  *  focused button already activates on Enter, and Tab already moves through
  *  the controls everywhere except the two ends. */
 export type DialogKeyIntent =
 	| { kind: "primary" }
 	| { kind: "dismiss" }
-	/** Tab ran off an end of the dialog; put focus back at the other end. */
+	/** Tab ran off an end of the dialog. Put focus back at the other end. */
 	| { kind: "wrap-focus"; to: "first" | "last" }
 	| null;
 
@@ -32,7 +32,7 @@ export type DialogFocusState = {
 	atFirst: boolean;
 	/** Focus sits on the last one. */
 	atLast: boolean;
-	/** The focused element acts on Enter by itself — a button, a link, a
+	/** The focused element acts on Enter by itself. A button, a link, a
 	 *  submit input. Enter must not then ALSO fire the default action, or
 	 *  pressing it on "Copy detail" would copy and dismiss at once. */
 	focusActivates: boolean;
@@ -62,9 +62,9 @@ export function dialogKeyIntent(
 
 /** The elements a dialog's Tab cycle runs over, in document order.
  *
- * Deliberately narrow: this app's dialogs hold buttons and nothing else, and
+ * Narrow: this app's dialogs hold buttons and nothing else, and
  * a selector that guessed at every focusable thing would quietly include
- * whatever a future dialog puts inside it — including elements that should
+ * whatever a future dialog puts inside it, including elements that should
  * not be in the cycle. Widen it when a dialog grows a control, not before. */
 export const DIALOG_FOCUSABLE_SELECTOR = "button:not([disabled]), [href], input:not([disabled]), " +
 	"select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";

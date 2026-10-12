@@ -1,4 +1,4 @@
-//! Root `glowcap` command tree — argv parse, help, and completion.
+//! Root `glowcap` command tree: argv parse, help, and completion.
 //! CapTP leaves project from `cli/registry.zig` (sole verb table).
 const std = @import("std");
 const types = @import("types.zig");
@@ -28,7 +28,7 @@ pub const root_flags = [_]Flag{
     .{ .long = "identity", .help = "Path to CapTP identity seed", .kind = .string_flag, .persistent = true },
 };
 
-/// CapTP leaves — projection of `registry.commands` (sole verb table).
+/// CapTP leaves: projection of `registry.commands` (sole verb table).
 const ocapn_children = blk: {
     var out: [registry.commands.len]Command = undefined;
     for (registry.commands, 0..) |c, i| {

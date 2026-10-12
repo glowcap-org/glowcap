@@ -1,6 +1,6 @@
 //! Prepare/commit transactions for promise shortening consequences.
 //!
-//! Inbound validation decides semantics; this leaf owns the fallible authority
+//! Inbound validation decides semantics. This leaf owns the fallible authority
 //! and queue reservations that must all exist before a received frame commits.
 
 const std = @import("std");
@@ -186,7 +186,7 @@ pub const ShorteningCallbackPlan = struct {
 };
 
 /// All fallible work for one private shortening callback, together with its
-/// terminal transition. Abandon releases its reservations; commit transfers
+/// terminal transition. Abandon releases its reservations. Commit transfers
 /// every prepared carrier after the validated deliver applies.
 pub const PreparedShorteningCallback = struct {
     plan: ShorteningCallbackPlan,
@@ -398,6 +398,7 @@ pub fn commitSettlingRearm(
             target.import_position.int(),
             if (prepared.move.converges)
                 self.session_state.promiseSettlingListenerExport(
+                    // `prepareSettlingRearm` read this incarnation in the same dispatch.
                     self.session_state.shorteningIncarnationForImport(target.import_position) orelse unreachable,
                 ).?.int()
             else

@@ -62,27 +62,24 @@ Deno.test("a closed control aborts its run and repaints nothing after it", async
 	assertEquals(changes(), before);
 });
 
-Deno.test("a reopened control's press starts fresh work instead of joining the stopped run", async () => {
-	const signals: AbortSignal[] = [];
-	const first = deferred<void>();
-	const second = deferred<void>();
-	const { run, changes } = action((signal) => {
-		signals.push(signal);
-		return signals.length === 1 ? first.promise : second.promise;
+Deno.test("stop and remount retain the worker until it drains", async () => {
+	const done = deferred<void>();
+	let started = 0;
+	const { run } = action(() => {
+		started++;
+		return done.promise;
 	});
-	const stopped = run.run();
+	const first = run.run();
+	run.cancel();
+	assertEquals(run.run() === first, true);
 	run.close();
 	run.reopen();
-	const before = changes();
-	const fresh = run.run();
-	assertEquals([stopped === fresh, signals.length, run.busy], [false, 2, true]);
-	assertEquals(signals[1].aborted, false);
-	first.resolve();
-	await stopped;
-	assertEquals(run.busy, true);
-	second.resolve();
-	await fresh;
-	assertEquals([run.busy, changes() > before], [false, true]);
+	assertEquals(run.run() === first, true);
+	assertEquals([started, run.busy], [1, true]);
+	done.resolve();
+	await first;
+	await run.run();
+	assertEquals([started, run.busy], [2, false]);
 });
 
 Deno.test("a synchronous throw is a refusal, not an escaped exception", async () => {
@@ -91,4 +88,63 @@ Deno.test("a synchronous throw is a refusal, not an escaped exception", async ()
 	});
 	await run.run();
 	assertEquals(run.why.includes("no held control"), true);
+});
+
+import { PRESENTATION, PresentationRun } from "../web/ui/presentation.ts";
+
+for (const delay of [PRESENTATION.busy, PRESENTATION.sending, PRESENTATION.connection]) {
+	Deno.test(`progress appears at ${delay}ms and retired timers cannot paint a later run`, () => {
+		let now = 0;
+		let changes = 0;
+		const callbacks: (() => void)[] = [];
+		const timers = new Set<symbol>();
+		const run = new PresentationRun(() => changes++, {
+			now: () => now,
+			later: (callback) => {
+				const token = Symbol();
+				timers.add(token);
+				callbacks.push(() => {
+					timers.delete(token);
+					callback();
+				});
+				return () => {
+					timers.delete(token);
+				};
+			},
+		});
+		run.start("first", delay);
+		now = delay - 1;
+		assertEquals(run.visible("first", delay), false);
+		now++;
+		assertEquals(run.visible("first", delay), true);
+		callbacks.shift()!();
+		assertEquals(run.remaining, PRESENTATION.feedback);
+		run.start("second", delay);
+		assertEquals(run.visible("first", delay), false);
+		assertEquals(run.visible("second", delay), false);
+		const old = callbacks.shift()!;
+		run.close();
+		run.start("third", delay);
+		const before = changes;
+		now += delay * 10;
+		old();
+		assertEquals(changes, before);
+		assertEquals(run.visible("third", delay), true);
+		run.close();
+		assertEquals(timers.size, 0);
+	});
+}
+
+Deno.test("background wake starts the feedback slot when progress is actually drawn", () => {
+	let now = 0;
+	const run = new PresentationRun(() => {}, { now: () => now, later: () => () => {} });
+	run.start("sleeping", PRESENTATION.busy);
+	now = 10_000;
+	assertEquals(run.visible("sleeping", PRESENTATION.busy), true);
+	assertEquals(run.remaining, 500);
+	now += 499;
+	assertEquals(run.remaining, 1);
+	run.close();
+	assertEquals(run.visible("sleeping", PRESENTATION.busy), false);
+	assertEquals(run.remaining, 0);
 });

@@ -4,7 +4,7 @@
 // the same names, because they are the same directory and a reader who has
 // seen one page should recognize the other. What differs is that nothing here
 // acts: inspect is the right to see, and the server never sends it the handle
-// an act would take. So this pane has no buttons rather than disabled ones —
+// an act would take. So this pane has no buttons rather than disabled ones:
 // a control a reader cannot ever use is worse than no control, and there is
 // no state in which these would become pressable.
 //

@@ -93,7 +93,7 @@ pub const Backend = struct {
     }
 
     /// Build a backend whose listener binds `listener_ip4`. The ordinary
-    /// constructor keeps the least-exposed default, `127.0.0.1`; a service
+    /// constructor keeps the least-exposed default, `127.0.0.1`. A service
     /// intended for other hosts can opt into an interface address or
     /// `0.0.0.0` before moving the backend into `Loop.initWithBackend`.
     pub fn initWithListenerIp4(
@@ -132,7 +132,7 @@ pub const Backend = struct {
     }
 
     /// Reclaim a recv completion's scratch buffer. This base backend creates
-    /// only receive borrows; wrappers consume their own richer borrows.
+    /// only receive borrows. Wrappers consume their own richer borrows.
     /// Sockets carry no lower-layer peer identity: the total Backend
     /// contract's `verifiedChannelKey` member (ADR-0097) always answers null.
     pub fn verifiedChannelKey(self: *Backend, fd: Fd) ?[32]u8 {
@@ -171,7 +171,7 @@ pub const Backend = struct {
         std.debug.assert(self.pending.remove(fd));
     }
 
-    /// Arm a one-shot interest; `kqueue_readiness` re-arms a spurious edge.
+    /// Arm a one-shot interest. `kqueue_readiness` re-arms a spurious edge.
     pub fn register(self: *Backend, fd: c.fd_t, filter: i16) !void {
         var change: c.Kevent = .{
             .ident = @intCast(fd),
@@ -218,11 +218,17 @@ pub const Backend = struct {
     // transactional: allocation failure installs no kernel state, while kevent
     // failure rolls back a newly-created idle row.
 
-    /// Submissions register with kqueue as they are made; nothing waits.
+    /// Submissions register with kqueue as they are made. Nothing waits.
     pub fn flush(_: *Backend) !void {}
 
     /// Nothing here waits on a timer: every completion arrives through the
     /// descriptor.
+    /// A platform listener is bound when `openListener` returns; nothing
+    /// pends.
+    pub fn listenerPending(_: *const Backend, _: Fd) bool {
+        return false;
+    }
+
     pub fn waitBoundMs(_: *const Backend, requested_ms: i32) i32 {
         return requested_ms;
     }
@@ -397,7 +403,7 @@ pub const Backend = struct {
         return produced;
     }
 
-    /// The interface every listener binds; `openListener` chooses only the
+    /// The interface every listener binds. `openListener` chooses only the
     /// port.
     pub fn listenerIp4(self: *const Backend) [4]u8 {
         return self.listener_ip4;

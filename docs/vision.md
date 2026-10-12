@@ -4,15 +4,12 @@ glowcap should be a dependable foundation for capability applications from Zig
 or another systems boundary. OCapN networking, actors, and persistence should
 compose through explicit ownership and usable application APIs.
 
-[What ships](shipped.md) describes the code today; [the roadmap](roadmap.md)
-names the work between here and that destination.
-
 ## The goal
 
 A glowcap peer should hold a complete, correct conversation with any conforming
 OCapN peer, including [Spritely Goblins](https://spritely.institute/goblins/).
-That conversation should work whether the application uses Zig, the C
-ABI, or a language binding.
+That conversation should work whether the application uses Zig, the C ABI,
+or a language binding.
 
 Correctness comes first. Once the protocol is correct, performance and
 ergonomics are both requirements: the library should make its costs visible
@@ -31,31 +28,26 @@ provenance and upstream-contact policy live in
 - **Visible ownership.** Allocation, copying, borrowing, and release are
   explicit at the boundary where they happen.
 - **One source of authority.** Session state decides what a reference means.
-  Codecs parse and render; transports move bytes.
+  Codecs parse and render. Transports move bytes.
 - **Application-shaped APIs.** Fetching, publishing, calling, hosting,
   delegation, attenuation, revocation, and handoff should read as ordinary
   operations rather than wire-protocol bookkeeping.
 - **Replaceable edges.** Codecs, transports, and runtime adapters meet the core
-  through narrow contracts. The long-term goal is to make those contracts
-  usable from every supported surface, including language bindings.
+  through narrow contracts that every supported surface can use, including
+  language bindings.
 
 ## Scale
 
 The destination is 500,000 live CapTP sessions on one node, for every way an
 application can run glowcap.
 
-A recorded run has held that many signed sessions on the TCP completion loop.
-The product's `HostRuntime` now runs stream transports through completion
-residents that hold no read or write buffer on an idle connection. Its TCP
-path has been measured at 100,000 sessions. The 500,000-session run remains to
-be repeated on that runtime. Per-session footprint checks and allocation
-budgets cover the rest of the design. [The route to 1.0](ladder.md) records
-the measured numbers and their scope.
+Per-session footprint checks and allocation budgets hold the design to that
+target. [The route to 1.0](ladder.md) records the measured runs and their
+scope.
 
-The core cannot create scale by itself; the connection loop and operating
-system do the serving. Its responsibility is to avoid making the target
-impossible through oversized session state, hidden allocation, or unnecessary
-copies.
+The connection loop and operating system do the serving. The core's job is to
+keep the target reachable by avoiding oversized session state, hidden
+allocation, and unnecessary copies.
 
 ## A useful application surface
 
@@ -70,7 +62,7 @@ The C ABI should give binding authors opaque handles, fixed-width results,
 awkward in its host language is a reason to improve the shared boundary.
 
 Higher-level actor support belongs above the protocol engine. Applications may
-use it, replace it, or work directly with the session API; the protocol core
+use it, replace it, or work directly with the session API. The protocol core
 should not grow framework policy to serve one runtime.
 
 ## Durable capability applications
@@ -84,21 +76,19 @@ on the existing Vat and Host, and their state leaves memory between calls.
 Loam's managed access is for applications that share resources with people.
 It records grants over a resource and what sits below it, lets a holder share
 onward but never more widely, can pause or revoke a grant, and shows who holds
-access. Applications define their domain
-operations and content.
-Ordinary objects require no resource-management state, and both kinds can
-participate in the same persistence transaction.
+access. Applications define their domain operations and content. Ordinary
+objects require no resource-management state, and both kinds can participate
+in the same persistence transaction.
 
-The [Loam design](planning/loam/architecture.md) owns that destination. The
-current [record storage and resource primitives](shipped.md#resource-models)
-implement part of it. Database I/O remains optional, local persistence needs no active network,
-and plain networking incurs no store or grant-state allocation. Durable graph
-size, resident actor count, and live session count have separate budgets.
+The [Loam design](loam/architecture.md) owns that destination. Database I/O stays
+optional, local persistence needs no network, and plain networking allocates no
+store or grant state. Durable graph size, resident actor count, and live
+session count have separate budgets.
 
 ## Reachability
 
 OCapN does not require one transport. A peer is reached by an address string
-called a locator. Encrypted transports prove who answered; a cleartext test
+called a locator. Encrypted transports prove who answered. A cleartext test
 socket does not. The CapTP session above them stays the same, whether the
 bytes travel over encrypted discovery, a sealed TCP stream, a local process,
 or a development socket.
@@ -117,10 +107,10 @@ turning a relay into an application-level authority.
 
 Interoperability means:
 
-- glowcap and Goblins can dial, host, call, and hand off to each other;
-- every language binding can act as both client and host with outside peers;
+- glowcap and Goblins can dial, host, call, and hand off to each other
+- every language binding can act as both client and host with outside peers
 - glowcap peers using different bindings, codecs, and transports preserve the
-  same capability semantics.
+  same capability semantics
 
 ## Read the current state
 

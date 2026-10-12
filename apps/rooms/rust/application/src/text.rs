@@ -1,5 +1,5 @@
 //! Lossless text in existing JavaScript-authored JSON documents. Ordinary text
-//! keeps Rust's UTF-8 representation; isolated UTF-16 surrogates use code units.
+//! keeps Rust's UTF-8 representation. Isolated UTF-16 surrogates use code units.
 //! Serialization of the latter uses serde_json's raw-value contract. Browser
 //! adapters should exchange its UTF-16 units rather than deserialize it as str.
 use alloc::{string::String, vec::Vec};
@@ -47,8 +47,8 @@ impl DocumentText {
 		}
 	}
 	/// Borrow ordinary JSON source, escaping literal isolated surrogates only
-	/// when necessary. An already escaped surrogate is an invalid JSON escape;
-	/// do not repair it into a different valid string.
+	/// when necessary. An already escaped surrogate is an invalid JSON escape.
+	/// Do not repair it into a different valid string.
 	pub(crate) fn json_source(&self) -> Option<alloc::borrow::Cow<'_, str>> {
 		if let Some(text) = self.as_str() {
 			return Some(alloc::borrow::Cow::Borrowed(text));
@@ -72,7 +72,7 @@ impl DocumentText {
 		Some(alloc::borrow::Cow::Owned(out))
 	}
 	/// The scalar-string view used by JavaScript URL parsing and TextEncoder.
-	/// Use only at those syntax boundaries; stored document text stays lossless.
+	/// Use only at those syntax boundaries. Stored document text stays lossless.
 	pub(crate) fn utf8_lossy(&self) -> alloc::borrow::Cow<'_, str> {
 		match &self.0 {
 			Repr::Utf8(text) => alloc::borrow::Cow::Borrowed(text),

@@ -1,5 +1,5 @@
 // Drafts and retained requests belong to one actual held control.
-import { currentPermissions, managedAccessText as text } from "../../../lib/text/managed_access.ts";
+import { currentLabel, currentPermissions, managedAccessText as text } from "../../../lib/text/managed_access.ts";
 import { useEffect, useState } from "react";
 import {
 	controlName,
@@ -19,7 +19,7 @@ import { Field } from "../Field.tsx";
 import { Said } from "../Said.tsx";
 import { Submodal } from "../Submodal.tsx";
 import { Switch } from "../Switch.tsx";
-import { PermissionFields, permissionRefusal } from "./PermissionFields.tsx";
+import { PermissionFields, permissionRefusal, permissionSummary } from "./PermissionFields.tsx";
 import { AccessStatusTag } from "./AccessStatusTag.tsx";
 import { ShareControl } from "./ShareControl.tsx";
 import { refusalText } from "../../../lib/text/failure.ts";
@@ -140,6 +140,7 @@ export function SessionGrantEditModal({ control, open, onClose }: {
 	};
 	const discard = async () => {
 		if (busy) return;
+		const kind = control.pending?.intent.kind ?? "discard";
 		setRunning("discard");
 		try {
 			management.finish(control);
@@ -149,7 +150,7 @@ export function SessionGrantEditModal({ control, open, onClose }: {
 			setBase(control.powers.revision ?? "");
 			setOutcome(null);
 		} catch (error) {
-			setOutcome({ on: "discard", said: refusalText(error), saved: false });
+			setOutcome({ on: kind, said: refusalText(error), saved: false });
 		} finally {
 			setRunning(null);
 		}
@@ -159,11 +160,61 @@ export function SessionGrantEditModal({ control, open, onClose }: {
 	const own = control.id === OWN_CONTROL;
 	const answer = (on: Running) => {
 		const row = said(on);
+		if (pending?.intent.kind === on && (pending.phase === "conflict" || pending.phase === "uncertain")) {
+			const conflict = pending.phase === "conflict";
+			const explanation = conflict ? text.staleEdit : text.missingEdit;
+			const diagnostic = row?.said || pending.reason;
+			return (
+				<div className="group session-edit-recovery">
+					<Said kind="warning">{diagnostic === "" ? explanation : `${explanation} (${diagnostic})`}</Said>
+					{conflict && control.grant != null && on === "label" && (
+						<p className="hint">{currentLabel(knownLabel(control))}</p>
+					)}
+					{conflict && control.grant != null && on === "policy" && (
+						<p className="hint">
+							{currentPermissions(permissionSummary(knownPermissions(control)))}
+						</p>
+					)}
+					<div className="actions">
+						{conflict
+							? (
+								<>
+									<Button
+										busy={running === "discard"}
+										disabled={busy}
+										variant="quiet"
+										onClick={() => void discard()}
+									>
+										{text.discard}
+									</Button>
+									<Button
+										busy={running === "reapply"}
+										disabled={busy || ended}
+										onClick={() => void submit(undefined, true)}
+									>
+										{text.reapply}
+									</Button>
+								</>
+							)
+							: (
+								<Button busy={running === "recover"} disabled={busy} onClick={() => void submit()}>
+									{text.recoverEdit}
+								</Button>
+							)}
+					</div>
+				</div>
+			);
+		}
 		// A committed revoke answers through the card's lead and status tag.
 		if (row == null || (on === "revoke" && row.saved && row.said === "")) return null;
 		if (row.said !== "") return <Said kind={row.saved ? "warning" : "failure"}>{row.said}</Said>;
 		return row.saved ? <Said kind="success">{text.committedEdit}</Said> : null;
 	};
+	// A retained edit still needs an answer when refresh removes its powers.
+	const labelAnswer = answer("label");
+	const policyAnswer = answer("policy");
+	const activeAnswer = answer("pause") ?? answer("resume");
+	const revokeAnswer = answer("revoke");
 	const powerless = powers.available && !powers.inspect && !powers.pause && !powers.resume && !powers.revoke &&
 		!editable && !powers.delegateControl;
 	return (
@@ -179,43 +230,44 @@ export function SessionGrantEditModal({ control, open, onClose }: {
 			{!powerless && control.grant == null && powers.available && <p className="hint">{text.uninspectable}</p>}
 			<div className="group well">
 				<ul className="entries option-rows">
-					{/* An ended access takes no rename; the card title still names it. */}
-					{!ended && (
+					{(!ended || labelAnswer != null) && (
 						<li className="entry">
-							<form
-								className="field-row"
-								onSubmit={(event) => {
-									event.preventDefault();
-									void submit({ kind: "label", label });
-								}}
-							>
-								<Field id="sessionGrantLabel" label={text.label}>
-									{(wiring) => (
-										<input
-											id={wiring.id}
-											className="field"
-											value={label}
-											maxLength={120}
-											placeholder={own ? text.ownControl : text.labelPlaceholder}
-											disabled={locked || !editable}
-											onChange={(event) => {
-												setLabel(event.currentTarget.value);
-												if (said("label") != null) setOutcome(null);
-											}}
-										/>
-									)}
-								</Field>
-								<Button
-									type="submit"
-									variant="quiet"
-									size="large"
-									busy={running === "label"}
-									disabled={locked || !editable || !labelChanged}
+							{ended ? <span className="entry-name">{text.label}</span> : (
+								<form
+									className="field-row"
+									onSubmit={(event) => {
+										event.preventDefault();
+										void submit({ kind: "label", label });
+									}}
 								>
-									{text.saveLabel}
-								</Button>
-							</form>
-							{answer("label")}
+									<Field id="sessionGrantLabel" label={text.label}>
+										{(wiring) => (
+											<input
+												id={wiring.id}
+												className="field"
+												value={label}
+												maxLength={120}
+												placeholder={own ? text.ownControl : text.labelPlaceholder}
+												disabled={locked || !editable}
+												onChange={(event) => {
+													setLabel(event.currentTarget.value);
+													if (said("label") != null) setOutcome(null);
+												}}
+											/>
+										)}
+									</Field>
+									<Button
+										type="submit"
+										variant="quiet"
+										size="large"
+										busy={running === "label"}
+										disabled={locked || !editable || !labelChanged}
+									>
+										{text.saveLabel}
+									</Button>
+								</form>
+							)}
+							{labelAnswer}
 						</li>
 					)}
 					{own ? null : status === "revoked"
@@ -225,7 +277,8 @@ export function SessionGrantEditModal({ control, open, onClose }: {
 									<span className="entry-name">{text.statusLabel}</span>
 									<AccessStatusTag status="revoked" />
 								</div>
-								{answer("revoke")}
+								{activeAnswer}
+								{revokeAnswer}
 							</li>
 						)
 						: (
@@ -244,10 +297,10 @@ export function SessionGrantEditModal({ control, open, onClose }: {
 									/>
 								</div>
 								<p className="hint">{status === "active" ? text.activeSaid : text.pausedNowSaid}</p>
-								{answer("pause") ?? answer("resume")}
+								{activeAnswer}
 							</li>
 						)}
-					{!own && control.powers.revoke && status !== "revoked" && (
+					{!own && (control.powers.revoke || revokeAnswer != null) && status !== "revoked" && (
 						<li className="entry">
 							{revoke
 								? (
@@ -276,9 +329,9 @@ export function SessionGrantEditModal({ control, open, onClose }: {
 											</div>
 										</div>
 										<p className="hint">{text.revokeRowSaid}</p>
-										{answer("revoke")}
 									</>
 								)}
+							{revokeAnswer}
 						</li>
 					)}
 					{!own && (
@@ -322,7 +375,7 @@ export function SessionGrantEditModal({ control, open, onClose }: {
 					<Said kind="warning">{text.ancestor}</Said>
 				)}
 			</div>
-			{control.grant != null && (
+			{(control.grant != null || policyAnswer != null) && (
 				<form
 					className="session-grant-permissions"
 					onSubmit={(event) => {
@@ -338,7 +391,7 @@ export function SessionGrantEditModal({ control, open, onClose }: {
 							disabled={locked || !editable}
 							onChange={setPermissions}
 						/>
-						{answer("policy")}
+						{policyAnswer}
 						<div className="actions">
 							<Button
 								type="submit"
@@ -351,39 +404,6 @@ export function SessionGrantEditModal({ control, open, onClose }: {
 						</div>
 					</div>
 				</form>
-			)}
-			{pending?.phase === "conflict" && (
-				<div className="group well">
-					<Said kind="warning">{text.staleEdit}</Said>
-					<p className="hint">{currentPermissions(control.grant?.configured.permissions ?? [])}</p>
-					<div className="actions">
-						<Button
-							busy={running === "discard"}
-							disabled={busy}
-							variant="quiet"
-							onClick={() => void discard()}
-						>
-							{text.discard}
-						</Button>
-						<Button
-							busy={running === "reapply"}
-							disabled={busy}
-							onClick={() => void submit(undefined, true)}
-						>
-							{text.reapply}
-						</Button>
-					</div>
-				</div>
-			)}
-			{pending?.phase === "uncertain" && (
-				<div className="group well">
-					<Said kind="warning">{text.missingEdit}</Said>
-					<div className="actions">
-						<Button busy={running === "recover"} disabled={busy} onClick={() => void submit()}>
-							{text.recoverEdit}
-						</Button>
-					</div>
-				</div>
 			)}
 			{answer("discard")}
 			{/* An empty list has nothing to manage, so the section appears once it has rows. */}

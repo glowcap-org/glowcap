@@ -8,8 +8,8 @@
 //! It lives in `foundation` because every tier that reads a stream needs one and
 //! the tiers cannot reach each other: `net` folds a parser over a live byte
 //! stream, while `driver_core` is byte-fed and imports no transport at all.
-//! Each used to keep its own copy of this buffer, and the two drifted. This is
-//! the one copy, and being bytes and nothing else (no reader, no codec, no
+//! Each would otherwise keep its own copy of this buffer, and the two would
+//! drift. This is the one copy, and being bytes and nothing else (no reader, no codec, no
 //! session) is what lets both tiers share it.
 //!
 //! What it costs is named in ADR-0041: the steady state is inactive and
@@ -40,8 +40,8 @@ pub const Spill = struct {
     buf: []u8 = &.{},
     len: usize = 0,
 
-    /// Whether bytes are waiting here. While active, the spill — not the
-    /// caller's own buffer — is the prefix the one parser decodes.
+    /// Whether bytes are waiting here. While active, the spill, not the
+    /// caller's own buffer, is the prefix the one parser decodes.
     pub fn isActive(self: *const Spill) bool {
         return self.len > 0;
     }
@@ -53,7 +53,7 @@ pub const Spill = struct {
 
     /// Copy `incoming` onto the end of what is waiting. `incoming` is borrowed
     /// for the call, so a caller may hand over a recycled pool buffer or a
-    /// transient chunk. Grows geometrically; the caller's own cap check is what
+    /// transient chunk. Grows geometrically. The caller's own cap check is what
     /// bounds the growth.
     pub fn absorbBytes(self: *Spill, allocator: std.mem.Allocator, incoming: []const u8) std.mem.Allocator.Error!void {
         if (incoming.len == 0) return;
@@ -64,7 +64,7 @@ pub const Spill = struct {
             // A stream reader hands over a whole read buffer at once and lands
             // large on the first try, while a byte-fed host straddles a chunk
             // boundary by a handful of bytes and would otherwise pay a
-            // kilobyte-scale floor on every connection that ever straddled —
+            // kilobyte-scale floor on every connection that ever straddled,
             // which is most of them, on that tier.
             self.buf = try allocator.realloc(self.buf, @max(self.buf.len * 2, needed));
         }
@@ -100,7 +100,7 @@ pub const Spill = struct {
     }
 
     /// Drop `n` consumed bytes (one decoded frame) off the front. Leftover bytes
-    /// — the start of the next frame — compact forward and keep the spill
+    /// (the start of the next frame), compact forward and keep the spill
     /// active.
     ///
     /// `retain` is how much capacity a fully drained spill keeps, and it is the

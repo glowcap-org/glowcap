@@ -1,5 +1,5 @@
 //! Direct inbox vocabulary. Text stays borrowed until its receiver admits an
-//! effect; only accepted attachment and handed capability occurrences retain.
+//! effect. Only accepted attachment and handed capability occurrences retain.
 use crate::{
 	archive::ShareKind,
 	room::{

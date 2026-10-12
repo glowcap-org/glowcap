@@ -1,6 +1,6 @@
 //! `tcp.parseDesignator` / `tcp.DialResolver.resolve` branch coverage, no
 //! sockets. The locator reconnect path (`tcp.connect`) is proven end to end
-//! over loopback in `tcp_test.zig`; this pins the designator-splitting itself
+//! over loopback in `tcp_test.zig`. This pins the designator-splitting itself
 //! and the completion-loop dial resolve (tcp vs keyed-tcp vs unknown),
 //! including the IPv6 bracket rule and the malformed cases, which a single
 //! IPv4 loopback dial does not reach.

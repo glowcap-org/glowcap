@@ -7,7 +7,7 @@
 //! projection (`errToCode`), and the per-call marshalling the send / tell /
 //! turn exports share (`valueMessageFromC`, hosted-behavior marshalling).
 //! The `host`,
-//! `session`, `turn`, and `pump` leaves import it; the module root
+//! `session`, `turn`, and `pump` leaves import it. The module root
 //! (`mod.zig`) re-exports their `glowcap_host_*` exports and owns the public C
 //! types those exports fill.
 
@@ -18,8 +18,8 @@ const model = @import("model");
 const actors = @import("actors");
 const driver_core = @import("driver_core");
 
-// The shared C-ABI vocabulary leaf — types, codes, allocation, the last-error
-// slot — not the ocapn root, so this archive pulls none of the ocapn family's
+// The shared C-ABI vocabulary leaf (types, codes, allocation, the last-error
+// slot), not the ocapn root, so this archive pulls none of the ocapn family's
 // exports (ADR-0059 companion split).
 const shared = @import("c_abi_shared");
 const host_error = @import("error.zig");
@@ -53,7 +53,7 @@ pub const GLOWCAP_ERR_WOULD_BLOCK = shared.GLOWCAP_ERR_WOULD_BLOCK;
 pub const steady_scratch_bytes = 4096;
 
 /// Which adapter owns transport execution and terminal release for this Host.
-/// Application verbs remain Host verbs in either state; the distinction owns
+/// Application verbs remain Host verbs in either state. The distinction owns
 /// the I/O/action-drain half and prevents two drivers from driving or freeing
 /// the same core.
 pub const DriveOwner = enum {
@@ -76,11 +76,11 @@ pub const Instance = struct {
     /// Companion attachments borrow this Host until their successful release.
     attachment_borrows: usize = 0,
     /// The C trace callback (`glowcap_host_set_trace`), bridged onto the
-    /// core's sink; null when tracing is off.
+    /// core's sink. Null when tracing is off.
     trace_cb: ?c.GlowcapTraceCallback = null,
     trace_ctx: ?*anyopaque = null,
     /// The drained trace ring (`glowcap_host_set_trace_queue`), for an
-    /// embedder that cannot take the callback; null when none is installed.
+    /// embedder that cannot take the callback. Null when none is installed.
     /// Host-scope, so a session pays nothing for it.
     trace_queue: ?*trace_queue.TraceQueue = null,
     /// Scratch for one call's inbound argument marshalling,
@@ -91,12 +91,12 @@ pub const Instance = struct {
     /// waits for the next top-level call to reclaim the lot.
     arg_scratch: std.heap.ArenaAllocator,
     /// Scratch owning a turn verb's projected reply (`turn_forward`), reset at
-    /// the head of each projection — the reply is borrowed until the next
+    /// the head of each projection. The reply is borrowed until the next
     /// turn verb or drive, the same lifetime the underlying near reply has.
     turn_scratch: std.heap.ArenaAllocator,
     /// Scratch owning a SETTLE action's projected `value` sub-structure
     /// (`argumentToC`'s child arrays), reset at the head of each
-    /// `glowcap_host_next_action` — the C children and the model value in the
+    /// `glowcap_host_next_action`. The C children and the model value in the
     /// popped action row both die at the next `next_action` call, one
     /// lifetime sentence, the one DIAL already carries.
     completion_scratch: std.heap.ArenaAllocator,
@@ -114,7 +114,7 @@ pub const zero_action = GlowcapHostAction{
 };
 
 /// Destroy one Host instance after its drive owner has ended all access.
-/// Both archive faces call this no-export implementation; neither calls the
+/// Both archive faces call this no-export implementation. Neither calls the
 /// other archive's public release symbol.
 pub fn releaseInstance(inst: *Instance) ?anyerror {
     const alloc = inst.allocator;
@@ -171,7 +171,7 @@ pub fn instanceFrom(handle: ?*GlowcapHost) ?*Instance {
 }
 
 /// Whether the byte-fed embedder still owns transport execution for this
-/// Host. Application verbs remain valid after driver adoption; action-drain,
+/// Host. Application verbs remain valid after driver adoption. Action-drain,
 /// listener metadata, session mint/release, and byte-pump verbs do not.
 pub fn embedderOwnsDrive(inst: *Instance, operation: []const u8) bool {
     if (inst.drive_owner == .embedder) return true;
@@ -187,7 +187,7 @@ pub fn turnFrom(handle: ?*GlowcapHostTurn) ?*actors.Turn {
     return @ptrCast(@alignCast(handle orelse return null));
 }
 
-/// The instance a host core is embedded in — `Instance.core` is by value, so
+/// The instance a host core is embedded in. `Instance.core` is by value, so
 /// this is one field-parent hop.
 pub fn instOf(core: *Host) *Instance {
     return @fieldParentPtr("core", core);
@@ -219,7 +219,7 @@ pub fn setView(slice: []const u8, out_ptr: *?[*]const u8, out_len: *usize) void 
 }
 
 /// Preflight a foreign callback-context transfer before the C bridge takes
-/// ownership. The Host remains the admission authority; this early call only
+/// ownership. The Host remains the admission authority. This early call only
 /// preserves the ABI promise that a reentry refusal leaves `ctx` caller-owned.
 pub fn preflightHostedTransfer(inst: *Instance) ?i32 {
     inst.core.refuseReentry() catch |err| return errToCode(err);
@@ -237,7 +237,7 @@ pub const HostedBehavior = struct {
 
     /// The vat calls this on each deliver. It marshals the message into C,
     /// invokes the consumer's callback with the turn, and materializes the
-    /// reply *owned* into `turn.arena` before returning — the consumer's
+    /// reply *owned* into `turn.arena` before returning: the consumer's
     /// `out_reply` storage is only valid until the callback returns, and the
     /// reply must own its bytes for the turn window, exactly like a native
     /// reply.
@@ -307,7 +307,7 @@ pub const HostedBehavior = struct {
 
 /// Allocate the C callback bridge and return the actor descriptor a Vat or
 /// Host publication consumes. On allocation failure this owns the foreign
-/// `ctx` contract and invokes `free`; after return, `HostedActor.free` does.
+/// `ctx` contract and invokes `free`. After return, `HostedActor.free` does.
 pub fn hostedBridge(
     alloc: std.mem.Allocator,
     behavior: GlowcapHostBehavior,
@@ -328,7 +328,7 @@ pub const ValueMessage = struct {
 };
 
 /// Decode one C application message without manufacturing wire references.
-/// Capability leaves remain opaque; the core operation routes its target and
+/// Capability leaves remain opaque. The core operation routes its target and
 /// lowers the complete value tree on the session that will actually carry it.
 pub fn valueMessageFromC(
     inst: *Instance,
@@ -371,7 +371,7 @@ fn decodeHostReference(ctx: HostRefContext, ref: shared.GlowcapReference) anyerr
 
 /// The plain-data decode behind a resolver settle (ADR-0102): every
 /// reference arm refuses, because the settle carries no session to home a
-/// capability — an answer that carries authority takes the turn's
+/// capability. An answer that carries authority takes the turn's
 /// forward-to-send path instead.
 fn refusePlainReference(ctx: void, ref: shared.GlowcapReference) anyerror!model.Reference {
     _ = ctx;
@@ -400,7 +400,7 @@ pub fn hostArgumentFromCOwned(
 }
 
 /// Argument leaves borrow their owner. Every struct value is already counted
-/// among values; its key adds one C slot. Container requests split that total.
+/// among values. Its key adds one C slot. Container requests split that total.
 pub fn valueProjectionBound(comptime Bound: type, values: usize, entries: usize) !Bound {
     const slots = try std.math.add(usize, values, entries);
     var bound: Bound = .{};
@@ -509,8 +509,8 @@ pub fn hostArgsToC(inst: *Instance, session: *HostSession, arena: std.mem.Alloca
 
 /// One `DurableProvenance` in its C spelling.
 ///
-/// Two surfaces report this fact — the partner-identity query and the trace's
-/// session-open — and they must agree, so the mapping lives here once rather
+/// Two surfaces report this fact (the partner-identity query and the trace's
+/// session-open) and they must agree, so the mapping lives here once rather
 /// than being spelled at each of them.
 pub fn provenanceToC(provenance: driver_core.DurableProvenance) u32 {
     return switch (provenance) {

@@ -2,7 +2,7 @@
 // same module. Each function is the one import() for that wait.
 
 /** Hold a download whose failure this call must not explain. Hover prefetch
- * and an abandoned parallel import are not this page's opening; a required
+ * and an abandoned parallel import are not this page's opening. A required
  * load is the one that can stamp the opening screen lost. */
 export function prefetch(load: () => Promise<unknown>): void {
 	void load().then(() => {}, () => {});

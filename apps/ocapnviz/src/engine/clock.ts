@@ -1,6 +1,6 @@
 /**
- * Playback clock — simulated time decoupled from wall time. The
- * caller passes `wallDt` to `tick()`; the clock never reads
+ * Playback clock, simulated time decoupled from wall time. The
+ * caller passes `wallDt` to `tick()`. The clock never reads
  * `performance.now()` itself. That keeps the engine deterministic
  * and lets tests drive a fixed timestep.
  */
@@ -67,7 +67,7 @@ export class Clock {
 		this.#snapshotCache = null;
 	}
 
-	/** Start playing. Does NOT rewind `t` — "play after end →
+	/** Start playing. Does NOT rewind `t`, "play after end →
 	 * restart" is engine-level, because rewinding the clock without
 	 * rewinding the world leaves the simulation inconsistent. */
 	play(): void {
@@ -116,7 +116,7 @@ export class Clock {
 	}
 
 	/**
-	 * Advance by `wallDt` ms; return the elapsed simulated dt
+	 * Advance by `wallDt` ms. Return the elapsed simulated dt
 	 * (`0` when paused). Pins `t` at `duration` and pauses there.
 	 */
 	tick(wallDt: number): number {

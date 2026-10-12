@@ -1,4 +1,4 @@
-# ocapnviz — OCapN network topology visualizer
+# ocapnviz: OCapN network topology visualizer
 
 ocapnviz draws CapTP sessions and messages on a timeline so you can watch a
 live Rooms server or replay a recorded run. Peers and sessions animate as a
@@ -6,9 +6,10 @@ deterministic entity world advanced by a playback clock and drawn with PixiJS.
 Each peer carries an implementation profile (`goblins`, `glowcap`, and so on),
 and each session carries its codec, CapTP version, and lifecycle state.
 
-The [active backlog](../../docs/planning/ocapnviz-backlog.md) records remaining viz
-work; [the roadmap](../../docs/roadmap.md) lists the object-layer and control
-capability items that sit above it. ocapnviz replays timelines that
+The [open obligations](../../docs/roadmap.md#open-obligations-from-retired-plans)
+record the remaining measurement. [The roadmap](../../docs/roadmap.md) lists
+the object-layer and control capability items that sit above it. The measured
+numbers live in [`test-data/README.md`](test-data/README.md). ocapnviz replays timelines that
 `glowcap griddle run` produces, converted by `scripts/griddle-import.ts`, and it
 reads the same schema live from a running glowcap host. It runs on its own Deno
 toolchain under `apps/ocapnviz/`.
@@ -28,8 +29,8 @@ From the repository root, `zig build ocapnviz-test` runs the suite and is part
 of `zig build runtime-check`. Deno is part of the declared toolchain, so its
 absence is reported before the runtime families begin. The step `zig build
 ocapnviz-check` adds the type-check, formatter, linter, and production bundle,
-including the tools under `scripts/`. Static checks prove that each Playwright
-probe remains runnable. Its browser claim is proved only when that probe runs
+including the tools under `scripts/`. Static checks show that each Playwright
+probe is runnable. A browser claim holds only when that probe runs
 against the app.
 
 The dev server defaults to <http://127.0.0.1:5173> and answers only localhost
@@ -44,20 +45,20 @@ CapTP version negotiate per session.
 and closing the terminal stop the dev server. A bare `deno run -A npm:vite`
 can outlive its terminal through deno's
 npm-compat layer and keep holding the port. A vite process showing `PPID 1` in
-`ps` is one of those orphans; kill it and start fresh.
+`ps` is one of those orphans. Kill it and start fresh.
 
 ## Live mode
 
-Switch the top-bar mode to **Live** and give the left pane the trace sturdyref
+Switch the top-bar mode to **Live** and give the left panel the trace sturdyref
 printed as `ROOMS-TRACE-LISTENING`. The rooms server publishes one when started
 with `--trace` (see
 [rooms operating](../rooms/operating.md#watching-the-room-live)). ocapnviz lazily loads its wasm
 Host, enlivens that read capability, and grants the endpoint an inbox. The
-endpoint admits no socket without its capability; the sturdyref's swissnum is
+endpoint admits no socket without its capability. The sturdyref's swissnum is
 that capability and the viewer presents it on the socket itself, so the pasted
 announcement is still the whole setup. Other
-peers publish their own traces to the convergence endpoint — presenting the
-same capability — so sessions the room server never carries still appear.
+peers publish their own traces to the convergence endpoint, presenting the
+same capability, so sessions the room server never carries still appear.
 
 Live connects as soon as you enter it. The badge under the sturdyref says
 **connecting** while it dials, **waiting** until the first observation arrives,
@@ -92,7 +93,7 @@ PixiJS scene graph              ← derived from world each frame
 Canvas
 ```
 
-Three properties hold by construction:
+Three properties hold:
 
 - **Events are the primitive.** Snapshots are derived by replay, and authoring
   is event-by-event in [`src/fixtures/`](src/fixtures/).
@@ -112,7 +113,7 @@ its hit area.
 The shared UI idioms, and the one authority for each, live in
 [`docs/design-principles.md`](docs/design-principles.md). The gesture pipeline
 has its own specification in
-[`docs/interaction-model.md`](docs/interaction-model.md); the cursor rule is
+[`docs/interaction-model.md`](docs/interaction-model.md). The cursor rule is
 [`docs/cursor.md`](docs/cursor.md). The document itself is described in
 [`docs/data-model.md`](docs/data-model.md) and
 [`docs/temporal-model.md`](docs/temporal-model.md), the reasoning behind the
@@ -130,5 +131,5 @@ rm -rf .vite node_modules .deno && bash dev.sh
 ```
 
 If editing `vite.config.ts` seems to have no effect, restart the dev server by
-hand. The watcher ignores config files because Vite's auto-restart used to wedge
-the wrapper chain; `vite.config.ts` carries the details.
+hand. The watcher ignores config files because Vite's auto-restart wedges
+the wrapper chain. `vite.config.ts` carries the details.

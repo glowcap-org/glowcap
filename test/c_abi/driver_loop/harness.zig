@@ -15,7 +15,7 @@ const glowcap = @import("glowcap");
 const ws_relay = @import("../../support/ws_relay.zig");
 const host_harness = @import("../host/harness.zig");
 
-/// The byte-fed Host harness owns these; the loop harness only adds what a
+/// The byte-fed Host harness owns these. The loop harness only adds what a
 /// stepping loop needs on top of an accepted session.
 pub const sessionLimitOptions = host_harness.sessionLimitOptions;
 pub const openAccepted = host_harness.openAccepted;
@@ -397,7 +397,7 @@ pub fn newByteFedHost(seed_byte: u8) !?*cd.GlowcapHost {
     return host;
 }
 
-/// What one loop's drained events amounted to; scalar facts only, because a
+/// What one loop's drained events amounted to. Scalar facts only, because a
 /// COMPLETION's views die at the next `glowcap_driver_next_event`.
 pub const Drained = struct {
     dialed_session: ?*cd.GlowcapHostSession = null,

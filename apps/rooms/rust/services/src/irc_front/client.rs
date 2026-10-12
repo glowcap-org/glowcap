@@ -132,7 +132,10 @@ impl ClientState {
 			Err(error) => (Err(error), None),
 			Ok(false) => (Ok(()), None),
 			Ok(true) => {
-				let mut registered = self.take_registered();
+				let mut registered = match self.take_registered() {
+					Ok(registered) => registered,
+					Err(error) => return (Err(error), None),
+				};
 				let result = async {
 					while let Some(message) = input.next().await? {
 						if registered.command(message).await? {
@@ -146,18 +149,41 @@ impl ClientState {
 			}
 		}
 	}
-	fn take_registered(&mut self) -> Registered {
-		Registered {
-			_nickname: self.nickname.take().expect("registration owns its nickname"),
+	/// Hand the registered client its state. `register` fills every field
+	/// before it answers `Ok(true)`, so a missing one means registration did
+	/// not complete and the connection is refused rather than driven.
+	fn take_registered(&mut self) -> Result<Registered, String> {
+		let (
+			Some(nickname),
+			Some(output),
+			Some(directory),
+			Some(session),
+			Some(runtime),
+			Some(attachment),
+			Some(directs),
+		) = (
+			self.nickname.take(),
+			self.output.take(),
+			self.directory.take(),
+			self.session.take(),
+			self.runtime.take(),
+			self.attachment.take(),
+			self.directs.take(),
+		)
+		else {
+			return Err("IRC registration did not complete".into());
+		};
+		Ok(Registered {
+			_nickname: nickname,
 			report: self.context.report.clone(),
-			output: self.output.take().expect("registration owns its output"),
-			directory: self.directory.take().expect("registration owns its directory"),
-			session: self.session.take().expect("registration owns its session"),
-			runtime: self.runtime.take().expect("registration owns its runtime"),
-			attachment: self.attachment.take().expect("registration owns its attachment"),
-			directs: self.directs.take().expect("registration owns its direct-message state"),
+			output,
+			directory,
+			session,
+			runtime,
+			attachment,
+			directs,
 			channels: std::mem::take(&mut self.channels),
-		}
+		})
 	}
 	async fn register(&mut self, input: &mut Input<impl AsyncRead + Unpin>) -> Result<bool, String> {
 		let (mut nick, mut user, mut cap) = (None, false, false);
@@ -184,6 +210,7 @@ impl ClientState {
 				"NICK" => {
 					let asked = message.param(0).unwrap_or("");
 					let valid = validate_nick(asked)
+						.map_err(String::from)
 						.and_then(|_| rooms_application::room::inbox::nick_refusal(asked).map_or(Ok(()), Err));
 					match valid {
 						Ok(()) => nick = Some(asked.to_owned()),
@@ -211,27 +238,23 @@ impl ClientState {
 				if let Some(reachability) = self.context.iroh {
 					providers.push(iroh::provider(rooms_platform::serving::iroh_config(reachability)));
 				}
-				self.runtime = Some(
-					Runtime::open(RuntimeConfig::providers(providers))
-						.await
-						.map_err(|e| e.to_string())?,
-				);
-				let runtime = self.runtime.as_ref().unwrap();
-				self.attachment = Some(self.context.inboxes.attach(runtime).await?);
+				let runtime = Runtime::open(RuntimeConfig::providers(providers))
+					.await
+					.map_err(|e| e.to_string())?;
+				let attachment = self.context.inboxes.attach(&runtime).await?;
 				let session = runtime
 					.connect(&self.context.directory, ConnectOptions::default())
 					.await
 					.map_err(|e| format!("Rooms directory connection failed: {e:?}"))?;
+				self.runtime = Some(runtime);
+				self.attachment = Some(attachment.clone());
 				self.session = Some(session.borrowed());
 				let directory = Directory::fetch(Client::new(session, HostPlatform))
 					.await
 					.map_err(|e| format!("Rooms directory fetch failed: {e}"))?;
 				self.directory = Some(directory.clone());
 				let mut registration = directory.registration();
-				if let Err(error) = registration
-					.register(nick, &self.attachment.as_ref().unwrap().identity, None)
-					.await
-				{
+				if let Err(error) = registration.register(nick, &attachment.identity, None).await {
 					self.raw(
 						super::failure::registration(&error.to_string()),
 						&["*", nick, &error.to_string()],
@@ -242,7 +265,7 @@ impl ClientState {
 				let output = Output::new(self.writer.clone(), self.context.server.clone(), nick)?;
 				self.directs = Some(Directs::open(
 					&self.context.publisher,
-					self.attachment.as_ref().unwrap().clone(),
+					attachment,
 					directory,
 					registration,
 					output.clone(),
@@ -481,7 +504,8 @@ impl Registered {
 				}
 			},
 			"WHOIS" => {
-				let asked = message.last().unwrap_or("*").split(',').next().unwrap();
+				// `split` yields at least one piece, the whole text when there is no comma.
+				let asked = message.last().unwrap_or("*").split(',').next().unwrap_or("*");
 				let peer = output.original(asked);
 				if fold(&peer) == fold(nick) || self.channels.values().any(|c| c.knows(&peer)) {
 					output

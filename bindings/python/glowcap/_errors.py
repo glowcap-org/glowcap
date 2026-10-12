@@ -3,7 +3,7 @@
 The public base :class:`GlowcapError` with its typed :class:`AbortDetail`, the
 actor-layer :class:`VowBroken` / :class:`FetchFailed`, and the ``_check`` guard
 every wrapper routes a return code through. Re-exported from the
-:mod:`glowcap` package; import from there.
+:mod:`glowcap` package. Import from there.
 """
 
 from __future__ import annotations
@@ -176,7 +176,7 @@ def _check_host(code: int) -> None:
 
 
 class VowBroken(GlowcapError):
-    """Raised when an awaited vow settles broken; ``reason`` is the partner's
+    """Raised when an awaited vow settles broken. ``reason`` is the partner's
     break reason.
 
     A :class:`GlowcapError` whose ``code`` is ``ERR_BROKEN``, the same contract
@@ -196,9 +196,9 @@ def _vow_failure(code: int, reason: str) -> GlowcapError:
 class FetchFailed(GlowcapError):
     """Raised when a ``fetch`` settles, but not with a capability.
 
-    This is the application-level outcome — the partner answered, and the
-    answer was not a reference — distinct from a marshalling failure or a
-    broken promise. ``name`` is the swiss-number the fetch asked for; ``code``
+    This is the application-level outcome, the partner answered, and the
+    answer was not a reference, distinct from a marshalling failure or a
+    broken promise. ``name`` is the swiss-number the fetch asked for. ``code``
     is ``ERR_BROKEN``, matching the other bindings."""
 
     def __init__(self, name: str):

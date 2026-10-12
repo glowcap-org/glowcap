@@ -33,7 +33,7 @@ fn clock_or_year(value: &str) -> bool {
 
 // The whole line is parsed, including any " -> target" tail. Stripping that
 // tail here would truncate a regular file whose own name contains " -> ", and
-// the traversal check would then run on a prefix of the name tar actually
+// the traversal check would then run on a prefix of the name tar
 // extracts. The caller strips it for links only, and only for the prefix test.
 fn member(line: &str) -> Option<(u8, String)> {
 	let parts: Vec<&str> = line.split_whitespace().collect();

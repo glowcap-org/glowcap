@@ -78,7 +78,7 @@ pub struct ObservationNotices {
 #[derive(Clone, Copy, Debug)]
 pub struct ObservationDescription<'a> {
 	/// Opaque authenticated context cursor. Copy only when retaining a request
-	/// beyond the reply owner; it carries no resource or invocation authority.
+	/// beyond the reply owner. It carries no resource or invocation authority.
 	pub cursor: &'a ObservationCursor,
 	pub source: ObservedDescription<'a>,
 	pub resync: bool,

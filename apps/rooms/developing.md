@@ -12,15 +12,15 @@ Every Rooms command is a `zig build` step. The ones a developer reaches for:
 
 | Command | Does | Needs |
 | --- | --- | --- |
-| `zig build rooms-web` | Builds the services and the page, serves the page; `-Dtransport=tcp` or `onion`, `-Dport=`, server flags after `--` | Cargo, Deno; Tor for `onion` |
-| `zig build rooms-dev` | React Fast Refresh by default; `-Dhot-reload=false` serves compiled generations directly. Both mint every operator capability and keep state under `.local/.state/rooms` | Cargo, Deno |
+| `zig build rooms-web` | Builds the services and the page, serves the page. `-Dtransport=tcp` or `onion`, `-Dport=`, server flags after `--` | Cargo, Deno. Tor for `onion` |
+| `zig build rooms-dev` | React Fast Refresh by default. `-Dhot-reload=false` serves compiled generations directly. Both mint every operator capability, keep directory state under `.local/.state/rooms`, and print workspace and management links for a shared session under `.local/.state/rooms-session` | Cargo, Deno |
 | `zig build rooms-server-test` | The installed server, production bundle, Vite configuration, and development lifecycle contracts (part of `runtime-check`) | Cargo, Deno |
 | `zig build rooms-rust-test` | The Rust application contracts (part of `runtime-check`) | Cargo |
 | `zig build rooms-peers-test` | The archive, session, and room server as installed processes: identity, restart, and signals (part of `runtime-check`) | Cargo |
 | `zig build rooms-terminal-client-test` | The Zig, Rust, Python, and Racket client contracts | Cargo, Python, Racket |
-| `zig build demo-rooms` | Five language clients share one TCP room; `-Dport=` pins the port, `-Dattach=true` joins a running server | Deno; other runtimes join when present |
-| `zig build demo-rooms-iroh`, `demo-rooms-onion` | The same tour over encrypted QUIC and over Tor | Cargo, Deno; Tor |
-| `zig build demo-rooms-dm`, `demo-rooms-dm-iroh` | A room introduces two members who then message directly | Deno; Cargo |
+| `zig build demo-rooms` | Five language clients share one TCP room. `-Dport=` pins the port, `-Dattach=true` joins a running server | Deno. Other runtimes join when present |
+| `zig build demo-rooms-iroh`, `demo-rooms-onion` | The same tour over encrypted QUIC and over Tor | Cargo, Deno. Tor |
+| `zig build demo-rooms-dm`, `demo-rooms-dm-iroh` | A room introduces two members who then message directly | Deno. Cargo |
 | `zig build goblins-rooms`, `goblins-rooms-dm`, `goblins-rooms-iroh` | A real Goblins vat in the room, and direct messages with it | Racket with Goblins, Deno |
 | `zig build rooms-web-page`, `rooms-web-dm`, `rooms-web-reconnect`, … | The browser proofs, each driving a real Chromium through the shipped page | Cargo, Deno, Playwright Chromium |
 
@@ -35,10 +35,38 @@ earlier session. The development process tests check both update boundaries.
 
 The browser proofs run concurrently, so name every proof you need in one
 `zig build` invocation, or run the whole family with `rooms-web-proofs`. The
-build prepares the browser assets once; each proof starts `rooms-web` with
+build prepares the browser assets once. Each proof starts `rooms-web` with
 that immutable generation for its entire journey. Source compilation and
 development refresh have separate process contracts. A change to a Rust crate
 the browser module links needs `zig build rooms-browser-build` first.
+
+### Browser gesture ownership
+
+Room admission acquires a conversation without selecting it. The browser's
+[opening owner](web/ui/session/managed/openings.ts) holds cancellation and
+cleanup for each attempt. Before admission, cancellation releases preparation.
+After dispatch, the original receipt remains held. If that cancelled attempt
+later acquires membership, its owner releases that membership through an exact
+departure command. Reconnecting a saved direct conversation closes its new
+route while preserving saved messages and drafts.
+
+Cancellation already supplies the decision for an uncertain admission. The
+retained receipt owner continues it once automatically and releases acquired
+membership. Command result adoption and departure cleanup settle separately,
+so a lost departure reply resumes that departure without repeating admission.
+A failed automatic continuation retains its diagnostic for explicit recovery.
+Projection uses the receipt owner's cancelled result identity to exclude the
+new room while departure is pending or refused. Cancellation also invalidates
+projection without a workspace revision, so a late snapshot cannot present
+that room as joined. Existing conversations remain independently owned.
+
+The opening hands off to [navigation](web/ui/session/managed/navigation.ts)
+before changing selection. Navigation saves the visible choice independently,
+so hiding a successful form cannot cancel its receipt. A form observes its own
+attempt, and a sidebar row observes the opening's target. The session tests and
+browser departure and responsiveness scenes exercise these lifetime boundaries.
+An explicit local choice leaves the directory view immediately. Background
+selection saves preserve that view and its draft.
 
 ### Browser compiler boundary
 
@@ -79,7 +107,7 @@ zig build rooms-dev -Dhot-reload=false
 That path keeps the same state, operator grants, transport, and build
 dependencies. It recompiles changed sources on requests and uses page reloads
 instead of React Fast Refresh. Production compiler selection stays in the
-recipe, independently of which development front serves the page.
+recipe, independently of which development server serves the page.
 
 Removing Vite entirely means retaining this generation launch in
 `tools/build/rooms/browser_front.zig`, deleting the Vite launch and `web/dev.ts`
@@ -125,7 +153,7 @@ the server:
 zig build rooms-web -Dtransport=tcp -- --bind=0.0.0.0 --announce-host=192.168.1.20
 ```
 
-`--bind` is where the server listens; `--announce-host` is the name it
+`--bind` is where the server listens. `--announce-host` is the name it
 prints and advertises. TCP is cleartext, so a room exposed this way is
 readable by everyone on that network. Keep the page itself on a trustworthy
 origin: from another machine, forward the web port
@@ -138,7 +166,7 @@ Beyond a trusted LAN, use iroh.
 
 The Vite dev server behind `zig build rooms-dev` answers to a tailnet name
 too. It checks the Host header and, on its own, allows an address or
-`localhost`; any other name has to be listed. Names under `ts.net` are listed
+`localhost`. Any other name has to be listed. Names under `ts.net` are listed
 by default, so a MagicDNS name and `tailscale serve` both reach it.
 `GLOWCAP_ROOMS_DEV_ALLOWED_HOSTS` replaces that list with a comma-separated
 one of your own, and `GLOWCAP_ROOMS_DEV_HOST` is where it listens, which the
@@ -159,7 +187,7 @@ onion service, while the page itself is still served over HTTP.
   outside peer may need a few seconds of retries after the
   `ROOMS-SERVER-LISTENING` line, but this page's own tabs reach the room at
   once through the relay's local forward.
-- A terminal client needs an onion-capable runtime to dial through Tor;
+- A terminal client needs an onion-capable runtime to dial through Tor.
   `demos/onion_demo.ts` is a working example.
 
 ### With a Goblins vat
@@ -188,7 +216,7 @@ deployment allows: the supervised directory, an operator-listed TCP peer
 (`GLOWCAP_RELAY_TCP_PEERS`), any key-verified iroh node, the supervised
 onion service's own local endpoint, or a peer registered for rendezvous. It
 refuses a dial whose `Origin` names a host other than the one it was asked
-on, so a page from elsewhere cannot use a reader's relay; a request with no
+on, so a page from elsewhere cannot use a reader's relay. A request with no
 `Origin` (every non-browser client) passes.
 
 Browser peers also register a rendezvous identity with the relay, so another
@@ -199,12 +227,48 @@ Settings, advertises a WebRTC identity instead: direct messages then cross a
 DataChannel between the two tabs, and the directory carries only the offer,
 answer, and candidates as ordinary capability messages.
 
+## Validation boundaries
+
+The page parses JSON at three boundaries, and each boundary has its own proof
+strength. Peer wire payloads are fully validated at ingress: the zod schemas
+in `lib/` (the `zod/mini` idioms of `lib/schema.ts`) prove shape and content
+limits together, and the TypeScript type derives from the schema. Rust-to-
+TypeScript projections come from the same build, so their schemas prove the
+envelope the runtime fabricates: kind tags, strings, booleans, enums,
+numbers and coordinates. Payloads Rust already holds as typed values ride
+through as `z.custom<T>` with their owning lib schema named in a comment.
+Re-checking a payload's peer-wire content limits at that boundary could only
+drop a notice Rust already accepted. Values the page itself produced and
+reads back later, such as retained commands and flat string receipts,
+use plain type guards. A receipt whose Rust producer is a tagged enum
+(`results::Direct` is the one today) has a field set per variant: prove the
+tag first, then prove only the variant's own fields. A pending receipt
+carries nothing but its tag. At every boundary a malformed answer names a
+defect in the shared build: it throws, or a live-stream notice degrades to
+no effect, and it is never cast into place. Mocks in `apps/rooms/test/`
+mirror the producer's canonical serialization. The retained
+command tuple's base revision is a JSON number, as
+`application/src/session/command.rs` writes it. Match the producer's exact
+field names and nullable `Option` values too. The activity reader supplies
+`history: null` for unrecorded messages, and discovery snapshots carry an
+`omitted` count. A page interface is not the serialization authority.
+
+`ActivityDelivery` validates each notice once before readiness and presentation
+share it. Its carrier and transient handles retain their identities across
+the custody transfer. Result completion prepares the original request and
+receipt once per completion attempt. Workspace conflicts recompose the delta
+around that input. They do not decode another request or redispatch the effect.
+
+Compose schemas without annotating them: `z.ZodMiniType<T>` erases the
+internals `z.discriminatedUnion` needs at composition time. Let the use site
+hold a schema's output to its hand-written type instead.
+
 ## The objects
 
 The directory owns discovery and introductions. `open(name)` and
-`enter(name)` answer a room entrance reference; `list()` reports populated
-rooms and `watch(inbox)` pushes directory changes; `register(...)` records a
-member's dialable identity; `introduce(nick)` answers the inbox that member
+`enter(name)` answer a room entrance reference. `list()` reports populated
+rooms and `watch(inbox)` pushes directory changes. `register(...)` records a
+member's dialable identity. `introduce(nick)` answers the inbox that member
 minted for this caller.
 
 An entrance grants a nickname when `subscribe(nick, inbox)` succeeds, and
@@ -227,7 +291,7 @@ typing signal.
 
 `post` answers a reference to the line it made, and holding that reference
 is the authority to `edit(text)` or `withdraw()` that one line. `postFiles`
-answers the same kind of reference; `refile(caption, ...keep)` changes the
+answers the same kind of reference. `refile(caption, ...keep)` changes the
 files, keeping the ones whose indices it names and adding the connection's
 freshly staged uploads. Refiling down to no files and no caption withdraws
 the line. Line references restart with a room generation and never enter
@@ -252,7 +316,7 @@ service all implement it.
 
 The site's [protocol page](https://jimisaacs.github.io/glowcap/rooms/protocol/)
 walks through each object with its lifetime. `lib/protocol.ts` is the
-specification a person reads; `tools/gen/rooms_protocol.zig` declares the
+specification a person reads. `tools/gen/rooms_protocol.zig` declares the
 wire grammar once and `zig build gen-rooms-protocol` writes the application
 and client projections, so a new notification kind is one edit.
 
@@ -261,8 +325,8 @@ and client projections, so a new notification kind is one edit.
 The composer keeps selected files local. Send asks the room for one upload
 reference per file, publishes their records as one message, then fills those
 references concurrently in 64 KiB chunks. Every member can start reading the
-room-hosted blob at once; a read at the moving edge parks and wakes when the
-next bytes arrive. Holding an upload reference is the whole authority to fill
+room-hosted blob at once. A read at the moving edge parks and wakes when the
+next bytes arrive. Holding an upload reference is the authority to fill
 that file, so `write` never names who is uploading.
 
 The room hosts the bytes itself instead of relaying a blob the sender hosts.
@@ -295,8 +359,8 @@ The cost is that the server has limits to enforce:
 - Every filterable list in the page owns its own input except the composer's
   inline completion, which keeps focus in the textarea. A command palette, a
   searchable emoji picker, and settings search are where a combobox
-  primitive would earn its place; none exists yet, and the page's whole
-  runtime dependency stays React.
+  primitive would earn its place. None exists, and the page's only
+  runtime dependency is React.
 - IRC stays at the application edge. Carrying CapTP itself over IRC is
   refused: a 512-byte line protocol with a server that may inject cannot keep
   an OCapN session insertable only by its participants.
@@ -314,18 +378,18 @@ The cost is that the server has limits to enforce:
 | `rust/glowcap/` | The Rooms protocol clients over the Rust binding |
 | `rust/runtime/` | Shared execution and its typed failure boundary: session commands, directory supervision, rooms, direct messages, archives |
 | `rust/platform/` | Tokio, entropy, leased storage, listeners, TLS, WebSocket channels |
-| `rust/services/` | The room server, session peer, archive peer, IRC edges, web front, and interactive client |
+| `rust/services/` | The room server, session peer, archive peer, IRC edges, web server, and interactive client |
 | `rust/browser/` | The Wasm application: session controllers, storage, signaling, transport |
 | `rust/proofs/` | The application contracts replayed from fixtures, in a process and in Wasm |
 | `web/ui/` | The browser page: React components, the store, the session projection |
 | `web/compiler.json` | The production compiler invocation and additional source-identity inputs |
 | `web/deno.json`, `web/vite.config.ts` | The pinned browser toolchain and Vite configuration |
 | `web/dev.ts` | The internal process owner called by `zig build rooms-dev` |
-| `web/deploy/` | The Compose deployment and its `ops` front |
+| `web/deploy/` | The Compose deployment |
 | `lib/` | The Rooms protocol as TypeScript, for the Deno client, the demos, and the tests |
 | `lib/text/` | Every sentence the page shows a reader |
 | `clients/` | One terminal client per language beside its generated protocol table |
-| `irc/` | The IRC bridge and front, and the TypeScript test consumer's line grammar |
+| `irc/` | The IRC bridge and gateway, and the TypeScript test consumer's line grammar |
 | `demos/` | The scripted scenarios |
 | `test/` | The Deno unit tests, the page scenes, and the browser proofs |
 

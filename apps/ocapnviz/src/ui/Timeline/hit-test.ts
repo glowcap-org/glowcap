@@ -3,7 +3,7 @@
  *
  * Grab-band constants and the types a plot-area pick returns live
  * here so gutter, marquee, and `event-hit.ts` share one contract.
- * A point in a lane — entity + `DragPlan` — is `event-hit.ts`.
+ * A point in a lane, entity + `DragPlan`, is `event-hit.ts`.
  *
  * Pure math: no React, no Pixi, no engine mutation. Walks the same
  * `iterateRows` layout the renderer paints so paint and hit-test
@@ -27,47 +27,47 @@ import { type RowDescriptor } from "./row-layout.ts";
 import { LANE_LABEL_WIDTH, type LaneKind, plotStartXOf, plotWidthOf, type TimelineView, tToCanvasPx } from "./state.ts";
 import { spanScreenRect } from "./span-geometry.ts";
 
-/** Identity side of a hit. `entity` is what gets selected — always
+/** Identity side of a hit. `entity` is what gets selected, always
  * meaningful when `hitTestEvents` returns a non-null `ScrubberHit`,
  * even if the entity has no observation event yet (e.g. a freshly
  * authored peer rendered from `entity.timing` alone).
  *
- * Same shape as `StageSelection`'s non-null variant — pointerdown
+ * Same shape as `StageSelection`'s non-null variant, pointerdown
  * forwards it verbatim to `onSelectEvent`. */
 export type HitEntity = { kind: "peer" | "session" | "message"; id: string };
 
-/** Temporal side of a hit — what retime gesture, if any, the hit
+/** Temporal side of a hit, what retime gesture, if any, the hit
  * enables. Tagged on `kind` so the move-event dispatcher can switch
  * once and access the exact field set the variant needs, instead
  * of reconstructing intent from boolean-plus-optional combinations.
  *
  * "span" here refers to the rendered pill (peer or session bar with
- * two resizable edges), NOT the engine's `TimeSpan` storage type —
+ * two resizable edges), NOT the engine's `TimeSpan` storage type,
  * the words collide but the contexts are unambiguous.
  *
- *   - `span-edge`    — drag retimes one endpoint of a peer/session
- *                      span; sibling endpoint stays put. `edge`
+ *   - `span-edge`:    drag retimes one endpoint of a peer/session
+ *                      span. Sibling endpoint stays put. `edge`
  *                      picks which endpoint and resolves to either
  *                      the peer-joined / session-opened START event
  *                      or the peer-left / session-closed END event
  *                      (the dispatcher reads it).
- *   - `span-body`    — drag translates a peer/session span; both
+ *   - `span-body`:    drag translates a peer/session span. Both
  *                      endpoints slide by the same dt via the engine's
  *                      pair-aware `move-event`.
- *   - `moment`       — single-t event: a session-state-changed
- *                      diamond, a peer rename. No "edge"; drag
+ *   - `moment`:       single-t event: a session-state-changed
+ *                      diamond, a peer rename. No "edge". Drag
  *                      retimes the lone t. Distinct from `span-body`
  *                      so the move handler can clamp to the parent
  *                      entity's bounds.
- *   - `message-edge` — message has two times (sent + arrival).
- *                      Both always present; `edge` picks which one
- *                      the drag drives — left moves `start` with
+ *   - `message-edge`, message has two times (sent + arrival).
+ *                      Both always present, `edge` picks which one
+ *                      the drag drives, left moves `start` with
  *                      `end` pinned, right moves `end` with `start`
  *                      pinned.
- *   - `message-body` — message body translate: both `start` and
+ *   - `message-body`, message body translate: both `start` and
  *                      `end` slide by the same dt.
  *
- * `start`/`end` match the engine's `EffectiveRange` vocabulary —
+ * `start`/`end` match the engine's `EffectiveRange` vocabulary,
  * for messages that's `(sent, arrival)` semantically. */
 export type DragPlan =
 	| {
@@ -80,7 +80,7 @@ export type DragPlan =
 	| {
 		/** Entity-addressed sibling of `span-edge`: the entity has a
 		 * painted span (from `entity.timing`) but no anchor observation
-		 * event to name — a freshly authored peer or session. Same
+		 * event to name. A freshly authored peer or session. Same
 		 * gesture, dispatched through the engine's `move-entity-span`
 		 * instead of `move-event`, so authored and loaded entities
 		 * resize identically. */
@@ -107,11 +107,11 @@ export type DragPlan =
 
 /** Result of a Scrubber pointer hit-test against the event lanes.
  *
- * Split into the identity answer (`entity` — what to select) and
- * the temporal answer (`drag` — what gesture, if any, the hit
+ * Split into the identity answer (`entity`, what to select) and
+ * the temporal answer (`drag`, what gesture, if any, the hit
  * enables). A freshly authored entity with no observation event yet
  * gets an entity-addressed plan (`entity-span-edge` /
- * `entity-span-body`), so it retimes exactly like a loaded one;
+ * `entity-span-body`), so it retimes exactly like a loaded one,
  * `drag: null` remains only for a message with no sent observation,
  * which authoring never produces. */
 export type ScrubberHit = {
@@ -139,7 +139,7 @@ export const OVERVIEW_EDGE_GRAB_PX = 8;
 /** Hit-test result for a click in the row-header gutter
  * (px < `gutterWidthOf(view)`). Distinct from `ScrubberHit` (event
  * hits in the plot area) so the two regimes don't collide in
- * the same hit-test contract — Scrubber's pointerdown checks
+ * the same hit-test contract, Scrubber's pointerdown checks
  * the gutter first, falls through to event hit-test second. */
 export type GutterHit =
 	| {
@@ -147,7 +147,7 @@ export type GutterHit =
 		category: Exclude<LaneKind, "ruler">;
 	}
 	| {
-		/** Category-row eyeball — show-all / hide-all for the
+		/** Category-row eyeball, show-all / hide-all for the
 		 * category. Distinct from `chevron` so the same header row
 		 * can carry both gestures (chevron expands, eyeball
 		 * toggles category visibility). */
@@ -163,7 +163,7 @@ export type GutterHit =
 		kind: "row-drag";
 		category: Exclude<LaneKind, "ruler">;
 		entityId: string;
-		/** y of the row's TOP edge — drag math computes against this
+		/** y of the row's TOP edge, drag math computes against this
 		 * to determine insertion index as the pointer moves. */
 		rowY: number;
 		rowHeight: number;
@@ -182,7 +182,7 @@ const SELECTION_KIND: Record<MomentLane, "peer" | "session"> = {
  * gesture's pointerup commit.
  *
  * Resolver-as-renderer: spans come from `peerEffective` /
- * `sessionEffective` / `messageEffective` — the same helpers the
+ * `sessionEffective` / `messageEffective`. The same helpers the
  * lane painter reads. Walking observations directly (the previous
  * shape) diverged from paint whenever `entity.timing` had been
  * edited but the matching observation hadn't been mirrored yet,
@@ -201,7 +201,7 @@ export function entitiesInRect(
 	// lane paint and `hitTestEvents`'s body pass. All three route
 	// through `spanScreenRect`, so a sub-`SPAN_MIN_PILL_PX` entity
 	// promoted to a stamp by paint is also pickable by the marquee at
-	// the same x-range — and an open-ended span clamps to the plot
+	// the same x-range, and an open-ended span clamps to the plot
 	// right just like its painted pill.
 	const out = new Set<EntityRefKey>();
 	const plotLeft = plotStartXOf(view);
@@ -252,7 +252,7 @@ export function entitiesInRect(
 	};
 
 	// A moment glyph rides on top of its entity's pill and addresses
-	// that entity, not a separate selectable one — a marquee that
+	// that entity, not a separate selectable one. A marquee that
 	// crosses a session's state change selects the session, and one
 	// that crosses a peer's rename selects the peer. The entity's own
 	// span hit covers the common case; this adds entities whose span
@@ -293,7 +293,7 @@ export function entitiesInRect(
 			continue;
 		}
 
-		// entity-row — narrowed to one entity in one category.
+		// entity-row, narrowed to one entity in one category.
 		if (row.category === "peers") {
 			addPeer(row.entityId);
 			addByGlyph("peers", row.entityId);
@@ -320,7 +320,7 @@ export function hitTestGutter(
 		if (
 			row.kind === "category-collapsed" || row.kind === "category-header"
 		) {
-			// Category eyeball wins inside its ±8 px zone — visibility
+			// Category eyeball wins inside its ±8 px zone, visibility
 			// is a distinct gesture from expand, and the per-entity
 			// rows below align their eyeballs to the same x so the
 			// column reads as one. Outside that zone the rest of the
@@ -341,7 +341,7 @@ export function hitTestGutter(
 			}
 			// Anywhere right of the eyeball is the row-drag handle
 			// (the entity label area + slack). Reorder + tap-to-select
-			// work whether the entity is hidden on stage or not — the
+			// work whether the entity is hidden on stage or not, the
 			// row stays at full height and stays interactive.
 			return {
 				kind: "row-drag",

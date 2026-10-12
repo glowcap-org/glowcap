@@ -1,19 +1,19 @@
 //! The `glowcap_context_*` `export fn`s: the explicit owner of allocation policy
 //! for a family of handles.
 //!
-//! `glowcap_context_new` routes through `library_allocator`;
+//! `glowcap_context_new` routes through `library_allocator`.
 //! `glowcap_context_new_with_allocator` routes every allocation through host
-//! callbacks. Handles created *in* a context (`glowcap_tcp_netlayer_new_in`,
-//! for example) and everything they own — managed frames, transport payloads and
-//! their read/write buffers — allocate and free through that one context. C
-//! callers still free only through the explicit release functions; the context is
-//! the policy, never a `free` a caller invokes by hand.
+//! callbacks. Handles created in a context (`glowcap_tcp_netlayer_new_in`,
+//! for example) and everything they own (managed frames, transport payloads, and
+//! their read/write buffers) allocate and free through that one context. C
+//! callers still free only through the explicit release functions. The context is
+//! the policy, not a `free` a caller invokes by hand.
 //!
 //! Lifetime: the context must outlive every handle created in it. A host-backed
 //! context's allocator vtable lives inside the context object, so the handles
-//! borrow it; releasing the context first would dangle that borrow. The context
+//! borrow it. Releasing the context first would dangle that borrow. The context
 //! object itself is allocated through the host allocator, so a host-backed
-//! handle family — context included — frees entirely through host policy.
+//! handle family, context included, frees through host policy.
 //!
 //! The allocator machinery itself (`library_allocator`, `ContextAllocator`,
 //! `Context`, `ctxFromOpaque`) lives in the shared leaf (`src/c_abi/shared/`) so the iroh
@@ -102,11 +102,11 @@ pub export fn glowcap_context_new_with_allocator(spec: ?*const GlowcapAllocator,
 }
 
 /// Release a context, freeing the context object through its own policy. Every
-/// handle created in the context must already be released; the context's
+/// handle created in the context must already be released. The context's
 /// allocator outlives those handles by contract, not by reference counting.
 /// Releasing while a handle is still live leaves that handle's allocator
 /// pointing into freed context memory, so its next allocation or release is
-/// undefined behavior; there is no runtime check.
+/// undefined behavior. There is no runtime check.
 pub export fn glowcap_context_release(context: ?*GlowcapContext) void {
     const ctx = ctxFromOpaque(context) orelse return;
     const allocator = ctx.allocator();
@@ -117,8 +117,8 @@ pub export fn glowcap_context_release(context: ?*GlowcapContext) void {
     }
 }
 
-/// Allocate one stable Context-local lifecycle identity. Zero remains the
-/// explicit "no identity" value in diagnostic records and is never returned.
+/// Allocate one stable Context-local lifecycle identity. Zero is the
+/// "no identity" value in diagnostic records and is never returned.
 pub export fn glowcap_context_allocate_lifecycle_id(
     context: ?*GlowcapContext,
     out_id: ?*u64,

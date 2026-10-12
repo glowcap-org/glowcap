@@ -3,17 +3,17 @@ import { claimsOnStage } from "./claims.ts";
 import type { TimelineEvent } from "./timeline.ts";
 
 /**
- * Session-bundle geometry — when N sessions share the same peer
+ * Session-bundle geometry, when N sessions share the same peer
  * pair, they fan out as quadratic Bezier arcs around the straight
- * line so each is individually visible. Deterministic by design:
+ * line so each is individually visible. Deterministic:
  * (canonical pair key, session id) seeds the offset, so the same
  * topology renders the same way every frame, across reloads, and
  * across processes.
  *
  * d3-shape has path generators (`linkHorizontal`, `arc`) but
- * outputs SVG strings; we render in PixiJS, so we keep just the
+ * outputs SVG strings. We render in PixiJS, so we keep just the
  * math. There's no edge-bundling primitive in core d3 that fits
- * the few-edges-per-pair case — research-grade algorithms (Holten,
+ * the few-edges-per-pair case, research-grade algorithms (Holten,
  * force-directed bundling) are overkill here.
  *
  * One module owns: the bundle index, the Bezier curve, and the
@@ -38,13 +38,13 @@ export type SessionBundleEntry = {
  *
  * Flight positioning and edge drawing must read the same maps, or a dot
  * leaves the wire it is meant to ride. The engine builds this once per
- * stage update; the Stage projects from it rather than rebuilding.
+ * stage update. The Stage projects from it rather than rebuilding.
  */
 export type FrameGeometry = {
 	claimsToward: ReadonlyMap<string, string>;
 	sessionBundles: ReadonlyMap<string, SessionBundleEntry>;
-	/** Doc-stable simultaneity slots — memoized across playback and
-	 *  mid-drag; rebuilt on seek and when the document is marked dirty. */
+	/** Doc-stable simultaneity slots, memoized across playback and
+	 *  mid-drag. Rebuilt on seek and when the document is marked dirty. */
 	timeBundles: ReadonlyMap<string, SessionBundleEntry>;
 	/** Per-session drawn curves for this stage pass, after layout has
 	 *  placed nodes. Flight and edge drawing share one curve per session
@@ -77,11 +77,11 @@ export const SESSION_BUNDLE_SPACING = 30;
  * layout asks it of an era's node set: an end leaning toward somebody the
  * stage is not drawing has nothing to lean at. Every peer the world holds
  * counts, hidden ones included, because the layout that placed these ends is
- * visibility-blind too — a claim on a peer the reader has hidden still reads
+ * visibility-blind too, a claim on a peer the reader has hidden still reads
  * as a claim, sitting where the layout put it.
  *
- * A claim rides the same corridor as a real edge to the peer it names — the
- * layout sits it on that very line — so it collides with one and belongs in
+ * A claim rides the same corridor as a real edge to the peer it names, the
+ * layout sits it on that very line, so it collides with one and belongs in
  * the same fan. Grouping it there asserts nothing about who is on it: the
  * bundle is geometry, and the end is still drawn short of the peer, dashed,
  * and at half a peer's width. It also makes attribution continuous, because
@@ -121,7 +121,7 @@ export function computeSessionBundles(
 }
 
 /**
- * Bundle slots for links already resolved to the nodes they run between —
+ * Bundle slots for links already resolved to the nodes they run between,
  * a claim standing for the peer it names.
  *
  * The grouping itself, with no world to read, because the layout groups the
@@ -164,16 +164,16 @@ export type SessionCurve = {
 };
 
 /**
- * The curve a session's edge is actually drawn along.
+ * The curve a session's edge is drawn along.
  *
  * An end nothing has attributed but that names a peer the stage draws is
  * resolved to that peer, so the arc runs the lane a full session to that peer
- * would run, and is then cut at `lean` — where the claim itself was placed.
+ * would run, and is then cut at `lean`, where the claim itself was placed.
  * The cut end IS the claim's position, so the line reaches it exactly.
  *
  * Nothing draws the rest of the lane, and that is the decision rather than an
  * omission. The segment from `lean` to 1 is the distance an unbacked claim
- * cannot carry, and the picture says so by stopping short of the peer; a
+ * cannot carry, and the picture says so by stopping short of the peer. A
  * reader takes the relationship from the direction the line points and from
  * the claim's smaller body beside it. Drawing that last segment as a fainter
  * continuation would say the same thing a second time, in a stroke that a
@@ -209,10 +209,10 @@ export function drawnSessionCurve(
 		curveBetween(fromId, from, towardId, toward, bundle),
 		lean,
 	);
-	// Only while the claim is actually ON that lane. An author who drags one
-	// pins it, and the layout hands a pinned claim its pin instead of the lean
-	// — so the trimmed arc would stop where the claim used to be and the line
-	// would no longer reach it. Asked of the position rather than of a mode,
+	// Only while the claim is ON that lane. An author who drags one
+	// pins it, and the layout hands a pinned claim its pin instead of the lean,
+	// so the trimmed arc would stop short of the claim and the line would not
+	// reach it. Asked of the position rather than of a mode,
 	// because "is the node on this curve" is the thing that has to be true, and
 	// a flag saying so is a second copy of it that can be wrong.
 	const offLane = Math.hypot(trimmed.bx - claimAt.x, trimmed.by - claimAt.y);
@@ -223,12 +223,12 @@ export function drawnSessionCurve(
 }
 
 /** How far a claim may sit from the lane and still be drawn as riding it.
- *  Covers the float residue of evaluating the same curve twice; a drag moves
+ *  Covers the float residue of evaluating the same curve twice. A drag moves
  *  it by whole pixels. */
 const ON_LANE_EPSILON = 1e-6;
 
 /** Compute the Bezier curve for one session given its bundle
- * entry. Endpoints come from live peer positions; the control
+ * entry. Endpoints come from live peer positions. The control
  * point is offset perpendicular to the straight `a→b` direction
  * by `2 × offset` (Bezier apex sits at half the control-point
  * distance from the chord midpoint). */
@@ -240,7 +240,7 @@ export function sessionCurve(
 ): SessionCurve | null {
 	// `findNode`, not `findPeer`: one end may be a claim nobody attributed,
 	// and a lookup that only knew peers returned nothing and dropped the whole
-	// edge — the session and every message on it went undrawn.
+	// edge. The session and every message on it went undrawn.
 	const a = findNode(world, endpointA)?.position;
 	const b = findNode(world, endpointB)?.position;
 	if (!a || !b) return null;
@@ -274,7 +274,7 @@ export function curveBetween(
 		by = a.y;
 	}
 	const offset = bundleOffset(bundle.index, bundle.size);
-	// Singleton bundles render as a straight line — control point
+	// Singleton bundles render as a straight line, control point
 	// sits on the chord midpoint, the quadratic Bezier degenerates.
 	if (offset === 0) {
 		return {
@@ -303,7 +303,7 @@ export function curveBetween(
 	const py = dx / len;
 	const mx = (ax + bx) / 2;
 	const my = (ay + by) / 2;
-	// 2 × offset because B(0.5) = 0.5 M + 0.5 C — to get an apex
+	// 2 × offset because B(0.5) = 0.5 M + 0.5 C, to get an apex
 	// displaced by `offset` from the midpoint, the control point
 	// must be displaced by `2 × offset`.
 	return {
@@ -318,7 +318,7 @@ export function curveBetween(
 
 /** Signed perpendicular displacement of bundle slot `index` out of
  * `size`. Symmetric around zero: a 3-session bundle splays into
- * (-s, 0, +s); a 4-session bundle into (-1.5 s, -0.5 s, +0.5 s,
+ * (-s, 0, +s). A 4-session bundle into (-1.5 s, -0.5 s, +0.5 s,
  * +1.5 s). A singleton is always 0. */
 export function bundleOffset(index: number, size: number): number {
 	if (size <= 1) return 0;
@@ -338,7 +338,7 @@ function lerp(
  *
  * De Casteljau: a piece of a quadratic Bezier is another quadratic. A claim's
  * edge is drawn with this, so it runs along the very line its session would
- * take to the peer it names and simply stops before arriving — rather than
+ * take to the peer it names and simply stops before arriving, rather than
  * curving off to the claim's own position, which is a different chord and so
  * a different arc.
  *
@@ -404,31 +404,31 @@ function pairKey(a: string, b: string): string {
 //
 // Same architectural trick as session bundles, applied to the time
 // dimension. Two messages that **share session, sentT, and
-// arrivalT** (i.e. truly simultaneous on the same wire) get
+// arrivalT** (i.e. simultaneous on the same wire) get
 // **different progress curves** instead of the same linear ramp,
 // so at any intermediate moment they're at different positions
 // along the spine. If you plotted k(t) for each message, the
-// curves would arc above and below the linear diagonal —
+// curves would arc above and below the linear diagonal,
 // mirror-image arcs in time, exactly the way session bundle edges
 // arc above and below their chord in space. They depart together
 // at the sender and arrive together at the receiver; only the
 // trajectory between differs.
 //
 // Bundle criterion is strict (same sessionId, same sentT, same
-// arrivalT). Looser criteria — e.g. time-overlap connected
-// components — were tempting but cause new collisions for
+// arrivalT). Looser criteria, e.g. time-overlap connected
+// components, were tempting but cause new collisions for
 // non-aligned overlaps: a message at kLinear=0.75 with arc and
 // another at kLinear=0.25 with the mirror arc can land on the same
 // kArced. Restricting to true simultaneity keeps the symmetry that
 // makes the arcs predictable.
 
-/** Maximum arc magnitude — how far a message's progress can deviate
+/** Maximum arc magnitude, how far a message's progress can deviate
  * from linear at the apex.
  *
  * Hard upper bound is `1/π ≈ 0.318`: the derivative of
  * `k + arc · sin(πk)` is `1 + arc · π · cos(πk)`, which goes
  * negative at the endpoints (`cos(πk) = ±1`) once `|arc| > 1/π`.
- * That makes kArced non-monotonic — negative-arc messages crawl
+ * That makes kArced non-monotonic, negative-arc messages crawl
  * backwards at the sender (clamped to 0) and positive-arc messages
  * race ahead and park at the receiver. The dots visibly fail to
  * "depart and arrive together" even though the math intends them
@@ -437,14 +437,14 @@ function pairKey(a: string, b: string): string {
  * `0.25` keeps a comfortable margin: min endpoint velocity is
  * `1 - 0.25 · π ≈ 0.215`, so the slowest dot is always moving
  * (~22% of average speed at its slow end). Spread at apex is
- * still 50% of the spine — visibly distinct without breakage. */
+ * still 50% of the spine, visibly distinct without breakage. */
 export const MAX_TEMPORAL_ARC = 0.25;
 
 /** Signed temporal-arc amount for slot `index` of a `size`-member
  * time-overlap bundle. Singleton → 0 (no arc). Multi-member →
  * spread across `[-MAX, +MAX]` regardless of size (adaptive
  * spacing, unlike the fixed-step session bundle), so a 2-message
- * bundle spreads as far as a 10-message bundle — the bigger one
+ * bundle spreads as far as a 10-message bundle. The bigger one
  * just has more slots between the extremes. */
 export function temporalArcAmount(index: number, size: number): number {
 	if (size <= 1) return 0;
@@ -458,7 +458,7 @@ export function temporalArcAmount(index: number, size: number): number {
  * arcs collide at the same spatial point (each "lagging" in its
  * own frame lands at the same curve parameter the other is
  * "ahead" at). Strict same-direction bundling keeps the symmetry
- * clean — opposite-direction simultaneous messages stay singletons
+ * clean, opposite-direction simultaneous messages stay singletons
  * and just cross at midpoint, which is the right read anyway. */
 export function computeMessageTimeBundles(
 	events: readonly TimelineEvent[],

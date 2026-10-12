@@ -116,20 +116,20 @@ pub fn checkRoomsTestHeaders(
     }
 }
 
-/// A map removal that discards its presence bool — `_ = map.remove(k)` and the
-/// `.fetchRemove(` / `.swapRemove(` shapes — throws away a checkable fact: a
+/// A map removal that discards its presence bool, `_ = map.remove(k)` and the
+/// `.fetchRemove(` / `.swapRemove(` shapes, throws away a checkable fact: a
 /// logic bug that removed a key the code believed present passes unnoticed. In
 /// `src/` and `cli/`, every such discard must either assert the removal
 /// (`std.debug.assert(map.remove(k))`, which still runs the remove in release,
 /// only adding the check in safe builds) when presence is an established
 /// invariant, or carry an inline `// idempotent:` / `// tolerant:` justification
-/// when presence is genuinely not guaranteed. This holds the distinction
+/// when presence is not guaranteed. This holds the distinction
 /// mechanically for every future removal (see the allocator-discipline section
 /// of `.agents/rules/memory.md`). `orderedRemove` returns the element, not a
-/// presence bool, so it is deliberately not flagged.
+/// presence bool, so it is not flagged.
 ///
-/// `cli/` is in scope because the product binary keeps tables of its own — the
-/// rooms peer's per-nick maps among them — and a discard there loses the same
+/// `cli/` is in scope because the product binary keeps tables of its own, the
+/// rooms peer's per-nick maps among them, and a discard there loses the same
 /// fact for the same reason.
 pub fn checkRemoveDiscards(
     io: std.Io,
@@ -231,17 +231,17 @@ const ts_discard_forms = [_][]const u8{
     "catch " ++ "{}",
 };
 
-/// A discarded error — an empty `catch` body, or a bare `catch` that only
-/// returns, continues, or breaks — erases a failure's cause at the site that
+/// A discarded error: an empty `catch` body, or a bare `catch` that only
+/// returns, continues, or breaks, erases a failure's cause at the site that
 /// saw it. Project values give every failure an owner, so the discard is
-/// legitimate only where the loss is genuinely bounded: a diagnostic line
+/// legitimate only where the loss is bounded: a diagnostic line
 /// that cannot be reported because reporting is what failed, a cosmetic
 /// interface update, a step the next wake or maintain call already retries.
 /// Such a site must say so with an inline `// best-effort:` or `// tolerant:`
-/// justification naming what is lost and why the loss is bounded — the
+/// justification naming what is lost and why the loss is bounded, the
 /// "explicit bounded loss" discipline. The bare-return form inside a fallible
 /// function is the sharpest case, because it converts the failure into
-/// reported success; unjustified, it is indistinguishable from a bug.
+/// reported success, unjustified, it is indistinguishable from a bug.
 ///
 /// `tools/` is in scope because a checker that discards an error skips work
 /// it claims to have done, which is a false green. Vendored packages and
@@ -251,7 +251,7 @@ const ts_discard_forms = [_][]const u8{
 /// sentence: a `.catch(() => {})` or an empty `catch {}` marks a promise
 /// handled without naming who lost what. Test and proof files are the one
 /// named boundary, because their empty handlers sit in teardown after the
-/// verdict is in; a scenario that hides its own failure is the tests rule's
+/// verdict is in. A scenario that hides its own failure is the tests rule's
 /// business, not this check's.
 pub fn checkDiscardedErrors(
     io: std.Io,
@@ -309,7 +309,7 @@ fn vendoredOrGenerated(path: []const u8) bool {
 }
 
 /// True when `line` is a code (non-comment) line carrying one of the discard
-/// forms outside string or character literals — the ban tables in this very
+/// forms outside string or character literals, the ban tables in this very
 /// tree hold discard-shaped needles as data, and data is not a discard.
 fn discardedErrorLine(line: []const u8, forms: []const []const u8) bool {
     var raw_hit = false;
@@ -366,7 +366,7 @@ fn hasDiscardJustification(line: []const u8) bool {
 
 /// A discard is justified by a marker on its own line or anywhere in the
 /// contiguous `//` comment block directly above it. The walk also steps over
-/// adjacent discard lines, so one block can cover a run — a pair of unwind
+/// adjacent discard lines, so one block can cover a run, a pair of unwind
 /// joins is one decision, and its justification reads best written once.
 fn discardedErrorJustified(lines: []const []const u8, i: usize, forms: []const []const u8) bool {
     if (hasDiscardJustification(lines[i])) return true;
@@ -415,7 +415,7 @@ fn checkDiscardedErrorsInFile(
 /// standard-library wart, and the application copies it rather than importing
 /// it because its whole claim is that it reaches for nothing in this repository
 /// but glowcap's own public surface. The copy earns its place on that argument
-/// and on no other, so it has to stay a copy — and an identical one. A
+/// and on no other, so it has to stay a copy, and an identical one. A
 /// near-version drifts: the difference that matters here is swallowing every
 /// `openDir` error rather than only absence, which turns a permission failure
 /// into a misleading one.
@@ -458,7 +458,7 @@ pub fn checkPathIoCopies(
 
 /// Every bash file under `.devcontainer/` is linted. `hooks/post-create.sh`
 /// runs shellcheck over every `*.sh` in the tree, so those are covered wherever
-/// they sit; a bash file under any other name has to be named on that command
+/// they sit. A bash file under any other name has to be named on that command
 /// line, or nothing reads it. The pane runtime's host half is the case in
 /// point: zsh's own half fixes its name, and the bash half matches it.
 pub fn checkDevcontainerBashScripts(

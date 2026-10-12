@@ -1,6 +1,6 @@
 import { managedSessionText as managedText } from "../../../../lib/text/managed_session.ts";
-// One reader owns the selected archive. File sources retain that exact reader;
-// changing selection never retargets an already displayed record.
+// One reader owns the selected archive. File sources retain that exact reader.
+// Changing selection never retargets an already displayed record.
 import type { RoomsManagedArchive } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import { directHistoryId } from "../../application.ts";
 import type { RoomsPageContext } from "../../page.ts";

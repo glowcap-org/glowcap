@@ -1,6 +1,6 @@
 //! Export/answer pairing for a Host-local promise projected onto one session.
 //!
-//! The export is the partner-visible promise reference; the virtual inbound
+//! The export is the partner-visible promise reference. The virtual inbound
 //! answer is its settlement and pipelining cell. Their explicit BiMap link is
 //! the authority because CapTP allocates those namespaces independently.
 
@@ -45,6 +45,9 @@ pub fn isAnswer(self: anytype, answer_name: model.AnswerName) bool {
 }
 
 pub fn abandon(self: anytype, export_position: model.ExportPosition) void {
+    // Presence is certain because the only caller is the driver projection
+    // rollback (`projection.rollback`), which found the projection row it
+    // minted through `projection.prepare` in the same record.
     const answer_name = answerForExport(self, export_position) orelse unreachable;
     std.debug.assert(self.outbound_resolver_link.removeByKey(export_position));
     self.abandonUnsharedInboundAnswerNamed(answer_name);
@@ -58,6 +61,8 @@ pub fn retireReleased(self: anytype, answer_name: model.AnswerName) void {
     if (self.exports.wireHeld(export_position) != 0 or !self.answerResolvedNamed(answer_name)) return;
     std.debug.assert(self.outbound_resolver_link.removeByKey(export_position));
     self.releaseUnsharedExport(export_position);
+    // The link row removed above is only minted beside its inbound answer
+    // row (`allocate` creates both in one step), so the row is present.
     const entry = self.inbound_answers.getPtr(answer_name) orelse unreachable;
     self.releaseInboundAnswerCell(entry);
     self.inbound_answers.remove(answer_name);

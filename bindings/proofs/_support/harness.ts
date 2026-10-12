@@ -1,7 +1,7 @@
 // Shared process ownership for binding proof harnesses.
 //
 // A proof process is a tree, not one pid: Cargo, a shell client, or another
-// harness may spawn the executable that actually holds sockets and identity
+// harness may spawn the executable that holds sockets and identity
 // state. Every child therefore runs behind `tools/run-with-timeout.py`, whose
 // process-group contract is black-boxed by `zig build timeout-runner-test`.
 // `runProof` owns those wrappers, races the whole scenario against its local

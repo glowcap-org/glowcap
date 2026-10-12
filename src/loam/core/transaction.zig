@@ -85,8 +85,8 @@ pub const Mutation = struct {
     id: ObjectId,
     /// Null requires absence. A revision requires exactly that existing row.
     expected: ?u64,
-    /// Null destroys a non-root record. Incoming references then resolve gone;
-    /// this explicit deletion is distinct from tracing garbage collection.
+    /// Null destroys a non-root record. Incoming references then resolve gone.
+    /// This explicit deletion is distinct from tracing garbage collection.
     bytes: ?[]const u8,
 };
 pub const Batch = struct {

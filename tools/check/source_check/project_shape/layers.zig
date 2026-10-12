@@ -13,7 +13,7 @@ const collectBulletSpans = util.collectBulletSpans;
 /// place code, so it is held to `src/` in both directions. Forward: every
 /// bulleted layer resolves to a real `src/` directory. Reverse: every top-level
 /// directory under `src/`, and every immediate child of a grouping directory
-/// (`src/ocapn`, `src/c_abi` — see `checkGroupingChildren`), has a bullet — a
+/// (`src/ocapn`, `src/c_abi`, see `checkGroupingChildren`), has a bullet, a
 /// layer that ships unnamed is unplaceable, which is how `src/oracle` once
 /// went missing from the map.
 pub fn checkLayerOwnership(
@@ -70,10 +70,10 @@ pub fn checkLayerOwnership(
     }
 }
 
-/// A grouping directory under `src/` — one with no direct `.zig` file, only
-/// subdirectories (`src/ocapn`, `src/c_abi`) — is a family of layers, not a
+/// A grouping directory under `src/`, one with no direct `.zig` file, only
+/// subdirectories (`src/ocapn`, `src/c_abi`), is a family of layers, not a
 /// layer itself. Each immediate child is its own layer, so it must carry a
-/// `<group>/<child>` Layer Ownership bullet; an unnamed sub-layer is
+/// `<group>/<child>` Layer Ownership bullet. An unnamed sub-layer is
 /// unplaceable, exactly how `src/oracle` once went missing from the map.
 /// A directory with its own `.zig` files is a layer (its files belong to it),
 /// so it is skipped here. Recursion is one level: a child that is itself a

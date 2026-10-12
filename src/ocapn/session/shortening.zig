@@ -12,7 +12,7 @@
 //! asks to survive shortening: every edge in this forest names an import on
 //! *this* session, so both the earlier and the later deliver leave on one wire
 //! in send order. An edge that named another session would put the two messages
-//! on two wires and lose that; nothing here can build one.
+//! on two wires and lose that. Nothing here can build one.
 
 const std = @import("std");
 
@@ -45,6 +45,8 @@ pub fn nominate(self: *Session, source: model.ImportPosition) !?Nomination {
         });
     }
     errdefer if (owns_metadata) {
+        // The `put` above created the row in this dispatch, so its undo
+        // cannot miss.
         var removed = self.imported_promises.fetchRemove(source) orelse unreachable;
         session.deinitImportedPromise(self.allocator, &removed.value);
     };
@@ -79,6 +81,8 @@ pub fn sourceIsHeld(self: *const Session, resolver: model.ExportPosition) bool {
 pub fn abandon(self: *Session, nomination: Nomination) void {
     std.debug.assert(self.outbound_resolver_link.removeByKey(nomination.resolver_export));
     if (nomination.owns_metadata) {
+        // `nominate` recorded `owns_metadata` beside the `put` that created
+        // the row, so the undo cannot miss.
         const removed = self.imported_promises.fetchRemove(nomination.source) orelse unreachable;
         var entry = removed.value;
         session.deinitImportedPromise(self.allocator, &entry);
@@ -91,13 +95,21 @@ pub fn sourceForResolver(self: *const Session, resolver: model.ExportPosition) ?
     return switch (purpose) {
         .shortening_pending => |source| .{ .pending = source },
         .shortening_complete => .complete,
+        // `resolver` is a partner-named position, so this probe answers one
+        // question: is it a shortening resolver? It returns null for every
+        // other purpose, and the deliver route's later probes
+        // (`isNodeSettlingResolver`, `retiredResolverState`,
+        // `answerForResolverExport`) each answer their own. Only the mint
+        // discipline keeps an answer purpose off a resolver key, and that
+        // discipline holds across dispatches, so the null return is the
+        // safe answer to a mint bug or a probing partner.
         .application_answer, .local_promise_answer, .node_settling, .retired => null,
     };
 }
 
 /// Validate a proposed link without mutating the forest. Following self-roots
 /// includes pending targets and detects a partner-proposed cycle in bounded
-/// time; every existing non-self link was admitted by this same check.
+/// time. Every existing non-self link was admitted by this same check.
 /// The deliver route classifier reaches here only after
 /// `sourceForShorteningResolver` saw this resolver's pending link row in the
 /// same dispatch, so the lookup below can assert presence and a shortening
@@ -136,6 +148,8 @@ pub fn complete(self: *Session, resolver: model.ExportPosition, target: model.Fa
     const purpose = self.outbound_resolver_link.getByKey(resolver) orelse unreachable;
     const source = switch (purpose) {
         .shortening_pending => |incarnation| incarnation,
+        // `complete` runs only behind `validateCompletion`, which refuses a
+        // non-pending purpose and asserts presence in the same dispatch.
         else => unreachable,
     };
     if (incarnationIsCurrent(self, source)) {
@@ -149,7 +163,7 @@ pub fn complete(self: *Session, resolver: model.ExportPosition, target: model.Fa
 
 /// Release source-owned state after its final import retain disappears. A
 /// pending callback keeps its row-stamped resolver purpose, not an empty map
-/// row; any later reuse gets a fresh row stamp. A completed callback needs no
+/// row. Any later reuse gets a fresh row stamp. A completed callback needs no
 /// row, while its resolver-purpose tombstone remains until the partner releases
 /// the exported resolver mention.
 pub fn releaseSourceAuthority(self: *Session, source: session.PromiseIncarnation) void {
@@ -160,6 +174,8 @@ pub fn releaseSourceAuthority(self: *Session, source: session.PromiseIncarnation
     if (pending_resolver != null) {
         if (currentEntry(self, source)) |entry| {
             if (entry.settling_listener_claimed) return;
+            // `currentEntry` above found the row in this dispatch, so its
+            // undo cannot miss.
             const removed = self.imported_promises.fetchRemove(source.position) orelse unreachable;
             var removed_entry = removed.value;
             session.deinitImportedPromise(self.allocator, &removed_entry);
@@ -182,7 +198,7 @@ pub fn releaseSourceAuthority(self: *Session, source: session.PromiseIncarnation
 }
 
 /// The partner released its shortening resolver mention. A pending listener
-/// therefore concluded without a shortening callback; retain a completed
+/// therefore concluded without a shortening callback. Retain a completed
 /// tombstone while the source import remains so a later mention cannot install
 /// a second shortening listener for the same promise.
 pub fn releaseResolverExport(self: *Session, resolver: model.ExportPosition) void {
@@ -251,8 +267,8 @@ const ReleaseState = struct {
 ///
 /// This runs before `recordSend`, so all fallible scratch and replacement
 /// storage is acquired before any import count or shortening metadata changes.
-/// The caller's entries stay first and are bounded by `releasable` exactly as
-/// `recordSend` will bound them; the closure's entries trail them and are the
+/// The caller's entries stay first and are bounded by `releasable` as
+/// `recordSend` will bound them. The closure's entries trail them and are the
 /// session's own, adopted at `complete` and applied through
 /// `recordSessionImportRelease`. Returns how many trailing entries the closure
 /// added: zero, with nothing allocated, for the ordinary release of a promise
@@ -288,6 +304,8 @@ pub fn expandGcExportReleases(
     }
 
     while (queue.pop()) |source| {
+        // The queue above was built from this same `states` table, so every
+        // drained key is present.
         const source_state = states.getPtr(source) orelse unreachable;
         if (source_state.processed) continue;
         source_state.processed = true;
@@ -337,7 +355,7 @@ fn shorteningTarget(self: *const Session, source: model.ImportPosition) ?model.I
 
 /// The stable edge out of `source` whose retain the session owns: the only
 /// kind the closure on `source`'s final release may spend. Routing follows
-/// every edge; spending follows this one.
+/// every edge. Spending follows this one.
 fn retainedShorteningTarget(self: *const Session, source: model.ImportPosition) ?model.ImportPosition {
     const entry = self.imported_promises.get(source) orelse return null;
     if (!entry.shortening_target_retained or entry.shortening_target == source) return null;
@@ -380,7 +398,7 @@ pub fn rewriteResolution(self: *Session, resolution: *model.Resolution) void {
 }
 
 /// Rewrite every far promise in one owned outbound message through the
-/// authoritative shortening forest. POD references change in place; no heap is
+/// authoritative shortening forest. POD references change in place. No heap is
 /// allocated or copied.
 pub fn rewriteMessage(self: *Session, message: *model.Message) void {
     switch (message.*) {

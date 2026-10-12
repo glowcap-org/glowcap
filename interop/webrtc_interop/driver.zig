@@ -1,18 +1,18 @@
 //! Live WebRTC transport: two native glowcap peers hold a real keyed OCapN
-//! conversation over one reliable, ordered `RTCDataChannel` (ADR-0089 phase 2).
+//! conversation over one reliable, ordered `RTCDataChannel` (ADR-0089).
 //!
-//! There is no netlayer dial yet (that is phase 4), so this drives the transport
-//! at the level below the netlayer. One peer is the offerer, the other the
-//! answerer; the driver ferries their SDP offer, answer, and ICE candidates
-//! between them in-process (the "out of band" signaling phase 2 stands on, in
-//! place of the OCapN signaling capability phase 5 adds). On loopback the two
+//! There is no netlayer dial here, so this drives the transport at the level
+//! below the netlayer. One peer is the offerer, the other the answerer. The
+//! driver ferries their SDP offer, answer, and ICE candidates between them
+//! in-process, as out-of-band signaling in place of the OCapN signaling
+//! capability (see `webrtc-mesh`). On loopback the two
 //! reach each other on host candidates alone, with no STUN or TURN.
 //!
 //! Channel establishment is driven from each resident's readiness fd and checked
 //! with non-blocking open calls. Before CapTP starts, the peers exchange one
 //! probe packet in each direction through try-I/O. CapTP then runs through the
 //! same Host packet seam the generic WebRTC completion backend uses. The bytes
-//! on the wire are DTLS-encrypted SCTP; the keyed handshake proves each peer's
+//! on the wire are DTLS-encrypted SCTP. The keyed handshake proves each peer's
 //! Ed25519 identity end to end on top of it.
 //!
 //! Goblins ships no WebRTC netlayer, so this is glowcap-to-glowcap by

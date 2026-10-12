@@ -55,7 +55,7 @@ class FailureEvent:
     """A failure that had no remaining deterministic return recipient.
 
     Events are claimed once in observation order. ``dropped_before`` reports
-    bounded records evicted before this event; ``secondary_count`` preserves
+    bounded records evicted before this event. ``secondary_count`` preserves
     the total consequences while the first remains typed in ``secondary_*``.
     """
 

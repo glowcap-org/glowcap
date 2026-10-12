@@ -1,4 +1,4 @@
-//! Workspace rows select membership workers; they never reconstruct authority.
+//! Workspace rows select membership workers. They never reconstruct authority.
 //! The embedding calls reconcile on admitted workspace changes and closes this
 //! aggregate before closing the session. No timer or second grant ledger exists.
 use super::{Membership, Session};
@@ -6,6 +6,8 @@ use glowcap::{Argument, Result};
 use rooms_application::content::session::{custody, workspace};
 use rooms_glowcap::client::{Deadline, Tasks};
 use std::collections::BTreeMap;
+#[cfg(test)]
+mod tests;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MembershipTarget {
@@ -56,7 +58,7 @@ pub enum MembershipEvent<'a> {
 pub type MembershipReceiver = Box<dyn FnMut(MembershipEvent<'_>) -> core::result::Result<Argument, String>>;
 
 /// Which domain consumers the embedding has installed. This selects workers,
-/// never grants authority; every selected row still uses its saved source.
+/// never grants authority. Every selected row still uses its saved source.
 #[derive(Clone, Copy)]
 pub struct MembershipKinds {
 	pub discovery: bool,
@@ -87,8 +89,8 @@ pub struct MembershipReport {
 	pub failures: Vec<(MembershipTarget, glowcap::Error)>,
 }
 /// One nickname copy per directory, bounded by 32 UTF-16 units and the directory
-/// capacity. It outlives the borrowed snapshot so user edits can retire a worker;
-/// assigned nicknames remain output and cannot invalidate this request identity.
+/// capacity. It outlives the borrowed snapshot so user edits can retire a worker.
+/// Assigned nicknames remain output and cannot invalidate this request identity.
 #[derive(PartialEq, Eq)]
 enum Origin {
 	Direct {
@@ -161,7 +163,7 @@ struct Entry<P: Tasks> {
 /// One bounded registry of scalar row identity and membership handles. It
 /// retains neither snapshots nor upstream capabilities. Startup is awaited in
 /// order so rows sharing one initiating endpoint do not claim the same mutation
-/// sequence; live callbacks and receipt execution continue independently.
+/// sequence. Live callbacks and receipt execution continue independently.
 pub struct Memberships<P: Tasks> {
 	entries: BTreeMap<MembershipTarget, Entry<P>>,
 	kinds: MembershipKinds,
@@ -188,12 +190,13 @@ enum Desired<'a> {
 	Room(&'a workspace::Room, &'a workspace::Directory),
 }
 impl Desired<'_> {
-	fn origin(&self) -> Origin {
+	fn origin(&self) -> Result<Origin> {
 		match self {
-			Self::Direct(row) => Origin::direct(row).unwrap(),
-			Self::Directory(row) => Origin::directory(row).unwrap(),
-			Self::Room(row, directory) => Origin::room(row, directory).unwrap(),
+			Self::Direct(row) => Origin::direct(row),
+			Self::Directory(row) => Origin::directory(row),
+			Self::Room(row, directory) => Origin::room(row, directory),
 		}
+		.ok_or_else(|| glowcap::loam::refusal("membership row has no bounded origin"))
 	}
 	fn matches(&self, origin: &Origin) -> bool {
 		match (self, origin) {
@@ -252,8 +255,17 @@ impl Desired<'_> {
 	}
 }
 impl<P: Tasks + Deadline + Clone + 'static> Memberships<P> {
+	/// Only an explicit outer retry opens a new attempt window for retained
+	/// failed workers. Workspace wakes and recovery timers cannot renew it.
+	pub(super) fn retry_failed(&self) {
+		for entry in self.entries.values() {
+			if entry.membership.retirement_status().is_none() && matches!(entry.membership.status(), Some(Err(_))) {
+				entry.membership.retry();
+			}
+		}
+	}
 	/// Sample failures before reconciliation waits on another target's startup.
-	/// Connection loss is already known by the session-owned worker; restoring
+	/// Connection loss is already known by the session-owned worker. Restoring
 	/// a sibling must not hide that fact from the embedding.
 	pub(super) fn append_status(&self, report: &mut MembershipReport) {
 		for (target, entry) in &self.entries {
@@ -322,7 +334,14 @@ impl<P: Tasks + Deadline + Clone + 'static> Memberships<P> {
 				})
 				.map(|(target, _)| target.clone());
 			let Some(target) = obsolete else { break };
-			let entry = self.entries.get_mut(&target).expect("selected registry entry");
+			let Some(entry) = self.entries.get_mut(&target) else {
+				// The failure keeps the target out of the next selection above.
+				report.failures.push((
+					target,
+					glowcap::loam::refusal("membership left the registry before retirement"),
+				));
+				continue;
+			};
 			if let Err(error) = entry.membership.close().await {
 				report.failures.push((target, error));
 				continue;
@@ -341,7 +360,13 @@ impl<P: Tasks + Deadline + Clone + 'static> Memberships<P> {
 				continue;
 			}
 			if let std::collections::btree_map::Entry::Vacant(entry) = self.entries.entry(target.clone()) {
-				let origin = row.origin();
+				let origin = match row.origin() {
+					Ok(origin) => origin,
+					Err(error) => {
+						report.failures.push((target, error));
+						continue;
+					}
+				};
 				let mut receiver = receive(&target);
 				let membership = match row {
 					Desired::Direct(row) => {
@@ -386,9 +411,20 @@ impl<P: Tasks + Deadline + Clone + 'static> Memberships<P> {
 		report
 	}
 	async fn readiness(&self, target: &MembershipTarget, report: &mut MembershipReport) {
-		let membership = &self.entries.get(target).expect("inserted membership").membership;
-		if matches!(membership.status(), Some(Err(_))) {
-			membership.retry();
+		let Some(entry) = self.entries.get(target) else {
+			report.failures.push((
+				target.clone(),
+				glowcap::loam::refusal("membership left the registry before readiness"),
+			));
+			return;
+		};
+		let membership = &entry.membership;
+		if let Some(Err(error)) = membership.status() {
+			let reason = error.to_string();
+			let advice = rooms_application::failure::Failure::parse(&reason).and_then(|failure| failure.retry_advice());
+			if advice.is_none() {
+				membership.retry();
+			}
 		}
 		// A successful retirement is an ordinary lifetime transition. Its
 		// existing completion barrier retains actual cleanup failures.
@@ -406,7 +442,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Memberships<P> {
 		}
 	}
 	/// A failed close keeps exact worker custody here. Retrying this method
-	/// resumes those barriers; successful sibling closures are already retired.
+	/// resumes those barriers. Successful sibling closures are already retired.
 	pub async fn close(&mut self) -> Result<()> {
 		let mut result: Result<()> = Ok(());
 		for (target, entry) in &mut self.entries {

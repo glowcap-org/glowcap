@@ -24,7 +24,7 @@ import { spawnWeb } from "../support/web_front.ts";
 // other pair advertises `noise-relay` (`?dm=relay`), so their line is a sealed
 // cold dial through the relay's rendezvous. Both are direct lines between two tabs with the room off
 // the message path, and a defect in reopening one of them is not a defect in
-// reopening the other — running both is what makes "is this specific to
+// reopening the other, running both is what makes "is this specific to
 // WebRTC?" a question this file answers rather than one a reader has to ask.
 //
 // What a green run means here is what it was measured against. Two defects were

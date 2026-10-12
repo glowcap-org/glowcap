@@ -36,7 +36,7 @@ pub fn publish(
 }
 
 /// Foreign-callback twin of `publish`. Adapters construct only the HostedActor
-/// trampoline; the ownership transaction stays here.
+/// trampoline. The ownership transaction stays here.
 pub fn publishHosted(
     self: *Host,
     session: *HostSession,

@@ -1,12 +1,12 @@
 /**
- * `isNoOpIntent(doc, world, t, intent)` — would this builder intent
+ * `isNoOpIntent(doc, world, t, intent)`, would this builder intent
  * change observable state? `engine.dispatch` short-circuits on
  * `true` so the undo history doesn't accumulate empty steps and
  * the post-mutation seek/notify cycle is skipped.
  *
  * Authority discipline: guards compare against the AUTHORED doc
  * state their mutation writes (`doc.entities`, `entity.timing`
- * through the effective resolvers), never against the live world —
+ * through the effective resolvers), never against the live world,
  * an entity outside the playhead window is absent from the world
  * but its definition is still editable. The two world-read
  * exceptions, `open-session` and `send-message`, gate gestures the
@@ -47,7 +47,7 @@
  * produced.
  *
  * Pure: reads `doc`, the ECS `world`, the playhead `t`, and the
- * intent payload; no side effects, no engine internals.
+ * intent payload. No side effects, no engine internals.
  */
 
 import type { TimelineDocument, TimelineEvent } from "./timeline.ts";
@@ -65,7 +65,7 @@ import { PEER_TRAJECTORY, SESSION_TRAJECTORY } from "./trajectory.ts";
 /** The span, only when the USER authored it. A `set-*` timing
  *  intent is never a no-op against a projection-derived span: even
  *  re-stating the derived value changes the span's authority
- *  (projection stops re-deriving it as observations grow) — the
+ *  (projection stops re-deriving it as observations grow), the
  *  same rule as pinning a peer at its current layout position. */
 function authoredTiming(
 	span: TimeSpan | undefined,
@@ -122,7 +122,7 @@ export function isNoOpIntent(
 			// Compare against the AUTHORED position, not the live world:
 			// the layout always fills the world position, so pinning an
 			// unpinned peer at its current spot is a real doc change
-			// ("Pin here"), never a no-op. Unknown peers are — and known
+			// ("Pin here"), never a no-op. Unknown peers are, and known
 			// means defined in the doc, not present in the world, so the
 			// Inspector can pin a peer outside the playhead window.
 			if (doc.entities?.peers?.[intent.peerId] === undefined) return true;
@@ -152,7 +152,7 @@ export function isNoOpIntent(
 				pinned.y === intent.position.y;
 		}
 		case "update-peer": {
-			// The mutation patches `doc.entities.peers` — compare against
+			// The mutation patches `doc.entities.peers`, compare against
 			// that definition, not the world entity materialized from it.
 			const def = doc.entities?.peers?.[intent.peerId];
 			if (!def) return true;
@@ -177,7 +177,7 @@ export function isNoOpIntent(
 			// which is the whole point of a loose end.
 			//
 			// A session with one peer on both ends is not refused here. It is
-			// a shape the recording holds — a host that dials itself reports
+			// a shape the recording holds, a host that dials itself reports
 			// exactly that, `updateSessionEndpoint` writes it after the fact,
 			// and the layout already drops the self-link its edge would make.
 			// Build mode's claim is that every shape a recording can hold can
@@ -187,7 +187,7 @@ export function isNoOpIntent(
 			// The question here is only whether the STAGE NODE is there, which is
 			// the same distinction the paragraph above draws: a click on nothing
 			// changes nothing, and that is a no-op. A click on an end nothing has
-			// attributed is a different matter — the node IS there, and what is
+			// attributed is a different matter, the node IS there, and what is
 			// wrong is what is being asked of it, so it must reach the intent and
 			// be refused with a reason. Asking for a peer here made that refusal
 			// silent, which is the failure the paragraph above already names.
@@ -201,7 +201,7 @@ export function isNoOpIntent(
 			// Either end may be a peer or an end nothing has attributed, so the
 			// question is whether the STAGE NODE is there, not whether a peer is.
 			// Asking for a peer made a message to a loose end look like a request
-			// to change nothing, and it was dropped in silence — the worst shape a
+			// to change nothing, and it was dropped in silence. The worst shape a
 			// refusal can take, because the gesture and the document both look
 			// fine afterwards.
 			return !findNode(world, intent.from) || !findNode(world, intent.to);
@@ -209,7 +209,7 @@ export function isNoOpIntent(
 			// Eternal-start entities live only in `doc.entities` (no
 			// creation event). The guard must check BOTH or the delete
 			// silently no-ops for them. The cascade in `deletePeer`
-			// itself handles eternal peers correctly — the bug was the
+			// itself handles eternal peers correctly. The bug was the
 			// short-circuit here.
 			const obs = observationsOf(doc) as readonly TimelineEvent[];
 			const hasEvent = obs.some(
@@ -255,14 +255,14 @@ export function isNoOpIntent(
 				p.captpVersion !== def.captpVersion
 			) return false;
 			// `null` stops stating a transport, so it changes something
-			// exactly when there is one to stop stating — the same reading
+			// exactly when there is one to stop stating. The same reading
 			// `update-session-endpoint` takes of a cleared field.
 			if (
 				p.transport !== undefined &&
 				(p.transport ?? undefined) !== def.transport
 			) return false;
-			// The `state` patch is a keyframe at the playhead — the write
-			// `set-session-keyframe` makes, reached by a second name — so
+			// The `state` patch is a keyframe at the playhead, the write
+			// `set-session-keyframe` makes, reached by a second name, so
 			// it asks the keyframe question, through the same predicate.
 			// Comparing against the state RESOLVED at `t` instead refuses
 			// to pin a value the session already carries, which is a
@@ -285,7 +285,7 @@ export function isNoOpIntent(
 		case "update-message": {
 			// Read the entity definition (authoring source of truth) rather
 			// than the message-sent observation event. cascadeRewrite re-keys
-			// entities but intentionally leaves observation events alone, so
+			// entities but leaves observation events alone, so
 			// a renamed message's only valid lookup is via `doc.entities`.
 			const def = doc.entities?.messages?.[intent.messageId];
 			if (!def) return true;
@@ -313,8 +313,8 @@ export function isNoOpIntent(
 				observationsOf(doc) as readonly TimelineEvent[]
 			).find((e) => e.id === move.eventId);
 			if (!ev) return true;
-			// A committed move writes BOTH authorities — the observation
-			// anchor and the painted (effective) span — so a no-op needs
+			// A committed move writes BOTH authorities, the observation
+			// anchor and the painted (effective) span, so a no-op needs
 			// both to already agree with the gesture. Comparing the
 			// observation alone drops a real drag whenever a
 			// storage-shaped Inspector edit (set-message-duration,
@@ -373,7 +373,7 @@ export function isNoOpIntent(
 			return allVisModeOnDoc(doc) === intent.mode;
 		case "set-peer-end": {
 			// The mutation derives duration from the EFFECTIVE start (the
-			// painted anchor), so the guard must too — an implicit start
+			// painted anchor), so the guard must too. An implicit start
 			// retains its last stored value, which the resolvers ignore.
 			const dur = authoredTiming(
 				doc.entities?.peers?.[intent.peerId]?.timing,
@@ -453,8 +453,8 @@ export function isNoOpIntent(
 		}
 		case "set-session-keyframe": {
 			// Reads the property's track, which is where both storage
-			// halves land — the authored state track, and the endpoint
-			// tracks the projection derives — so one question covers every
+			// halves land, the authored state track, and the endpoint
+			// tracks the projection derives, so one question covers every
 			// session property. The comparison is against the value this
 			// write would PRODUCE, not against the row's string: attaching an
 			// end that a signed handoff had attributed produces a pair with
@@ -484,8 +484,8 @@ export function isNoOpIntent(
 			// there to clear; an empty designator reads as absent for the
 			// same reason a peer's emptied identifier does.
 			//
-			// This is the genesis end — the value the session is BORN with,
-			// which carries no time — so restating it writes the field it
+			// This is the genesis end, the value the session is BORN with,
+			// which carries no time, so restating it writes the field it
 			// already holds and there is nothing pinned by having said it
 			// again. Attaching an end AT a time is `set-session-keyframe`,
 			// and that one is a declaration and reads as one.
@@ -508,7 +508,7 @@ export function isNoOpIntent(
 		}
 		case "set-peer-update": {
 			// The peer lane's moments are the same shape as the session's,
-			// so they take the same reading — the projection puts these
+			// so they take the same reading. The projection puts these
 			// observations on the property's track, and the track is what
 			// the document says.
 			const def = doc.entities?.peers?.[intent.peerId];

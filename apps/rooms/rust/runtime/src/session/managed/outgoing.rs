@@ -30,6 +30,7 @@ pub(super) struct Edit<'a> {
 }
 
 pub(super) struct Post<'a> {
+	pub operation: &'a str,
 	pub conversation: &'a str,
 	pub text: &'a str,
 	pub previews: Selection,
@@ -40,10 +41,10 @@ pub(super) struct Post<'a> {
 /// fixed archive identity (64 bytes for an introduced direct) and the actual
 /// selected recording writer
 /// and at most eight attachment edges through its observed effect and private
-/// settlement. Borrowing invocation arguments cannot survive either wait;
-/// re-reading current intent would change sender identity or file selection.
+/// settlement. Borrowing invocation arguments cannot survive either wait.
+/// Re-reading current intent would change sender identity or file selection.
 /// The existing eight-worker limit bounds these copies. File bytes remain at
-/// their source; neither capture nor its persisted plan materializes them.
+/// their source. Neither capture nor its persisted plan materializes them.
 pub(super) struct Capture<P: Tasks> {
 	update: Update,
 	event: Option<super::activity::PreparedEvent<P>>,
@@ -109,6 +110,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Capture<P> {
 		post: Post<'_>,
 	) -> Result<Self> {
 		let Post {
+			operation,
 			conversation,
 			text,
 			previews,
@@ -165,7 +167,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Capture<P> {
 			.as_str()
 			.filter(|from| rooms_application::room::inbox::valid_nick(from))
 			.ok_or_else(|| loam::refusal("outgoing nickname is unavailable"))?;
-		let generation = NonZeroU64::new(id.get()).expect("positive line identity");
+		let generation = NonZeroU64::new(id.get()).ok_or_else(|| loam::refusal("invalid outgoing line identity"))?;
 		let mut allocated = allocation::Allocator::new(record, generation);
 		let key = allocated.allocate(custody::Role::Line)?;
 		let source_key = allocated.allocate(custody::Role::SessionAccess)?;
@@ -180,10 +182,10 @@ impl<P: Tasks + Deadline + Clone + 'static> Capture<P> {
 			source: source_key,
 			id,
 			generation: Text::new(format!("{}:sent", &owner.activity.token(0)?[..82]).into())
-				.expect("bounded live identity"),
+				.ok_or_else(|| loam::refusal("outgoing live identity is not admitted"))?,
 			directory: direct.directory.clone(),
 			conversation: direct.id.clone(),
-			from: Text::new(from.into()).expect("valid nick"),
+			from: Text::new(from.into()).ok_or_else(|| loam::refusal("outgoing nickname is unavailable"))?,
 			previews,
 			files: List::new(
 				files
@@ -195,21 +197,27 @@ impl<P: Tasks + Deadline + Clone + 'static> Capture<P> {
 					})
 					.collect(),
 			)
-			.expect("admitted files"),
+			.ok_or_else(|| loam::refusal("outgoing file selection exceeds its bound"))?,
 		};
 		owner.next_line.set(id.get() + 1);
 		record.custody.set_next_identity(
 			rooms_application::fields::SafeInteger::new(id.get() + 1)
-				.unwrap_or_else(|| rooms_application::fields::SafeInteger::new(0).unwrap()),
+				.unwrap_or(rooms_application::fields::SafeInteger::ZERO),
 		);
-		let event = owner
-			.activity
-			.prepare_outgoing(source, &origin, text, ChangeKind::Said, files.to_vec())?;
+		let event = owner.activity.prepare_outgoing(
+			source,
+			&origin,
+			text,
+			ChangeKind::Said,
+			files.to_vec(),
+			Some(operation),
+		)?;
 		Ok(Self {
 			update: Update {
 				origin,
 				existing: false,
-				files: List::new((0..files.len()).map(FileSource::Submitted).collect()).expect("admitted sources"),
+				files: List::new((0..files.len()).map(FileSource::Submitted).collect())
+					.ok_or_else(|| loam::refusal("outgoing file selection exceeds its bound"))?,
 			},
 			event: Some(event),
 			confirmed: false,
@@ -265,7 +273,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Capture<P> {
 			.ok_or_else(|| loam::refusal("sender identities exhausted"))?;
 		record.custody.set_next_identity(
 			rooms_application::fields::SafeInteger::new(generation.get() + 1)
-				.unwrap_or_else(|| rooms_application::fields::SafeInteger::new(0).unwrap()),
+				.unwrap_or(rooms_application::fields::SafeInteger::ZERO),
 		);
 		let mut allocated = allocation::Allocator::new(record, generation);
 		let source = record
@@ -318,12 +326,14 @@ impl<P: Tasks + Deadline + Clone + 'static> Capture<P> {
 		} else {
 			origin.previews.retained_for(text)
 		};
-		let event = owner.activity.prepare_outgoing(source, &origin, text, change, files)?;
+		let event = owner
+			.activity
+			.prepare_outgoing(source, &origin, text, change, files, None)?;
 		Ok(Some(Self {
 			update: Update {
 				origin,
 				existing: true,
-				files: List::new(selected).expect("admitted sources"),
+				files: List::new(selected).ok_or_else(|| loam::refusal("outgoing file selection exceeds its bound"))?,
 			},
 			event: Some(event),
 			confirmed: false,
@@ -345,7 +355,11 @@ impl<P: Tasks + Deadline + Clone + 'static> Capture<P> {
 	/// Loam admission reserves presentation bytes. Its committed worker creates
 	/// the file actors outside the content callback, before any remote dispatch.
 	pub(super) fn prepare(&mut self) -> Result<()> {
-		self.event.as_mut().expect("unpublished outgoing event").prepare_files()
+		let event = self
+			.event
+			.as_mut()
+			.ok_or_else(|| loam::refusal("outgoing event is already committed"))?;
+		event.prepare_files()
 	}
 	pub(super) fn complete(&mut self, owner: &Rc<State<P>>, outcome: &mut Settlement) -> Result<Argument> {
 		let Argument::List(parts) = &mut outcome.0 else {
@@ -354,7 +368,10 @@ impl<P: Tasks + Deadline + Clone + 'static> Capture<P> {
 		let [data, fields] = parts.as_mut_slice() else {
 			return Err(loam::refusal("invalid outgoing settlement"));
 		};
-		let event = self.event.as_ref().expect("unpublished outgoing event");
+		let event = self
+			.event
+			.as_ref()
+			.ok_or_else(|| loam::refusal("outgoing event is already committed"))?;
 		let history = owner.recording.borrow().as_ref().and_then(|sink| {
 			sink.outgoing(
 				event.event.origin.source(),
@@ -538,7 +555,7 @@ pub(super) fn adopt(
 			.as_mut_slice()
 			.iter_mut()
 			.find(|previous| previous.line == key)
-			.expect("checked outgoing line") = origin;
+			.ok_or_else(|| loam::refusal("original outgoing line is absent"))? = origin;
 	} else {
 		let direct = record
 			.intent

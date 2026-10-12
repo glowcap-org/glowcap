@@ -11,10 +11,10 @@ const SERVICE_ID: &str = "wy46gxdweyqn5m7ntzwlxinhdia2jjanlsh37gxklwhfec7yxqr4k3
 /// Answer one Tor control conversation: `AUTHENTICATE`, then `ADD_ONION`.
 ///
 /// This is a fake, not a Tor. The bytes it accepts are pinned against the
-/// pinned Goblins netlayer and the upstream OCapN suite on the Zig side; here
+/// pinned Goblins netlayer and the upstream OCapN suite on the Zig side. Here
 /// it only lets the binding's own surface be exercised with no daemon.
 /// Returns the `AUTHENTICATE` line it received, so a test can assert which
-/// credential form actually reached the daemon. Without that, a mapping that
+/// credential form reached the daemon. Without that, a mapping that
 /// silently sent no credential would pass every other test here.
 fn fake_control(listener: TcpListener) -> String {
 	fake_control_reporting(listener, None)
@@ -45,15 +45,13 @@ fn fake_control_reporting(listener: TcpListener, forward: Option<std::sync::mpsc
 		if line.starts_with("AUTHENTICATE") {
 			authenticate = line.clone();
 		}
-		if line.starts_with("ADD_ONION") {
-			if let Some(tx) = forward.as_ref() {
-				// `PORT=<virtual>,<target>` — the target is what follows the comma.
-				if let Some(at) = line.find("PORT=") {
-					if let Some(comma) = line[at..].find(',') {
-						let _ = tx.send(line[at + comma + 1..].to_string());
-					}
-				}
-			}
+		// `PORT=<virtual>,<target>`: the target is what follows the comma.
+		if line.starts_with("ADD_ONION")
+			&& let Some(tx) = forward.as_ref()
+			&& let Some(at) = line.find("PORT=")
+			&& let Some(comma) = line[at..].find(',')
+		{
+			let _ = tx.send(line[at + comma + 1..].to_string());
 		}
 		let reply = if line.starts_with("ADD_ONION") {
 			format!("250-ServiceID={SERVICE_ID}\r\n250-PrivateKey=ED25519-V3:c3RvcmVk\r\n250 OK\r\n")
@@ -67,7 +65,7 @@ fn fake_control_reporting(listener: TcpListener, forward: Option<std::sync::mpsc
 }
 
 /// Answer one SOCKS5 handshake for `SERVICE_ID` and return the stream, which
-/// is then an ordinary byte pipe — exactly what a circuit is once the reply is
+/// is then an ordinary byte pipe: exactly what a circuit is once the reply is
 /// out.
 fn fake_socks(listener: TcpListener) -> TcpStream {
 	let (mut stream, _) = listener.accept().unwrap();
@@ -350,6 +348,9 @@ fn the_listener_descriptor_reports_arrival_without_blocking() {
 	// The duplicate is what keeps the listener's own descriptor intact.
 	let probe = {
 		use std::os::fd::{AsRawFd, BorrowedFd};
+		// SAFETY: `fd` is the accept descriptor `listener.readiness_fd()` returned, which the native listener owns and
+		// keeps open while `listener` is alive, and `listener` outlives this statement; `try_clone_to_owned` duplicates
+		// it before the borrow ends, so the `TcpListener` below owns its own descriptor.
 		let owned = unsafe { BorrowedFd::borrow_raw(fd) }.try_clone_to_owned().unwrap();
 		let probe = TcpListener::from(owned);
 		probe.set_nonblocking(true).unwrap();

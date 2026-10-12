@@ -4,12 +4,12 @@
 //! wrote: they arrive in a peer's handshake and inside a handoff naming a
 //! third party. Two functions read them, and they must agree. `validateLocator`
 //! is the borrowed, allocation-free admission check a session runs before it
-//! accepts the locator; `parseLocator` is the owned parser the dialer runs to
+//! accepts the locator. `parseLocator` is the owned parser the dialer runs to
 //! build the route bundle it will actually dial. A session that admits a
-//! locator its own dialer then refuses — or the reverse — is the split that
+//! locator its own dialer then refuses, or the reverse, is the split that
 //! matters here, so that agreement is the property, not merely not crashing.
 //!
-//! The fuzzer drives the route-list text; the outer `id` designator is a fixed
+//! The fuzzer drives the route-list text. The outer `id` designator is a fixed
 //! real key, because a garbage designator is refused at the first line and
 //! never reaches the list parser this target exists to exercise.
 //!
@@ -44,7 +44,7 @@ const max_input = 1024;
 
 /// A syntactically valid identity designator: exactly `designator_len` lowercase
 /// hex characters. `fromDesignator` accepts it on length and alphabet, which is
-/// all the route-list parser needs — curve membership is never checked here — so
+/// all the route-list parser needs, curve membership is never checked here, so
 /// this stays a plain constant rather than a comptime key derivation the SHA-2
 /// backwards-branch budget refuses.
 const valid_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -85,7 +85,7 @@ fn routeOne(_: void, smith: *std.testing.Smith) anyerror!void {
     defer bundle.deinit(gpa);
 
     // Both agreed to accept, so the identity each recovers must be the one key
-    // the outer designator named — the whole point of an identity route.
+    // the outer designator named, the whole point of an identity route.
     const demanded = id_route.demandedPartnerKey(bundle) orelse {
         std.debug.print("an admitted id bundle demanded no partner key\n", .{});
         return error.MissingDemandedKey;

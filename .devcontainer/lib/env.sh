@@ -29,7 +29,7 @@ glowcap_devcontainer_env_unquote_value() {
 }
 
 # Read one plain KEY=value assignment from the checkout-local Compose env file.
-# The committed example owns this deliberately small form; the last declaration
+# The committed example owns this small form; the last declaration
 # wins, matching Compose. The optional third argument is the absent/empty value.
 glowcap_devcontainer_env_value() {
     local root="$1" variable="$2" fallback="${3:-}" value
@@ -46,7 +46,7 @@ glowcap_devcontainer_env_value() {
 #
 # The table is the authority on which ports a checkout publishes, so a row
 # added to it makes every existing .env incomplete at once. Refusing them is
-# right; the only remedy on offer used to be deleting a file that holds the
+# right, but then the only remedy is deleting a file that holds the
 # operator's chosen ports and network, which is a poor trade for one missing
 # line. This adds what is missing and touches nothing else.
 #

@@ -1,5 +1,5 @@
 //! Actual browser APIs under the same Rust Host and Rooms client. The fixture
-//! owns local RTC signaling; it does not exercise production identity binding.
+//! owns local RTC signaling. It does not exercise production identity binding.
 #[path = "browser_media.rs"]
 mod media_execution;
 use glowcap::{AcceptedTransport, Argument, ChannelDesignator, Host, Locator, PendingWork, Session, browser};
@@ -171,7 +171,7 @@ pub async fn rooms_browser_rtc_peer_contract() {
 			peer.close().await.unwrap();
 
 			// Closing during a real browser createOffer must not wait forever for
-			// the WebRTC operation chain's intentionally unsettled promise.
+			// the WebRTC operation chain's unsettled promise.
 			let host = Host::with_options(rooms_glowcap::host_options()).unwrap();
 			let mut peer = browser::RtcPeer::new(&host, browser::RtcRole::Offerer, &config).unwrap();
 			{

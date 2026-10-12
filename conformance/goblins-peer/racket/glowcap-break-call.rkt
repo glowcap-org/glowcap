@@ -1,11 +1,11 @@
 #lang racket/base
-;; glowcap-break-call.rkt — a Goblins client that observes a glowcap break.
+;; glowcap-break-call.rkt: a Goblins client that observes a glowcap break.
 ;;
 ;; It dials a glowcap listener over TCP and enlivens a swiss-num the glowcap
 ;; peer never registered. glowcap auto-serves the bootstrap fetch with a break
 ;; ("unknown swissnum"), which on the V1.0 wire is a resolver-callback deliver
 ;; carrying `['break, reason-symbol]`. The proof is that this client's vow
-;; *breaks with that reason* — Goblins' unmarshaller accepted the payload —
+;; *breaks with that reason*, Goblins' unmarshaller accepted the payload,
 ;; rather than the session dying on an unknown record tag (the failure mode of
 ;; an `<error …>` record payload, which Goblins' unmarshal table does not know
 ;; and rejects with `captp-unknown-record-rag`, surfacing here as a timeout or

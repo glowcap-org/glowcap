@@ -4,7 +4,7 @@ import { findDocIndexRefs, findEntityRefs, findEventRefs } from "./walk.ts";
 import { primaryObservations } from "../temporal/recording-access.ts";
 
 /** Build a fixture with two peers, one session connecting them, one
- *  message in flight, plus rowOrder entries — exercises all three
+ *  message in flight, plus rowOrder entries, exercises all three
  *  edge classes. */
 function fixture(): TimelineDocument {
 	return TimelineDocument.parse({

@@ -49,7 +49,7 @@ pub(super) struct Request {
 }
 impl Request {
 	/// At most eight descriptions and exact source retains survive admission.
-	/// No source bytes are read or assembled here; shared preparation owns live
+	/// No source bytes are read or assembled here. Shared preparation owns live
 	/// source fields before the callback stages the receipt.
 	pub fn read(verb: &str, args: &[Argument]) -> Result<Self> {
 		let (id, base, conversation, caption, previews, keep, files, kind) = match (verb, args) {
@@ -144,8 +144,9 @@ impl Request {
 				conversation: conversation.into(),
 				caption: caption.into(),
 				previews,
-				keep: rooms_application::fields::List::new(keep).expect("admitted kept files"),
-				files: rooms_application::fields::List::new(descriptions).expect("admitted source files"),
+				keep: rooms_application::fields::List::new(keep).ok_or_else(|| refuse("too many kept files"))?,
+				files: rooms_application::fields::List::new(descriptions)
+					.ok_or_else(|| refuse("too many upload source files"))?,
 			},
 			sources,
 		})

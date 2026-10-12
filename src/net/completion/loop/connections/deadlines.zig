@@ -7,8 +7,8 @@
 const std = @import("std");
 
 /// Add an unsigned policy duration to the signed monotonic-clock domain.
-/// Durations beyond the representable clock horizon wait until that horizon;
-/// they never fire earlier and never trap while narrowing a valid option.
+/// Durations beyond the representable clock horizon wait until that horizon.
+/// They never fire earlier and never trap while narrowing a valid option.
 pub fn dueAt(stamp: i64, delay_ms: u64) i64 {
     std.debug.assert(stamp >= 0);
     const remaining: u64 = @intCast(std.math.maxInt(i64) - stamp);
@@ -54,7 +54,7 @@ pub fn Machine(
             }
             c.waiting_since_ms = stamp;
             // Folding a new deadline in is one comparison. A cleared one is
-            // left in the cache on purpose: a stale entry can only make the
+            // left in the cache: a stale entry can only make the
             // loop wake early, which costs a poll, while dropping one late
             // would miss a reap. `reapDeadlines` recomputes after any wake
             // that closes nothing.
@@ -81,7 +81,7 @@ pub fn Machine(
         ///
         /// Edge-triggered, one owner, one comparison. Asking the question by
         /// walking every slot would put the `O(max_conns)` shape the deadline
-        /// cache exists to avoid onto a path that runs once per armed read; the
+        /// cache exists to avoid onto a path that runs once per armed read. The
         /// queue depth already funnels through this refresh, so the count can
         /// be maintained here instead.
         pub fn refreshOverMark(self: *Self, c: *Conn) void {
@@ -110,8 +110,8 @@ pub fn Machine(
         /// stamp or clear to match.
         ///
         /// Eligibility is owned by mutation, not read back from live state at
-        /// reap time: every input — the read seat, the queue depth, the
-        /// connection state — calls here when it changes. That is what lets
+        /// reap time: every input, the read seat, the queue depth, the
+        /// connection state, calls here when it changes. That is what lets
         /// the nearest-deadline cache be trusted, and it is what gives a
         /// fan-in victim its full grace: a connection that was somebody else's
         /// victim is stamped when it becomes a slow reader in its own right,
@@ -121,7 +121,7 @@ pub fn Machine(
             const eligible = switch (c.state) {
                 // Over the mark is the condition, not the seat. What throttles
                 // every other connection is `over_mark_count`, and that is set
-                // from the queue depth alone — `armOutbound` and `onSend`'s
+                // from the queue depth alone, `armOutbound` and `onSend`'s
                 // drive both push a connection past the mark while its own recv
                 // is still armed. Requiring `.parked` here meant such a
                 // connection throttled the whole loop and carried no deadline,
@@ -176,7 +176,7 @@ pub fn Machine(
                 if (earliest == null or deadline.due < earliest.?) earliest = deadline.due;
             }
             // A stamped connection that yields no deadline would send this
-            // walk over every slot on each poll — the cost this cache exists
+            // walk over every slot on each poll, the cost this cache exists
             // to avoid, and silent, because nothing observable changes.
             std.debug.assert(earliest != null);
             self.earliest_due_ms = earliest;

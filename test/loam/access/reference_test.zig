@@ -3,6 +3,25 @@ const std = @import("std");
 const f = @import("reference_fixture.zig");
 const h = f.h;
 const a = std.testing.allocator;
+const AdmissionProbe = struct {
+    source: f.ForwardingProbe = .{},
+    refuse: bool = false,
+    calls: usize = 0,
+    fn admit(context: ?*anyopaque, call: *h.access.ContentCall, work: h.access.ForwardWork) !void {
+        const source: *f.ForwardingProbe = @ptrCast(@alignCast(context.?));
+        const self: *AdmissionProbe = @fieldParentPtr("source", source);
+        self.calls += 1;
+        var path: [65]h.loam.core.ObjectId = undefined;
+        try std.testing.expect((try call.accountingPath(&path)).len > 0);
+        if (self.refuse) {
+            try std.testing.expectEqualStrings("get", work.selector);
+            try std.testing.expectEqualStrings("get", work.method);
+            try std.testing.expectEqual(@as(usize, 3), work.material_bytes);
+            try call.refuseCopying("rate-limited: retry-after-ms=1000; scope=read");
+            return error.ApplicationRefused;
+        }
+    }
+};
 
 test "loam dependent same attachment with independent owners forwards through both actual authorities" {
     var backend = try h.loam.Volatile.init(a, h.f.store_id, 16 * 1024 * 1024);
@@ -14,9 +33,11 @@ test "loam dependent same attachment with independent owners forwards through bo
     var host: h.Hosted = undefined;
     try host.init(&store, &backend, source_data);
     defer host.deinit();
-    var probe: f.ForwardingProbe = .{};
+    var admission: AdmissionProbe = .{};
+    const probe = &admission.source;
     var registrations = f.contents;
-    registrations[0].context = &probe;
+    registrations[0].context = probe;
+    registrations[0].admit_forward = AdmissionProbe.admit;
     host.service.contents = &registrations;
     const target = try host.restore(&backend, target_data.use);
     defer host.host.releaseCapabilityTerminal(target, null);
@@ -45,6 +66,16 @@ test "loam dependent same attachment with independent owners forwards through bo
         try host.drain(&backend);
         try std.testing.expectEqual(@as(?bool, true), resumed.changed);
     }
+    admission.refuse = true;
+    const denied = try host.host.callLocalCapability(a, facet, "get", &.{.{ .string = "hey" }}, 256);
+    defer denied.deinit();
+    try host.drain(&backend);
+    try std.testing.expect(denied.result() == .failed);
+    try std.testing.expectEqualStrings("rate-limited: retry-after-ms=1000; scope=read", denied.result().failed.message);
+    // The source also admitted forwarding while the independent target was
+    // paused. Target authority remains a separate check after this hook.
+    try std.testing.expectEqual(@as(usize, 4), admission.calls);
+    admission.refuse = false;
     const args = [_]h.driver.Value{ .{ .integer = 1 }, .{ .string = "remove" }, .{ .integer = 0 } };
     for (0..2) |_| {
         const mutation = try host.host.callLocalCapability(a, facet, "mutate", &args, 256);

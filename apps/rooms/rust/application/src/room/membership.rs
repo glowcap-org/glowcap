@@ -1,5 +1,5 @@
 //! One subscription's reply and local admission state. Arrival notification and
-//! subscribe reply are independent; both must finish before exposing a member.
+//! subscribe reply are independent. Both must finish before exposing a member.
 use super::{attachment::AttachmentArgument, policy::MembershipKind};
 
 pub use crate::protocol_data::{AWAY, LEAVE, SET_TOPIC, SUBSCRIBE, TYPING};
@@ -95,7 +95,7 @@ impl<C> Membership<C> {
 		self.seat.as_ref().filter(|_| !self.ended).ok_or(Error::Ended)
 	}
 	/// Retire before any external goodbye. The caller retains just the exact
-	/// old seat needed for that courtesy; a replacement can never be addressed.
+	/// old seat needed for that courtesy. A replacement can never be addressed.
 	pub fn retire(&mut self) -> Option<Seat<C>> {
 		self.ended = true;
 		self.seat.take()

@@ -36,7 +36,7 @@ pub fn releaseListenerProfile(self: *HostRuntime, transport: []const u8) void {
 }
 
 /// Materialize the complete locator an active listener publishes. The
-/// provider owns transport-specific hints; the driver validates the
+/// provider owns transport-specific hints. The driver validates the
 /// dispatch symbol and takes ownership of the returned model value.
 pub fn listenerLocatorOutcome(
     self: *const HostRuntime,
@@ -54,8 +54,8 @@ pub fn listenerLocatorOutcome(
 }
 
 /// Query or copy opaque provider state that restores this listener's local
-/// transport address. Null means the transport has no restoration state;
-/// otherwise the result is the complete size and a short output is untouched.
+/// transport address. Null means the transport has no restoration state.
+/// Otherwise the result is the complete size and a short output is untouched.
 pub fn listenerRestorationStateOutcome(
     self: *const HostRuntime,
     listener: *const TransportListener,
@@ -265,7 +265,7 @@ pub fn failActiveListener(self: *HostRuntime, tag: u64, primary: OperationFailur
 
 /// Stop a listener operation by its Runtime tag, whether setup is still
 /// pending or the listener is active. The observer receives cancellation
-/// for a pending setup; an active listener is removed synchronously.
+/// for a pending setup. An active listener is removed synchronously.
 pub fn stopOwnedListener(self: *HostRuntime, tag: u64) ListenerStopOutcome {
     const active = closeActiveListener(self, tag, false);
     if (active.found) return active;
@@ -289,7 +289,7 @@ pub fn closeOwnedListeners(self: *HostRuntime) void {
 
 /// Final destruction has no event recipient to drive a readiness-backed
 /// listener stop. The provider package remains the asynchronous cleanup
-/// authority and joins it during release; detach only Runtime/C metadata
+/// authority and joins it during release. Detach only Runtime/C metadata
 /// here after the stop request has been committed.
 pub fn detachClosingListeners(self: *HostRuntime) void {
     while (self.active_listeners.count() != 0) {

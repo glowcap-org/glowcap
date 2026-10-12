@@ -1,5 +1,5 @@
 /** The bounded operator inventory axes shared by the server, durable session,
- * clients, and UI. Operation verb strings live in protocol_operator.ts; this leaf
+ * clients, and UI. Operation verb strings live in protocol_operator.ts. This leaf
  * owns only category and exact reference-kind classification. */
 
 export const OPERATOR_CATEGORIES = [

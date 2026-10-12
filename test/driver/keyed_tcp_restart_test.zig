@@ -37,7 +37,7 @@ const Greeter = support_actors.StaticReplyActor("greet", "hello from the keyed l
 
 /// Accept one partner on the keyed listener, signing with `secret` (the key
 /// whose hex is the listener's designator), publish the greeter, serve until
-/// the client leaves — cleanly or by dropping the socket after its refused
+/// the client leaves, cleanly or by dropping the socket after its refused
 /// handshake, which arrives here as an ordinary connection loss.
 fn hostOnce(
     listener: net.netlayer.Listener,
@@ -255,7 +255,7 @@ test "keyed-tcp restart: the same seed on a fresh port is reachable through the 
 
     // Restart: the same seed rebuilds the same key on a fresh kernel-chosen
     // port. The first listener stays bound while the second binds, so the
-    // kernel cannot hand back the same port — the port change is the proof
+    // kernel cannot hand back the same port, the port change is the proof
     // that the designator is the identity, not the address.
     const rebuilt = crypto.SecretKey.fromSeed(seed);
     var second_life = net.tcp.keyed.Resident{ .io = io };

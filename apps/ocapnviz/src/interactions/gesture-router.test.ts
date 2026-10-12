@@ -7,7 +7,7 @@ import {
 	watchGestureEnd,
 } from "./gesture-router.ts";
 
-// Minimal DOM shims — these tests don't need jsdom. Stub `Element`s
+// Minimal DOM shims. These tests don't need jsdom. Stub `Element`s
 // and `Event`s with only the fields the router consults.
 
 class FakeElement {
@@ -116,7 +116,7 @@ Deno.test("two leases on one tag are two surfaces", () => {
 Deno.test("a stale claim cannot revoke the live one", () => {
 	// What identity buys over the tag. A lease is stranded only by
 	// `reset` today, because the router drops a claim through no
-	// other door than the lease holding it — so this is the check
+	// other door than the lease holding it. So this is the check
 	// that keeps a same-tag release honest if a second door is ever
 	// cut, and it is the whole difference from the tag-keyed release
 	// that let one scrub input end another's gesture.
@@ -218,7 +218,7 @@ Deno.test("an unreleased claim freezes every other surface", () => {
 	// The user-visible shape of the freeze, at the router's own
 	// level: while one surface holds the lock, the root guard stops
 	// every pointer-down that is not its own. This is why a lease
-	// that leaves the tree mid-gesture must release — see
+	// that leaves the tree mid-gesture must release, see
 	// `gesture-surface.test.ts`, which pins that it does.
 	type Listener = (ev: FakePointerEvent) => void;
 	let captured: Listener | null = null;

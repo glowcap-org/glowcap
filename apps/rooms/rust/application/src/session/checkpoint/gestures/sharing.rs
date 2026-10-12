@@ -49,9 +49,17 @@ impl ShareRoom {
 		})
 	}
 	pub fn id(&self) -> &str {
+		#[expect(
+			clippy::expect_used,
+			reason = "`new` selected this conversation by comparing `id` as scalar text, so it is one"
+		)]
 		self.id.text().as_str().expect("admitted conversation identity")
 	}
 	pub fn directory(&self) -> &str {
+		#[expect(
+			clippy::expect_used,
+			reason = "`new` matched this room's `directory` as scalar text, so it is one"
+		)]
 		self.directory.text().as_str().expect("admitted directory identity")
 	}
 	pub fn check(&self, checkpoint: &Checkpoint) -> Result<(), &'static str> {

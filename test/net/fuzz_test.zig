@@ -50,7 +50,7 @@ fn readOne(_: void, smith: *std.testing.Smith) anyerror!void {
     // A draw made after `smith.slice` has consumed the input returns the low
     // end of its range on every replay, so a saved crash would replay under a
     // one-byte read buffer and one-byte reads whatever geometry the fuzzer
-    // actually found it with — which for a target whose whole subject is the
+    // found it with, which for a target whose whole subject is the
     // handover between two supplies is the wrong geometry every time.
     var read_buf: [64]u8 = undefined;
     const read_len: usize = 1 + @as(usize, if (input.len > 0) input[0] % 63 else 0);
@@ -115,9 +115,9 @@ test "fuzz: arbitrary stream bytes never crash or leak a blocking frame read" {
 // by a person reading carefully, and every fix added one more site that has to
 // remember.
 //
-// Reading does not scale to the combinations. The loop's derived state — how
+// Reading does not scale to the combinations. The loop's derived state, how
 // many connections carry a deadline, how many sit over the outbound mark, how
-// many closes it still owes, which slots are free — is maintained across dozens
+// many closes it still owes, which slots are free, is maintained across dozens
 // of mutation sites, and what breaks it is an *ordering*: a close arriving
 // between a park and a drain, a partial write on a slot already draining, a
 // teardown while a slot is being adopted. A fuzzer chooses orderings for free.
@@ -150,19 +150,19 @@ test "fuzz: arbitrary stream bytes never crash or leak a blocking frame read" {
 // connect completions a thousand, the park hook forty-five hundred, and a
 // terminal failure leaves a connection draining about four thousand. Every one
 // of those was zero at some point, each because of one decision the backend
-// kept to itself — an infallible submit, a refused dial, a null hook, a peer
+// kept to itself, an infallible submit, a refused dial, a null hook, a peer
 // with nothing to send.
 //
 // Two remain at zero, and the reason is the same for both: they need a
 // connection that is simultaneously waiting to read and mid-write, and this
 // harness's traffic never produces one. `onRecvConsume`'s draining arm needs a
 // terminal failure to arrive on a connection with a recv already armed *and*
-// something to flush — armed alone goes straight to closing, where the liveness
+// something to flush, armed alone goes straight to closing, where the liveness
 // guard drops the late recv first. `onSend`'s terminal back-swap needs the same
 // overlap from the other side. `test/net/completion/cross_arm_test.zig` holds
 // the first of them with a scripted backend, which is the right tool: a
 // schedule that has to arrange an overlap is a worse instrument than a script
-// that simply states it.
+// that states it.
 //
 // `deinit`'s release of a live connection's contributions is a third, and it is
 // structurally unreachable rather than unlucky: an over-mark or a deadline
@@ -170,7 +170,7 @@ test "fuzz: arbitrary stream bytes never crash or leak a blocking frame read" {
 // not quiescent and the branch is never entered.
 //
 // `max_conns`, `read_buffers`, and the high-water mark stay fixed. And under
-// `zig build test` this target runs no loop at all — its corpus is empty, so
+// `zig build test` this target runs no loop at all, its corpus is empty, so
 // the one empty input returns early. Every count above is `zig build fuzz`.
 
 const completion = net.completion;
@@ -201,7 +201,7 @@ test "fuzz: arbitrary completion schedules keep the loop's lifecycle accounting 
 // back: the same frames, whole, in order, once each. That question needs a
 // reference to check against, so the stream is built here rather than drawn,
 // and what the fuzzer
-// chooses is the geometry — how big the read buffer is, how much one read is
+// chooses is the geometry, how big the read buffer is, how much one read is
 // allowed to return, where the chunk boundaries fall, which frames arrive, and
 // how the stream ends.
 //
@@ -211,7 +211,7 @@ test "fuzz: arbitrary completion schedules keep the loop's lifecycle accounting 
 // buffer cannot be, so returning it whole is itself the evidence the spill
 // carried it (ADR-0041). And past `codec.framing.scan_threshold_bytes` pending
 // bytes the codec stops decoding on every read and walks a resumable scan
-// instead, which withholds the decoder — and with it the decoder's own refusal —
+// instead, which withholds the decoder, and with it the decoder's own refusal,
 // so `codec.dispatch.framePrefix` owes the frame cap in its place. One
 // synthesized frame and the open-record tail both reach past that threshold, so
 // a stream here crosses every one of those handovers.
@@ -252,7 +252,7 @@ test "fuzz: arbitrary completion schedules keep the loop's lifecycle accounting 
 // Two of those are worth spelling out, because of what caught them.
 //
 // The missing cap refusal was caught by the spill bound, not by the tail's
-// verdict — the verdict still came back `FrameTooLarge`, because the scan settles
+// verdict, the verdict still came back `FrameTooLarge`, because the scan settles
 // once its own cursor passes the cap and the decoder then refuses. What had
 // changed was how much had piled up first. Asserting boundedness separately from
 // the verdict is the whole reason that was visible.
@@ -279,7 +279,7 @@ test "fuzz: arbitrary completion schedules keep the loop's lifecycle accounting 
 //     chunk tail into the same spill for the readiness loops, but it drives a
 //     `Peer` rather than returning frames, so the target below it is the
 //     completion-loop one above.
-//   - Cap'n Proto, on purpose. Its frames declare their length up front, so it
+//   - Cap'n Proto. Its frames declare their length up front, so it
 //     has no scan and no self-delimiting grammar to resume, and the corpus this
 //     target checks streams against is Syrup.
 //
@@ -290,7 +290,7 @@ test "fuzz: arbitrary completion schedules keep the loop's lifecycle accounting 
 //
 // Under `zig build test` the search does not run: the corpus is the regression
 // seeds alone, so the ratification is what the ordinary suite gets from this
-// target. It is not a small part — a scan that miscounts a leaf's payload fails
+// target. It is not a small part, a scan that miscounts a leaf's payload fails
 // it outright, with no fuzzer involved.
 
 /// Streams the fuzzer found here, replayed by the ordinary suite so a bug it

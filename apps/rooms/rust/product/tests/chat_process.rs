@@ -1,4 +1,5 @@
 //! Exercise the installed interactive client with real stdin and directory peers.
+#![cfg(test)]
 use std::{
 	io::{BufRead, BufReader, Write},
 	process::{Child, Command, Stdio},

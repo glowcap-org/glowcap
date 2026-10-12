@@ -2,11 +2,11 @@
 //
 // The bytes of a file kept here are in this browser's own storage. Whether the
 // directory the conversation lives on happens to be reachable has nothing to do
-// with reading them back, and a reader who is offline, or who has simply not
+// with reading them back, and a reader who is offline, or who has not
 // finished connecting yet, is owed their own history and the files in it.
 //
 // So this stands the page up with no way to reach any directory at all and asks
-// for a file back. The page's own assets still load; the one socket a session is
+// for a file back. The page's own assets still load. The one socket a session is
 // made of never reaches anything, which is the same state every cold start
 // passes through before its first connection lands.
 

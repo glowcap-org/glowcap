@@ -35,8 +35,8 @@ impl<P: Platform> Drop for Peer<P> {
 impl<P: Platform> Peer<P> {
 	/// Retain an already admitted capability without publishing, resolving a
 	/// locator, or taking ownership of its shared exporter connection.
-	/// One Rc target and standing memo outlive capture and both storage writes;
-	/// the archive's existing MAX_PENDING bound limits these owners. Looking up
+	/// One Rc target and standing memo outlive capture and both storage writes.
+	/// The archive's existing MAX_PENDING bound limits these owners. Looking up
 	/// selection after either wait could redirect the record or its standing.
 	pub(super) fn held(host: glowcap::Host, platform: P, reference: glowcap::Ref) -> Self {
 		let target = Rc::new(Target {
@@ -288,7 +288,7 @@ impl<P: Platform> Targets<P> {
 		}
 		Ok(())
 	}
-	/// Reports a changed selection; a failed open leaves it explicitly unavailable.
+	/// Reports a changed selection. A failed open leaves it explicitly unavailable.
 	pub async fn select(&mut self, link: Option<String>) -> Result<bool, Error> {
 		let unchanged = matches!((&self.selected, &link), (Selection::Local, None))
 			|| matches!((&self.selected, &link), (Selection::Peer(peer), Some(link)) if &peer.link == link);
@@ -317,8 +317,8 @@ impl<P: Platform> Targets<P> {
 				return Ok(true);
 			}
 		};
-		let target = if self.prepared.as_ref().is_some_and(|p| p.link == link) {
-			self.prepared.take().unwrap()
+		let target = if let Some(prepared) = self.prepared.take_if(|p| p.link == link) {
+			prepared
 		} else if let Some(index) = self.retired.iter().position(|p| p.link == link) {
 			self.retired.swap_remove(index)
 		} else {
@@ -335,7 +335,7 @@ impl<P: Platform> Targets<P> {
 	}
 	/// A terminal call failure changes the realized outcome without changing
 	/// durable selection intent. Later operations refuse specifically instead of
-	/// writing into the local archive; reselecting the same link retries opening it.
+	/// writing into the local archive. Reselecting the same link retries opening it.
 	pub fn mark_selected_unavailable(&mut self) {
 		let Selection::Peer(peer) = &self.selected else { return };
 		let link = peer.link.clone();

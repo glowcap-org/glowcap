@@ -34,7 +34,7 @@ function IrcSpan({ run, children }: { run: IrcRun; children: ReactNode }) {
 
 function footnoteId(prefix: string, identifier: string): string {
 	// A fragment is percent-decoded before the browser looks up its target. Keep
-	// both sides in a deliberately fragment-safe alphabet so an identifier with
+	// both sides in a fragment-safe alphabet so an identifier with
 	// spaces or non-ASCII text cannot point somewhere other than its definition.
 	const instance = prefix.replaceAll(":", "");
 	const encoded = Array.from(identifier, (character) => character.codePointAt(0)!.toString(16)).join("-");

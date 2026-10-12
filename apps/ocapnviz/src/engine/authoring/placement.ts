@@ -1,5 +1,5 @@
 /**
- * Stage pin writes — how a drag or unpin lands on the document.
+ * Stage pin writes, how a drag or unpin lands on the document.
  *
  * `repositionPeer` stays on the Engine: it is a hot-path special case
  * that refreshes layout and in-flight messages on the same paused
@@ -22,7 +22,7 @@ export function writePeerPosition(
 ): void {
 	// Identity-side write first (source of truth). Mirror to the
 	// event payload for fixture / wire-format consistency. Both
-	// paths must stay synced — readers prefer entities, but the
+	// paths must stay synced, readers prefer entities, but the
 	// keyframe-layout system still reads event.position.
 	patchPeerDefinition(doc, peerId, {
 		position: { x: position.x, y: position.y },

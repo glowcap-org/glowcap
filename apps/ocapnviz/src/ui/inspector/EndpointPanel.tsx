@@ -1,9 +1,9 @@
 /**
- * Endpoint inspector panel — what one end of a session claims to be, and
+ * Endpoint inspector panel, what one end of a session claims to be, and
  * what attributed it.
  *
  * The panel exists for the end nothing attributed. A session's other end is
- * a peer, and a peer has its own panel; this one is reached by selecting the
+ * a peer, and a peer has its own panel. This one is reached by selecting the
  * placeholder the stage draws where a peer would sit. It answers the one
  * question the placeholder raises, which is what this empty-looking node is.
  *
@@ -12,14 +12,14 @@
  * moving through it is its status. The moments somebody attaches to it are
  * its trajectory. It does not report the session's transport, because one
  * session runs over one netlayer and both ends share it, so the transport is
- * the session's fact and is shown and edited there — and the same for the
+ * the session's fact and is shown and edited there, and the same for the
  * state the session is in and for whatever happens at its other end.
  *
  * It does not teach the attributions either: those are values a reader meets
  * where they are chosen, and a taxonomy here is a lecture nobody asked for.
  *
  * There is no delete row. An end is one of the two a session HAS, so
- * removing it would leave a session with one end; deleting the session takes
+ * removing it would leave a session with one end. Deleting the session takes
  * it, which is the act a reader who wants it gone actually means.
  */
 
@@ -59,7 +59,7 @@ function endpointInfo(engine: Engine, id: string) {
 		// An end this panel is showing is loose by construction: an attributed
 		// end has a peer, and the Inspector follows the peer instead. Read the
 		// playhead's own answer anyway rather than assuming, so a hand-edited
-		// document that violates the invariant shows what it actually says —
+		// document that violates the invariant shows what it says,
 		// and read it from the moment the rest of this panel is about, not
 		// from the session's birth.
 		attributedBy: sessionEndpointPlaceAt(
@@ -78,7 +78,7 @@ function endpointInfo(engine: Engine, id: string) {
 }
 
 /** Position row that follows mid-drag world coords. The EndpointFields
- *  shell stays on doc+clock; this row alone wakes on `version`. */
+ *  shell stays on doc+clock. This row alone wakes on `version`. */
 function EndpointPositionLiveRow(
 	{
 		engine,
@@ -93,7 +93,7 @@ function EndpointPositionLiveRow(
 	},
 ) {
 	useEngineVersion(engine);
-	// Read the pin from the live doc here — not from a shell prop.
+	// Read the pin from the live doc here. Not from a shell prop.
 	// Mid-drag placement mutates `endpointPosition` inside a transaction
 	// that leaves `docVersion` quiet, so a parent-computed `pinned` stays
 	// at the pre-drag point for the whole gesture.
@@ -148,7 +148,7 @@ export function EndpointFields(
 				/* The claim is editable here for the same reason the peer's name is
           editable in its own panel: it is this end's name, and this is the
           panel for this end. It is safe to edit here because it has one
-          home — `def[side].designator`, what the end is born claiming — so
+          home, `def[side].designator`, what the end is born claiming, so
           this control reads and writes the same value. Nothing states a
           claim at a moment: an end's tracks carry who attached and what
           proved it, never what it called itself. */
@@ -247,7 +247,7 @@ export function EndpointFields(
 }
 
 /** The session this end belongs to, and the peer on the far side of it when
- *  there is one. An end's only connection is its own session — that is what
+ *  there is one. An end's only connection is its own session. That is what
  *  makes it an end rather than a node. */
 export function EndpointConnections(
 	{ engine, id, onSelect, entitySelection }: {

@@ -4,7 +4,7 @@
  * (so in-flight edits to labels / profiles / state are reflected
  * immediately) and falls back to `doc.entities.*` when the playhead
  * is outside the entity's effective window. Returning `null` for a
- * truly unknown id is intentional — the Connections panel renders
+ * unknown id is intentional. The Connections panel renders
  * an "Unknown peer id" / "Unknown session id" row so orphan
  * references stay visible instead of silently disappearing.
  */
@@ -24,7 +24,7 @@ import type { CaptpVersion, Codec, PeerProfile, SessionState } from "../../schem
 import type { EntityKind, EntityRefKey } from "../../interactions/types.ts";
 import type { LifecycleStatus } from "../EntityChips.tsx";
 
-/** "Is this entity also in the multi-select set?" — the cross-
+/** "Is this entity also in the multi-select set?", the cross-
  *  reference check the per-kind Connections rows use to light up
  *  "in selection" badges. Set undefined collapses to false so
  *  call sites pass `entitySelection` directly without the
@@ -114,7 +114,7 @@ export type MessageInfo = {
 	toId: string;
 	sessionId: string;
 	/** Sender / arrival timestamps. Drawn from the live in-flight
-	 *  entity when the message is on stage; falls back to the
+	 *  entity when the message is on stage. Falls back to the
 	 *  `message-sent` event in the doc otherwise so the panel
 	 *  resolves consistently across the whole timeline. */
 	sentT: number;

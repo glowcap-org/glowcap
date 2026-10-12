@@ -15,7 +15,7 @@ from .._lifecycle import _release_consumed
 
 
 class _DriverFinalizerState:
-    """Raw driver authority; only a refused live release retains completion."""
+    """Raw driver authority. Only a refused live release retains completion."""
 
     __slots__ = (
         "handle",

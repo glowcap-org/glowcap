@@ -1,6 +1,6 @@
 /**
  * Subscribe a component to the engine's playback clock. Called
- * LOCALLY by components that consume the clock (the Timeline) —
+ * LOCALLY by components that consume the clock (the Timeline),
  * subscribing at the App root would re-reconcile the whole tree
  * on every Pixi tick during playback.
  *

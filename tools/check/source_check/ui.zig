@@ -450,7 +450,7 @@ pub fn checkUiThemeParity(
             try appendViolation(gpa, violations, "{s}: folded onto `light-dark()` but still declares a token in the dark arm; fold it too, or mark the surface as carrying its own", .{path});
         }
 
-        // The desktop no longer decides the theme, so nothing about the theme
+        // The desktop does not decide the theme, so nothing about the theme
         // may hang off it. A media query is still fine for anything else.
         var media_at = std.mem.indexOf(u8, css, "prefers-color-scheme: dark");
         while (media_at) |at| {

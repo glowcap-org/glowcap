@@ -1,5 +1,5 @@
 #lang racket/base
-;; Internal: the CapTP `host` — binding wrapper for `GlowcapHost` /
+;; Internal: the CapTP `host`, the binding wrapper for `GlowcapHost` /
 ;; `driver_core.Host` (ADR-0072 / ADR-0079). The host owns an `engine.Node`
 ;; (the sans-io handoff router). Goblins `mycapn` is two roles, not one type:
 ;; the product maps to this Host; the router tables map to `engine.Node`. What lives
@@ -125,7 +125,7 @@
   (register-finalizer m host-finalize!)
   m)
 
-;; A host with a fresh random identity seed — entropy drawn at the binding
+;; A host with a fresh random identity seed. Entropy is drawn at the binding
 ;; boundary, never inside the sans-io host.
 (define (make-fresh-host #:profile [profile #f]
                          #:codec [codec #f]
@@ -347,7 +347,7 @@
 ;; `private/action.rkt`. The verbs below are what those arms call.
 
 ;; Answer a NEED_GIFT_ID action: entropy is a host effect, drawn only when a
-;; reply actually becomes a gift. The host originates the claimed handoff and
+;; reply becomes a gift. The host originates the claimed handoff and
 ;; flushes its legs, exporter first. Caller holds the host lock.
 (define (answer-gift-id! draw provide failed)
   (define id
@@ -458,13 +458,13 @@
       (check/host (glowcap_host_set_ingress_limits (host-ptr m) turns bytes chunk)))))
 
 ;; Derive the canonical key designator (64 lowercase hex digits) from a 32-byte
-;; Ed25519 identity seed — the public half of the key a host signs with
-;; (ADR-0075).
+;; Ed25519 identity seed (the public half of the key a host signs with,
+;; ADR-0075).
 (define (designator-from-seed seed)
   (unless (= (bytes-length seed) 32)
     (raise-glowcap 'designator-from-seed ERR-INVALID-ARGUMENT
                    "seed must be 32 bytes"))
-  ;; Output buffer is mutable Racket bytes the FFI writes into — do not
+  ;; Output buffer is mutable Racket bytes the FFI writes into. Do not
   ;; `pin-immobile` it (that copies, and the write would be discarded). Plain
   ;; bytes are safe here only because this call is not marked `#:blocking?`, so
   ;; the collector cannot run and move the block under it; a blocking call needs
@@ -506,8 +506,8 @@
         [else (check/host rc) #t]))))
 
 ;; Publish `behavior` under a freshly minted durable swiss name (ADR-0098) and
-;; return that name — the swiss to place in a sturdyref beside this host's own
-;; locator. The name is unpredictable, never reassigned, structurally disjoint
+;; return that name (the swiss to place in a sturdyref beside this host's own
+;; locator). The name is unpredictable, never reassigned, structurally disjoint
 ;; from every mutable alias, and removable only through `host-remove-durable`.
 ;; Optional `entropy` must be exactly HOST-DURABLE-ENTROPY-LEN bytes and
 ;; restores the same name on a Host reconstructed from the same seed; omitted,
@@ -525,7 +525,7 @@
                       HOST-DURABLE-ENTROPY-LEN)]))
   (define tramp (make-publication-trampoline behavior))
   (host-retain! m tramp)
-  ;; Output buffer is mutable Racket bytes the FFI writes into — do not
+  ;; Output buffer is mutable Racket bytes the FFI writes into. Do not
   ;; `pin-immobile` it (that copies, and the write would be discarded). Plain
   ;; bytes are safe here only because this call is not marked `#:blocking?`, so
   ;; the collector cannot run and move the block under it; a blocking call needs

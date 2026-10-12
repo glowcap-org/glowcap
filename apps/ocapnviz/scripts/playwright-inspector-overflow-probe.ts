@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-inspector-overflow-probe.ts — does the Inspector still fit
+ * playwright-inspector-overflow-probe.ts: does the Inspector still fit
  * when the names in it are sixty-four characters of hex?
  *
  * Running the rooms app over iroh gives every peer a key for a name, and
@@ -10,10 +10,10 @@
  * overflows is to put a key in every field a key can reach and measure
  * the boxes.
  *
- * The probe authors that document through the app's own Build mode — a
+ * The probe authors that document through the app's own Build mode, a
  * peer renamed to a key, its identifier set to a key, both of a
  * session's end claims set to keys, and one end detached so the panel
- * carries its three-word "nothing proved this" badge — and then asks
+ * carries its three-word "nothing proved this" badge, and then asks
  * four questions of the Inspector pane:
  *
  *   - is any text cut off with no ellipsis to say it was cut;
@@ -37,7 +37,7 @@ const KEY_A = "9b5c6e95b0e6bf0151238adc20a3f1c47e0b8d92a4415f6c73ee01d5b8a29f34"
 const KEY_B = "c41171f326941a7123aae1687f5d02b93c8ea6410d92bb75f0c31e8a4d6721ab";
 
 /** A connection row holds one line of text and a badge. Two lines of
- *  9px badge plus the row's own padding clears this; one line does not. */
+ *  9px badge plus the row's own padding clears this. One line does not. */
 const MAX_ROW_HEIGHT = 34;
 
 const browser = await chromium.launch({

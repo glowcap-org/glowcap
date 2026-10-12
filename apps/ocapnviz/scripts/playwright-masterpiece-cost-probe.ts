@@ -6,8 +6,8 @@
  * the same window twice under a single varied condition, because the question
  * is not "how expensive is a frame" but "which layer is spending it":
  *
- *   1. **Everything drawn** — the document as a user sees it.
- *   2. **Everything hidden** — `setAllVisMode("both")`, which is the mode
+ *   1. **Everything drawn**, the document as a user sees it.
+ *   2. **Everything hidden**, `setAllVisMode("both")`, which is the mode
  *      `render-frame.ts` skips its `sync*Sprite` calls for outright. Every
  *      sprite is destroyed and the per-entity loops fall through on their
  *      first test.
@@ -121,7 +121,7 @@ async function measure(label: string, hideAll: boolean): Promise<Pass> {
 	await page.waitForTimeout(400);
 
 	// The sampler also keeps the clock inside the document. A hand-built
-	// document is short — the masterpiece is 1.4 seconds — so a window long
+	// document is short, the masterpiece is 1.4 seconds, so a window long
 	// enough to profile would otherwise spend most of itself on a clock that
 	// had run off the end, and report the cost of a stopped picture as the cost
 	// of playback.

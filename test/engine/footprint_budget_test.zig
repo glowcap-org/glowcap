@@ -42,7 +42,7 @@ const copyFromBorrowed = @import("../support/frame.zig").copyFromBorrowed;
 const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
 
 /// The committed per-connection core-state ceiling. The inline struct budget is
-/// the compiler-held half (`engine.peer_session_struct_budget_bytes`); this is
+/// the compiler-held half (`engine.peer_session_struct_budget_bytes`). This is
 /// the warmed total, struct plus session heap. Crossing it is a design event that
 /// raises the budget here and in docs/ladder.md step 2 (the ladder owns the
 /// numbers), with the bytes justified, not a number to quietly nudge up.
@@ -118,8 +118,8 @@ test "a burst-drained session releases its burst queue capacity back under the w
     try warmPeer(&peer);
 
     // One burst: many small answerless delivers (tells) fed as owned frames,
-    // then fully drained — frames through `step`, events through `pollEvent`,
-    // encoded output through `takeOutbound` — so every queue crosses its
+    // then fully drained, frames through `step`, events through `pollEvent`,
+    // encoded output through `takeOutbound`, so every queue crosses its
     // drain-reset. Tells avoid growing the inbound-answer table; the gate is
     // queue capacity release, not answer-row retention.
     const burst = 512;

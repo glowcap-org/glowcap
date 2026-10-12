@@ -15,7 +15,7 @@ export async function openConv(tab: Page, open: string): Promise<void> {
 
 /** Switch to a conversation, then end it with the title's mark, the one
  * control that leaves a room and closes a direct line. The mark asks in that
- * conversation's card; this confirms. */
+ * conversation's card. This confirms. */
 export async function endConversation(tab: Page, open: string): Promise<void> {
 	await openConv(tab, open);
 	await confirmTitleLeave(tab);

@@ -5,9 +5,9 @@
 //! vat instead of the glowcap conformance peer: fetch echo, deliver a
 //! glowcap-owned near object with no answer, pump until Goblins releases its
 //! import of that export. This driver is evidence-only (no engine change of
-//! its own); export-side promise listen ships separately under ADR-0007.
+//! its own), export-side promise listen ships separately under ADR-0007.
 //!
-//! Needs `racket` + the `goblins` collection on PATH; runs as the sibling step
+//! Needs `racket` + the `goblins` collection on PATH, runs as the sibling step
 //! `zig build goblins-gc`, not in the in-tree check. Compiling the driver is
 //! still part of `check` so an API change cannot silently rot it.
 
@@ -27,7 +27,7 @@ const frame_cap: usize = 1 << 16;
 /// Dedicated host: suite echo swiss plus a background `collect-garbage` loop so
 /// CapTP's will-executor can emit `op:gc-exports` within the interop deadline.
 const host_script = "conformance/goblins-peer/racket/gc-echo-host.rkt";
-/// CapTP suite timeout for the same shape; Goblins GC waits on Racket wills.
+/// CapTP suite timeout for the same shape, Goblins GC waits on Racket wills.
 const gc_deadline_ms: u64 = 15_000;
 
 pub fn main(init: std.process.Init) !void {

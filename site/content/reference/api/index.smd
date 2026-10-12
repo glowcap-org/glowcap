@@ -8,6 +8,6 @@
 
 This route serves the generated Zig API reference for the public `glowcap`
 module. If you are reading this text instead of the reference, the site was
-built without the autodoc step; the [API reference]($link.page('reference'))
+built without the autodoc step. The [API reference]($link.page('reference'))
 page describes the Zig and C entry points. [Start building]($link.page('start'))
 provides a complete client before you move to declaration-level detail.

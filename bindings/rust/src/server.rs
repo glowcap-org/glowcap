@@ -57,8 +57,8 @@ where
 }
 
 /// The binding's single owner for a native driver's generic listener handle.
-/// Closing it seals admission and releases accepted sessions not yet yielded;
-/// sessions already returned to the application remain owned by their Host.
+/// Closing it seals admission and releases accepted sessions not yet yielded.
+/// Sessions already returned to the application remain owned by their Host.
 pub(crate) struct LoopListener {
 	lp: Rc<crate::driver_loop::LoopShared>,
 	listener: u64,

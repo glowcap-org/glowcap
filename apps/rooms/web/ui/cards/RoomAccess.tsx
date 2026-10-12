@@ -58,7 +58,7 @@ export function RoomAccessControl({ policy, busy, disabled, said, onChange }: {
 			<div className="group well" role="group" aria-labelledby="convcardRoomAccessTitle">
 				{
 					/* The standing that is set now leads the well, the way the archive
-				    peer's name leads its own. The icon marks that standing; the
+				    peer's name leads its own. The icon marks that standing. The
 				    button below only says what pressing it does, because it moves
 				    to the next one rather than to the one drawn here. */
 				}

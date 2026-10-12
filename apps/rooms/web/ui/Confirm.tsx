@@ -7,8 +7,8 @@
 // wears the danger colour, so it cannot be mistaken for the ordinary
 // commitment beside it however similar the words, and it comes last, where
 // every commitment on the plane comes. An act that only changes course rather
-// than losing anything — continuing as a local copy, marking an operation
-// completed — asks the same way with the ordinary commitment, `tone`
+// than losing anything (continuing as a local copy, marking an operation
+// completed) asks the same way with the ordinary commitment, `tone`
 // "primary".
 //
 // Inline rather than a dialog for two reasons. The question belongs to the
@@ -19,7 +19,7 @@
 // The keyboard is handled the way a dialog would handle it, because to a
 // keyboard reader this is one: opening moves focus onto the way out, so the
 // next Enter keeps rather than commits; Escape is the way out too, and stays
-// here rather than closing the card the question sits in; and keeping hands
+// here rather than closing the card the question sits in, and keeping hands
 // focus back to the act that asked, which is where the reader was.
 
 import { type ReactNode, useEffect, useRef, useState } from "react";

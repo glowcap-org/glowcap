@@ -100,6 +100,10 @@ unsafe extern "C" {
 		reference: *const GlowcapReference,
 		out_session: *mut *mut GlowcapHostSession,
 	) -> c_int;
+	pub fn glowcap_driver_claim_exporter_session(
+		loop_: *mut GlowcapDriverLoop,
+		session: *mut GlowcapHostSession,
+	) -> c_int;
 	pub fn glowcap_driver_session_close(
 		loop_: *mut GlowcapDriverLoop,
 		session: *mut GlowcapHostSession,

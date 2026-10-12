@@ -70,11 +70,14 @@ export type Item =
 		/** The existing session receipt for this submitted line. Recovery uses
 		 * this scalar identity even after the composer accepts a newer draft. */
 		operation?: string;
+		/** Correlation survives receipt retirement until the echo names the line.
+		 * Shares the existing <=128-unit operation string; never resend authority. */
+		correlation?: string;
 		/** The action or notice this line's text carries, stamped by the store
 		 * when the line is made or its text changes. */
 		carried?: LineCarried;
 		/** The id assigned by the current live room generation. Retired when that
-		 * membership ends; retained text is not authority for a later generation. */
+		 * membership ends. Retained text is not authority for a later generation. */
 		lineId?: number;
 		history?: HistoryCoordinate;
 		/** Source conversation order for history reconciliation. Unlike archive
@@ -82,6 +85,10 @@ export type Item =
 		order?: number;
 		edited?: boolean;
 		withdrawn?: boolean;
+		pendingEdit?: { operation: string; text: string };
+		editFailure?: string;
+		withdrawal?: string;
+		withdrawalFailure?: string;
 		held?: boolean;
 		attachments?: readonly AttachmentView[];
 		previewUrls?: readonly string[];
@@ -126,7 +133,7 @@ export interface ConvBase {
 	/** What the reader sees: a room's name, or a DM peer's nick. */
 	id: string;
 	/** This tab's map key. Distinct from `id` (display). A room or DM also has a
-	 * durable `persistId`; a directory conversation does not. */
+	 * durable `persistId`. A directory conversation does not. */
 	key: string;
 	dir: DirId;
 }
@@ -203,7 +210,7 @@ export type Conv =
 		 * holds for the room, as the identity the Rust application gives each
 		 * one (`roomAuthorityToken`), never the sturdyref itself.
 		 *
-		 * A token says that an authority is held and tells one from another; it
+		 * A token says that an authority is held and tells one from another. It
 		 * opens nothing. The bearer string stays in the Rust checkpoint, and a
 		 * control that copies it asks there at press time (`session/bearer.ts`),
 		 * so a rail row subscribed to this map is never handed a secret it does
@@ -237,7 +244,7 @@ export function isSessionConv(conv: Conv): conv is SessionConv {
 
 export interface Invitation {
 	id: string;
-	/** Handed offers use the arrival session; durable links use their target authority. */
+	/** Handed offers use the arrival session. Durable links use their target authority. */
 	dir: DirId;
 	locator?: string;
 	nick?: string;
@@ -255,7 +262,7 @@ export type { RoomCarries };
  * capability stands for: the link previews a line names, or the typing
  * signal. A room answers from what it stated at arrival. A room that stated
  * nothing has not said it lacks anything, so it answers yes and keeps every
- * control; a direct line carries both; a directory carries no messages. */
+ * control. A direct line carries both. A directory carries no messages. */
 export function conversationCarries(conv: Conv | null, feature: RoomFeature): boolean {
 	if (conv === null || conv.type === "directory") return false;
 	if (conv.type === "dm") return true;

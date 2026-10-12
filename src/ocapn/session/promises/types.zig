@@ -1,7 +1,7 @@
 //! Representation vocabulary for resolver links and imported promises.
 //!
 //! These types carry state but perform no transition. The resolver and
-//! imported-promise operation modules own mutation; Session embeds the values.
+//! imported-promise operation modules own mutation, Session embeds the values.
 
 const std = @import("std");
 const model = @import("model");
@@ -53,13 +53,13 @@ pub const PromiseListenCell = struct {
 };
 
 /// Session metadata for one imported promise. Every next-profile remote promise
-/// uses the shortening fields; a non-null host additionally marks a promise
+/// uses the shortening fields. A non-null host additionally marks a promise
 /// introduced through third-party handoff.
 pub const ImportedPromise = struct {
     /// Interned in Session's key arena.
     host: ?[]const u8,
     cell: PromiseListenCell,
-    /// A self-edge means shortening is pending; a completed edge is stable.
+    /// A self-edge means shortening is pending. A completed edge is stable.
     shortening_target: model.ImportPosition,
     /// Whether the stable edge owns the retain its callback introduced on
     /// `shortening_target` (`shortening.complete` adopted it), which the

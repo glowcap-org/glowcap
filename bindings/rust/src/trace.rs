@@ -1,10 +1,10 @@
 //! The live timeline producer: a veneer over the native tap. The core is the
-//! one owner of the facts — `glowcap_host_set_trace` reports every session's
+//! one owner of the facts: `glowcap_host_set_trace` reports every session's
 //! open (with the partner's designator, whether a durable identity verified
-//! the name, and the codec the handshake actually negotiated), every
+//! the name, and the codec the handshake negotiated), every
 //! message's verb in both directions, and every close. This veneer only
 //! stamps time and forwards one flat record per fact in the versioned
-//! timeline schema; even endpoint labeling belongs to the consumer (ocapnviz
+//! timeline schema. Even endpoint labeling belongs to the consumer (ocapnviz
 //! resolves src/dst from the session-opened it already saw), so nothing here
 //! keeps per-session state.
 //!
@@ -43,16 +43,16 @@ pub struct TraceEvent {
 	pub session: String,
 	/// `SessionOpened`: the two ends and the negotiated codec. `a` is this
 	/// host's own OCapN Designator, the name a partner knows it by, so
-	/// one peer stays one node in a feed several producers share; `b` the
+	/// one peer stays one node in a feed several producers share. `b` the
 	/// partner's Designator.
 	pub a: Option<String>,
 	pub b: Option<String>,
 	/// `SessionOpened`: the OCapN Transport of `b`'s locator. A designator
-	/// does not name a location on its own — the spec requires designator and
+	/// does not name a location on its own: the spec requires designator and
 	/// transport together to tell two locations apart.
 	pub transport: Option<String>,
 	/// `SessionOpened`: what the reporting host would like itself called on
-	/// screen. Display only — `a` stays the identity a consumer merges on,
+	/// screen. Display only: `a` stays the identity a consumer merges on,
 	/// and this text does not reach that decision.
 	pub a_label: Option<String>,
 	/// `SessionOpened`: the implementation this producer runs, always
@@ -61,10 +61,10 @@ pub struct TraceEvent {
 	/// the same footing as the `provenance` verdict below: a conclusion the
 	/// producer states rather than a raw wire fact.
 	///
-	/// It is stated because this schema is not glowcap's alone — the Goblins
-	/// conformance peer publishes the same records — so a consumer cannot read
+	/// It is stated because this schema is not glowcap's alone, the Goblins
+	/// conformance peer publishes the same records, so a consumer cannot read
 	/// an implementation off the fact that a record arrived, and a host that
-	/// says nothing is honestly unknown to it.
+	/// says nothing is unknown to it.
 	pub a_profile: Option<&'static str>,
 	/// `SessionOpened`: the OCapN Session ID, 64 lowercase hex digits. Both
 	/// peers of one session derive the same value, so a consumer merging feeds
@@ -85,7 +85,7 @@ pub struct TraceEvent {
 	pub outbound: bool,
 	pub op: Option<String>,
 	/// `MessageDecoded`: the wire frame's true byte length, when the core
-	/// reported the frame (inbound messages; an outbound send is traced
+	/// reported the frame (inbound messages, while an outbound send is traced
 	/// before its deferred encode).
 	pub len: Option<usize>,
 	/// The whole frame, base64, when it fits `PAYLOAD_CAP`.
@@ -136,7 +136,7 @@ pub enum TraceKind {
 	SessionMeta,
 }
 
-/// An application's claim about a session — see `annotate_session`. A
+/// An application's claim about a session: see `annotate_session`. A
 /// `None` label withdraws the claim a viewer was showing.
 #[derive(Debug, Clone)]
 pub struct SessionMeta {
@@ -163,7 +163,7 @@ fn emit_record(context: &crate::ContextInner, diagnostic_id: u64, sink: TraceCal
 	}
 }
 
-/// Annotate a session with application metadata — the SET half of the
+/// Annotate a session with application metadata: the SET half of the
 /// three-layer annotation channel (set where meaning lives, pass through
 /// dumb, use at the edge): the application that knows what a session MEANS
 /// (a chat server that knows which member it carries) states it here, and
@@ -193,6 +193,8 @@ pub fn annotate_session(session: &crate::Session, label: Option<&str>) {
 		return;
 	};
 	let mut id: u64 = 0;
+	// SAFETY: `session_raw` is non-null (checked above), the live `Session`'s handle from `trace_handles`; `id` is a
+	// local out-parameter the callee writes.
 	let code = unsafe { ffi::glowcap_host_session_trace_id(session_raw, &mut id) };
 	if code != 0 {
 		return;
@@ -256,6 +258,8 @@ impl Drop for TraceState {
 		// Hosts held by another TLS owner may outlive this registry. Disarm
 		// their native callbacks before the sink and registry context retire.
 		for host in &self.hosts {
+			// SAFETY: `host.raw` is a handle `attach_host` registered and `detach_host` removes on release, so it is
+			// live; a null callback clears the tap, and the null ctx is never read.
 			unsafe { ffi::glowcap_host_set_trace(host.raw, None, std::ptr::null_mut()) };
 		}
 	}
@@ -305,9 +309,15 @@ fn project_native_event(cookie: usize, ev: &ffi::GlowcapTraceEvent) -> crate::Re
 					.map(|h| h.designator.clone()),
 				a_label: state.self_label.clone(),
 				a_profile: Some(SELF_PROFILE),
-				b: Some(view(ev.designator, ev.designator_len, "designator")?.unwrap_or_else(|| String::from("peer"))),
-				transport: view(ev.transport, ev.transport_len, "transport")?,
-				session_id: view(ev.session_id, ev.session_id_len, "session id")?,
+				// SAFETY: `ev` is the `GlowcapTraceEvent` the core handed this trace callback, borrowed until it returns.
+				b: Some(
+					unsafe { view(ev.designator, ev.designator_len, "designator") }?
+						.unwrap_or_else(|| String::from("peer")),
+				),
+				// SAFETY: as `b` above.
+				transport: unsafe { view(ev.transport, ev.transport_len, "transport") }?,
+				// SAFETY: as `b` above.
+				session_id: unsafe { view(ev.session_id, ev.session_id_len, "session id") }?,
 				codec: Some(codec(ev.codec)?),
 				captp_version: Some(captp_version(ev.captp_version)?),
 				provenance: DurableProvenance::from_abi(ev.provenance)?,
@@ -342,6 +352,8 @@ fn project_native_event(cookie: usize, ev: &ffi::GlowcapTraceEvent) -> crate::Re
 							"glowcap ABI returned a null trace frame with nonzero length".into(),
 						));
 					}
+					// SAFETY: `ev.frame` is non-null (checked above) and the core wrote `ev.frame_len` bytes there,
+					// borrowed for this callback; `base64` copies them before it returns.
 					let frame = unsafe { std::slice::from_raw_parts(ev.frame, ev.frame_len) };
 					if total_len <= PAYLOAD_CAP && frame.len() >= total_len {
 						(Some(total_len), Some(base64(&frame[..total_len])), None)
@@ -381,7 +393,8 @@ fn project_native_event(cookie: usize, ev: &ffi::GlowcapTraceEvent) -> crate::Re
 							));
 						}
 					},
-					op: view(ev.verb, ev.verb_len, "verb")?,
+					// SAFETY: `ev` is the `GlowcapTraceEvent` the core handed this trace callback, borrowed until it returns.
+					op: unsafe { view(ev.verb, ev.verb_len, "verb") }?,
 					len,
 					bytes_b64,
 					summary,
@@ -450,6 +463,8 @@ unsafe extern "C" fn on_native_event(ctx: *mut c_void, event: *const ffi::Glowca
 				"glowcap ABI invoked trace callback with a null event".into(),
 			));
 		}
+		// SAFETY: `event` is non-null (checked above): the `GlowcapTraceEvent` the core passes to this callback,
+		// borrowed for the callback and not retained past it.
 		project_native_event(cookie, unsafe { &*event })
 	}));
 	match projected {
@@ -468,7 +483,7 @@ unsafe extern "C" fn on_native_event(ctx: *mut c_void, event: *const ffi::Glowca
 /// the native tap on every live Host on this thread (a Host minted later
 /// registers itself). Returns an uninstall that also clears the native tap.
 /// `self_label`, when given, is what the producing application would like its
-/// own endpoint CALLED — a display name beside the identity, never instead of
+/// own endpoint CALLED: a display name beside the identity, never instead of
 /// it: the `a` endpoint stays the host's own key designator, the name a
 /// partner knows it by and the only one two producers can agree on.
 pub fn enable_trace(sink: TraceSink, self_label: Option<&str>) -> impl FnOnce() + use<> {
@@ -482,6 +497,8 @@ pub fn enable_trace(sink: TraceSink, self_label: Option<&str>) -> impl FnOnce() 
 		state.hosts.iter().map(|h| (h.raw, h.cookie)).collect::<Vec<_>>()
 	});
 	for (raw, cookie) in hosts {
+		// SAFETY: `raw` is a handle `attach_host` registered, live until `detach_host`; `on_native_event` matches the
+		// callback signature, and `cookie` is an integer ctx the callback never dereferences.
 		unsafe { ffi::glowcap_host_set_trace(raw, Some(on_native_event), cookie as *mut c_void) };
 	}
 	move || {
@@ -502,6 +519,8 @@ pub fn enable_trace(sink: TraceSink, self_label: Option<&str>) -> impl FnOnce() 
 			return;
 		};
 		for raw in hosts {
+			// SAFETY: `raw` is a handle `attach_host` registered, live until `detach_host`; a null callback clears the
+			// tap, and the null ctx is never read.
 			unsafe { ffi::glowcap_host_set_trace(raw, None, std::ptr::null_mut()) };
 		}
 	}
@@ -542,6 +561,8 @@ pub(crate) fn attach_host(
 		state.sink.is_some().then_some(cookie)
 	});
 	if let Some(cookie) = install {
+		// SAFETY: `raw` is the live host handle this function was just given; `on_native_event` matches the callback
+		// signature, and `cookie` is an integer ctx the callback never dereferences.
 		unsafe { ffi::glowcap_host_set_trace(raw, Some(on_native_event), cookie as *mut c_void) };
 	}
 }
@@ -600,8 +621,11 @@ mod tests {
 			});
 			cookie
 		});
+		// SAFETY: `GlowcapTraceEvent` is a plain C struct of integers and null pointers; all-zero is a valid value.
 		let mut event: ffi::GlowcapTraceEvent = unsafe { core::mem::zeroed() };
 		event.kind = u32::MAX;
+		// SAFETY: `event` is a live local borrowed for the call, which the callback only reads; `cookie` is the integer
+		// ctx it expects, never dereferenced.
 		unsafe { on_native_event(cookie as *mut c_void, &event) };
 		let failure = context.next_failure().unwrap().expect("decoder failure is retained");
 		assert_eq!(failure.operation, "trace.decode");

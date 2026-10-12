@@ -3,10 +3,10 @@ archive, surfaced à la carte.
 
 This is a companion to the core :mod:`glowcap` module, mirroring the C ABI's
 symbol-disjoint archive split (ADR-0059). Importing it loads
-``libglowcap_net_transport_tcp`` on top of the core ``libglowcap_ocapn``; it
+``libglowcap_net_transport_tcp`` on top of the core ``libglowcap_ocapn``. It
 shares the core's frame, context, and value layout but adds the
-``glowcap_tcp_*`` family — a host-owned blocking frame shuttle over a real
-kernel socket — with its own thread-local last-error. A consumer that shuttles
+``glowcap_tcp_*`` family, a host-owned blocking frame shuttle over a real
+kernel socket, with its own thread-local last-error. A consumer that shuttles
 whole frames over TCP by hand composes it with the core:
 
     from glowcap.tcp import TcpNetlayer
@@ -17,7 +17,7 @@ whole frames over TCP by hand composes it with the core:
         conn.write_frame(frame)
 
 This module also owns the async TCP listener package. Dial composes
-:class:`glowcap.Runtime` with a typed locator; listening is
+:class:`glowcap.Runtime` with a typed locator. Listening is
 :func:`glowcap.tcp.listen`, :attr:`keyed.listen`, or :attr:`noise.listen`.
 """
 
@@ -327,7 +327,7 @@ class TcpListener(_NativeHandleOwner):
     def readiness_fd(self) -> int:
         """Return the borrowed listening descriptor for reactor integration.
 
-        The listener owns it; callers must not close it or retain it after
+        The listener owns it. Callers must not close it or retain it after
         :meth:`close`.
         """
         out = ctypes.c_int32()
@@ -364,7 +364,7 @@ class TcpListener(_NativeHandleOwner):
 
 
 class TcpNetlayer(_NativeHandleOwner):
-    """Owns the blocking-TCP I/O backend; outlives the connections made from it.
+    """Owns the blocking-TCP I/O backend. Outlives the connections made from it.
     Released on :meth:`release` / context exit."""
 
     def __init__(self, config: Config = Config()):

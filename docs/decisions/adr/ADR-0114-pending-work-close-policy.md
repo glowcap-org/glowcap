@@ -14,11 +14,11 @@ amended_by: []
 
 ## Context
 
-Closing an owning binding Host currently cancels its asynchronous dials, action
-drains, sessions, and vows. That gives resource cleanup a completion barrier,
-but it gives an application no way to stop admitting work and let operations it
-already started settle first. Server fronts also differ in whether close waits
-for sessions already returned to the application.
+Closing an owning binding Host cancels its asynchronous dials, action drains,
+sessions, and vows. That gives resource cleanup a completion barrier, but an
+application needs a way to stop admitting work and let operations it started
+settle first. Server fronts also need one rule for whether close waits for
+sessions already returned to the application.
 
 A CapTP session is not a finite request. It may host capabilities indefinitely,
 and a vow may never settle. CapTP also has no draining state: `op:abort` is
@@ -36,7 +36,7 @@ pending-work policy:
 - `finish` seals admission, continues driving work admitted before the barrier,
   and closes child sessions after that work settles and its output flushes. The
   caller supplies a finite grace budget or explicitly chooses an unbounded one.
-  Expiry escalates to `cancel`; close still reaches its release barrier, then
+  Expiry escalates to `cancel`. Close still reaches its release barrier, then
   reports the timeout.
 
 The state transition is monotonic. A repeated finish observes the existing
@@ -47,8 +47,8 @@ close operation.
 Pending work includes transport opens, Host action drains, locally initiated
 vows, and deferred hosted answers that were admitted before close. A close
 requested inside a running Vat turn takes effect when that turn returns, so the
-turn's own reply has already settled and is not pending work the cancel breaks. Live sessions
-and published capabilities are resources, not pending operations. During a
+turn's own reply has already settled and is not pending work the cancel breaks.
+Live sessions and published capabilities are resources, not pending operations. During a
 finish, existing sessions remain protocol-responsive so admitted operations can
 settle. A new application operation or a new deferred answer is refused and
 cannot extend the grace period.
@@ -61,10 +61,10 @@ The policy sits at the layer that owns the work:
 | `driver.HostRuntime` and `libglowcap_driver` | Supply monotonic time, drive existing wires, flush terminal output, and interrupt transports when the core requests cancellation. |
 | `libglowcap_host` | Exposes begin/escalate and readiness to an embedding that owns the clock and byte channels. Release remains memory ownership, not a policy choice. |
 | Zig and language-binding Host, Runtime, and owning Session fronts | Present one idiomatic close operation and wait for its barrier. Resource-management protocols use cancel. |
-| Server/listener fronts | Stop admission and retire unclaimed accepts. Sessions already returned to an application remain application-owned; a server close does not gain a misleading policy knob. |
+| Server/listener fronts | Stop admission and retire unclaimed accepts. Sessions already returned to an application remain application-owned. A server close has no policy knob. |
 | Transport connections, listeners, endpoints, and provider runtimes | Keep one interruptible close/shutdown lever and one release boundary. They do not decide whether CapTP work should finish. |
 
-The language syntax is idiomatic rather than mechanically identical. Zig and
+The language syntax is idiomatic. Zig and
 Rust use a tagged policy type. TypeScript uses an options object. Python uses a
 keyword argument and enum. Racket uses a keyword argument and symbols. Each
 surface uses the terms `pending`, `cancel`, and `finish` for the same decision.
@@ -73,7 +73,7 @@ surface uses the terms `pending`, `cancel`, and `finish` for the same decision.
 
 This policy does not create a wire-level draining state or a second CapTP
 shutdown verb. It does not claim that cancelling one local await cancels remote
-execution; an operation-specific cancellation API may only make that claim when
+execution. An operation-specific cancellation API may only make that claim when
 the protocol can carry it. It also does not transfer ownership of an accepted
 session back to the server that yielded it.
 
@@ -113,4 +113,4 @@ finish-to-cancel escalation, callback-time admission, and terminal output
 ordering. Binding dogfoods cover cancel and finish barriers, repeated close,
 and callback-time close without binding-owned policy. Server and listener tests
 pin the separate contract: stop admission while preserving yielded sessions.
-`zig build check` remains the repository gate.
+`zig build check` is the repository gate.

@@ -35,6 +35,7 @@ a whole roster of them under a human lead.
 <ul>
 <li>Join a public room by name, or open a private one from a link someone sent you.</li>
 <li>Message anyone directly. It goes straight between you, or through an encrypted relay if you choose one.</li>
+<li>Join rooms on other directories beside your own, and message anyone you meet there. The directories never link to each other.</li>
 <li>Send files, edit or take back what you said, set a topic, and hand out one-time invitations.</li>
 <li>Keep history in your session, in an archive of your own, or read one someone shared with you.</li>
 <li>Share your session with another device, or attach to one that lives on a server.</li>
@@ -46,7 +47,7 @@ a whole roster of them under a human lead.
 <li>Serve rooms over encrypted iroh, as a Tor onion service, or over plain TCP while you develop.</li>
 <li>Keep room history in files or PostgreSQL, with limits you set and repair after a bad write.</li>
 <li>Bring an IRC channel in as a room, or let IRC users into your rooms.</li>
-<li>Hand out admin links for listeners, diagnostics, peering, moderation, and the live wire view.</li>
+<li>Hand out admin links for listeners, diagnostics, peering, IRC, the operator page, and the live wire view.</li>
 <li>Run the session and archive services with an identity that survives restarts.</li>
 </ul>
 </section>
@@ -61,9 +62,7 @@ way: if you hold the reference, you can use it.
 
 The repository's
 [Rooms overview](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/README.md)
-is the way in for someone with a checkout, and its developing and operating
-guides carry every build command, flag, and limit. These pages stick to the
-paths most people take.
+and its guides carry every build command, flag, and limit.
 
 # Direct messages skip the room
 
@@ -80,7 +79,9 @@ network will not allow that, Settings offers a relay instead, encrypted the
 whole way, so the relay never sees a word.
 [Run Rooms]($link.page('rooms/start')) opens one, and
 [How Rooms works]($link.page('rooms/architecture')) follows the introduction
-step by step.
+step by step. It works the same way with people you meet in rooms on other
+servers, and [Rooms across directories]($link.page('rooms/directories'))
+shows how.
 
 # Your session, wherever you go
 
@@ -91,14 +92,16 @@ other device can open it with the link, seeing the same rooms and the same
 conversations as they happen. Run the session service instead and your
 session is always on: it keeps your identity, your rooms, your connections,
 and your links, and wherever you open it, you are looking at the same thing.
+That includes every directory it holds, so rooms you joined on other servers
+come along too.
 
 [The same session opened on a phone. The room, its members, and the direct conversation all came with it, and the divider marks where the shared history ends and live messages begin.]($image.siteAsset('rooms-session-attached-dark.webp'))
 
 [The same session opened on a phone. The room, its members, and the direct conversation all came with it, and the divider marks where the shared history ends and live messages begin.]($image.siteAsset('rooms-session-attached-light.webp'))
 
-Session access has separate permissions for observing, changing intent, and
-managing custody. A management control is held separately from the link used
-to open the workspace.
+A session link has separate permissions for watching, for acting, and for
+managing who else has access. The control that manages access is a separate
+link from the one you open the session with.
 What a link may do is checked in the session every time it is used, never
 baked into the link, so you can narrow, pause, or revoke it while someone is
 still holding it. [Run Rooms]($link.page('rooms/start')) shares a session
@@ -108,14 +111,13 @@ session service.
 # What happens when you click
 
 A click is a request, not proof that it worked. Rooms writes down what you
-asked for, does it, and then shows you what actually happened. If it was
-refused before anything changed, you can simply try again. If nobody can say
+asked for, does it, and then shows you what happened. If it was
+refused before anything changed, you can try again. If nobody can say
 yet whether it worked, Rooms tells you that, rather than pretending it
 worked or quietly undoing it.
 
-That one rule covers joining, sending, editing, reconnecting, changing your
-name, keeping history, and sharing a session. It is written once, and the
-browser and the server both use it.
+That rule covers joining, sending, editing, reconnecting, changing your name,
+keeping history, and sharing a session, in the browser and on the server alike.
 [How Rooms works]($link.page('rooms/architecture')) draws it out.
 
 # Under the hood

@@ -40,7 +40,7 @@ Deno.test("a Goblins vat publishing its own trace draws as a Goblins vat", () =>
 	// The `ocapn.*` kinds are a schema, not glowcap's mark: the Goblins
 	// conformance peer publishes the very same records. Its own end is drawn
 	// as what it says it is, and the stage has to be able to say `goblins`
-	// when a producer says `goblins` — the whole point of reading a statement
+	// when a producer says `goblins`. The whole point of reading a statement
 	// instead of guessing at one.
 	const convert = makeBaseEventConverter();
 	const out = convert(
@@ -56,8 +56,8 @@ Deno.test("a Goblins vat publishing its own trace draws as a Goblins vat", () =>
 
 Deno.test("a producer that states nothing draws its OWN end unknown", () => {
 	// The defect this whole property exists to refuse, at the site it lived:
-	// the viewer used to read "a record arrived" as "a glowcap host sent it",
-	// so every producer's own end was drawn glowcap whatever it ran. A
+	// reading "a record arrived" as "a glowcap host sent it" would draw every
+	// producer's own end as glowcap whatever it ran. A
 	// producer that says nothing has said nothing about itself, and unknown
 	// is the honest answer for a glowcap producer and any other alike.
 	const convert = makeBaseEventConverter();
@@ -81,7 +81,7 @@ Deno.test("a producer that states nothing draws its OWN end unknown", () => {
 });
 
 Deno.test("an implementation this build has never heard of is drawn as itself", () => {
-	// `PeerProfile` is any non-empty string on purpose, because OCapN is
+	// `PeerProfile` is any non-empty string, because OCapN is
 	// implementation-plural and the set of implementations is not this
 	// viewer's to close. A third implementation naming itself is drawn under
 	// the name it gave, not folded into unknown.
@@ -179,7 +179,7 @@ Deno.test("a peer learns what it runs when it first speaks for itself", () => {
 	// The rooms case: one host reports a member before that member has
 	// published anything, so the member is drawn as somebody else's partner and
 	// nothing yet says what it runs. When the member's own trace arrives it has
-	// stated its implementation, and that lands as a moment on its trajectory —
+	// stated its implementation, and that lands as a moment on its trajectory,
 	// the join keeps saying what was known then.
 	const convert = makeBaseEventConverter();
 	const first = convert(
@@ -216,7 +216,7 @@ Deno.test("a peer learns what it runs when it first speaks for itself", () => {
 
 Deno.test("a named partner that then reports the same wire is known from there", () => {
 	// A room server whose transport authenticated the member's durable name
-	// draws that member straight away — named, but with nothing yet saying what
+	// draws that member straight away, named, but with nothing yet saying what
 	// it runs. When the member publishes its own side of that same session it
 	// states its implementation, and the second report of one wire is the only
 	// thing that carries the statement. There is no new peer and no new edge
@@ -255,7 +255,7 @@ Deno.test("an end a second producer speaks for is drawn as what that producer sa
 	// Neither can name the other: a tab dials as an ephemeral client and has no
 	// listening address to prove, so the first report leaves its far end loose.
 	// The second producer says it is that end AND says what it runs, so the end
-	// attaches to a peer that is known from the moment it is drawn — known
+	// attaches to a peer that is known from the moment it is drawn, known
 	// because of the second half of that sentence, never the first.
 	const convert = makeBaseEventConverter();
 	const first = convert(
@@ -271,8 +271,8 @@ Deno.test("an end a second producer speaks for is drawn as what that producer sa
 		}),
 	);
 	// Speaking for the loose end draws the peer, and it is drawn as what its
-	// own producer said — a Goblins vat here, which the old rule could not
-	// have reported however loudly the vat said it.
+	// own producer said. A Goblins vat here reports as Goblins however a
+	// glowcap-only rule would label it.
 	assertEquals(joinedProfiles(second), { "tab-b": GOBLINS_PROFILE });
 	// Both ends now sit on peers, and neither had to learn anything after.
 	assertEquals(profileUpdates(second), []);
@@ -280,7 +280,7 @@ Deno.test("an end a second producer speaks for is drawn as what that producer sa
 
 Deno.test("speaking for a loose end says who is there, never what is there", () => {
 	// The same shape with the second producer silent. It still attaches to the
-	// end nobody could name — that is a fact about identity — and the peer it
+	// end nobody could name. That is a fact about identity, and the peer it
 	// draws stays unknown, because attaching an end is not a statement about
 	// what runs on it.
 	const convert = makeBaseEventConverter();
@@ -345,7 +345,7 @@ Deno.test("an end says what actually backed it, and nothing when nothing did", (
 		"authenticated-transport",
 	);
 	// A producer that named its partner and said nothing about proof measured
-	// nothing. The end still attaches — somebody named it — but the viewer has
+	// nothing. The end still attaches, somebody named it, but the viewer has
 	// no attribution to offer, and inventing one would be the stage reporting a
 	// measurement that never happened.
 	const silent = open("p0/s2", "bob-key", undefined);

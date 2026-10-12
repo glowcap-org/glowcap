@@ -3,7 +3,7 @@
 //! When a gifter introduces a recipient to an exporter, these are the signed
 //! gift and the recipient's redemption of it (ADR-0009). They are pure value
 //! shapes, byte slices and counts, no codec, no signature verification, no
-//! allocation. The session is what mints, signs, and checks them; `codec` is
+//! allocation. The session is what mints, signs, and checks them. `codec` is
 //! what frames them as `<desc:sig-envelope …>` records.
 
 const peer_locator = @import("peer_locator.zig");
@@ -20,7 +20,7 @@ pub const GIFT_ID_BYTES: usize = 32;
 /// exporter session so it cannot be replayed elsewhere.
 pub const HandoffGive = struct {
     recipient_key: []const u8,
-    /// Structural peer locator (transport, designator, hints) — the same shape
+    /// Structural peer locator (transport, designator, hints), the same shape
     /// Cap'n Proto and Syrup carry for sturdyrefs / start-session, so `#f` and
     /// dial hints survive without a flattened `transport:designator` sidecar.
     exporter: peer_locator.PeerLocator,

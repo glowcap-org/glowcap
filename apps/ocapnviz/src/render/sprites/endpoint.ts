@@ -1,8 +1,8 @@
 /**
- * Unattributed session-end sprites — create, update, and the radius
+ * Unattributed session-end sprites, create, update, and the radius
  * a hit test must use so it measures the body this module painted.
  *
- * `renderFrame` owns which ends are live; this module owns the Pixi
+ * `renderFrame` owns which ends are live. This module owns the Pixi
  * objects and the claim-vs-loose weight.
  */
 
@@ -22,11 +22,11 @@ import { type HaloTier, type PeerActivity, selectModeFromModifiers, type StageHo
 import { marked } from "./mark.ts";
 import type { EndpointSprite, StartNodeDrag } from "./types.ts";
 
-/** Half the width of the body this end is actually painted at, in world
+/** Half the width of the body this end is painted at, in world
  *  units. A claim is drawn at half a node's width, so a hit test that assumed
  *  every end was peer-sized would catch claims the user never touched.
  *
- *  `claimsToward` is the frame's `claimTargets` — the one resolution, so the
+ *  `claimsToward` is the frame's `claimTargets`. The one resolution, so the
  *  body a hit test measures is the body the frame drew. */
 export function endpointBodyRadius(
 	endpointId: string,
@@ -43,7 +43,7 @@ const CLAIM_Z = 1_000_000;
  *
  * The reading is "a place a peer will attach": the same rounded square a peer
  * occupies, drawn as a dashed outline over a faint fill. The fill is there
- * because something IS on the other end of the wire; it is transparent
+ * because something IS on the other end of the wire. It is transparent
  * because nothing proved what. The dash repeats that at a glance, so the
  * difference survives a zoom that makes the fill hard to judge.
  *
@@ -51,7 +51,7 @@ const CLAIM_Z = 1_000_000;
  * implementation is known here either, and inventing a color would be the
  * picture claiming more than the model holds.
  *
- * `claiming` says this end's claim names a peer the stage draws — the same
+ * `claiming` says this end's claim names a peer the stage draws, the same
  * question the layout asked when it sat the end partway along its session's
  * edge toward that peer (`CLAIM_LEAN`). It decides two things here: which of
  * the two weights the body takes, and that the end draws above every peer.
@@ -157,7 +157,7 @@ export function syncEndpointSprite(
 	// node wide is one a full-sized neighbor can swallow whole. On top it also
 	// stays the thing the pointer finds, which is the same answer the eye
 	// gives. Peers take zIndex 0 and up from their row order, so `CLAIM_Z` is
-	// simply past the end of that range. An end that is nobody's claim takes 0,
+	// just past the end of that range. An end that is nobody's claim takes 0,
 	// the bottom of that range: it is a full-size body with no row order of its
 	// own to derive a z from, and the solver keeps it a node's width clear of
 	// everything, so it has no overlap to win anyway.

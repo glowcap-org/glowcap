@@ -22,7 +22,7 @@ const ListenerObservation = pending_state.ListenerObservation;
 const PendingListener = pending_state.Listener;
 
 /// Begin one listener construction through the generic runtime seam.
-/// Bounded providers may call `ready` before this returns; providers that
+/// Bounded providers may call `ready` before this returns. Providers that
 /// wait on external progress retain one pending attempt driven by
 /// `stepAny`. Once observation is reserved, every provider outcome is
 /// reported exactly once through `ready` or `failed`.
@@ -166,7 +166,7 @@ fn listenerSetupDeadline(self: *const HostRuntime) ?i64 {
 }
 
 /// Cancel one admitted listener setup. Active listeners are owned by the
-/// caller and close through `closeListener`; this method names only the
+/// caller and close through `closeListener`. This method names only the
 /// pending construction state.
 pub fn cancelListener(self: *HostRuntime, tag: u64) ListenerStopOutcome {
     for (self.pending_listeners.items, 0..) |row, i| {

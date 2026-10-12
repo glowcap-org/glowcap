@@ -37,6 +37,8 @@ fn empty_inbound() -> Inbound {
 }
 
 fn assert_no_signal_text(ptr: *const u8, len: usize) {
+	// SAFETY: `signal_text` refuses a null pointer or an oversized length before it borrows anything; for any other
+	// pair this helper's callers pass the pointer and length of a local array or `Vec` that is live for the call.
 	assert!(unsafe { signal_text(ptr, len) }.is_none());
 }
 
@@ -322,6 +324,8 @@ fn next_local_candidate_retries_without_releasing_the_front() {
 	assert_eq!(queue.queued_bytes, 6);
 
 	let mut out = [0u8; 6];
+	// SAFETY: as the `small` call above, `out` is this frame's own `[u8; 6]` array with `out.len()` its length, and
+	// `required` is its own `usize`; all stay live while `roomy` is used.
 	let roomy = unsafe { OutText::new(out.as_mut_ptr(), out.len(), &mut required) };
 	assert_eq!(write_local_candidate(&mut queue, &roomy), OK);
 	assert_eq!(&out, b"abcdef");
@@ -483,6 +487,8 @@ fn open_check_distinguishes_clean_close_from_failed_setup() {
 #[test]
 fn sidecar_signal_text_bounds_before_borrowing() {
 	let valid = b"v=0";
+	// SAFETY: `valid` is a local byte-string literal, so `valid.as_ptr()` and `valid.len()` address live readable bytes
+	// for the call.
 	assert_eq!(unsafe { signal_text(valid.as_ptr(), valid.len()) }, Some("v=0"));
 	assert_no_signal_text(std::ptr::null(), valid.len());
 
@@ -497,15 +503,22 @@ fn sidecar_signal_text_bounds_before_borrowing() {
 fn sidecar_candidate_text_bounds_before_borrowing() {
 	let valid = b"{\"candidate\":\"candidate\"}";
 	assert_eq!(
+		// SAFETY: `valid` is a local byte-string literal, so `valid.as_ptr()` and `valid.len()` address live readable
+		// bytes for the call.
 		unsafe { candidate_text(valid.as_ptr(), valid.len()) },
 		Some("{\"candidate\":\"candidate\"}")
 	);
+	// SAFETY: the pointer is null with a nonzero length, which `candidate_text` refuses before it forms a slice.
 	assert!(unsafe { candidate_text(std::ptr::null(), valid.len()) }.is_none());
 
 	let invalid_utf8 = [0xff];
+	// SAFETY: `invalid_utf8` is a local array, so its pointer and length address live readable bytes for the call;
+	// `candidate_text` rejects them as invalid UTF-8.
 	assert!(unsafe { candidate_text(invalid_utf8.as_ptr(), invalid_utf8.len()) }.is_none());
 
 	let oversized = vec![b'x'; MAX_ICE_CANDIDATE_BYTES + 1];
+	// SAFETY: `oversized` is a local `Vec` of `MAX_ICE_CANDIDATE_BYTES + 1` bytes, live for the call; `candidate_text`
+	// refuses the length as over its bound before it forms a slice.
 	assert!(unsafe { candidate_text(oversized.as_ptr(), oversized.len()) }.is_none());
 }
 
@@ -525,8 +538,13 @@ fn peer_release_joins_its_close_at_endpoint_release() {
 	};
 	let endpoint = test_endpoint_new(&config);
 	assert!(!endpoint.is_null());
+	// SAFETY: `endpoint` is the non-null live handle `test_endpoint_new` returned (asserted above); this test frees it
+	// only after releasing the peer it creates here, whose ownership passes to this test.
 	let peer = unsafe { glowcap_webrtc_sidecar_peer_new(endpoint, 1) };
 	assert!(!peer.is_null());
+	// SAFETY: `peer` is the non-null owned handle `peer_new` returned (asserted above), closed (idempotently) and then
+	// freed exactly once here; `endpoint` is the live handle from `test_endpoint_new`, freed after its only peer and
+	// not used again.
 	unsafe {
 		glowcap_webrtc_sidecar_conn_close(peer);
 		glowcap_webrtc_sidecar_peer_free(peer);

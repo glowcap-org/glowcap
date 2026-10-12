@@ -3,9 +3,9 @@
  * to declare entity-definition `timing` fields, by the doc
  * migrator, and by any wire-format validation.
  *
- * Pure schemas — runtime types come from inferring these via
+ * Pure schemas, runtime types come from inferring these via
  * `z.infer`. The hand-written types in `bound.ts` and
- * `time-span.ts` are kept in sync intentionally; if they diverge,
+ * `time-span.ts` are kept in sync, if they diverge,
  * the test in this directory catches it (compile-time, via the
  * `satisfies` assertion below).
  */
@@ -22,13 +22,13 @@ export const BoundSchema = z.object({
 export const TimeSpanSchema = z.object({
 	start: BoundSchema,
 	duration: BoundSchema,
-	/** Provenance marker — see `TimeSpan.derived` in `time-span.ts`.
+	/** Provenance marker, see `TimeSpan.derived` in `time-span.ts`.
 	 *  Serialized so a saved live recording re-derives cleanly when
 	 *  loaded (projection keeps owning what it derived). */
 	derived: z.literal(true).optional(),
 });
 
-// Compile-time agreement check — schema infer === hand-written.
+// Compile-time agreement check, schema infer === hand-written.
 // If either side drifts, this won't compile.
 type _BoundEq = z.infer<typeof BoundSchema> extends Bound ? true : never;
 type _SpanEq = z.infer<typeof TimeSpanSchema> extends TimeSpan ? true : never;

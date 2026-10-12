@@ -1,4 +1,4 @@
-// Protocol limits are generated from Rust; these local choices govern display.
+// Protocol limits are generated from Rust. These local choices govern display.
 import { applicationModule } from "./application.ts";
 export * from "./application_data.ts";
 

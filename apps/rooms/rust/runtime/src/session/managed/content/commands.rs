@@ -37,6 +37,10 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 		// after comparing its original selection with the current workspace.
 		return Ok("conflict".into());
 	}
+	owner
+		.admission
+		.borrow_mut()
+		.command(call, &request, owner.platform.monotonic_millis())?;
 	if local::recognizes(request.route()) {
 		let retention = matches!(
 			request.route(),
@@ -71,7 +75,8 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 				&Field::Held(source),
 				&intent,
 				Outcome::Committed {
-					result: Text::new("null".into()).expect("local acknowledgment"),
+					result: Text::new("null".into())
+						.ok_or_else(|| refuse("local acknowledgment text is not admitted"))?,
 					retained: List::default(),
 				},
 			)
@@ -107,8 +112,13 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 		.collect::<Result<Vec<_>>>()?;
 	let mut runtime_targets = targets.clone();
 	if dependent_argument {
-		let coordinate = coordinates.get(1).expect("declared callback");
-		let target = record.custody.get(*coordinate).expect("resolved callback");
+		let coordinate = coordinates
+			.get(1)
+			.ok_or_else(|| refuse("callback target is not declared"))?;
+		let target = record
+			.custody
+			.get(*coordinate)
+			.ok_or_else(|| refuse("callback custody is absent"))?;
 		let Field::Retained(location) = records::reference(&target) else {
 			return Err(refuse("callback must be selected from retained custody"));
 		};
@@ -126,7 +136,10 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 	let mut args = Vec::with_capacity(mutation.args.len() + usize::from(coordinates.len() > 1));
 	args.extend(mutation.args.into_iter().map(rooms_glowcap::effect_argument));
 	if revocation {
-		let field = record.custody.get(coordinates[1]).expect("selected revocation custody");
+		let field = record
+			.custody
+			.get(coordinates[1])
+			.ok_or_else(|| refuse("selected revocation custody is absent"))?;
 		let Field::Retained(location) = records::reference(&field) else {
 			return Err(refuse("selected revocation custody is not stored"));
 		};
@@ -161,6 +174,7 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 			input,
 			source.clone(),
 			super::super::outgoing::Post {
+				operation: request.id(),
 				conversation,
 				text,
 				previews,
@@ -219,23 +233,26 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 	let mut admitted = receipt(input, operation, intent, source.clone(), retained)?;
 	if request.name() == "startDirect" {
 		let mut args = request.args();
-		let id = args.next().expect("admitted directory");
-		let registration = args.nth(1).expect("admitted peer registration");
-		let opening = args.next().expect("admitted opening");
+		let id = args.next().ok_or_else(|| refuse("directory argument is absent"))?;
+		let registration = args
+			.nth(1)
+			.ok_or_else(|| refuse("peer registration argument is absent"))?;
+		let opening = args.next().ok_or_else(|| refuse("opening argument is absent"))?;
 		let directory = record
 			.intent
 			.directories
 			.as_slice()
 			.iter()
 			.find(|row| row.id.text().as_str() == Some(id))
-			.expect("admitted directory");
+			.ok_or_else(|| refuse("selected directory is absent"))?;
 		if let (Some(name), Some(callback)) = (directory.name, directory.inbox) {
 			admitted.introduction = Some(rooms_application::content::session::workspace::Introduction {
 				access: directory.access,
 				name,
 				callback,
-				registration: Text::new(registration.into()).expect("admitted registration"),
-				opening: Text::new(opening.into()).expect("admitted opening"),
+				registration: Text::new(registration.into())
+					.ok_or_else(|| refuse("peer registration is not admitted"))?,
+				opening: Text::new(opening.into()).ok_or_else(|| refuse("opening is not admitted"))?,
 			});
 		}
 	}
@@ -276,7 +293,7 @@ pub(in crate::session::managed) fn receipt(
 		canonical_intent,
 		resource_generation: generation,
 		source: Held {
-			key: FieldKey::new(NonZeroU64::new(1).expect("nonzero source slot"), generation),
+			key: FieldKey::new(NonZeroU64::MIN, generation),
 			reference: Field::Held(source),
 		},
 		targets: List::new(targets).ok_or_else(|| refuse("too many declared effect targets"))?,
@@ -289,10 +306,11 @@ pub(in crate::session::managed) fn reserve<P: Tasks + Deadline + Clone + 'static
 	receipt: custody::EffectReceipt<References>,
 ) -> Result<()> {
 	effects::reserve(&mut record.effects, receipt, |operation| {
-		owner
-			.jobs
-			.borrow()
-			.contains_key(operation.text().as_str().expect("operation text"))
+		// Jobs are keyed by text, so an operation without scalar text has none.
+		operation
+			.text()
+			.as_str()
+			.is_some_and(|id| owner.jobs.borrow().contains_key(id))
 	})
 	.map_err(|_| refuse("effect receipts are full"))
 }

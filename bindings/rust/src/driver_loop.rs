@@ -7,7 +7,7 @@
 //! step-shaped floor (create
 //! the loop, register separately linked transports, dial and listen, step,
 //! drain events in owned
-//! form); [`LoopShared`] is the Tokio state aggregate, while `progress.rs`
+//! form). [`LoopShared`] is the Tokio state aggregate, while `progress.rs`
 //! dispatches events, `sessions.rs` transfers session handles, and
 //! `provider.rs` owns transport installation. The loop parks the `LocalSet`
 //! on the loop's one readiness descriptor with an `AsyncFd`, steps with a
@@ -17,10 +17,10 @@
 //! begin a dial on a loop-owned Host. The byte-fed pump (`crate::pump`) serves explicit
 //! externally supplied channels and Hosts that already own such channels.
 //!
-//! One thread drives one loop from `open` to drop; `wake` is the family's
+//! One thread drives one loop from `open` to drop. `wake` is the family's
 //! one cross-thread call, and `detach_thread` the sequential handover.
 //! Completions arrive as [`LoopEvent::Completion`] carrying the generated
-//! [`HostAction`] decode — the byte-fed drain's own SETTLE/FAIL shapes — so
+//! [`HostAction`] decode, the byte-fed drain's own SETTLE/FAIL shapes, so
 //! loop events route vow outcomes with the same vocabulary the pump uses.
 
 use core::future::Future;
@@ -42,8 +42,10 @@ use crate::session_shared::{SessionShared, io_err};
 use crate::sys::{self, host as ffi_host};
 use crate::trampoline::DeliverGuard;
 use crate::{ContextInner, Error, Locator, PendingWork, Result};
+use native::ReleaseOutcome;
 
 mod close;
+pub(crate) mod handle;
 mod native;
 mod progress;
 mod provider;
@@ -65,9 +67,9 @@ enum UnclaimedSession {
 /// The tokio face of one native loop (ADR-0112): the shared owner the public
 /// `connect`/`listen` route drives. It parks the running `LocalSet` on the
 /// loop's readiness descriptor, steps with a zero timeout when it signals or
-/// when a Host verb kicks, and routes drained events — dial outcomes into
+/// when a Host verb kicks, and routes drained events: dial outcomes into
 /// futures, accepted sessions into a queue, completions into the adopted
-/// wrapper Host's vow table. One `LocalSet` thread drives one loop; every
+/// wrapper Host's vow table. One `LocalSet` thread drives one loop. Every
 /// handle here is `!Send` by construction.
 pub(crate) struct LoopShared {
 	driver: DriverLoop,
@@ -88,8 +90,9 @@ pub(crate) struct LoopShared {
 	stepping: Cell<bool>,
 	/// Coalescing latch: one deferred step task is in flight, so every kick
 	/// that lands before it runs joins it instead of spawning its own. One
-	/// awaited send kicks several times (serve, attend, the vow guard) and
-	/// each used to be a task and a full step that found nothing to do.
+	/// awaited send kicks several times (serve, attend, the vow guard), and
+	/// without the latch each kick would be a task and a full step that finds
+	/// nothing to do.
 	step_scheduled: Cell<bool>,
 	parked: Cell<bool>,
 	park: RefCell<Option<tokio::task::AbortHandle>>,
@@ -97,8 +100,8 @@ pub(crate) struct LoopShared {
 	pending_listeners: RefCell<HashMap<u64, oneshot::Sender<Result<()>>>>,
 	accepts: RefCell<VecDeque<(u64, *mut ffi_host::GlowcapHostSession)>>,
 	/// Event-delivered handles not yet wrapped by the binding. A terminal event
-	/// that follows OPENED/ACCEPTED in the same drain retains its exact failure;
-	/// the handle stays valid until adoption or explicit release.
+	/// that follows OPENED/ACCEPTED in the same drain retains its exact failure.
+	/// The handle stays valid until adoption or explicit release.
 	unclaimed_sessions: RefCell<HashMap<usize, UnclaimedSession>>,
 	listeners: RefCell<HashSet<u64>>,
 	closing_listeners: RefCell<HashSet<u64>>,
@@ -145,9 +148,10 @@ impl LoopShared {
 				"driver release retry requires a later safe boundary".to_string(),
 			));
 		}
-		let (raw, context) = self.driver.transfer_refused();
+		if let Some((handle, context)) = self.driver.transfer_refused() {
+			crate::finalizer::park_failed_driver(handle, context, Rc::clone(&host), failure.clone());
+		}
 		self.released.set(true);
-		crate::finalizer::park_failed_driver(raw, context, Rc::clone(&host), failure.clone());
 		host.fail_close(failure);
 		// A spawned task cannot run inside the callback that queued it. If no
 		// LocalSet exists, the process queue remains the durable owner until
@@ -198,7 +202,7 @@ impl LoopShared {
 	}
 
 	/// Promote an existing wrapper Host to the native driver before its first
-	/// network operation. The loop points back weakly; the Host owns the loop,
+	/// network operation. The loop points back weakly. The Host owns the loop,
 	/// so dropping or closing the Host remains the terminal lifetime boundary.
 	pub(crate) fn take_host(host: &Rc<HostShared>, handshake_ms: u32, settle_ms: u32) -> Result<Rc<LoopShared>> {
 		let driver = DriverLoop::take_host(
@@ -271,24 +275,18 @@ impl LoopShared {
 		}
 		if let Some(host) = self.wrapper.borrow().as_ref().and_then(Weak::upgrade) {
 			host.fail_pending_vows(code, &detail);
-			let release = self.driver.release();
-			match release.result {
-				Ok(()) if release.consumed => {
+			match self.driver.release() {
+				ReleaseOutcome::Consumed(Ok(())) => {
 					self.released.set(true);
 					host.finish_failed_loop_teardown(error);
 				}
-				Err(release_error) if release.consumed => {
+				ReleaseOutcome::Consumed(Err(release_error)) => {
 					self.released.set(true);
 					host.finish_failed_loop_teardown(error.with_secondary(release_error));
 				}
-				Err(release_error) => self.defer_failed_release(host, error.with_secondary(release_error)),
-				Ok(()) => self.defer_failed_release(
-					host,
-					error.with_secondary(Error::with_detail(
-						sys::ERR_INTERNAL,
-						"driver release refused without a failure".to_string(),
-					)),
-				),
+				ReleaseOutcome::Refused(release_error) => {
+					self.defer_failed_release(host, error.with_secondary(release_error))
+				}
 			}
 		} else {
 			let terminal = match self.driver.release_or_defer() {
@@ -321,7 +319,7 @@ impl LoopShared {
 	/// The public wrapper Host adopted over this loop's native host: every
 	/// application verb, publish trampoline, and vow settle works on it, while
 	/// the loop stays the one action drain and the one release authority.
-	/// Built on first call; call it on the driving thread.
+	/// Built on first call. Call it on the driving thread.
 	pub(crate) fn wrapper_host(self: &Rc<Self>) -> Result<Rc<HostShared>> {
 		self.guard_handle()?;
 		if let Some(host) = self.wrapper.borrow().as_ref().and_then(Weak::upgrade) {
@@ -333,7 +331,7 @@ impl LoopShared {
 	}
 
 	/// Arm the readiness descriptor and the native driver's progress clock on
-	/// the running `LocalSet`. Descriptor readiness advances I/O; the clock
+	/// the running `LocalSet`. Descriptor readiness advances I/O. The clock
 	/// advances silent handshake, listener, and close deadlines. The descriptor
 	/// is duplicated so the park task's registration can never race the loop's
 	/// release into a reused fd.
@@ -344,6 +342,9 @@ impl LoopShared {
 		}
 		let started = (|| {
 			let fd = self.driver.readiness_fd()?;
+			// SAFETY: `fd` is the readiness descriptor the native loop owns and keeps open until the loop is released,
+			// and `guard_handle` above proved the loop unreleased; no await separates this borrow from
+			// `try_clone_to_owned`, which duplicates it into an `OwnedFd` before the borrow ends.
 			let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(fd) }
 				.try_clone_to_owned()
 				.map_err(io_err)?;
@@ -423,7 +424,7 @@ impl LoopShared {
 		Ok(())
 	}
 
-	/// Schedule one loop step soon — how a wrapper verb's kick reaches the
+	/// Schedule one loop step soon: how a wrapper verb's kick reaches the
 	/// drain. Deferred through a task, so a kick from inside a behavior turn
 	/// steps only after the enclosing step (or feed) unwinds.
 	pub(crate) fn schedule_step(self: &Rc<Self>) {
@@ -469,7 +470,7 @@ impl LoopShared {
 
 	/// Announce the embedder is serving `session`: post-open setup is done, so
 	/// the loop may deliver its inbound (early bytes replay in order).
-	/// Idempotent; the byte-fed serve-resume contract at the loop tier.
+	/// Idempotent. The byte-fed serve-resume contract at the loop tier.
 	pub(crate) fn serve_session(self: &Rc<Self>, session: *mut ffi_host::GlowcapHostSession) -> Result<()> {
 		if self.released.get() || session.is_null() {
 			return Ok(());

@@ -1,7 +1,7 @@
 /**
- * Timeline view state — the visible window into `[0, doc.duration]`,
+ * Timeline view state. The visible window into `[0, doc.duration]`,
  * plus follow-live behavior and per-lane expansion. All operations
- * are pure functions over the view; the React layer (`useTimelineView`)
+ * are pure functions over the view. The React layer (`useTimelineView`)
  * wraps them in a reducer so component re-renders stay disciplined.
  */
 
@@ -15,17 +15,17 @@ export type TimelineView = {
 	/** Right edge of the visible window, in simulated ms. */
 	windowEnd: number;
 	/** Lanes currently visible at all. `"ruler"` is implicit and
-	 * always shown; the others are opt-in. */
+	 * always shown. The others are opt-in. */
 	expandedLanes: ReadonlySet<LaneKind>;
 	/** Categories (subset of expandedLanes) drawn as a per-entity
 	 * row stack instead of today's flat stacked-spans summary. UI-
-	 * state only — not persisted onto `TimelineDocument`. A category
+	 * state only, not persisted onto `TimelineDocument`. A category
 	 * can be visible (in `expandedLanes`) AND collapsed (NOT in
-	 * `expandedCategories`) — that's today's default look. */
+	 * `expandedCategories`), that's today's default look. */
 	expandedCategories: ReadonlySet<Exclude<LaneKind, "ruler">>;
 	/** Optional per-view gutter width override. When set, replaces
 	 * the default `LANE_LABEL_WIDTH` for px↔t math AND row-label
-	 * layout. Drag-resize updates this; reload restores it via the
+	 * layout. Drag-resize updates this. Reload restores it via the
 	 * usual view persistence. Falls back to `LANE_LABEL_WIDTH` when
 	 * absent so older persisted views keep working. */
 	gutterWidth?: number;
@@ -35,33 +35,33 @@ export type TimelineView = {
  * ruler ticks degenerate. */
 export const MIN_WINDOW_MS = 5;
 
-/** Default gutter width — runtime uses `view.gutterWidth ?? LANE_LABEL_WIDTH`.
+/** Default gutter width, runtime uses `view.gutterWidth ?? LANE_LABEL_WIDTH`.
  *  104 fits chevron + eyeball + the longest built-in category label
- *  ("messages") without truncation; matches `GUTTER_MIN_PX` so the
+ *  ("messages") without truncation. Matches `GUTTER_MIN_PX` so the
  *  resize floor is also the default. Below the gutter, px↔t conversions
  *  treat the band as a dead zone (returns `null`). */
 export const LANE_LABEL_WIDTH = 104;
 
 /** Resize bounds. Min must clear chevron + category-eyeball + a short
  *  label ("peers" / "sessions" / "messages") AND the per-entity rows'
- *  own eyeball+label; max guards against eating the whole plot. */
+ *  own eyeball+label. Max guards against eating the whole plot. */
 export const GUTTER_MIN_PX = 104;
 export const GUTTER_MAX_PX = 320;
 
 /** Breathing-room band on each side of the plot's t-content. Left
  *  pad sits between the gutter divider and the leftmost paintable
- *  pixel of content (playhead, ticks, spans, glyphs); right pad
+ *  pixel of content (playhead, ticks, spans, glyphs). Right pad
  *  reserves the matching gap before the canvas's right edge. Both
  *  thread through `plotWidthOf` / `tToCanvasPx` / `canvasPxToT` so
  *  every px↔t conversion, paint pass, and hit-test clamps to the
  *  inset band without having to special-case the edges themselves.
  *  Row backgrounds (zebra, header tint, drag overlays) paint
- *  THROUGH both pads — the bands are content-clamp, not visual-
+ *  THROUGH both pads. The bands are content-clamp, not visual-
  *  hide. */
 export const PLOT_LEFT_PAD_PX = 4;
 export const PLOT_RIGHT_PAD_PX = 4;
 
-/** Per-view effective gutter width — the override on the view or
+/** Per-view effective gutter width. The override on the view or
  *  the package default. Use this everywhere instead of the bare
  *  constant so a wider gutter sticks to its column. */
 export function gutterWidthOf(v: TimelineView): number {
@@ -70,12 +70,12 @@ export function gutterWidthOf(v: TimelineView): number {
 	return Math.max(GUTTER_MIN_PX, Math.min(GUTTER_MAX_PX, w));
 }
 
-/** Canvas-relative pixel of the plot's leftmost CONTENT column —
+/** Canvas-relative pixel of the plot's leftmost CONTENT column,
  *  the gutter width plus the left breathing pad. Anything painting
  *  t-content (playhead, ticks, spans, glyphs, visible-window rect
  *  in Overview) anchors here so a t at `windowStart` lands inside
  *  the pad, mirroring the right edge. The gutter SEPARATOR itself
- *  still sits at `gutterWidthOf(v) + 0.5` — that line marks the
+ *  still sits at `gutterWidthOf(v) + 0.5`, that line marks the
  *  gutter↔plot boundary, not where content starts. */
 export function plotStartXOf(v: TimelineView): number {
 	return gutterWidthOf(v) + PLOT_LEFT_PAD_PX;
@@ -96,7 +96,7 @@ export function plotWidthOf(width: number, v: TimelineView): number {
 /** Convert a canvas-relative pixel offset (where 0 = canvas's
  *  left edge, including the gutter) into a sim-time `t`. Returns
  *  `null` for clicks inside the gutter, the left-edge pad, or the
- *  right-edge pad — all three are dead zones, callers no-op
+ *  right-edge pad. All three are dead zones, callers no-op
  *  cleanly. */
 export function canvasPxToT(
 	canvasPx: number,
@@ -135,8 +135,8 @@ const WHEEL_ZOOM_RATE = 0.0015;
  *   - `Shift + deltaY`       → horizontal pan (mouse-wheel users).
  *   - otherwise              → zoom around `cursorPx`.
  *
- * Shift is pan here, not a zoom multiplier — the stage's wheel
- * uses Shift for fast zoom; the timeline already spent Shift on
+ * Shift is pan here, not a zoom multiplier. The stage's wheel
+ * uses Shift for fast zoom. The timeline already spent Shift on
  * selection, so the wheel matches Alt+drag's "pan the window"
  * rather than inventing a third Shift meaning.
  *
@@ -187,7 +187,7 @@ export function defaultView(duration: number): TimelineView {
 		windowStart: 0,
 		windowEnd: Math.max(MIN_WINDOW_MS, duration),
 		expandedLanes: DEFAULT_EXPANDED,
-		// All categories ship collapsed — today's stacked-spans look
+		// All categories ship collapsed, today's stacked-spans look
 		// is still the default. User opts in to per-entity view by
 		// clicking the category chevron.
 		expandedCategories: new Set(),
@@ -198,24 +198,24 @@ export function defaultView(duration: number): TimelineView {
  * preserving the requested width as much as possible:
  *
  *   - **Width** ≤ `maxWidth`. The zoom-out floor.
- *   - **`windowStart`** ≥ 0. Time can't go negative — there's
+ *   - **`windowStart`** ≥ 0. Time can't go negative, there's
  *     no "before-zero". Pan-left bottoms out at the origin.
  *   - **`windowEnd`** ≤ `panMaxT`. The pan-right cap. Play /
  *     Build pass `panMaxT = duration` so pan stops at the
- *     doc end; Live passes `panMaxT = Infinity` so pan-right
- *     is unbounded — the timeline has no end, only the captured
+ *     doc end, Live passes `panMaxT = Infinity` so pan-right
+ *     is unbounded, the timeline has no end, only the captured
  *     history.
  *
- * Width is computed first; then we anchor windowStart ≥ 0 and
+ * Width is computed first, then we anchor windowStart ≥ 0 and
  * push windowEnd in from the right if it overshoots panMaxT.
  *
- * `maxWidth` and `panMaxT` both default to `duration` — Play /
+ * `maxWidth` and `panMaxT` both default to `duration`, Play /
  * Build's historical single-bound behavior collapses to one
  * value: width never exceeds the doc, pan never exceeds the
  * doc, and pan-right at 1× snaps back to `[0, duration]` (the
  * "no point in panning a fully-fit view" semantic). The
- * `duration` parameter is retained for that default-arg shape;
- * the clamp logic itself uses only the explicit bounds. */
+ * `duration` parameter is retained for that default-arg shape.
+ * The clamp logic itself uses only the explicit bounds. */
 export function clampView(
 	v: TimelineView,
 	duration: number,
@@ -235,7 +235,7 @@ export function clampView(
 
 /**
  * Zoom around a focal point `t` (typically the cursor's time
- * position). `factor > 1` zooms IN (window shrinks); `factor < 1`
+ * position). `factor > 1` zooms IN (window shrinks), `factor < 1`
  * zooms OUT. The proportion of the window to the left of `t` is
  * preserved, so the focal point stays under the cursor.
  */
@@ -263,10 +263,10 @@ export function zoomAround(
 	);
 }
 
-/** Pan the window by `deltaMs`. Positive = right (later); negative
+/** Pan the window by `deltaMs`. Positive = right (later). Negative
  * = left (earlier). Bounded by `panMaxT` on the right (`Infinity`
- * lets Live mode pan into "future" empty space; finite values
- * cap pan at the doc end); width preserved. */
+ * lets Live mode pan into "future" empty space. Finite values
+ * cap pan at the doc end). Width preserved. */
 export function pan(
 	v: TimelineView,
 	deltaMs: number,
@@ -311,7 +311,7 @@ export function pxToT(
 /**
  * Convert a sim-time `t` into a pixel offset within the scrubber's
  * rendered width. Returns values outside `[0, scrubberWidth]` when
- * `t` is outside the visible window — callers cull off-screen
+ * `t` is outside the visible window, callers cull off-screen
  * glyphs themselves.
  */
 export function tToPx(
@@ -328,7 +328,7 @@ export function tToPx(
  * current view's tick grid (the SAME grid the ruler shows).
  * Used by the Flash-grade snap-to-grid drag modifier (Shift):
  * the user sees the major ticks they're snapping to so the
- * snap targets are predictable. Returns the snapped t; may
+ * snap targets are predictable. Returns the snapped t. May
  * equal `t` if already on a tick boundary.
  *
  * `targetMajorPx ≈ 90` matches the Scrubber's TARGET_MAJOR_PX

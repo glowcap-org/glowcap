@@ -20,7 +20,7 @@ pub const PendingWork = union(enum) {
 };
 
 /// A representation-neutral close request before semantic validation. Adapter
-/// layers map their own discriminants into this shape; the core alone decides
+/// layers map their own discriminants into this shape. The core alone decides
 /// which pending/grace combinations are meaningful.
 pub const PendingWorkInput = struct {
     pending: Pending,
@@ -62,7 +62,7 @@ pub const CloseOutcome = enum {
 };
 
 /// Convert a finish budget to one absolute monotonic deadline. Null is the
-/// explicit unbounded case; overflow saturates in the requested direction.
+/// explicit unbounded case. Overflow saturates in the requested direction.
 pub fn deadlineFor(grace: Grace, now_ms: i64) ?i64 {
     return switch (grace) {
         .unbounded => null,

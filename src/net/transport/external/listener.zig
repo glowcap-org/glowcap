@@ -38,9 +38,10 @@ pub fn Machine(comptime Backend: type) type {
             return Backend.listen_fd;
         }
 
-        /// Whether the served listener is still finishing its setup.
+        /// Whether the served listener is still finishing its setup. A
+        /// wrapped backend's listener answers through the backend itself.
         pub fn pending(backend: *const Backend, fd: Fd) bool {
-            if (fd != Backend.listen_fd) return false;
+            if (fd != Backend.listen_fd) return backend.platform.listenerPending(fd);
             const row = backend.listener orelse return false;
             return row.phase == .starting;
         }
@@ -48,7 +49,13 @@ pub fn Machine(comptime Backend: type) type {
         /// Complete `user_data` once the listener is live (result 0) or its
         /// setup failed.
         pub fn submitReady(backend: *Backend, user_data: u64, fd: Fd) !void {
-            if (fd != Backend.listen_fd) return error.ListenerClosed;
+            if (fd != Backend.listen_fd) {
+                // The seat exists only for a backend that reports pending
+                // listeners; a plain platform never does.
+                if (comptime !@hasDecl(@FieldType(Backend, "platform"), "submitListenReady"))
+                    return error.ListenerClosed;
+                return backend.platform.submitListenReady(user_data, fd);
+            }
             const row = &(backend.listener orelse return error.ListenerClosed);
             if (row.closing) return error.ListenerClosed;
             if (row.ready_ud != null) return error.AlreadyAccepting;
@@ -75,7 +82,7 @@ pub fn Machine(comptime Backend: type) type {
         }
 
         /// The served listener's canonical form of `candidate`, owned by
-        /// `allocator`; null when the provider defers to its own locator.
+        /// `allocator`. Null when the provider defers to its own locator.
         pub fn canonicalize(backend: *Backend, allocator: std.mem.Allocator, candidate: model.PeerLocator) !?model.PeerLocator {
             const row, const listener = try live(backend);
             const check = row.provider.vtable.listener_canonicalize orelse return null;

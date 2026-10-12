@@ -15,6 +15,9 @@ struct Platform {
 	expire: Rc<tokio::sync::Notify>,
 }
 impl rooms_glowcap::client::Deadline for Platform {
+	fn monotonic_millis(&self) -> u64 {
+		0
+	}
 	async fn within<T>(&self, ms: u64, work: impl Future<Output = T>) -> Option<T> {
 		tokio::select! { result=HostPlatform.within(ms,work)=>result, _=self.expire.notified(),if ms==signal::TIMEOUT_MS=>None }
 	}

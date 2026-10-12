@@ -1,32 +1,35 @@
 //! Fixed completion-backend contract shared by the loop and its adapters.
 //!
 //! This module owns namespace composition, operation results, and ready-queue
-//! mechanics. The loop owns connection orchestration; platform and transport
+//! mechanics. The loop owns connection orchestration. Platform and transport
 //! adapters own how operations reach this contract.
 //!
 //! ## Backend interface
 //!
 //! A backend is a struct providing the platform completion primitive. The loop
-//! calls only these; nothing in the loop issues a syscall directly:
+//! calls only these. Nothing in the loop issues a syscall directly:
 //!
 //!   * `pub const Fd = <platform socket handle type>;`
 //!   * `pub fn init(allocator, queue_entries: u16, read_buffers: u16,
-//!     read_buffer_bytes: u32) !Backend;` — the backend owns a shared pool of
+//!     read_buffer_bytes: u32) !Backend;`: the backend owns a shared pool of
 //!     `read_buffers` buffers with `read_buffer_bytes` bytes each.
 //!   * `pub fn deinit(self: *Backend) void;`
-//!   * `pub const ListenTarget;` — the backend-owned listen target, the
+//!   * `pub const ListenTarget;`, the backend-owned listen target, the
 //!     listening counterpart of `ConnectTarget`. A platform backend's is the
 //!     port it binds on its construction-time interface; an adapter's wraps its
 //!     platform's beside the adapter's own listener.
-//!   * `pub fn loopListenTarget(port: u16) ListenTarget;` — the listener
+//!   * `pub fn loopListenTarget(port: u16) ListenTarget;`, the listener
 //!     `completion.Loop`'s `listen` option opens: the platform listener on
 //!     `port`, or a transport's own acceptor where it has no port.
-//!   * `pub fn openListener(self: *Backend, target: ListenTarget) !Fd;` — bind
+//!   * `pub fn openListener(self: *Backend, target: ListenTarget) !Fd;`: bind
 //!     and listen for TCP, or arm a userspace transport acceptor.
-//!   * `pub const ConnectTarget;` — the backend-owned dial target. There is no
+//!   * `pub fn listenerPending(self: *const Backend, fd: Fd) bool;`: whether the
+//!     listener on `fd` still finishes a setup after `openListener` returned.
+//!     A backend whose listeners are live at once answers false.
+//!   * `pub const ConnectTarget;`, the backend-owned dial target. There is no
 //!     shared union through which one backend could receive another's target.
 //!   * `pub fn startDial(self: *Backend, user_data: u64,
-//!     target: ConnectTarget) !Fd;` — own the whole start and report terminal
+//!     target: ConnectTarget) !Fd;`: own the whole start and report terminal
 //!     success as result zero; the returned handle belongs to the loop slot
 //!     before the completion arrives.
 //!   * `pub const ListenerAddress;`
@@ -34,20 +37,20 @@
 //!   * `pub fn listenerPort(address: ListenerAddress) ?u16;`
 //!   * `pub fn closeFd(self: *Backend, fd: Fd) void;`
 //!   * `pub fn submitAccept(self: *Backend, user_data: u64,
-//!     listen_fd: Fd) !void;` — success reports the accepted handle in
+//!     listen_fd: Fd) !void;`: success reports the accepted handle in
 //!     `Completion.accepted_fd`, or in `result` for an ordinary non-negative OS
 //!     handle; failure reports a negative result and no handle.
-//!   * `pub fn submitRecv(self: *Backend, user_data: u64, fd: Fd) !void;` — the
+//!   * `pub fn submitRecv(self: *Backend, user_data: u64, fd: Fd) !void;`, the
 //!     backend selects a shared-pool buffer and lends it through
 //!     `Completion.borrowed`; pool pressure reports `recv_no_buffer` rather
 //!     than a connection failure.
 //!   * `pub fn submitSend(self: *Backend, user_data: u64, fd: Fd,
 //!     bytes: []const u8) !void;`
 //!   * `pub fn submitCancel(self: *Backend, cancel_user_data: u64,
-//!     target_user_data: u64, fd: Fd) !void;` — cancel the exact submitted recv
+//!     target_user_data: u64, fd: Fd) !void;`: cancel the exact submitted recv
 //!     without closing its handle. The target and cancellation completions may
 //!     arrive in either order.
-//!   * `pub fn submitClose(self: *Backend, user_data: u64, fd: Fd) !void;` —
+//!   * `pub fn submitClose(self: *Backend, user_data: u64, fd: Fd) !void;`,
 //!     cancel a pending accept and close its handle, or close a connection
 //!     after the loop calls `shutdownFd`. A userspace backend whose shutdown is
 //!     a no-op must synthesize completions for every pending recv and send. A
@@ -55,13 +58,13 @@
 //!     `closeFd`.
 //!   * `pub fn shutdownFd(self: *Backend, fd: Fd) void;`
 //!   * `pub fn wireFraming(self: *Backend, fd: Fd)
-//!     model.transport.WireFraming;` — whether recv completions are arbitrary
+//!     model.transport.WireFraming;`: whether recv completions are arbitrary
 //!     byte-stream chunks or complete message packets for this connection.
-//!   * `pub fn recycleBorrowed(self: *Backend, completion: Completion) void;`
-//!     — release the exact receive buffer or cold-path failure record after the
+//!   * `pub fn recycleBorrowed(self: *Backend, completion: Completion) void;`:
+//!     release the exact receive buffer or cold-path failure record after the
 //!     loop has consumed it.
 //!   * `pub fn poll(self: *Backend, out: []Completion,
-//!     timeout_ms: i32) !usize;` — flush submissions and wait; a timeout or
+//!     timeout_ms: i32) !usize;`: flush submissions and wait; a timeout or
 //!     explicit wake with no completions returns zero.
 //!
 //! A platform backend also provides one readiness verb for adapters that run
@@ -69,14 +72,14 @@
 //! The loop never calls it:
 //!
 //!   * `pub fn submitPoll(self: *Backend, user_data: u64, fd: Fd,
-//!     interest: Interest) !void;` — complete once with a non-negative
+//!     interest: Interest) !void;`: complete once with a non-negative
 //!     result when `fd` is readable or writable, or has failed or hung up,
 //!     consuming nothing. It is one-shot, it
 //!     occupies that direction of `fd` like a recv or send, `submitCancel`
 //!     retires it, and it never closes `fd`.
 //!
 //! A `submit*` refusal must mint no completion for that `user_data`. The loop
-//! counts an operation only after successful submission; violating this rule
+//! counts an operation only after successful submission. Violating this rule
 //! can retire an idle seat and free storage still borrowed by the backend.
 //! Conversely, every admitted operation must eventually produce exactly one
 //! completion, including operations pending when `submitClose` is accepted.
@@ -84,7 +87,7 @@
 //! The loop separately accepts a `DialResolver` that maps OCapN locator parts
 //! to `Backend.ConnectTarget`. That grammar belongs to the netlayer, never the
 //! platform backend. A readiness backend may implement the contract by recording
-//! submissions and performing I/O from `poll`; the loop observes the same
+//! submissions and performing I/O from `poll`. The loop observes the same
 //! ownership and completion rules either way.
 
 const std = @import("std");
@@ -112,7 +115,7 @@ pub const CloseReport = struct {
 /// Adapters share connection handles, completion `user_data`, and receive
 /// buffer tokens with the backend they wrap. Ad-hoc sentinel ranges do not
 /// compose: two wrappers can claim the same high bit and consume each other's
-/// events. A wrapped backend therefore publishes `adapter_depth`; this type
+/// events. A wrapped backend therefore publishes `adapter_depth`. This type
 /// derives the next disjoint layer for all three channels from that one fact.
 ///
 /// Platform backends start at depth zero. Synthetic fds use successively
@@ -196,7 +199,7 @@ pub fn AdapterNamespace(comptime Platform: type) type {
         /// backend it wraps. A synthetic handle carries the row id inside the
         /// namespace's fd prefix, and an internal completion carries the row
         /// id above the operation it retires. `Op` is the adapter's internal
-        /// operation enum; its values must fit the three low user-data bits.
+        /// operation enum. Its values must fit the three low user-data bits.
         ///
         /// Row ids are reserved here too, wrapping through the namespace so a
         /// long-lived backend never runs out, and skipping any id a live or
@@ -278,6 +281,7 @@ pub fn validateBackend(comptime Backend: type) void {
         "shutdownFd",
         "wireFraming",
         "submitAccept",
+        "listenerPending",
         "submitRecv",
         "submitSend",
         "submitCancel",
@@ -294,7 +298,7 @@ pub fn validateBackend(comptime Backend: type) void {
 }
 
 /// Compile-check that the netlayer resolver produces this backend's target.
-/// Merely taking `resolve`'s type checks the half that never goes wrong; the
+/// Merely taking `resolve`'s type checks the half that never goes wrong. The
 /// return payload check below catches a resolver bound to another backend.
 pub fn validateDialResolver(comptime DialResolver: type, comptime ConnectTarget: type) void {
     if (!@hasDecl(DialResolver, "resolve"))
@@ -321,7 +325,7 @@ pub const Borrowed = struct {
     token: u32 = 0,
     kind: Kind = .none,
     /// Stable carrier phase for a plain borrowed chain, or for a scalar
-    /// failure with no retained payload. This occupies descriptor padding;
+    /// failure with no retained payload. This occupies descriptor padding.
     /// `Completion` remains pinned at 48 bytes.
     carrier_phase: ?carrier_failure.Phase = null,
 
@@ -387,7 +391,7 @@ pub const Completion = struct {
     user_data: u64,
     result: i32,
     /// Typed primary when `result < 0`. Backends without a more specific cause
-    /// leave this null; the loop supplies an operation-specific fallback.
+    /// leave this null. The loop supplies an operation-specific fallback.
     failure: ?anyerror = null,
     /// Successful accept result when a userspace adapter's synthetic handle
     /// can be negative. Ordinary non-negative OS fds may remain in `result`.
@@ -431,7 +435,7 @@ pub fn failureFromErrno(errno: std.posix.E) anyerror {
 /// Cursor-backed queue shared by readiness backends and transport adapters.
 ///
 /// Sliding the remainder after each fixed-batch drain is quadratic over a
-/// burst. Advancing a cursor makes the whole burst O(M); compacting only when
+/// burst. Advancing a cursor makes the whole burst O(M). Compacting only when
 /// the dead prefix outgrows the live suffix bounds retained storage by backlog
 /// rather than process uptime.
 pub const ReadyQueue = struct {

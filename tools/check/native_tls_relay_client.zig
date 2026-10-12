@@ -55,7 +55,7 @@ fn expectPollable(
     expectation: Expectation,
 ) !void {
     var provider: native_relay.Provider = undefined;
-    switch (provider.init(io, allocator, url, null, .{ .copied_pem = trust })) {
+    switch (provider.init(io, allocator, .{ .relay_url = url }, .{ .copied_pem = trust })) {
         .ready => {},
         .failed => |failure| {
             std.debug.print("native TLS relay initialization failed: {s}\n", .{

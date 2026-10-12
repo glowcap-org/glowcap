@@ -9,8 +9,8 @@
 
 const engine = @import("engine.zig");
 
-/// TLS 1.3's maximum record plus expansion. Fixed per active secure channel;
-/// neither transport projection grows a partner-controlled ciphertext queue.
+/// TLS 1.3's maximum record plus expansion. Fixed per active secure channel.
+/// Neither transport projection grows a partner-controlled ciphertext queue.
 pub const record_bytes = 18 * 1024;
 
 pub const Transform = struct {
@@ -26,7 +26,7 @@ pub const Transform = struct {
     }
 
     /// Advance one TLS transition over driver-owned buffers. Plaintext remains
-    /// borrowed for this call; produced ciphertext remains borrowed from this
+    /// borrowed for this call. Produced ciphertext remains borrowed from this
     /// transform until `consumeCiphertext` acknowledges transport progress.
     pub fn step(
         self: *Transform,
@@ -80,7 +80,7 @@ pub const Transform = struct {
     }
 
     /// Storage for the next transport receive. The returned slice stays valid
-    /// until `commitCiphertext` or destruction; no engine call may intervene.
+    /// until `commitCiphertext` or destruction. No engine call may intervene.
     pub fn ciphertextDestination(
         self: *Transform,
         phase: engine.Phase,

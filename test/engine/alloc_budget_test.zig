@@ -18,11 +18,11 @@ const engine = glowcap.ocapn.engine;
 const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAllocator;
 
 /// A no-answer (`#f` answer position) `op:deliver` to local export 7 carrying one
-/// inline bytes argument — the fire-and-forget one-way send. The argument
+/// inline bytes argument, the fire-and-forget one-way send. The argument
 /// exercises the borrowed-validate path without retained owned message
 /// materialization, so the budget measures the irreducible owned-frame copy
 /// rather than transient validation clones. With no answer position every turn
-/// installs no inbound answer row, so a steady stream mutates no table; a
+/// installs no inbound answer row, so a steady stream mutates no table. A
 /// distinct-answer deliver would both grow the answer table per turn and, on a
 /// reused position, trip the live-answer-reuse refusal.
 const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";

@@ -1,5 +1,5 @@
 #lang racket/base
-;; glowcap/onion — the Tor onion transport for the Racket binding.
+;; glowcap/onion: the Tor onion transport for the Racket binding.
 ;;
 ;; `onion` is the one netlayer the OCapN draft standardizes, and the one upstream
 ;; Spritely Goblins ships, so it is where a glowcap peer and a Goblins vat meet on
@@ -7,8 +7,8 @@
 ;; designator this module takes is that bare service id: 56 base32 characters with
 ;; no `.onion` suffix.
 ;;
-;; glowcap starts no Tor. A netlayer names where an already-running daemon listens
-;; — its SOCKS endpoint to dial, its control endpoint to host — and never spawns,
+;; glowcap starts no Tor. A netlayer names where an already-running daemon listens:
+;; its SOCKS endpoint to dial and its control endpoint to host. It never spawns,
 ;; supervises, or configures one. Each endpoint is an absolute Unix socket path or
 ;; a host:port. Omit the control endpoint and the netlayer can dial and cannot
 ;; host, which `onion-netlayer-listen` reports rather than pretending:
@@ -159,7 +159,7 @@
   (define-values (rc h) (glowcap_onion_netlayer_new cfg))
   ;; The config cstruct is retained as the call's argument, but it carries
   ;; only the pins' raw addresses; the sink keeps every pinned buffer live
-  ;; for the whole blocking constructor.
+  ;; for the blocking constructor.
   (void/reference-sink pins)
   (check/onion rc)
   h)
@@ -553,7 +553,7 @@
                  h (make-GlowcapFrame buf (bytes-length frame) FRAME-SHAPE-BYTE)))
      ;; The frame cstruct is retained as the call's argument, but it carries
      ;; only `buf`'s raw address; the sink keeps the pinned payload live for
-     ;; the whole blocking write.
+     ;; the blocking write.
      (void/reference-sink buf)
      (check/onion rc))))
 

@@ -1,5 +1,5 @@
 //! Suspended reads and emitted writes share one transaction. Each read yields
-//! once; backend borrows are overwritten at the next KV call. These probes
+//! once. Backend borrows are overwritten at the next KV call. These probes
 //! cover name indexing, shared strong targets and collection queue accounting.
 const std = @import("std");
 const core = @import("glowcap").loam.core;

@@ -30,7 +30,7 @@ impl Delivery {
 			}
 			last = id;
 		}
-		rows.retain(|row| row["id"].as_u64().expect("validated event") > self.delivered);
+		rows.retain(|row| row["id"].as_u64().is_some_and(|id| id > self.delivered));
 		let deliver = self.after.is_none() || !rows.is_empty() || gap;
 		self.delivered = self.delivered.max(last);
 		self.after = Some(cursor);

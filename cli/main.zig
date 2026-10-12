@@ -12,9 +12,9 @@ const cmd = @import("cmd/mod.zig");
 const tree = @import("cmd/tree.zig");
 
 /// Restore the terminal before dying. The REPL puts the tty in raw mode with the
-/// alternate screen and mouse reporting on, and `defer` does not run on a panic —
+/// alternate screen and mouse reporting on, and `defer` does not run on a panic,
 /// so without this a crash leaves the user's shell unusable. vaxis ships the
-/// handler; installing it is our job.
+/// handler. Installing it is our job.
 pub const panic = std.debug.FullPanic(vaxisPanic);
 
 fn vaxisPanic(msg: []const u8, ret_addr: ?usize) noreturn {

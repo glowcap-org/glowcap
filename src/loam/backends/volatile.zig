@@ -1,5 +1,5 @@
 //! Volatile realization of Loam batches. Storage bytes live in RAM and have a
-//! separate capacity from the core's resident cache; no durability is implied.
+//! separate capacity from the core's resident cache. No durability is implied.
 const std = @import("std");
 const core = @import("loam_core");
 

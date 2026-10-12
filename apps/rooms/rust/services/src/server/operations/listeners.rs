@@ -2,8 +2,8 @@
 //! listener sharing the Host's identity and serves its partners the same
 //! way the boot listener does, `down` closes it, and what an operator asked
 //! to keep is written to `operations.json` before the row exists. The
-//! policy in `rooms_application::server::operations::listeners` decides;
-//! this owns the sockets and the file.
+//! policy in `rooms_application::server::operations::listeners` decides.
+//! This owns the sockets and the file.
 use super::super::{
 	notice::Notice,
 	state::{Shared, State, Work},
@@ -62,8 +62,8 @@ impl Registry {
 			.map(|row| (row.transport, row.locator.clone()))
 			.collect()
 	}
-	/// Take every runtime listener out of the seats for a shutdown to close;
-	/// the peer joins their accepted sessions once the Host has retired.
+	/// Take every runtime listener out of the seats for a shutdown to close.
+	/// The peer joins their accepted sessions once the Host has retired.
 	pub fn drain(&mut self) -> Vec<Rc<Listener>> {
 		let rows = self.seats.drain();
 		rows.into_iter()
@@ -195,7 +195,7 @@ async fn up(shared: &Shared, writer: &Store, transport: Transport, ask: Ask, rem
 }
 
 /// The listener carrying the announced locator selects itself as the Host's
-/// signed location again. The boot listener is the peer's own; a runtime
+/// signed location again. The boot listener is the peer's own. A runtime
 /// listener re-selects through its row.
 fn reselect(shared: &Shared) {
 	let state = shared.borrow();
@@ -404,7 +404,7 @@ async fn bring_up(host: &glowcap::Host, transport: Transport, ask: &Ask) -> Resu
 
 /// Open one register socket to prove the relay answers, then close it. The
 /// host provider keeps registration retries in the background, so a
-/// completed listen is not the evidence the relay exists; this is, and it
+/// completed listen is not the evidence the relay exists. This is, and it
 /// runs before the provider adopts the route.
 async fn probe_register_endpoint(register: &str, designator: &str) -> Result<(), Refusal> {
 	let url = format!("{register}?id={designator}");

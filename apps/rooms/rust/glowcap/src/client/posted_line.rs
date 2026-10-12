@@ -1,10 +1,10 @@
 //! A delegated line capability. Its owner is independent of the membership
-//! that posted it; dropping the handle releases its application retain.
+//! that posted it. Dropping the handle releases its application retain.
 use super::{Client, Deadline, Error, Reply};
 use glowcap::{Argument, Ref};
 
 /// Room posts return their authoritative line identity with the capability.
-/// Direct inboxes return a capability; their sender owns its local line ID.
+/// Direct inboxes return a capability. Their sender owns its local line ID.
 /// This borrows the reply and never duplicates capability custody.
 pub fn reply(value: &Argument) -> glowcap::Result<(Option<&Ref>, Option<rooms_application::room::message::LineId>)> {
 	match value {

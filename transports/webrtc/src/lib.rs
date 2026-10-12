@@ -8,21 +8,21 @@
 //!
 //! * One endpoint owns the tokio runtime and readiness fd shared by every peer
 //!   created from it. Async channel state is reported as endpoint readiness
-//!   records carrying stable peer ids; readiness drains and try-I/O never park
+//!   records carrying stable peer ids. Readiness drains and try-I/O never park
 //!   the caller's reactor thread.
 //! * A peer has no dialable address, so there is no `connect(addr)`. Instead the
 //!   caller drives an out-of-band signaling exchange: the offerer produces an
 //!   SDP offer, the answerer an SDP answer, and both trickle ICE candidates.
 //!   The caller may carry these strings out of band or through an OCapN signaling
-//!   capability. The sidecar only produces and consumes them; it never transports
+//!   capability. The sidecar only produces and consumes them. It never transports
 //!   them. Peer creation and signaling submissions are synchronous control-plane
-//!   calls; the readiness path begins once those inputs are submitted.
+//!   calls. The readiness path begins once those inputs are submitted.
 //! * The `RTCDataChannel` is pollable and exposes send-side backpressure.
 //!   C-facing try-writes admit one bounded packet into the sidecar staging
 //!   buffer, then an async drain task sends that packet as one DataChannel
 //!   message without parking the caller's reactor thread.
 //! * One channel, labelled `ocapn`, ordered and reliable, carries one bare
-//!   OCapN codec frame per DataChannel message. The offerer creates it; the
+//!   OCapN codec frame per DataChannel message. The offerer creates it. The
 //!   answerer receives it through `on_data_channel`.
 //! * No panic crosses the FFI boundary: every entry point runs under
 //!   `catch_unwind` and maps a panic to the function's error return.
@@ -56,7 +56,7 @@ use glowcap_sidecar_common::{RuntimeOwner, TaskBarrier};
 type Readiness = glowcap_sidecar_common::Readiness<GlowcapWebrtcReadyEvent>;
 
 /// The label of the one data channel a glowcap `webrtc` session runs over. Both
-/// peers agree on it out of band; the offerer creates it under this name.
+/// peers agree on it out of band. The offerer creates it under this name.
 const CHANNEL_LABEL: &str = "ocapn";
 
 /// Worker threads for one endpoint's runtime when the caller names none. Two is
@@ -66,14 +66,14 @@ const CHANNEL_LABEL: &str = "ocapn";
 const WORKER_THREADS: usize = 2;
 
 /// Maximum time the crate may retain one peer after glowcap has committed its
-/// local close. WebRTC close is control-plane teardown, not application grace;
-/// it must not make the endpoint's final release barrier unbounded. Fifteen
+/// local close. WebRTC close is control-plane teardown, not application grace.
+/// It must not make the endpoint's final release barrier unbounded. Fifteen
 /// seconds matches the transport-level dead-peer bound used by the iroh
 /// sidecar and is ample for SCTP/DTLS shutdown without licensing a stuck task.
 const PEER_CLOSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
-/// Return codes shared with the Zig resident and the header. `0` is success;
-/// negatives name the failure family the resident maps to a Zig error.
+/// Return codes shared with the Zig resident and the header. `0` is success.
+/// Negatives name the failure family the resident maps to a Zig error.
 const OK: i32 = 0;
 const ERR: i32 = -1;
 
@@ -101,6 +101,8 @@ fn teardown_status<E>(f: impl FnOnce() -> Result<(), E>) -> i32 {
 /// `handle` is null, or points to a live value from the matching `*_new` that no
 /// other call is freeing for the duration of this one.
 unsafe fn borrowed<H, R: Copy>(handle: *const H, refused: R, body: impl FnOnce(&H) -> R) -> R {
+	// SAFETY: this function's `# Safety` contract makes `handle` null or a live value from the matching `*_new` that no
+	// other call is freeing; `as_ref` maps null to `None`, and the reference lasts only for `body`, inside this call.
 	catch_unwind(AssertUnwindSafe(|| match unsafe { handle.as_ref() } {
 		Some(handle) => body(handle),
 		None => refused,
@@ -111,10 +113,10 @@ unsafe fn borrowed<H, R: Copy>(handle: *const H, refused: R, body: impl FnOnce(&
 /// the channel is not open, or a bounded queue has no room. The resident re-arms
 /// and retries, distinct from a hard error.
 const WOULD_BLOCK: i32 = -2;
-/// A string out-parameter whose buffer was too small; `*out_len` is set to the
+/// A string out-parameter whose buffer was too small. `*out_len` is set to the
 /// length the caller must provide, and nothing is written.
 const BUFFER_TOO_SMALL: i32 = -3;
-/// A signaling string exceeded Glowcap's hard signaling cap; retrying with a
+/// A signaling string exceeded Glowcap's hard signaling cap. Retrying with a
 /// larger caller buffer cannot make it valid.
 const SIGNAL_TOO_LARGE: i32 = -4;
 /// A peer reached an orderly terminal state before opening.
@@ -159,7 +161,7 @@ pub struct GlowcapWebrtcEndpointConfig {
 	/// Nonzero offers loopback ICE candidates, which is what lets two peers in
 	/// one process or on one host connect with no STUN.
 	pub include_loopback_candidates: u32,
-	/// Worker threads for this endpoint's runtime; 0 takes the default.
+	/// Worker threads for this endpoint's runtime. 0 takes the default.
 	pub worker_threads: u32,
 }
 
@@ -217,7 +219,7 @@ const MAX_ICE_URL_BYTES: usize = constants_gen::MAX_ICE_URL_BYTES;
 const MAX_ICE_CREDENTIAL_BYTES: usize = constants_gen::MAX_ICE_CREDENTIAL_BYTES;
 
 /// Inbound packets staged from polled data-channel messages, drained by
-/// C-facing reads. Terminal state wakes parked readers; `failed` decides
+/// C-facing reads. Terminal state wakes parked readers. `failed` decides
 /// whether an empty terminal read is EOF or `ERR`.
 struct Inbound {
 	packets: VecDeque<BytesMut>,
@@ -290,8 +292,8 @@ struct PeerShared {
 	/// endpoint-owned close task.
 	pc: Mutex<Option<Weak<dyn PeerConnection>>>,
 	/// Created immediately for an offerer, installed by the event handler for an
-	/// answerer. Blocking writers clone it for direct `DataChannel::send`;
-	/// try-writers use the bounded outbound staging queue.
+	/// answerer. Blocking writers clone it for direct `DataChannel::send`.
+	/// Try-writers use the bounded outbound staging queue.
 	dc: Mutex<Option<Arc<dyn DataChannel>>>,
 	inbound: Arc<(Mutex<Inbound>, Condvar)>,
 	/// Signalled whenever a C read frees space in `inbound`, so the channel
@@ -404,10 +406,15 @@ unsafe fn ice_servers_from_config(cfg: &GlowcapWebrtcEndpointConfig) -> Option<V
 		if record.url_count == 0 || record.url_count > MAX_ICE_URLS_PER_SERVER || record.urls.is_null() {
 			return None;
 		}
+		// SAFETY: `record.urls` is non-null and `record.url_count` is within bounds (checked above); the configuration
+		// contract on `glowcap_webrtc_sidecar_endpoint_new` has the caller lend each record's `urls` array of
+		// `url_count` views for the call, and `url_views` is dropped before this function returns.
 		let url_views = unsafe { std::slice::from_raw_parts(record.urls, record.url_count) };
 		let mut urls = Vec::with_capacity(url_views.len());
 		let mut has_turn = false;
 		for url in url_views {
+			// SAFETY: `url` is one view from the `urls` array sliced above, lent by the caller for this call under the
+			// same configuration contract; `view_text` bounds its length, refuses null, and returns an owned `String`.
 			let text = unsafe { view_text(*url, MAX_ICE_URL_BYTES) }?;
 			if text.is_empty() {
 				return None;
@@ -415,7 +422,10 @@ unsafe fn ice_servers_from_config(cfg: &GlowcapWebrtcEndpointConfig) -> Option<V
 			has_turn |= ice_url_is_turn(&text)?;
 			urls.push(text);
 		}
+		// SAFETY: `record.username` is a view lent by the caller for this call under the same configuration contract;
+		// `view_text` bounds its length, refuses null, and returns an owned `String`.
 		let username = unsafe { view_text(record.username, MAX_ICE_CREDENTIAL_BYTES) }?;
+		// SAFETY: as the `username` view above, for `record.credential`.
 		let credential = unsafe { view_text(record.credential, MAX_ICE_CREDENTIAL_BYTES) }?;
 		let has_credentials = !username.is_empty() || !credential.is_empty();
 		if (!has_turn && has_credentials) || (has_turn && (username.is_empty() || credential.is_empty())) {
@@ -460,6 +470,9 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_new(
 		// Safety: the caller supplies readable memory; `ice_servers_from_config`
 		// bounds every count and length before forming nested slices.
 		let cfg = unsafe { &*config };
+		// SAFETY: `cfg` is the reference formed above from the caller's configuration, so the whole tree it describes
+		// is lent for this call under this function's `# Safety` contract; the function returns owned `RTCIceServer`
+		// values, so nothing borrows it afterward.
 		let ice_servers = match unsafe { ice_servers_from_config(cfg) } {
 			Some(servers) => servers,
 			None => return std::ptr::null_mut(),

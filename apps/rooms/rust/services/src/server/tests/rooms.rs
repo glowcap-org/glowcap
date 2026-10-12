@@ -36,7 +36,7 @@ async fn next(messages: &mut Messages) -> Line {
 
 /// The next line that is a member's or the room's own words, skipping
 /// presence and facts.
-async fn next_said(messages: &mut Messages) -> Line {
+pub(super) async fn next_said(messages: &mut Messages) -> Line {
 	loop {
 		let line = next(messages).await;
 		if line.presence().is_none() && line.facts().is_none() {
@@ -45,7 +45,7 @@ async fn next_said(messages: &mut Messages) -> Line {
 	}
 }
 
-async fn next_presence(messages: &mut Messages) -> Presence<String> {
+pub(super) async fn next_presence(messages: &mut Messages) -> Presence<String> {
 	loop {
 		let line = next(messages).await;
 		if let Some(rooms_application::room::inbox::metadata::Metadata::Presence(presence)) = line.metadata {
@@ -72,7 +72,7 @@ fn events() -> (Rc<RefCell<Vec<String>>>, SubscribeOptions) {
 }
 
 /// Subscribe and drain the arrival through its roster, which is the last
-/// presence an arrival hears about itself; the names are answered.
+/// presence an arrival hears about itself. The names are answered.
 async fn join(
 	client: &Client<HostPlatform>,
 	room: glowcap::Ref,

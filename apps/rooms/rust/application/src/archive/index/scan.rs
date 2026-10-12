@@ -1,5 +1,5 @@
 //! A remote feed can revise one key forever. Charge every scanned row, including
-//! replacements, before retaining a page; only expose a completed bounded scan.
+//! replacements, before retaining a page. Only expose a completed bounded scan.
 use super::{Entry, Identity, Key, Page};
 use crate::archive::{Error, Filter, MAX_READ, MAX_RECORDS};
 use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};

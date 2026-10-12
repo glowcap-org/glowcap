@@ -31,7 +31,7 @@ RUSTUP_INIT_VERSION="1.29.1"
 # --- JavaScript / TypeScript dogfood ---
 DENO_VERSION="2.9.7"
 NODE_VERSION="26.10.0"
-NPM_VERSION="12.1.0"
+NPM_VERSION="12.2.0"
 BUN_VERSION="1.4.2"
 
 # --- Playwright (the browser proofs' Chromium) ---
@@ -45,13 +45,18 @@ PLAYWRIGHT_VERSION="1.63.0"
 UV_VERSION="0.12.19"
 PYTHON_VERSION="3.14.7"
 SERENA_AGENT_VERSION="1.7.0"
-CLAUDE_CODE_VERSION="2.1.283"
-OPENCODE_VERSION="1.18.32"
-CODEX_VERSION="0.157.0"
-# Cursor publishes the agent CLI as one dated build per platform. The version
-# string is the whole path segment (date and commit), so it is copied verbatim
-# into the download URL rather than composed from parts.
-CURSOR_AGENT_VERSION="2026.09.23-86fc751"
+# The four AI harnesses are managed tools, not image content: these versions
+# are the verified cold-install seeds the dispatcher installs on first use
+# (.devcontainer/tools), and update-pins keeps them fresh. An explicit
+# `tools.sh update` may move a tool past its seed; the seed stays what a cold
+# machine installs. Cursor publishes the agent CLI as one dated build per
+# platform; the version string is the whole path segment (date and commit),
+# so it is copied verbatim into the download URL rather than composed from
+# parts.
+CLAUDE_CODE_VERSION="2.1.296"
+OPENCODE_VERSION="1.18.35"
+CODEX_VERSION="0.162.1"
+CURSOR_AGENT_VERSION="2026.10.01-e373342"
 
 # --- Host side (not in the image; used by up.sh when no CLI is installed) ---
 DEVCONTAINER_CLI_VERSION="0.89.0"
@@ -91,11 +96,6 @@ BUN_INSTALL_CACHE_DIR="${BUN_CACHE_DIR}/install"
 # under native Linux Docker and Docker Desktop; host-bind implementations vary.
 ZIG_WORK_CACHE_DIR="/home/vscode/.cache/glowcap-dev-zig-work"
 PLTUSERHOME="/opt/glowcap-racket-userhome"
-# Playwright's default download directory is ~/.cache/ms-playwright, which is
-# outside the glowcap cache bind, so a browser landing there would vanish with
-# the container. Browsers belong to the image: root installs them once and
-# every user reads them.
-PLAYWRIGHT_BROWSERS_PATH="/usr/local/share/ms-playwright"
 # Claude Code splits its state in two by default: `~/.claude` for skills,
 # plugins, and credentials, and `~/.claude.json` beside it for the account,
 # onboarding state, and per-project history. Only the directory can be
@@ -104,10 +104,6 @@ PLAYWRIGHT_BROWSERS_PATH="/usr/local/share/ms-playwright"
 # Pointing CLAUDE_CONFIG_DIR at the directory puts `.claude.json` inside it, so
 # one bind carries the whole tool the way `~/.codex` already does.
 CLAUDE_CONFIG_DIR="/home/vscode/.claude"
-# Cursor's installer unpacks the agent CLI under ~/.local/share, which is
-# neither a volume nor a bind here. The binary belongs to the image, so it goes
-# to a shared system path instead, one directory per pinned build.
-CURSOR_AGENT_DIR="/usr/local/share/cursor-agent"
 # Settings and session history live under CURSOR_CONFIG_DIR / CURSOR_DATA_DIR
 # (then XDG_CONFIG_HOME/cursor, then ~/.cursor). Access and refresh tokens on
 # Linux live separately at ~/.config/cursor/auth.json; that directory is its

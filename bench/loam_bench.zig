@@ -1,5 +1,5 @@
 //! LMDB-backed Loam service and sustained-worker measurements through shipped APIs.
-//! Smoke holds reload, coalescing, admission, worker and collection invariants;
+//! Smoke holds reload, coalescing, admission, worker and collection invariants,
 //! timing results never impose machine-dependent pass/fail thresholds.
 const std = @import("std");
 const builtin = @import("builtin");

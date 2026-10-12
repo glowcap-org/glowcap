@@ -19,7 +19,7 @@ fn currentOwnerThreadId() OwnerThreadId {
 }
 
 /// Latch the owning thread at `run` entry. Setup (`init`, `dial`, `attach`)
-/// may run on a different thread before the loop starts; only the run thread
+/// may run on a different thread before the loop starts. Only the run thread
 /// may call `armOutbound`/`closeSlot`.
 pub fn latch(self: anytype) bool {
     if (comptime !tracks_thread_affinity) return false;
@@ -32,7 +32,7 @@ pub fn latch(self: anytype) bool {
     return true;
 }
 
-/// Setup may mutate an unclaimed loop before a driver starts; once a driver
+/// Setup may mutate an unclaimed loop before a driver starts. Once a driver
 /// owns it, every public operation must run on that same thread. This does not
 /// latch an unclaimed loop: only a driver lifetime owns the transfer.
 pub fn assertOwnerOrUnclaimed(self: anytype) void {

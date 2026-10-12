@@ -1,6 +1,6 @@
 //! One foreign stream provider table on its own external completion resident
 //! (ADR-0193, ADR-0202). The table keeps the stream contract
-//! `stream_completion` checks; HostRuntime sees one multiplexed resident.
+//! `stream_completion` checks. HostRuntime sees one multiplexed resident.
 
 const std = @import("std");
 const model = @import("model");
@@ -20,7 +20,7 @@ const Resident = net.completion_resident.Resident(Backend, external.ResidentPoli
 pub const Adapter = struct {
     owner: *Owner,
     stream: stream_completion.StreamProvider,
-    /// The one provider row the backend serves; the backend borrows it.
+    /// The one provider row the backend serves. The backend borrows it.
     providers: [1]external.Provider,
     resident: Resident,
 

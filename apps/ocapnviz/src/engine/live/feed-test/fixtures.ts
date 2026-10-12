@@ -16,7 +16,7 @@ import {
 import { endpointNodeId } from "../../../schema/session-end.ts";
 
 /** The wire name both peers of a session derive. Any 64 hex digits will do
- * here; what matters is that both producers report the SAME one. */
+ * here. What matters is that both producers report the SAME one. */
 export function wireName(seed: string): string {
 	return seed.repeat(64).slice(0, 64);
 }
@@ -82,7 +82,7 @@ export function opened(
 	/** `captp` is the negotiated CapTP profile, when a test turns on which
 	 * one it is, named by this viewer's own tag. A producer reports the
 	 * handshake's syntax, so the tag is put on the wire through
-	 * `CAPTP_VERSION_WIRE` rather than written out — one table, and no test
+	 * `CAPTP_VERSION_WIRE` rather than written out. One table, and no test
 	 * has to know it. Left off, the session runs the OCapN v1.0 interop
 	 * floor, which is what a producer reporting nothing means.
 	 *
@@ -110,11 +110,11 @@ export function opened(
 
 /** A room with two members and a direct message between them. Every
  * wire is reported by BOTH of its ends, which is what the endpoint
- * forwards and what a snapshot replays; the accepting end cannot name
+ * forwards and what a snapshot replays. The accepting end cannot name
  * who dialed it, because a browser tab presents no address it can
  * prove.
  *
- * `accepted` is the order the endpoint's seq gives on a reconnect —
+ * `accepted` is the order the endpoint's seq gives on a reconnect,
  * the end that could not name its partner first. `dialed` is the same
  * six reports with each wire's naming end first, which is the order
  * that needs no learning: everything is known before it is drawn. */
@@ -198,7 +198,7 @@ function stampedNs(ev: BaseTimelineEvent): number {
 export const AS_STAMPED: BaseTimelineEvent[] = [...accepting, ...naming]
 	.sort((x, y) => stampedNs(x) - stampedNs(y));
 
-/** The same reports with each wire's naming end first — the order in
+/** The same reports with each wire's naming end first. The order in
  * which nothing has to be learned. */
 export const NAMING_FIRST: BaseTimelineEvent[] = [...naming, ...accepting];
 

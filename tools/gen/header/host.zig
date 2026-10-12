@@ -5,13 +5,13 @@
 //! `tools/gen/header/ocapn.zig`, the function signatures are *reflected* from the real
 //! `src/c_abi/host/mod.zig` exports, so the header cannot disagree with the
 //! implementation, and the prose lives here.
-//! `zig build gen-header-host-check` is the staleness gate; `zig build
+//! `zig build gen-header-host-check` is the staleness gate, `zig build
 //! gen-header-host` is the fixer.
 //!
 //! The shared vocabulary (`GlowcapFrame`, `GlowcapManagedFrame`,
 //! `GlowcapContext`, `GlowcapArgument`, `GlowcapReference`, `GlowcapLastAbort`)
 //! and the return codes are declared in `glowcap_ocapn.h`, which this header
-//! includes; the host/session/turn handles, the two behavior callbacks, the
+//! includes. The host/session/turn handles, the two behavior callbacks, the
 //! action vocabulary, and the `glowcap_host_*` prototypes are new here.
 
 const std = @import("std");

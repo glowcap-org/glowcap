@@ -1,4 +1,4 @@
-# sample-kel — frozen `.data/` fixture for `keri-conformance`
+# sample-kel: frozen `.data/` fixture for `keri-conformance`
 
 Captured from a real `accountability-on-goblins kernel` run on 2026-04-30.
 
@@ -7,27 +7,27 @@ Captured from a real `accountability-on-goblins kernel` run on 2026-04-30.
 A minimum reproducible KEL + Episode set covering one AID
 (`EGwvjOKrp-CMFkuIh2Gov2dQ4T3MvRArxB-SNEoGWPFO`):
 
-- `kel/<aid>.kel.jsonl` — two events: inception (`icp`, `s=0`) + rotation
+- `kel/<aid>.kel.jsonl`: two events: inception (`icp`, `s=0`) + rotation
   (`rot`, `s=1`). Pre-rotation discipline holds: the rotation's `k[*]`
   Blake3-256-hashes to the inception's `n[*]` digest.
-- `episodes.jsonld` — one Episode anchored at `kel_anchor.seq=1` (the rotation
+- `episodes.jsonld`: one Episode anchored at `kel_anchor.seq=1` (the rotation
   key), `crypto_suite=ed25519-blake3-cesr-v1`.
 
 The source four-AID `.data/` lives under
-[`../../../accountability-on-goblins/.data/`](../../../accountability-on-goblins/.data/);
-this fixture captures a single coherent slice of it so the Python KERI
-conformance oracle can run without first invoking the Racket kernel.
+[`../../../accountability-on-goblins/.data/`](../../../accountability-on-goblins/.data/).
+This fixture is one coherent slice of it, so the Python KERI verifier can run
+without first invoking the Racket kernel.
 
 ## What is NOT in this fixture
 
 - **Private keys** (`.sk` files in the source `.data/keys/`). The oracle
-  verifies signatures using the public verkey hashes embedded in each KEL event;
-  it never reads `.sk`. The oracle uses public material only.
+  verifies signatures using the public verkey hashes embedded in each KEL event.
+  It never reads `.sk`.
 - **Transparency log** (`transparency.log`, `transparency.root`). The oracle
-  does not consume them; the Episode-audit Racket scenario does (and runs
+  does not consume them. The Episode-audit Racket scenario does (and runs
   separately).
-- **Other AIDs.** Three more AIDs exist in the source `.data/`; they all pass
-  the same oracle but contribute no extra coverage to the regression gate.
+- **Other AIDs.** Three more AIDs exist in the source `.data/`. They pass
+  the same verifier but add no coverage to the regression check.
 
 ## How to refresh
 
@@ -45,4 +45,4 @@ When the kernel's KERI primitives change shape:
 
 `run.sh --fixture <name>` exports `GOBLINS_DATA_DIR` pointing at this directory
 (`keri-conformance/fixtures/<name>`) so the oracle's
-`Path(os.environ.get("GOBLINS_DATA_DIR"))` reads it without any other changes.
+`Path(os.environ.get("GOBLINS_DATA_DIR"))` reads it with no other change.

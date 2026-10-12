@@ -8,8 +8,8 @@ const runtime = @import("../host_runtime.zig");
 const HostRuntime = runtime.HostRuntime;
 
 /// Spawn `initial` once in the Host Vat and bind `name` as a Host-wide alias.
-/// Fetching the name lazily projects that actor onto the requesting Port;
-/// exact gifts retain the actor target and do not consult this name again.
+/// Fetching the name lazily projects that actor onto the requesting Port.
+/// Exact gifts retain the actor target and do not consult this name again.
 pub fn publish(
     self: *HostRuntime,
     name: []const u8,

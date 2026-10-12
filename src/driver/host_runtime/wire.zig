@@ -26,18 +26,18 @@ pub const DeferredSessionRelease = struct {
 pub const Wire = struct {
     link: Link,
     session: *driver_core.HostSession,
-    /// The transport reported closure (EOF or fault); the wire stays owned so
+    /// The transport reported closure (EOF or fault). The wire stays owned so
     /// a view holding it observes closed state rather than a dangling row.
     closed: bool = false,
     /// Physical carrier retirement is a separate barrier from logical CapTP
-    /// closure; its progress arrives through the resident's readiness row.
+    /// closure. Its progress arrives through the resident's readiness row.
     carrier_close: CarrierClose = .open,
     carrier_close_deadline_ms: ?i64 = null,
     /// The logical primary plus the first carrier-cleanup consequence. Static
     /// names keep this bounded and allocation-free on the close path.
     close_failure: ?OperationFailure = null,
     /// A consumed session may transfer only its carrier into Runtime-owned
-    /// retirement. Intrusive links make completion O(1) and allocation-free;
+    /// retirement. Intrusive links make completion O(1) and allocation-free.
     /// `session` is never dereferenced while detached.
     detached: bool = false,
     retiring_prev: ?*Wire = null,
@@ -69,7 +69,7 @@ pub const Wire = struct {
         parked_packets: std.ArrayListUnmanaged([]u8) = .empty,
         parked_packet_bytes: usize = 0,
         /// The read loop stopped at the chunk that opened the session, so the
-        /// embedder's post-open setup runs before later chunks dispatch;
+        /// embedder's post-open setup runs before later chunks dispatch.
         /// `resumeFeedTails` finishes the read once the open commits.
         read_deferred: bool = false,
 

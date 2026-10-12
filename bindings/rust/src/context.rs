@@ -21,12 +21,14 @@ error_slot::error_slot!(
 /// against the header constants the binding was built against to detect skew.
 pub fn abi_version() -> (u32, u32, u32) {
 	let (mut major, mut minor, mut patch) = (0u32, 0u32, 0u32);
+	// SAFETY: `major`, `minor`, and `patch` are local `u32`s borrowed for the call; the callee writes each and keeps no
+	// pointer.
 	unsafe { sys::glowcap_abi_version(&mut major, &mut minor, &mut patch) };
 	(major, minor, patch)
 }
 
 /// A host-supplied allocation backend for a [`Context`]. Every method must be
-/// thread-safe; the library may call them from any thread that touches a handle
+/// thread-safe. The library may call them from any thread that touches a handle
 /// created in the context.
 pub trait ContextAllocator: Send + Sync {
 	/// Return a block of at least `size` bytes aligned to `alignment`, or null on
@@ -123,7 +125,7 @@ impl Context {
 	}
 
 	/// Atomically claim the oldest unreturnable failure retained by this
-	/// context. A claimed event cannot reappear; events recorded concurrently
+	/// context. A claimed event cannot reappear. Events recorded concurrently
 	/// remain ordered for later claims.
 	pub fn next_failure(&self) -> Result<Option<FailureEvent>> {
 		self.inner.next_failure()
@@ -160,8 +162,13 @@ impl ContextInner {
 			user_data: user_data as *mut core::ffi::c_void,
 		};
 		let mut raw: *mut sys::GlowcapContext = core::ptr::null_mut();
+		// SAFETY: `c_allocator` is a local `GlowcapAllocator` borrowed for the call, with the trampolines above and
+		// `user_data` the `Box::into_raw` pointer just made, which only `ContextInner::drop` frees; `raw` is an
+		// out-parameter the callee fills.
 		let rc = unsafe { sys::glowcap_context_new_with_allocator(&c_allocator, &mut raw) };
 		if rc != sys::OK {
+			// SAFETY: `user_data` came from the `Box::into_raw` above and the call failed, so the C side holds no
+			// context that could use it; this is the only `Box::from_raw` on that pointer for this path.
 			unsafe { drop(Box::from_raw(user_data)) };
 			return Err(Error::from_code(rc));
 		}
@@ -175,6 +182,8 @@ impl ContextInner {
 	pub(crate) fn new() -> Result<Self> {
 		require_ocapn_archive()?;
 		let mut raw: *mut sys::GlowcapContext = core::ptr::null_mut();
+		// SAFETY: `raw` is a local out-parameter the callee fills with the new context handle, which
+		// `ContextInner::drop` releases.
 		check(unsafe { sys::glowcap_context_new(&mut raw) })?;
 		Ok(Self {
 			raw,
@@ -238,6 +247,9 @@ impl ContextInner {
 		// Recording is observational. If the preferred Context refuses its own
 		// diagnostic input, retain both facts in the bounded surviving queue
 		// without replacing the protocol or teardown outcome.
+		// SAFETY: `self.raw` is this `ContextInner`'s handle from `glowcap_context_new`, released only by its `Drop`;
+		// `report` is a local `GlowcapFailureReport` borrowed for the call, whose text pointers borrow `operation` and
+		// `error` for the same call, and the callee copies bounded prefixes and retains no report pointer.
 		let rc = unsafe { sys::glowcap_context_report_failure(self.raw, &report) };
 		if rc != sys::OK {
 			record_runtime_failure(runtime_layer, operation, error.clone());
@@ -246,9 +258,14 @@ impl ContextInner {
 	}
 
 	pub(crate) fn next_failure(&self) -> Result<Option<FailureEvent>> {
+		// SAFETY: `GlowcapFailureEvent` is a plain C struct of integers and null pointers; all-zero is a valid value,
+		// and the callee fills it before it is read.
 		let mut event: sys::GlowcapFailureEvent = unsafe { core::mem::zeroed() };
 		let mut required = 0usize;
 		let first =
+			// SAFETY: `self.raw` is this `ContextInner`'s handle, released only by its `Drop`; `event` and `required`
+			// are local out-parameters the callee fills, and the null payload with capacity zero asks for the size
+			// only.
 			unsafe { sys::glowcap_context_next_failure(self.raw, &mut event, core::ptr::null_mut(), 0, &mut required) };
 		if first == sys::WOULD_BLOCK {
 			return Ok(None);
@@ -258,6 +275,9 @@ impl ContextInner {
 		}
 		let mut payload = vec![0u8; required];
 		if first == sys::ERR_BUFFER_TOO_SMALL {
+			// SAFETY: as the first `glowcap_context_next_failure` call above; `payload` is a live `Vec<u8>` of
+			// `payload.len()` bytes the callee writes during the call and whose storage the `event` text pointers then
+			// reference.
 			let rc = unsafe {
 				sys::glowcap_context_next_failure(
 					self.raw,
@@ -280,6 +300,9 @@ impl ContextInner {
 					format!("glowcap ABI returned a null {field} with nonzero length"),
 				));
 			}
+			// SAFETY: the callers pass pointers the callee wrote into `event` that reference the caller-owned `payload`
+			// storage, which outlives every `text` call; `ptr` is non-null here and `len` bytes were written there, and
+			// the slice is copied out before returning.
 			let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
 			let value = core::str::from_utf8(bytes).map_err(|_| {
 				Error::with_detail(
@@ -301,8 +324,13 @@ impl ContextInner {
 			secondary_result: event.secondary_result,
 			secondary_count: event.secondary_count,
 			truncated_fields: event.flags,
+			// SAFETY: `event.operation` and its length were filled by `glowcap_context_next_failure` and point into
+			// `payload`, a live local until this statement ends; `text` only reads that range and returns an owned
+			// `String`.
 			operation: unsafe { text(event.operation, event.operation_len, "failure operation")? },
+			// SAFETY: as `operation` above, for `event.primary_name`.
 			primary_name: unsafe { text(event.primary_name, event.primary_name_len, "primary failure name")? },
+			// SAFETY: as `operation` above, for `event.primary_message`.
 			primary_message: unsafe {
 				text(
 					event.primary_message,
@@ -310,7 +338,9 @@ impl ContextInner {
 					"primary failure message",
 				)?
 			},
+			// SAFETY: as `operation` above, for `event.secondary_name`.
 			secondary_name: unsafe { text(event.secondary_name, event.secondary_name_len, "secondary failure name")? },
+			// SAFETY: as `operation` above, for `event.secondary_message`.
 			secondary_message: unsafe {
 				text(
 					event.secondary_message,
@@ -325,6 +355,8 @@ impl ContextInner {
 fn require_ocapn_archive() -> Result<()> {
 	crate::require_archive_fingerprint(
 		"ocapn",
+		// SAFETY: `glowcap_ocapn_archive_fingerprint` takes no arguments and returns an integer by value, so it touches
+		// no Rust memory.
 		unsafe { sys::glowcap_ocapn_archive_fingerprint() },
 		sys::OCAPN_ARCHIVE_FINGERPRINT,
 	)
@@ -332,10 +364,15 @@ fn require_ocapn_archive() -> Result<()> {
 
 impl Drop for ContextInner {
 	fn drop(&mut self) {
-		// Release the context first — it frees its tables through the allocator —
+		// Release the context first, it frees its tables through the allocator,
 		// then drop the host allocator the trampolines borrowed.
+		// SAFETY: `self.raw` is the handle from `glowcap_context_new` or `glowcap_context_new_with_allocator`, released
+		// exactly once here because `Drop` runs once; every handle created through the context is released first by the
+		// types that retain `ContextInner`.
 		unsafe { sys::glowcap_context_release(self.raw) };
 		if !self.allocator.is_null() {
+			// SAFETY: `self.allocator` is the non-null `Box::into_raw` pointer made in `with_allocator`, freed exactly
+			// once here and only after `glowcap_context_release` has stopped the C side from calling the trampolines.
 			unsafe { drop(Box::from_raw(self.allocator)) };
 		}
 	}
@@ -355,7 +392,7 @@ impl ContextAllocator for RustAllocator {
 		}
 	}
 	unsafe fn free(&self, ptr: *mut u8, size: usize, alignment: usize) {
-		// SAFETY: the trait's contract — `ptr` came from this allocator's
+		// SAFETY: the trait's contract: `ptr` came from this allocator's
 		// `alloc` under the same size and alignment, including its `max(1)`.
 		unsafe {
 			std::alloc::dealloc(

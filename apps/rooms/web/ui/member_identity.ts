@@ -2,7 +2,7 @@
 // and avatar.
 //
 // A member bridged from elsewhere carries their bridge's attribution prefix in
-// the roster key; one who is linked stays a single Rooms member with a seat
+// the roster key. One who is linked stays a single Rooms member with a seat
 // projected onto that membership. Which prefix, and what to call either of
 // them, is the room's to say and this module's to read.
 
@@ -10,7 +10,7 @@ import type { BridgeFacts, Standing } from "./types.ts";
 
 // A stable per-name avatar tint, so every speaker keeps one colour. The ten
 // values live in the rooms stylesheets as `--avatar-1` … `--avatar-10`, beside
-// the rest of the palette. This module picks the slot; the stylesheet owns the
+// the rest of the palette. This module picks the slot. The stylesheet owns the
 // colour.
 const AVATAR_SLOTS = 10;
 
@@ -42,7 +42,7 @@ export function hueOf(name: string): string {
 }
 
 /** How a member's relationship to a bridge is drawn. `foreign` is somebody who
- * exists only over there; the rest are a native member's link states. These are
+ * exists only over there. The rest are a native member's link states. These are
  * the page's own classes rather than a bridge's words. */
 export type MemberNetwork = "rooms" | "foreign" | "rooms-connecting" | "rooms-linked" | "rooms-failed";
 
@@ -63,7 +63,7 @@ export interface MemberIdentity {
 }
 
 /** How each link state is drawn. The state is the room's fact and the styling
- * is the page's, so this pairing stays here; only the words came from the
+ * is the page's, so this pairing stays here. Only the words came from the
  * bridge. */
 const SEAT_NETWORKS = {
 	rooms: "rooms",
@@ -103,14 +103,14 @@ export function memberIdentity(
  * The pip on the member's own chip already says they are here, so a plain
  * member who is gets nothing: a column of rows each repeating "online" under a
  * filled dot is a word-column standing where the names are, and the names are
- * what a reader came to scan. What earns the line is what the pip cannot say —
- * the reason somebody stepped away, the network they are reachable on — and
+ * what a reader came to scan. What earns the line is what the pip cannot say (
+ * the reason somebody stepped away, the network they are reachable on) and
  * being gone, which the pip says only by not being filled and the row says
  * only by fading, both quiet enough that the word still carries its weight.
  *
  * Nothing is lost by leaving it out: the pip is an `img` labelled with the
  * state, so it is announced either way. And the row keeps its height, so a
- * roster does not reflow when somebody steps away; a name with nothing under
+ * roster does not reflow when somebody steps away. A name with nothing under
  * it stands in the middle of the space instead. */
 export function memberDetail(identity: MemberIdentity, standing: Standing): string {
 	const away = standing.online && standing.away !== "";

@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-selection-panel-shots.ts — the Inspector, once per
+ * playwright-selection-panel-shots.ts: the Inspector, once per
  * selection shape, in both themes and both modes.
  *
  * The group-selection panel is judged on real selections rather than

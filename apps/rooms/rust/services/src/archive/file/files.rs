@@ -56,7 +56,10 @@ impl FileArchive {
 		}
 		drop(chunks);
 		// Observe the job either way; the source's own failure stays primary.
-		let staged = self.settle().await.expect("submitted file operation");
+		let staged = self
+			.settle()
+			.await
+			.unwrap_or_else(|| Err(Error::invalid("file operation was not submitted")));
 		if let Some(error) = refused {
 			return Err(error);
 		}
@@ -89,7 +92,7 @@ impl FileArchive {
 	}
 	pub async fn blob_usage(&mut self) -> Result<BlobUsage, Error> {
 		match self
-			.submit(|store| Ok(Completion::Usage(store.blobs.as_ref().expect("opened blobs").usage())))
+			.submit(|store| Ok(Completion::Usage(store.blobs()?.usage())))
 			.await?
 		{
 			Completion::Usage(usage) => Ok(usage),
@@ -98,7 +101,7 @@ impl FileArchive {
 	}
 	pub async fn cleanup_blobs(&mut self) -> Result<(), Error> {
 		self.submit(|store| {
-			store.blobs.as_mut().expect("opened blobs").cleanup()?;
+			store.blobs_mut()?.cleanup()?;
 			Ok(Completion::Cleaned)
 		})
 		.await?;
@@ -109,21 +112,23 @@ impl Store {
 	fn read_blob(&mut self, reader: &policy::Reader, offset: u64, maximum: usize) -> Result<Vec<u8>, DiskFailure> {
 		let length = reader.read_length(&self.index, offset, maximum)?;
 		let attachment = reader.resolve(&self.index)?;
-		self.blobs
+		// The index borrow ends with `resolve`; the blob store is borrowed on its own.
+		let blobs = self
+			.blobs
 			.as_mut()
-			.expect("opened blobs")
-			.read(attachment, offset, length)
+			.ok_or_else(|| DiskFailure::Invalid("archive blob store is not open".into()))?;
+		blobs.read(attachment, offset, length)
 	}
 
 	pub(super) fn commit_with_blobs(&mut self, record: Record) -> Result<u64, DiskFailure> {
 		let changes = blobs::Blobs::changes(self.index.retired_by(&record), Some(&record));
-		if !self.blobs.as_ref().expect("opened blobs").permits(&changes) {
+		if !self.blobs()?.permits(&changes) {
 			return Err(DiskFailure::Full(
 				"archive retained blobs exceed their byte ceiling".into(),
 			));
 		}
 		let revision = self.commit_record(record)?;
-		self.blobs.as_mut().expect("opened blobs").committed(changes);
+		self.blobs_mut()?.committed(changes)?;
 		Ok(revision)
 	}
 	pub(super) fn finish_file_put(&mut self, result: Result<u64, DiskFailure>) -> Result<u64, DiskFailure> {
@@ -131,7 +136,7 @@ impl Store {
 			// An uncertain journal may reference staged bytes. Only a definitely
 			// uncommitted operation can remove its unreferenced staging here.
 			if self.ready
-				&& let Err(cleanup) = self.blobs.as_mut().expect("opened blobs").cleanup()
+				&& let Err(cleanup) = self.blobs_mut()?.cleanup()
 			{
 				return Err(primary.retain(cleanup));
 			}
@@ -143,7 +148,7 @@ impl Store {
 }
 
 /// The serial worker opens this executor before borrowing its backend for an
-/// ingestion. It owns no mutation authority; each read rechecks committed state.
+/// ingestion. It owns no mutation authority. Each read rechecks committed state.
 pub(super) struct ReadAccess(pub(super) Arc<Mutex<Store>>);
 impl crate::archive::BlobAccess for ReadAccess {
 	async fn read(&self, reader: policy::Reader, offset: u64, maximum: usize) -> Result<Vec<u8>, Error> {
@@ -167,21 +172,17 @@ fn stage(store: &Mutex<Store>, record: Record, chunks: &mut blobs::Chunks) -> Re
 	let record = {
 		let mut store = lock(store)?;
 		store.live()?;
-		store.blobs.as_mut().expect("opened blobs").cleanup()?;
+		store.blobs_mut()?.cleanup()?;
 		store.index.prepare_put(record)
 	};
 	let result = (|| {
 		let mut digests = Vec::new();
 		for attachment in policy::files(&record)? {
-			let staged = lock(store)?
-				.blobs
-				.as_mut()
-				.expect("opened blobs")
-				.begin(attachment.size())?;
+			let staged = lock(store)?.blobs_mut()?.begin(attachment.size())?;
 			// No journal or blob-index lock spans a source wait. A source may
 			// itself be a reader of this archive's committed bytes.
 			let staged = staged.write(chunks)?;
-			digests.push(lock(store)?.blobs.as_mut().expect("opened blobs").finish(staged)?);
+			digests.push(lock(store)?.blobs_mut()?.finish(staged)?);
 		}
 		let record = record.with_blob_digests(digests)?;
 		lock(store)?.commit_with_blobs(record)

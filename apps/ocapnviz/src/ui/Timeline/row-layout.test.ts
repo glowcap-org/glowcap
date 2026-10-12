@@ -1,6 +1,6 @@
 /**
  * `iterateRows` is the walk that decides which timeline rows exist.
- * Height and hit-test both consume it; these cases pin the walk itself
+ * Height and hit-test both consume it. These cases pin the walk itself
  * (empty categories, expansion, per-entity rows, hidden-on-stage height).
  */
 
@@ -18,7 +18,7 @@ Deno.test(
 			undefined,
 			30,
 		)];
-		// The lane toggle alone decides row existence — an empty
+		// The lane toggle alone decides row existence, an empty
 		// `messages` still gets its row, so content coming and going
 		// never shifts the chrome and the category stays expandable.
 		assertEquals(rows.length, 3);
@@ -92,7 +92,7 @@ Deno.test("iterateRows: hidden-on-stage rows keep full lane height", () => {
 Deno.test("iterateRows: an empty category expands and collapses like any other", () => {
 	// The lane toggle alone decides whether the category row exists;
 	// expansion is user-set (persisted) state on top. An empty group
-	// must therefore be freely expandable AND collapsible — content
+	// must therefore be freely expandable AND collapsible, content
 	// coming and going never traps the chrome in either state.
 	const lanes = new Set<"peers" | "sessions" | "messages" | "ruler">([
 		"peers",
@@ -107,7 +107,7 @@ Deno.test("iterateRows: an empty category expands and collapses like any other",
 	)];
 	const header = expandedEmpty.find((r) => r.kind === "category-header");
 	assertEquals(header?.category, "messages");
-	// Collapsed, the empty group keeps its collapsed row — still
+	// Collapsed, the empty group keeps its collapsed row, still
 	// there to expand again.
 	const collapsedEmpty = [...iterateRows(
 		lanes,

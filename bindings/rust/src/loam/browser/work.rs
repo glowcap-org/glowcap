@@ -5,7 +5,7 @@ use crate::{Result, sys::loam as ffi};
 use std::rc::Rc;
 
 /// Constructed before relay admission, including when that task never runs.
-/// Physical retirement parks only raw work; Host completion owns callbacks.
+/// Physical retirement parks only raw work. Host completion owns callbacks.
 struct Custody {
 	owner: Rc<AttachmentInner>,
 	raw: *mut ffi::GlowcapLoamWork,

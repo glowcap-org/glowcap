@@ -3,7 +3,7 @@ id: ADR-0203
 status: accepted
 date: 2026-10-05
 tags: [loam, hosting, lifetime, rooms]
-decision: "A live hosting lifetime uses its own transactionally advanced marker; the Store opening incarnation only fences writers."
+decision: "A live hosting lifetime uses its own transactionally advanced marker. The Store opening incarnation only fences writers."
 supersedes: []
 superseded_by: []
 amends: [ADR-0182]
@@ -16,7 +16,7 @@ amended_by: [ADR-0204]
 
 Rooms seats, line handles and upload state end with their hosting lifetime.
 Saving durable workspace intent cannot preserve those runtime capabilities.
-The [storage contract](../../planning/rooms/persistence.md) requires a marker
+The [storage contract](../../planning/rooms.md) requires a marker
 advanced before admissions open after restart, with bounded later retirement.
 It also requires exact held authority, explicit ownership and atomic staging.
 
@@ -30,8 +30,8 @@ at startup would make restart cost depend on unrelated authority populations.
 [`hosting::LiveEpoch`](../../../src/loam/hosting/live_epoch.zig) owns a rooted
 record containing a nonzero generation and the opening transaction identity.
 The embedding retains its object name
-as trusted startup metadata. The name and generation describe a lifetime;
-they cannot restore or manufacture a capability.
+as trusted startup metadata. The name and generation describe a lifetime.
+They cannot restore or manufacture a capability.
 
 The hosting owner stages a generation advance in the existing Store transaction
 before opening live admissions. Expected record revision and refusal of a
@@ -54,13 +54,13 @@ reference custody and hosted C/Rust activation. The
 Ordinary durable save requests continue to refuse live-only capabilities.
 
 Epoch advancement performs no population scan. Exact live custody and its
-bounded retirement belong to the hosting scope; the marker supplies no
+bounded retirement belong to the hosting scope. The marker supplies no
 capability or permission policy.
 
 ## Alternatives considered
 
 - The Store incarnation misses a Host restart within one opening.
-- Serializing Host capability handles cannot preserve actual authority across
+- Serializing Host capability handles cannot preserve authority across
   runtime teardown and handle reuse.
 - Eagerly rewriting old live rows makes restart depend on population size.
 

@@ -16,7 +16,7 @@ const playwright_scan_trees = [_][]const u8{ "apps", "bindings", "bench", "confo
 /// everything that needs it derives from there: `image/playwright.sh` reads
 /// the pin to install the browser into the image, and each Deno scope's import
 /// map resolves the `playwright` its scripts import. Those are the same program
-/// in two halves — a browser binary and the library that drives it — and a
+/// in two halves, a browser binary and the library that drives it, and a
 /// version skew between them makes Playwright hunt for a browser build number
 /// the image never installed.
 ///
@@ -28,7 +28,7 @@ const playwright_scan_trees = [_][]const u8{ "apps", "bindings", "bench", "confo
 /// disk. Import maps are where a version belongs, so they are the only place a
 /// literal is allowed.
 ///
-/// `deno.lock` is deliberately not read, and the omission is a decision. A lock
+/// `deno.lock` is not read, and the omission is a decision. A lock
 /// is derived from the two surfaces above and from nothing else, so once both
 /// are clean, a version still named in a lock is residue that regenerating it
 /// removes. It is also allowed to hold several versions at once, because a

@@ -60,7 +60,7 @@ pub(super) fn accept<P: Tasks + Deadline + Clone + 'static>(
 	id.push_str("direct:");
 	use std::fmt::Write;
 	for byte in hash.0.finalize() {
-		write!(&mut id, "{byte:02x}").expect("String writing");
+		let _ = write!(&mut id, "{byte:02x}");
 	}
 	queue(
 		state,
@@ -128,14 +128,16 @@ fn queue<P: Tasks + Deadline + Clone + 'static>(
 	} else {
 		&request.args[0]
 	};
-	let mut key = format!(
-		"{}:{}",
-		request.verb,
-		identity.as_str().expect("direct transition identity")
-	);
+	let identity = identity
+		.as_str()
+		.ok_or_else(|| loam::refusal("direct transition identity is not text"))?;
+	let mut key = format!("{}:{}", request.verb, identity);
 	if request.verb == "adopt-direct-route" {
 		use std::fmt::Write;
-		write!(&mut key, ":{}", request.args[3].as_i64().expect("route ordinal")).expect("String writing");
+		let ordinal = request.args[3]
+			.as_i64()
+			.ok_or_else(|| loam::refusal("direct route ordinal is not an integer"))?;
+		let _ = write!(&mut key, ":{ordinal}");
 	}
 	let mut pending = state.introductions.borrow_mut();
 	if let Some(previous) = pending.get(&key) {
@@ -181,10 +183,11 @@ fn start<P: Tasks + Deadline + Clone + 'static>(
 					pending.remove(&completion_key);
 				}
 				Err(error) => {
-					pending
-						.get_mut(&completion_key)
-						.expect("retained direct transition")
-						.failure = Some(error);
+					// The writer reported this failure above; the entry keeps it
+					// for the explicit retry when the transition is still retained.
+					if let Some(entry) = pending.get_mut(&completion_key) {
+						entry.failure = Some(error);
+					}
 				}
 			}
 			drop(pending);

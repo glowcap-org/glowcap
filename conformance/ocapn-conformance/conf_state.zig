@@ -134,8 +134,8 @@ pub const ConfCtx = struct {
 };
 
 /// A gifter enliven waiting for an exporter session to open before its fetch
-/// can go out — the no-prior-connection gifter path. Bounded by concurrent
-/// enlivens; `runGifterFetch` consumes one when its exporter opens.
+/// can go out: the no-prior-connection gifter path. Bounded by concurrent
+/// enlivens, `runGifterFetch` consumes one when its exporter opens.
 pub const PendingEnliven = struct {
     exporter_uuid: []u8,
     swiss: []u8,
@@ -174,10 +174,10 @@ pub const Shared = struct {
     host: *Host,
     runtime: *driver.HostRuntime,
     /// Per-session conformance state, keyed by session. Only accepted sessions
-    /// (desks) register here; dialed exporter/redeem legs never do.
+    /// (desks) register here, dialed exporter/redeem legs never do.
     confs: std.AutoHashMapUnmanaged(PeerHandle, *ConfCtx) = .{},
     /// Gifter enlivens whose exporter session was not yet open when the enliven
-    /// arrived; drained in `on_open`.
+    /// arrived, drained in `on_open`.
     pending: std.ArrayListUnmanaged(PendingEnliven) = .empty,
     /// Host-driving effects held until the before-serve callback latch opens.
     deferred: std.ArrayListUnmanaged(DeferredAction) = .empty,

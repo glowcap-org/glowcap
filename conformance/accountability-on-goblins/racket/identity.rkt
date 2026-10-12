@@ -1,5 +1,5 @@
 #lang racket/base
-;; identity.rkt — minimum-subset KERI in plain Racket.
+;; identity.rkt: minimum-subset KERI in plain Racket.
 ;;
 ;; Implements the KERI primitives the kernel touches: AID inception, one
 ;; rotation, sign, verify. Uses Ed25519 via libsodium FFI; Blake3-256 via
@@ -9,7 +9,7 @@
 ;; per spec.
 ;;
 ;; Conformance is verified externally by the keripy oracle at
-;; reference/tests/keri-conformance/oracle/verify.py — driven via
+;; reference/tests/keri-conformance/oracle/verify.py, driven via
 ;; reference/tests/keri-conformance/run.sh.
 
 (require racket/string
@@ -169,7 +169,7 @@
 ;; ============================================================================
 ;; Deterministic JSON serialization
 ;; ============================================================================
-;; keripy uses `json.dumps(d, separators=(",",":"))` — compact JSON, no spaces.
+;; keripy uses `json.dumps(d, separators=(",",":"))`, compact JSON, no spaces.
 ;; Racket's hashes don't preserve insertion order on `hash-keys`, and KERI
 ;; events have a CANONICAL FIELD ORDER (v, t, d, i, s, p, kt, k, nt, n, bt,
 ;; b, br, ba, c, a) that matters for SAID derivation. We render KERI events

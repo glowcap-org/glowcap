@@ -25,26 +25,26 @@ preserve those admissions without exporting bookkeeping to applications.
 The Store owns a bounded journal of unconfirmed mark obligations and reusable
 record scratch, allocated lazily when a cycle starts. It captures retained IDs,
 pending reads, and pinned portraits with their strong historical edges once.
-Registry and Cache remain the authorities for live custody; the journal holds
+Registry and Cache remain the authorities for live custody. The journal holds
 effects awaiting durable confirmation, never invocation authority.
 
 Before custody escapes, reserve journal space. Append the obligations only
 after minting the retention token, lease or read request succeeds. Each exact
 immutable resident portrait reports its ID and strong edges on its first lease
-exposure in the cycle. Subsequent pins reuse that report; replacement creates
+exposure in the cycle. Subsequent pins reuse that report. Replacement creates
 an unreported portrait. Snapshot promotion does not refresh this marker.
 
 Clean idle starts directly with roots: the prior finishing receipt guarantees
 that temporary rows are gone. Initial and tracing batches submit all pending
 obligations before phase work. Restart clearing and finishing batches submit
 none: clearing may erase marks, and finishing performs no further deletion.
-Finishing admissions create no debt; remaining holders are captured next cycle.
+Finishing admissions create no debt. Remaining holders are captured next cycle.
 Clearing ends its batch at the transition into root
 scanning, so tracing cannot outrun the next custody submission. Confirmed
 installation acknowledges only submitted roots.
 Abort, unchanged completion and unknown outcomes preserve debt, and unknown
 outcomes keep the existing admission fence. Cycle completion releases the
-journal; next-cycle capture accounts for remaining holders. Reopen captures
+journal. Next-cycle capture accounts for remaining holders. Reopen captures
 fresh custody and retains the existing fresh-trace contract.
 
 ## Alternatives considered
@@ -59,14 +59,14 @@ fresh custody and retains the existing fresh-trace contract.
 
 ## Consequences and bounds
 
-The journal holds at most `max_collection_roots` IDs; scratch holds at most
+The journal holds at most `max_collection_roots` IDs. Scratch holds at most
 `max_record_bytes`. Admission exhaustion refuses before publishing custody.
 Initial capture failure publishes neither cycle state nor portrait markers.
 Existing tokens, leases and pending reads remain protected. Releases may leave
 conservative debt until its batch settles, without changing borrowed memory.
 
 `work_limit` bounds record visits and phase transitions. Root shading is bounded
-separately by journal capacity; it is not charged to that limit. Marks and the
+separately by journal capacity. It is not charged to that limit. Marks and the
 trace queue remain in backend storage. No graph-sized resident index, worker,
 runtime, database format change or longer database-reader lifetime is added.
 

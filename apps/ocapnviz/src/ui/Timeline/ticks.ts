@@ -24,7 +24,7 @@ export type TickStep = {
 	format: (ms: number) => string;
 };
 
-// Unit anchors. Months and years are NOT calendar-accurate — they
+// Unit anchors. Months and years are NOT calendar-accurate, they
 // approximate (30 days / 365 days) because the timeline measures
 // elapsed simulation time, not wall-clock dates. This is the same
 // approximation Flash / After Effects / Premiere use for their
@@ -123,8 +123,8 @@ function formatYears(ms: number): string {
  * Pick the tick step whose major spacing is just large enough to
  * reach the target pixel spacing. Returns the smallest entry whose
  * `major × pxPerMs ≥ targetMajorPx`. Falls back to the largest
- * step at very low zoom; falls back to the smallest at very high
- * zoom (sub-millisecond rendering isn't supported — engine clock
+ * step at very low zoom. Falls back to the smallest at very high
+ * zoom (sub-millisecond rendering isn't supported, engine clock
  * is in ms).
  */
 export function pickTickStep(
@@ -139,7 +139,7 @@ export function pickTickStep(
 
 /**
  * Generate the major + minor ticks visible inside `[startMs, endMs]`
- * for the chosen `step`. Returns absolute ms positions; caller maps
+ * for the chosen `step`. Returns absolute ms positions. Caller maps
  * them to pixels via `tToPx`.
  *
  * Snaps to multiples of `major` / `minor` so ticks remain visually

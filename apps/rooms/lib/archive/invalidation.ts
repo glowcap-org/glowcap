@@ -1,4 +1,4 @@
-// History notifications carry only a scope; clients reread committed records.
+// History notifications carry only a scope. Clients reread committed records.
 import { MAX_ARCHIVE_CONTEXT_BYTES, MAX_ARCHIVE_CONVERSATION_BYTES } from "../archive/protocol.ts";
 import { utf8Fits } from "../limits.ts";
 

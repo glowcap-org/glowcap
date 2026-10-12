@@ -35,13 +35,13 @@ binding pays 32 KiB per idle stream wire that the scale run never paid, and a
 fix to one runtime does not reach the others. Some policy also has no runtime
 home: `driver.DialRetry` has one Zig caller (`interop/iroh_reachability`)
 while the Rust, TypeScript and Python bindings each run their own retry loop
-over shared constants; Zig has no stock Loam worker though C has
-`c_abi/loam/work.zig`; and the GC setting moved to the Rust Host only
+over shared constants. Zig has no stock Loam worker though C has
+`c_abi/loam/work.zig`, and the GC setting moved to the Rust Host only
 (ADR-0192).
 
-The principles this engages: one authority per fact (one runtime, one set of
-policies), every wire-path allocation forbidden, named or measured (the per-wire
-buffers), and examples that measure what users run.
+One runtime and one set of policies give one authority per fact, the per-wire
+buffers are a named wire-path allocation, and the examples should measure what
+users run.
 
 ## Decision
 
@@ -73,9 +73,9 @@ buffers), and examples that measure what users run.
      provider connection into a pool buffer on readiness. The provider table
      moves from blocking `read`/`write_all` to the multiplexed table's
      `try_read`/`try_write`, so both provider kinds share one I/O contract.
-   - Session and Server stop taking stream netlayers; they enable stream
+   - Session and Server stop taking stream netlayers. They enable stream
      symbols and take each one's deployment state (relay URL, Tor
-     endpoints); a listener publishes the Host's own identity. Multiplexed
+     endpoints). A listener publishes the Host's own identity. Multiplexed
      residents (iroh, WebRTC) are unchanged.
    - The blocking face runs the loop until its wait completes. The stepped C
      driver hands out the backend's own descriptor.
@@ -125,7 +125,7 @@ buffers), and examples that measure what users run.
   `stream_wire.Buffers`.
 - `driver.BlockingSession` and its constructors are deleted, with the tests,
   examples and interop drivers that use it moved to `driver.Session`.
-- `bench/peer_scaling` measures through `HostRuntime`; the ladder's scale step
+- `bench/peer_scaling` measures through `HostRuntime`. The ladder's scale step
   and the performance page then describe the product path.
 - Binding retry loops, their docs, and their tests are removed in step 4.
 

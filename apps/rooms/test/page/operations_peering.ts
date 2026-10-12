@@ -1,7 +1,7 @@
 // The browser's complete Peering lifecycle. A room on a second directory is
-// offered through the visible picker; publishing lands a live row; dropping
-// the capability deliberately releases its lease without inventing a revoke;
-// the listing therefore occupies the namespace until this publisher Session
+// offered through the visible picker. Publishing lands a live row. Dropping
+// the capability releases its lease without inventing a revoke.
+// The listing therefore occupies the namespace until this publisher Session
 // disconnects. Reload proves that backstop by publishing the exact name again,
 // then the row's own Revoke proves ordinary exact retirement.
 

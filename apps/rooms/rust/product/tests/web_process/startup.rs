@@ -1,5 +1,5 @@
 //! Adversarial child processes make acquisition cancellation observable. They
-//! implement no Rooms or CapTP behavior; they only wait at process boundaries.
+//! implement no Rooms or CapTP behavior. They only wait at process boundaries.
 use super::*;
 use std::{fs, os::unix::fs::PermissionsExt, path::PathBuf};
 pub(super) struct Fixture(pub(super) PathBuf);

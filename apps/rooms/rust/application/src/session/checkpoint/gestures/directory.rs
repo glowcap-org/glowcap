@@ -98,6 +98,10 @@ impl Reach {
 			+ self.preparation.as_ref().map_or(0, RoomGesture::retained_bytes)
 	}
 	pub fn id(&self) -> &str {
+		#[expect(
+			clippy::expect_used,
+			reason = "`new` read the directory `id` as scalar text when it admitted this gesture"
+		)]
 		self.directory.id.text().as_str().expect("admitted scalar directory")
 	}
 	pub fn outcome(&self, snapshot: &Snapshot) -> Option<Result<(), String>> {

@@ -4,12 +4,15 @@ use crate::server;
 use std::{collections::BTreeMap, path::PathBuf};
 
 pub struct Config {
+	pub(super) admission: super::admission::Config,
 	pub bind: String,
 	pub port: u16,
 	pub(super) browser_assets: BrowserAssets,
+	pub(super) browser_admission: super::browser_admission::Config,
 	pub server: PathBuf,
 	pub server_args: Vec<String>,
 	pub room: server::Config,
+	pub(super) session: Option<crate::session::Config>,
 	pub(super) tor: Option<super::tor::Plan>,
 	pub(super) ice: super::ice::Config,
 	pub(super) relay: super::relay::Limits,
@@ -27,8 +30,14 @@ pub const HELP: &str = "rooms-web [http-port] [room-port] [options]
   --server=<executable>  rooms-server binary (default: beside rooms-web)
   --transport=iroh|tcp|onion  supervised directory (default: iroh)
   --state=<directory>  keep the directory identity and state across restarts
+  --session-state=<directory>  also serve a durable shared workspace and print its use and management links
   --history --storage=<destination> --bind=<host> --announce-host=<host>
   --admin-listeners --diagnostics --operator --peering --irc --trace
+  --http-admission-scale=<1..100> --http-admission-rows=<1..65536>
+  --http-admission-rates=<class=burst/per-minute,...> --http-admission-aggregate-scale=<1..100>
+  --http-admission-per-address=true|false  use actual socket source (default: false)
+  --browser-admission-scale=<1..100> --browser-admission-rows=<1..65536>
+  --browser-admission-rates=<class=burst/per-minute,...> --browser-admission-aggregate-scale=<1..100>
 Server options and GLOWCAP_ROOMS_* variables have the same meaning as rooms-server.
 rooms-web --check-ready[=http://host:port]  check directory and browser assets (5 second deadline)
 rooms-web --locator[=http://host:port]  print the running directory locator
@@ -51,7 +60,9 @@ impl Config {
 			}
 			if let Some(option) = arg.strip_prefix("--") {
 				let (key, value) = option.split_once('=').unwrap_or((option, "1"));
-				if matches!(key, "http-bind" | "http-port" | "assets" | "server")
+				if (matches!(key, "http-bind" | "http-port" | "assets" | "server" | "session-state")
+					|| key.starts_with("http-admission-")
+					|| key.starts_with("browser-admission-"))
 					&& (!option.contains('=') || value.is_empty())
 				{
 					return Err(format!("--{key} requires a nonempty value"));
@@ -109,6 +120,14 @@ impl Config {
 					.map(|p| p.with_file_name("rooms-server"))
 					.map_err(|e| e.to_string())
 			})?;
+		let session = options
+			.remove("session-state")
+			.map(|state| {
+				crate::session::Config::parse([format!("--state={state}")], &env)
+					.map_err(|error| error.to_string())?
+					.ok_or_else(|| "session configuration did not produce a launch".to_owned())
+			})
+			.transpose()?;
 		options
 			.entry("port".into())
 			.or_insert_with(|| positional.get(1).cloned().unwrap_or_else(|| "9099".into()));
@@ -119,6 +138,13 @@ impl Config {
 				raw_options.insert(key.into(), format!("--{key}={value}"));
 			}
 		}
+		let admission = super::admission::Config::read(&options, &env)?;
+		let browser_admission = super::browser_admission::Config::read(&options, &env)?;
+		for key in rooms_application::admission::Settings::OPTIONS {
+			options.remove(&format!("http-{key}"));
+			options.remove(&format!("browser-{key}"));
+		}
+		options.remove("http-admission-per-address");
 		let server_args: Vec<_> = options
 			.into_iter()
 			.map(|(key, value)| raw_options.remove(&key).unwrap_or_else(|| format!("--{key}={value}")))
@@ -132,10 +158,13 @@ impl Config {
 			bind,
 			port,
 			browser_assets,
+			browser_admission,
 			server,
 			server_args,
 			room,
+			session,
 			relay,
+			admission,
 			ice,
 			tor,
 		}))
@@ -151,6 +180,32 @@ mod tests {
 		Config::parse(args.iter().map(|arg| (*arg).to_owned()), |_| None)
 			.unwrap()
 			.unwrap()
+	}
+
+	#[test]
+	fn http_policy_stays_at_its_owner_and_arguments_override_environment() {
+		let config = Config::parse(
+			[
+				"--http-admission-rates=preview=2/10".into(),
+				"--http-admission-per-address=true".into(),
+			],
+			|key| (key == "GLOWCAP_ROOMS_HTTP_ADMISSION_RATES").then(|| "preview=1/1".into()),
+		)
+		.unwrap()
+		.unwrap();
+		assert_eq!(
+			config
+				.admission
+				.settings
+				.profile()
+				.rate(rooms_application::admission::Class::Preview)
+				.burst(),
+			2
+		);
+		assert!(config.admission.per_address);
+		assert!(!config.server_args.iter().any(|s| s.starts_with("--http-admission")));
+		assert!(config.admission.settings.summary().contains("admission-rates=argument"));
+		assert!(Config::parse(["--http-admission-rows=0".into()], |_| None).is_err());
 	}
 
 	#[test]

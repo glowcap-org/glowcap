@@ -1,5 +1,5 @@
 //! Shared host filesystem custody and durable replacement. Application
-//! codecs decide document validity; disk workers retain the directory lease.
+//! codecs decide document validity. Disk workers retain the directory lease.
 use rooms_application::documents::DocumentError;
 use std::{
 	fmt,

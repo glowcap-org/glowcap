@@ -1,5 +1,5 @@
 //! Capture begins at admission. Completed immutable chunks share their original
-//! allocations with disk writes; wire replies copy only the requested span.
+//! allocations with disk writes. Wire replies copy only the requested span.
 use super::*;
 use crate::archive::{Chunk, Source};
 use rooms_application::files::{CHUNK_BYTES, FileDescription};
@@ -26,7 +26,7 @@ impl Storage {
 			Self::Views(v) => v.description(),
 		}
 	}
-	/// A span outside the captured bytes is the caller's mistake; the bytes
+	/// A span outside the captured bytes is the caller's mistake. The bytes
 	/// themselves are all here.
 	fn span(&self, offset: u64, length: usize) -> Result<Chunk, Error> {
 		match self {
@@ -128,10 +128,10 @@ impl Capture {
 		if let Some(error) = failure {
 			return Err(error);
 		}
-		Ok(files
+		files
 			.into_iter()
-			.map(|file| file.expect("every capture completed"))
-			.collect())
+			.map(|file| file.ok_or_else(|| Error::closed("a capture ended without delivering its file")))
+			.collect()
 	}
 }
 impl Captured {

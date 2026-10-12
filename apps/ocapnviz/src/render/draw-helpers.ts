@@ -1,5 +1,5 @@
 /**
- * Node marks, two-click overlays, and label pills — pure functions
+ * Node marks, two-click overlays, and label pills, pure functions
  * that paint specific geometry into a `Graphics`. Split from
  * `Stage.tsx` so scene orchestration does not carry this drawing.
  *
@@ -22,7 +22,7 @@ import type { HaloTier, PeerActivity } from "./types.ts";
 // Every number here is a screen pixel, at every zoom. These
 // graphics say something about the tool ("you picked Alice; pick a
 // second peer"), not about the world, so they are anchored in world
-// coordinates and measured in screen ones — the same split the
+// coordinates and measured in screen ones. The same split the
 // peer labels already make with `counterScale`. Each helper
 // therefore takes the viewport `scale` and divides, because it
 // paints into a container the viewport is about to multiply.
@@ -34,12 +34,12 @@ const MARCH_RING_WIDTH = 2;
  *
  *  Measured from that ring rather than from the body, so the two rings a node can
  *  wear hold one screen distance apart at every zoom and read as one vocabulary.
- *  It used to be measured from the body's half-width with a gap of six, which
- *  came apart in both directions: a square peer's corners reach further than its
+ *  Measuring from the body's half-width with a gap of six comes apart in both
+ *  directions: a square peer's corners reach further than its
  *  half-width, so the ring cut through them at any zoom past 0.5, and six screen
  *  pixels is six hundred world units at 1% zoom, so it ballooned to five times
  *  the body's width as the view pulled back. `haloRadius` owns the shape a ring
- *  hugs; this is the one number that says which of the two rings is outside. */
+ *  hugs. This is the one number that says which of the two rings is outside. */
 const MARCH_RING_GAP_PX = 3;
 /** Fewest dashes in a ring, so a peer at a very low zoom still
  * reads as marching rather than as two ticks and a gap. */
@@ -65,7 +65,7 @@ export interface MarchCanvas {
 	stroke(style: StrokeStyle): unknown;
 }
 
-/** Wire-preview line — straight dashed line from `(x0, y0)` to
+/** Wire-preview line, straight dashed line from `(x0, y0)` to
  * `(x1, y1)`, with the dash pattern shifted by `offsetPx` so the
  * dashes appear to march toward the cursor. Node-editor convention
  * (Blender, Unreal Blueprint, Houdini, …). */
@@ -89,7 +89,7 @@ export function drawMarchingLine(
 	// Screen pixels, expressed in the world units this paints into.
 	const dash = MARCH_DASH_PX / scale;
 	const period = (MARCH_DASH_PX + MARCH_GAP_PX) / scale;
-	// Phase advances each frame so dashes shift toward (x1, y1) —
+	// Phase advances each frame so dashes shift toward (x1, y1),
 	// i.e. toward the cursor / the peer you're about to click. The
 	// first iteration's dash starts in negative territory so a new
 	// dash slides in from behind the source as the previous one
@@ -114,7 +114,7 @@ export function drawMarchingLine(
 	});
 }
 
-/** Armed-peer ring — short arcs around a circle just outside
+/** Armed-peer ring, short arcs around a circle just outside
  * `containedRadius`, the whole ring rotated by an angle derived
  * from `offsetPx` so the dashes march around the circumference.
  *
@@ -156,8 +156,8 @@ export function drawArmedRing(
 	for (let i = 0; i < dashes; i++) {
 		const start = i * step + phase;
 		// One sub-path per dash. Consecutive `arc()` calls append to a
-		// single open polyline — `ShapePath._ensurePoly` returns early
-		// while one is live — so without this `moveTo` every gap is
+		// single open polyline, `ShapePath._ensurePoly` returns early
+		// while one is live, so without this `moveTo` every gap is
 		// rendered as a straight chord across it, and the ring reads as
 		// a faceted polygon instead of a dashed circle.
 		g.moveTo(cx + Math.cos(start) * radius, cy + Math.sin(start) * radius);
@@ -196,7 +196,7 @@ export interface RectCanvas {
  * It lives here rather than beside the projection because it is the number
  * every node outline is measured against, and because a module that pulls in
  * no rendering context can be read by the arithmetic that has to agree with
- * it. Every peer is drawn at exactly this; a session end may not be, which is
+ * it. Every peer is drawn at exactly this. A session end may not be, which is
  * what `looseEndStyle` decides. */
 export const NODE_RADIUS = 30;
 
@@ -216,7 +216,7 @@ const NODE_GAP = 4;
 /** Stroke a rounded square centered on the origin as a dashed line.
  *
  * Pixi's stroke has no dash pattern, so the path is walked and drawn one
- * segment at a time. Only the four straight runs are dashed; the corner arcs
+ * segment at a time. Only the four straight runs are dashed. The corner arcs
  * are drawn whole, which keeps the corners crisp at any zoom and costs four
  * short solid pieces the eye reads as part of the pattern.
  *
@@ -273,7 +273,7 @@ export interface HaloCanvas {
 //
 // A mark that says an entity is selected is saying something about the reader's
 // own state ("this is the thing you picked"), not about the world, so it is
-// anchored in world coordinates and measured in screen ones — the same split
+// anchored in world coordinates and measured in screen ones. The same split
 // the marching-ants helpers make above, and for the same reason. Selection
 // matters most when zoomed out, because that is where a reader is picking one
 // thing out of a crowd, and a mark that shrinks with the thing it marks is
@@ -317,11 +317,11 @@ export function haloRadius(containedRadius: number, scale: number): number {
  * A circle rather than the node's own rounded square, so the focus state
  * differs in shape and not merely in stroke weight, and sized to pass just
  * outside the square's diagonal corners. Hover hides once the node is
- * selected; the anchor adds a second inner ring.
+ * selected. The anchor adds a second inner ring.
  *
  * It takes the radius of the body it rings, because the two node kinds are not
  * the same size: a claim is half a peer's width and its ring has to hug it.
- * That is also why this lives here rather than being written once per sprite —
+ * That is also why this lives here rather than being written once per sprite,
  * selecting an end and selecting a peer are meant to look like one act, and a
  * sameness held by copy-paste is a sameness that drifts.
  *
@@ -432,7 +432,7 @@ export function drawNodeActivity(
 	g.fill({ color: colors.positive });
 }
 
-/** The part of a `Graphics` an unattributed end's body uses — the dashed
+/** The part of a `Graphics` an unattributed end's body uses, the dashed
  *  outline's four methods plus the two the faint fill needs. */
 export interface NodeBodyCanvas extends RectCanvas {
 	roundRect(
@@ -456,7 +456,7 @@ export type LooseEndStyle = {
 };
 
 /** An end standing on its own: a peer's full footprint, because that is what
- *  it is holding — a place a peer will attach. */
+ *  it is holding. A place a peer will attach. */
 export const LOOSE_END_ALONE: LooseEndStyle = {
 	radius: NODE_RADIUS,
 	corner: NODE_CORNER,
@@ -471,7 +471,7 @@ export const LOOSE_END_ALONE: LooseEndStyle = {
  * shape stands in open space a node's width or so short of a peer that is
  * twice its size. Every number here says the same thing: it is less than a
  * peer. Half the width so the pair reads as somebody and a claim
- * about them rather than as two peers arguing; a lighter outline and a fainter
+ * about them rather than as two peers arguing. A lighter outline and a fainter
  * fill so the eye settles on the peer and takes the claim as the thing
  * attached to it.
  *
@@ -489,7 +489,7 @@ export const LOOSE_END_CLAIMING: LooseEndStyle = {
 /** Which of the two readings an end takes: `claiming` is true when its claim
  *  names a peer the stage draws, which is the one question that separates
  *  them. The selector lives here, beside the two it chooses between, because
- *  the drawing is not its only reader — a hit test has to measure the body
+ *  the drawing is not its only reader. A hit test has to measure the body
  *  that was actually painted. */
 export function looseEndStyle(claiming: boolean): LooseEndStyle {
 	return claiming ? LOOSE_END_CLAIMING : LOOSE_END_ALONE;
@@ -498,7 +498,7 @@ export function looseEndStyle(claiming: boolean): LooseEndStyle {
 /** Paint one unattributed end's body: a faint fill under a dashed outline,
  *  both centered on the origin, in whichever of the two readings applies.
  *
- *  The fill is translucent on purpose and nothing opaque is painted under it,
+ *  The fill is translucent and nothing opaque is painted under it,
  *  so a session's line shows through the body it reaches. Both halves of that
  *  were decided rather than overlooked: the see-through body is what makes an
  *  end read as provisional next to a solid peer, and a wire running to the

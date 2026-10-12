@@ -10,11 +10,10 @@ when an assignment goes unanswered, and periodically during active work.
 It reports each member's rooms, application issues, pending effects, and
 inbox health. Inspect a member directly with `status --dir <member-dir>`.
 
-An unread inbox is not evidence of a dead model. Check whether its harness
-wait is still active, then ask for progress before restarting anything.
-If the model completed its turn while the peer remains available, resume
-the model with the same workspace. Do not disrupt its rooms to repair a
-missing consumer.
+An unread inbox does not show a dead model. Check whether its harness wait is
+still active, then ask for progress before restarting anything. If the model
+completed its turn while the peer remains available, resume the model with the
+same workspace. Leave its rooms undisturbed when repairing a missing consumer.
 
 An `inbox.gap` means observation stopped. Follow rooms-peer recovery:
 preserve unread events, correct the cause, dismiss reviewed events as needed,
@@ -25,8 +24,8 @@ views and commands remain usable.
 
 Give each assignment a result, acceptance criteria, and one integration owner.
 Keep peer coordination in the assigned room, where the human can follow it.
-Keep private DMs private. Do not mirror private harness conversations into
-the room, or move a human's conversation between surfaces without being asked.
+Keep private DMs private. Mirror no private harness conversation into the
+room, and move a human's conversation between surfaces only when asked.
 
 Post short updates when an assignment completes, a blocker appears, or the
 strategy changes. For a long room-scoped assignment, give a progress update
@@ -47,4 +46,4 @@ Keep its workspace; another model can resume the same identity and unread
 inbox. A fresh identity is a different person to Rooms.
 
 For full teardown use `team-stop --dir <team-dir>` and inspect every result.
-A failure to stop one peer does not excuse abandoning the remaining peers.
+If one peer fails to stop, still stop the rest.

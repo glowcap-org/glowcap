@@ -1,9 +1,9 @@
 // Filing what the reader meant, and answering the card from it.
 //
-// A value reaches the join card three ways, and they are deliberately not
+// A value reaches the join card three ways, and they are not
 // interchangeable. `reach` is somebody arriving at the card and how they got
 // there; `editJoin` is them changing an answer while they are in front of it;
-// `remember` is a join having actually worked. Nothing else may write these
+// `remember` is a join having worked. Nothing else may write these
 // fields, so one surface cannot leave a value behind for the next one to find.
 // The model itself is `intent.ts`, and what the card does
 // with it is `joining.ts`.
@@ -50,7 +50,7 @@ export function editJoin(projection: PageProjection, patch: {
 	roomPreset?: RoomPreset;
 }): void {
 	// Over what the reader has already said *about this act*, not over whatever
-	// the last one left behind. Filing an act does not clear overrides — the act
+	// the last one left behind. Filing an act does not clear overrides: the act
 	// they belong to is what makes them apply, and reading through `current` is
 	// the one place that is decided. Spreading `projection.get().edits` raw here would have
 	// been a second answer to the same question, and the wrong one: an override

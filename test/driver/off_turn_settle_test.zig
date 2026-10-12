@@ -1,7 +1,7 @@
 //! The off-turn settle mailbox (ADR-0102 stage 4) on `driver.HostRuntime`.
 //! The headline scenarios run a real worker `std.Thread`: a served behavior
-//! defers its answer onto a resolver vow and parks the resolver id; the worker
-//! posts the settle from its own thread; the owning thread's poll wait wakes
+//! defers its answer onto a resolver vow and parks the resolver id. The worker
+//! posts the settle from its own thread. The owning thread's poll wait wakes
 //! through the mailbox's socketpair, applies the settle, and the caller's
 //! blocked call completes, including when the wake byte never wins the poll.
 //! The units pin the post-side refusals: a full mailbox, an oversized payload,
@@ -82,7 +82,7 @@ const DeferringOwned = struct {
 };
 
 /// The worker: real off-thread completion. Waits for each parked resolver id
-/// and posts its settle from this thread — first fulfilled, then broken.
+/// and posts its settle from this thread, first fulfilled, then broken.
 fn worker(
     mb: *driver.SettleMailbox,
     out: *std.atomic.Value(u64),
@@ -182,7 +182,7 @@ test "off-turn settle over HostRuntime: a worker thread's post wakes the poll wa
 }
 
 /// Serve with bounded steps rather than `serve`'s unbounded poll, so a
-/// swallowed wake cannot park this thread forever — the point under test is
+/// swallowed wake cannot park this thread forever, the point under test is
 /// where the settle is applied, not whether a wake can end a wait.
 fn hostRuntimeServeStepping(
     server: *driver.Server,
@@ -220,7 +220,7 @@ test "off-turn settle applies at the pump top, not only when the wake wins the p
     // the poll set as its last row, and a readiness wait reports the *first*
     // ready row, so a busy wire preempts it every pass. If applying depended
     // on that row being selected, a peer with sustained traffic would starve
-    // its own mailbox until it filled — exactly the case the mechanism
+    // its own mailbox until it filled, exactly the case the mechanism
     // exists for.
     //
     // Swallowing the wake byte is the deterministic form of that race: the

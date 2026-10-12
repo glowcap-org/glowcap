@@ -1,5 +1,5 @@
 //! Physical Loam reopen recovers an owner-scoped erasure after interruption.
-//! The fake archive controls erasure failure; process archive and IndexedDB
+//! The fake archive controls erasure failure. Process archive and IndexedDB
 //! browser journeys separately establish record/blob storage commitment.
 use super::*;
 use rooms_application::archive::{

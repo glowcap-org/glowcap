@@ -14,15 +14,14 @@ amended_by: [ADR-0100]
 
 ## Context
 
-Inbound `op:abort` already closed the session in `session.apply`, and
-failure projection encoded then closed. An app-queued `Peer.send(.abort)`
-recorded and encoded while leaving `session.state == .open`, and
-`applySend`'s abort arm was empty despite a comment that claimed teardown. A
-partner could take the abort frame while CapTP state still read open, so
-further delivers were not refused the way the protocol diagrams require.
+Inbound `op:abort` closes the session in `session.apply`, and failure
+projection encodes then closes. An app-queued `Peer.send(.abort)` that records
+and encodes while leaving `session.state == .open` lets a partner take the
+abort frame while CapTP state still reads open, so further delivers are not
+refused as the protocol diagrams require.
 
-This engages session state as authoritative, fail-loud rather than succeed
-wrong, and boring C ABI surface: one CapTP commit path, one thin export.
+The design follows session state as authoritative, fail-loud over succeed-wrong,
+and a small C ABI surface: one CapTP commit path, one thin export.
 
 ## Decision
 
@@ -33,7 +32,7 @@ wrong, and boring C ABI surface: one CapTP commit path, one thin export.
    replay counters, and parked-withdraw scheduler dependencies (ADR-0100).
 
 The terminal push bypasses the ordinary outbound waterline. That waterline
-refuses new work; it cannot suppress the one bounded failure signal for work
+refuses new work and cannot suppress the one bounded failure signal for work
 already refused. The outbound queue still charges the abort's encoded bytes,
 so the exception remains visible to accounting until the adapter drains it.
 
@@ -42,23 +41,22 @@ App-queued aborts call it from `emitOutboundMessage` (after `recordSend`, on
 including `CaptpVersionMismatch`, `InvalidStartSessionSignature`, and
 `PartnerDesignatorMismatch` ([ADR-0075](ADR-0075-keyed-tcp-designator.md)).
 
-Close does **not** run at bare `recordSend` time before encode: the partner
-must still be able to `takeOutbound` the frame.
+Close does not run at bare `recordSend` time before encode, since the partner
+must be able to `takeOutbound` the frame.
 
-When encode or push fails, `emitAbortForError`
-swallows that secondary error (so the original dispatch error is not masked)
-and still closes: the session is already fatally refused even if the partner
-never sees an abort frame.
+When encode or push fails, `emitAbortForError` swallows that secondary error
+(so the original dispatch error is not masked) and still closes: the session is
+fatally refused even if the partner never sees an abort frame.
 
 `glowcap_peer_send_abort` queues a typed abort (`AbortKind` wire label +
-message); after a successful `glowcap_peer_step` the peer is no longer open.
-There is no CapTP `draining` state and no second Peer `shutdown` verb,
-`AbortKind.graceful_shutdown` is enough. Host transport soft-stop
+message). After a successful `glowcap_peer_step` the peer is no longer open.
+There is no CapTP `draining` state and no second Peer `shutdown` verb:
+`AbortKind.graceful_shutdown` covers it. Host transport soft-stop
 (`condemned` + flush/close) stays above CapTP.
 
 `zig build source-check` holds EVENT/send parity: every `GLOWCAP_EVENT_*` maps to
 a peer send constructor or an allowlist row. `GLOWCAP_EVENT_LISTEN` is
-allowlisted (engine-synthesized / inbound install); `ABORT` is not.
+allowlisted (engine-synthesized / inbound install). `ABORT` is not.
 
 ## Consequences
 

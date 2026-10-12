@@ -31,7 +31,14 @@ pub(super) async fn run(limits: loam::Limits) {
 		}
 		let host = Host::from_seed_with_options(identity, rooms_glowcap::host_options()).unwrap();
 		let mut opened = prepared
-			.start(host.clone(), platform.clone(), limits, 128, |_, _| {})
+			.start(
+				host.clone(),
+				platform.clone(),
+				limits,
+				128,
+				rooms_application::admission::Settings::defaults(4096, 8),
+				|_, _| {},
+			)
 			.await
 			.unwrap();
 		assert_eq!(
@@ -76,7 +83,14 @@ pub(super) async fn run(limits: loam::Limits) {
 			let rival_host = Host::from_seed(identity).unwrap();
 			assert!(
 				rival
-					.start(rival_host.clone(), platform.clone(), limits, 128, |_, _| {})
+					.start(
+						rival_host.clone(),
+						platform.clone(),
+						limits,
+						128,
+						rooms_application::admission::Settings::defaults(4096, 8),
+						|_, _| {}
+					)
 					.await
 					.is_err(),
 				"same-tab authority is exclusively held"
@@ -91,7 +105,14 @@ pub(super) async fn run(limits: loam::Limits) {
 			let host = Host::from_seed_with_options(identity, rooms_glowcap::host_options()).unwrap();
 			assert!(
 				delayed
-					.start(host.clone(), platform.clone(), limits, 128, |_, _| {})
+					.start(
+						host.clone(),
+						platform.clone(),
+						limits,
+						128,
+						rooms_application::admission::Settings::defaults(4096, 8),
+						|_, _| {}
+					)
 					.await
 					.is_err(),
 				"a preparation from before creation cannot replace the confirmed root"

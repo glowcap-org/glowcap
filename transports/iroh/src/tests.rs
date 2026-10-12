@@ -14,6 +14,8 @@ fn glowcap_iroh_sidecar_accept_timeout(
 	timeout_ms: i32,
 	out_code: *mut i32,
 ) -> *mut GlowcapIrohConn {
+	// SAFETY: the wrapper forwards its arguments unchanged; its callers pass the live endpoint from `direct_endpoint`,
+	// which they free only after the call, and `out_code` as `&mut` to a local `i32` that outlives it.
 	unsafe { crate::connect::glowcap_iroh_sidecar_accept_timeout(ep, timeout_ms, out_code) }
 }
 
@@ -22,7 +24,10 @@ fn glowcap_iroh_sidecar_endpoint_drain_ready(
 	out: *mut GlowcapIrohReadyEvent,
 	out_cap: usize,
 ) -> isize {
-	unsafe { crate::nonblocking::glowcap_iroh_sidecar_endpoint_drain_ready(ep, out, out_cap) }
+	// SAFETY: the wrapper forwards its arguments unchanged; its callers pass the live endpoint from `direct_endpoint`
+	// and an `out` that addresses `out_cap` events in a local array or `&mut` event, all outliving the call; the callee
+	// writes at most `out_cap` events.
+	unsafe { crate::nonblocking::calls::glowcap_iroh_sidecar_endpoint_drain_ready(ep, out, out_cap) }
 }
 
 fn glowcap_iroh_sidecar_endpoint_start_connect(
@@ -33,6 +38,9 @@ fn glowcap_iroh_sidecar_endpoint_start_connect(
 	addr_hints: *const u8,
 	addr_hints_len: usize,
 ) -> i32 {
+	// SAFETY: the wrapper forwards its arguments unchanged; its callers pass the live endpoint from `direct_endpoint`,
+	// which they free only after the call, and target bytes from local `String` or `str` values that outlive it; the
+	// callee parses them into an owned address before returning.
 	unsafe {
 		crate::connect::glowcap_iroh_sidecar_endpoint_start_connect(
 			ep,
@@ -53,6 +61,9 @@ fn glowcap_iroh_sidecar_endpoint_finish_connect(
 	out_text_cap: usize,
 	out_text_len: *mut usize,
 ) -> i32 {
+	// SAFETY: the wrapper forwards its arguments unchanged; its callers pass the live endpoint from `direct_endpoint`,
+	// which they free only after the call, `out_conn` and `out_text_len` as `&mut` to locals, and `out_text` with its
+	// true capacity from a local buffer; the callee writes only within those bounds.
 	unsafe {
 		crate::connect::glowcap_iroh_sidecar_endpoint_finish_connect(
 			ep,
@@ -66,6 +77,8 @@ fn glowcap_iroh_sidecar_endpoint_finish_connect(
 }
 
 fn glowcap_iroh_sidecar_endpoint_cancel_connect(ep: *mut GlowcapIrohEndpoint, request_id: usize) -> i32 {
+	// SAFETY: the wrapper forwards its arguments unchanged; its callers pass the live endpoint from `direct_endpoint`,
+	// which they free only after the call, and the callee only reads a request id from the dial table.
 	unsafe { crate::connect::glowcap_iroh_sidecar_endpoint_cancel_connect(ep, request_id) }
 }
 
@@ -92,24 +105,40 @@ fn close_endpoint(endpoint: *mut GlowcapIrohEndpoint) {
 
 #[test]
 fn null_nonblocking_handles_are_refused_without_dereference() {
+	// SAFETY: every pointer here is null and every length zero; each function under test checks its endpoint or
+	// connection handle for null and returns before it dereferences a handle or touches `out` or `buf`.
 	unsafe {
-		assert_eq!(crate::glowcap_iroh_sidecar_endpoint_readiness_fd(std::ptr::null()), -1);
 		assert_eq!(
-			crate::glowcap_iroh_sidecar_endpoint_drain_ready(std::ptr::null(), std::ptr::null_mut(), 0),
+			crate::nonblocking::calls::glowcap_iroh_sidecar_endpoint_readiness_fd(std::ptr::null()),
 			-1
 		);
 		assert_eq!(
-			crate::glowcap_iroh_sidecar_endpoint_set_nonblocking_accept(std::ptr::null_mut()),
-			-1
-		);
-		assert!(crate::glowcap_iroh_sidecar_endpoint_try_accept(std::ptr::null_mut()).is_null());
-		assert_eq!(crate::glowcap_iroh_sidecar_conn_id(std::ptr::null()), 0);
-		assert_eq!(
-			crate::glowcap_iroh_sidecar_conn_try_read(std::ptr::null_mut(), std::ptr::null_mut(), 0),
+			crate::nonblocking::calls::glowcap_iroh_sidecar_endpoint_drain_ready(
+				std::ptr::null(),
+				std::ptr::null_mut(),
+				0
+			),
 			-1
 		);
 		assert_eq!(
-			crate::glowcap_iroh_sidecar_conn_try_write(std::ptr::null_mut(), std::ptr::null(), 0),
+			crate::nonblocking::calls::glowcap_iroh_sidecar_endpoint_set_nonblocking_accept(std::ptr::null_mut()),
+			-1
+		);
+		assert!(crate::nonblocking::calls::glowcap_iroh_sidecar_endpoint_try_accept(std::ptr::null_mut()).is_null());
+		assert_eq!(
+			crate::nonblocking::calls::glowcap_iroh_sidecar_conn_id(std::ptr::null()),
+			0
+		);
+		assert_eq!(
+			crate::nonblocking::calls::glowcap_iroh_sidecar_conn_try_read(
+				std::ptr::null_mut(),
+				std::ptr::null_mut(),
+				0
+			),
+			-1
+		);
+		assert_eq!(
+			crate::nonblocking::calls::glowcap_iroh_sidecar_conn_try_write(std::ptr::null_mut(), std::ptr::null(), 0),
 			-1
 		);
 	}
@@ -236,6 +265,8 @@ fn blocking_accept_timeout_does_not_arm_or_drain_readiness() {
 	assert_eq!(code, DIAL_TIMEOUT);
 	assert!(started.elapsed() >= Duration::from_millis(5));
 	assert!(started.elapsed() < Duration::from_secs(1));
+	// SAFETY: `ep` is the non-null live handle `direct_endpoint` returned (asserted above); only the `free_endpoint`
+	// call at the end of this test frees it, and `endpoint` is not used after that.
 	let endpoint = unsafe { &*ep };
 	assert!(endpoint.readiness.get().is_none());
 	assert!(endpoint.accept.get().is_none());
@@ -260,6 +291,8 @@ fn endpoint_release_joins_writers_detached_by_connection_release() {
 	assert!(!ep.is_null(), "endpoint_new");
 	let finished = Arc::new(AtomicBool::new(false));
 	let task_finished = finished.clone();
+	// SAFETY: `ep` is the non-null live handle `direct_endpoint` returned (asserted above); only the `free_endpoint`
+	// call below frees it, and `endpoint` is not used after that.
 	let endpoint = unsafe { &*ep };
 	let permit = endpoint.writers.acquire();
 	let writer = endpoint.rt.spawn(async move {

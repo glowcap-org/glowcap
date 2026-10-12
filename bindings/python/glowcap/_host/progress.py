@@ -40,7 +40,7 @@ class _ProgressMixin(HostMixinBase):
 
     def await_vow(self, vow: int) -> "asyncio.Future":
         """A future for the vow's eventual outcome: the fulfilled wire value,
-        or an exception — :class:`VowBroken` for a partner break, the typed
+        or an exception: :class:`VowBroken` for a partner break, the typed
         ``ERR_CLOSED`` :class:`GlowcapError` when the settle was the
         disconnect's own break. Settles immediately from the recorded state
         when the outcome already landed. Binding-internal."""
@@ -59,8 +59,8 @@ class _ProgressMixin(HostMixinBase):
         return self._sessions.get(ptr)
 
     def park_release(self, release: "Callable[[], None]") -> None:
-        """Park a C release the host refused inside a behavior callback; the
-        next drain — the head of :meth:`kick_actions`, or the feed's unwind —
+        """Park a C release the host refused inside a behavior callback. The
+        next drain, the head of :meth:`kick_actions`, or the feed's unwind,
         runs it where it is legal. The parked list is thread-local (see
         ``_parked_releases``), so independent Host threads cannot drain one
         another's callback-time releases. Binding-internal."""
@@ -83,7 +83,7 @@ class _ProgressMixin(HostMixinBase):
             self.signal_close_activity()
 
     def pending_release_count(self) -> int:
-        """How many releases are parked — test observability for the mid-turn
+        """How many releases are parked: test observability for the mid-turn
         close park. Binding-internal."""
         return len(_parked_releases())
 
@@ -175,9 +175,9 @@ class _ProgressMixin(HostMixinBase):
 
     async def kick_actions(self) -> None:
         """Run the shared C action drain, then honor each parked arm. Reentrant
-        on purpose: the DIAL arm's dial executor establishes a whole new
+        by necessity: the DIAL arm's dial executor establishes a whole new
         connection *inside* an action, and that establish must itself drain
-        (its start-session FLUSH) — a single-flighted drain would await its own
+        (its start-session FLUSH): a single-flighted drain would await its own
         completion there. Arms are parked under ``glowcap_host_pump_drain``
         (sync hooks only) and awaited after the C loop returns, so overlapping
         kickers never await inside the C callback. Re-parks until empty: a
@@ -201,7 +201,7 @@ class _ProgressMixin(HostMixinBase):
             if _inside_turn():
                 return
             self._assert_owner()
-            # Parked closes run first — before the raw-handle check, because a
+            # Parked closes run first: before the raw-handle check, because a
             # mid-turn Host.close cleared `_raw` while parking the actual free.
             self.drain_parked_releases()
             if not self._raw:

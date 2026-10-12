@@ -1,5 +1,5 @@
 // The cold-dial rendezvous (ADR-0088 capability 5). A peer that cannot be dialed
-// — a browser opens no listening socket — registers its keyed identity here
+// (a browser opens no listening socket) registers its keyed identity here
 // together with a held inbound WebSocket. A dialer that names that identity is
 // bridged onto the held socket, the mirror of the browser-dials-native leg
 // (`webSocketRelay`): the relay matches an identity to a held socket and forwards
@@ -9,8 +9,8 @@
 //
 // One held socket carries one inbound session. A registered peer that wants to
 // accept another cold-dial registers a fresh socket; a bridge consumes the held
-// one, so the peer replenishes on activation. Admission — which identities may
-// register and be dialed — is the embedder's policy, above this registry.
+// one, so the peer replenishes on activation. Admission (which identities may
+// register and be dialed) is the embedder's policy, above this registry.
 
 import type { RelayChannel } from "./relay.ts";
 import { MAX_RELAY_WEBSOCKET_MESSAGE_BYTES, webSocketChannel } from "./ws_relay.ts";
@@ -35,17 +35,17 @@ export function isRendezvousDesignator(value: string): boolean {
  * Each identity holds a FIFO *queue* of inbound sockets, not one, so a peer can
  * keep a small pool of registrations ready and two cold-dials that race do not
  * fight over one socket: `register` appends, `take` pops the oldest, and a
- * socket that closes drops itself out of the queue wherever it sits. A queue —
- * rather than a single evicting slot — is also why a re-registration never
+ * socket that closes drops itself out of the queue wherever it sits. A queue
+ * rather than a single evicting slot is also why a re-registration never
  * closes a live sibling: registering the same identity adds capacity, it does
  * not tear down the peer's other held sockets.
  *
- * Admission — which identities may register at all — is the embedder's policy,
+ * Admission (which identities may register at all) is the embedder's policy,
  * above this table. The relay is byte-transparent, so it cannot verify a
  * registrant holds the private key for the identity it names; the keyed
  * handshake still blocks impersonation (a squatter cannot complete it), but
  * flooding an identity's queue is an availability lever the embedder governs
- * exactly as it governs the dial allow-list. */
+ * as it governs the dial allow-list. */
 export class Rendezvous {
 	// A FIFO queue of held inbound sockets per registered identity, each already
 	// wrapped as a buffering channel (see `register`). Empty queues are pruned,
@@ -165,7 +165,7 @@ export class Rendezvous {
 
 	/** Close and join every still-held registration, then release its accounting. This is
 	 * the registry's shutdown boundary: a taken channel belongs to its relay
-	 * session and is deliberately not part of this table anymore. Idempotence
+	 * session and is outside this table. Idempotence
 	 * makes signal/error teardown safe when both paths race. */
 	close(): Promise<void> {
 		if (this.#closePromise != null) return this.#closePromise;

@@ -3,7 +3,7 @@
 //! DNS lookup is the one blocking part of opening a hostname route. One
 //! environment-owned `std.Io` task resolves the whole name, while the reactor
 //! remains parked on `wakeFd`. Address connection attempts stay in the
-//! completion backend and race there; this module never opens a socket.
+//! completion backend and race there. This module never opens a socket.
 
 const std = @import("std");
 
@@ -101,7 +101,7 @@ pub const Runtime = struct {
     }
 
     /// Request cancellation without joining the reactor thread. Completion is
-    /// still delivered through `takeCompleted`; the caller releases the job
+    /// still delivered through `takeCompleted`. The caller releases the job
     /// only after that terminal edge.
     pub fn cancel(self: *Runtime, job: *Job) void {
         if (job.runtime != self) return;

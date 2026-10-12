@@ -31,6 +31,9 @@ struct Probe {
 	released: watch::Receiver<Option<Result<(), Error>>>,
 }
 impl Deadline for Probe {
+	fn monotonic_millis(&self) -> u64 {
+		0
+	}
 	async fn within<T>(&self, _: u64, work: impl Future<Output = T>) -> Option<T> {
 		Some(work.await)
 	}

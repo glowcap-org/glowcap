@@ -3,7 +3,7 @@ const core = @import("loam_access_core");
 const storage = @import("loam_access_storage");
 
 /// One bounded descriptive snapshot in the retained call arena. Labels and
-/// policy values copy out of the operation's reusable decode window; inspection
+/// policy values copy out of the operation's reusable decode window. Inspection
 /// neither restores a use endpoint nor retains another authority record.
 pub const Inspection = struct {
     policy: core.Policy,

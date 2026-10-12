@@ -1,5 +1,5 @@
 //! Durable session identity, checkpoint revision, and external-effect retries.
-//! Prepared writes retain an immutable candidate; only acknowledged storage can
+//! Prepared writes retain an immutable candidate. Only acknowledged storage can
 //! publish it. Adapters own I/O retirement and execute result-application policy.
 mod model;
 mod operations;
@@ -196,7 +196,7 @@ impl SessionState {
 			phase: self.phase.clone(),
 			next: Some(next),
 			kind,
-			bytes: Some(bytes),
+			bytes,
 			started: false,
 			change: Change {
 				revision,

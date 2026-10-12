@@ -1,5 +1,5 @@
 //! Attached-session operations views. Each requested capability selects one
-//! bounded document shape; the platform does not inspect an untyped JSON tree.
+//! bounded document shape. The platform does not inspect an untyped JSON tree.
 pub mod mutation;
 pub mod wire;
 use crate::{

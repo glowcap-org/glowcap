@@ -18,7 +18,7 @@ export async function run(
 	// ── Where you are ────────────────────────────────────────────────────
 	// One word said at three levels, each falling through to the next: the
 	// reader, a directory, a room. The part worth proving is the falling
-	// through, which a page with one level could fake — so this sets the
+	// through, which a page with one level could fake, so this sets the
 	// outermost, watches a room that has no word of its own take it, gives that
 	// room its own word, and watches the outermost stop reaching it.
 	{
@@ -34,7 +34,9 @@ export async function run(
 		// roster can show it: what a member's row says is the room's word about
 		// them, not this tab's intention.
 		await tab.click("#standingBtn");
-		const identity = ((await tab.getAttribute("#standingBtn", "aria-label")) ?? "").split(" — where")[0];
+		// The label ends with the "Where you are" sentence, and the grants live
+		// before it, so cut the label at that sentence's start.
+		const identity = ((await tab.getAttribute("#standingBtn", "aria-label")) ?? "").split(". Where you are")[0];
 		// Every row the menu holds, compared whole rather than filtered: one
 		// reading of the reader first, then exactly one release per live grant.
 		// Whole, because a filter would let a junk row in beside the ones it
@@ -169,7 +171,7 @@ export async function run(
 	// ── Asking about the places this tab holds ───────────────────────────
 	// Two directories are open by now, making these questions meaningful:
 	// one lists the rooms on whichever directory is named, and the other says
-	// what this tab is holding at all — including the locator, which the page
+	// what this tab is holding at all, including the locator, which the page
 	// had nowhere a reader could read.
 	{
 		// Asked from a room on the page's own directory, because a bare /list is
@@ -224,10 +226,10 @@ export async function run(
 	}
 
 	// ── A rail under a finger ────────────────────────────────────────────
-	// Where there is no pointer, the count and the leave mark are both simply
+	// Where there is no pointer, the count and the leave mark are both
 	// there: nothing reveals under a finger, so neither borrows the other's slot
 	// the way they do on the pointer side. That layout has a shape of its own and
-	// nothing else here exercises it — resizing the window does not make a
+	// nothing else here exercises it, resizing the window does not make a
 	// browser coarse-pointed, so every check above ran against the hover layout.
 	{
 		const touch = await browser.newContext({
@@ -347,6 +349,13 @@ export async function run(
 		await second.click("#joinBtn");
 		await second.waitForSelector("#line:not([disabled])", { timeout: 60_000 })
 			.catch(() => fail("the second peer could not walk back into the room"));
+		await second.waitForFunction(
+			() =>
+				[...document.querySelectorAll("#roomList li.here .rname")].some((row) => row.textContent === "lobby") &&
+				[...document.querySelectorAll("#members .name")].some((row) => row.textContent?.endsWith(" (you)")),
+			undefined,
+			{ timeout: 30_000 },
+		).catch(() => fail("the second peer's lobby roster never showed its granted name"));
 		const who = await second.evaluate(() => {
 			const own = [...document.querySelectorAll("#members .name")]
 				.map((el) => el.textContent ?? "")

@@ -1,5 +1,5 @@
 //! Conversation chronology shares Entry backing. One tree node and Arc per
-//! retained record, bounded by Index capacity; borrowed bounds copy no payload
+//! retained record, bounded by Index capacity. Borrowed bounds copy no payload
 //! or contextual strings. Exact conversation reads visit only that conversation.
 use super::Entry;
 use crate::{
@@ -174,19 +174,21 @@ impl Contexts {
 			&& filter.conversation.is_some()
 	}
 	pub fn range<'a>(&'a self, filter: &Filter, after: u64) -> impl Iterator<Item = &'a Arc<Entry>> {
-		let lower = (
-			Kind::Line,
-			filter.conversation_kind,
-			filter.directory.as_ref().expect("exact directory"),
-			filter.conversation.as_ref().expect("exact conversation"),
-			after,
-		);
-		let upper = (lower.0, lower.1, lower.2, lower.3, u64::MAX);
-		self.0
-			.range::<dyn Position, _>((
-				Bound::Excluded(&lower as &dyn Position),
-				Bound::Included(&upper as &dyn Position),
-			))
-			.map(|key| &key.0)
+		// A filter that selects no exact conversation has no context to walk.
+		let walk = filter
+			.directory
+			.as_ref()
+			.zip(filter.conversation.as_ref())
+			.map(|(directory, conversation)| {
+				let lower = (Kind::Line, filter.conversation_kind, directory, conversation, after);
+				let upper = (lower.0, lower.1, lower.2, lower.3, u64::MAX);
+				self.0
+					.range::<dyn Position, _>((
+						Bound::Excluded(&lower as &dyn Position),
+						Bound::Included(&upper as &dyn Position),
+					))
+					.map(|key| &key.0)
+			});
+		walk.into_iter().flatten()
 	}
 }

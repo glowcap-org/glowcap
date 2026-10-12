@@ -18,7 +18,7 @@
 ;;      that resolves to Bob's greeter.
 ;;   6. Carol invokes the greeter with her name. **The bytes go
 ;;      directly to Bob.** Each peer's netlayer has a trace callback;
-;;      we record every TCP accept + connect. The load-bearing
+;;      we record every TCP accept + connect. The essential
 ;;      assertion: Bob's port saw a NEW inbound connection from Carol
 ;;      after the introduction. If Carol's traffic had been proxied
 ;;      through Alice, Bob would only ever see Alice's connection.
@@ -203,7 +203,7 @@
 (printf "    Carol  accepts=~a  connects-to=~v~n"
         (unbox carol-accepts) (reverse (unbox carol-connects)))
 
-;; Load-bearing assertion: Bob accepted at least 2 inbound connections.
+;; Essential assertion: Bob accepted at least 2 inbound connections.
 ;;   1. Alice -> Bob (when Alice enlivened Bob's greeter)
 ;;   2. Carol -> Bob (when introduction handed Bob's ref to Carol and
 ;;      Carol's mycapn dialed Bob directly)

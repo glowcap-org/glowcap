@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A byte-transparent relay in Python — the second-runtime reference for the
+"""A byte-transparent relay in Python: the second-runtime reference for the
 ADR-0086 relay contract, proving the contract is language-neutral and not a
 TypeScript shape with a doc wrapper.
 
@@ -10,10 +10,10 @@ same five-part shape ADR-0086 names, in Python: the WebSocket adapter is
 `websockets`, the pump is `_pump`, the byte channel is a `_TcpChannel` or the
 iroh binding's relay transport, the dial dispatcher is `_open_channel`, and the
 config comes from generated binding policy. The embedding app would add the
-target allow-list; this proof relays wherever the conformance test points it.
+target allow-list. This proof relays wherever the conformance test points it.
 
 Two transports, dispatched by what the WebSocket names:
-  - `?to=host:port`  a raw TCP socket (byte-level, kernel-backpressured; no
+  - `?to=host:port`  a raw TCP socket (byte-level, kernel-backpressured, no
                      glowcap binding needed).
   - `?locator=<ocapn-uri>`  an iroh byte channel dialed through the Python iroh
                      binding's `dial_locator_for_relay`, the same C-ABI conn and
@@ -59,7 +59,7 @@ def _retain(primary: BaseException | None, error: BaseException) -> BaseExceptio
     if primary is None:
         return error
     # Keep the reference relay's TCP-only startup dependency-light; the binding
-    # helper loads only when a second failure actually needs attachment.
+    # helper loads only when a second failure needs attachment.
     from glowcap._errors import _retain_cleanup_failure
 
     return _retain_cleanup_failure(primary, error)

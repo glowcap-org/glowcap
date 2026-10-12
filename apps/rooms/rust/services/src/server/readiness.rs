@@ -11,6 +11,8 @@ pub(crate) struct Announcement {
 	schema: String,
 	pub location: String,
 	pub trace_port: Option<u16>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub trace_locator: Option<String>,
 	pub local_endpoint: Option<rooms_platform::serving::endpoint::Endpoint>,
 }
 impl Announcement {
@@ -23,14 +25,15 @@ impl Announcement {
 			schema: SCHEMA.into(),
 			location,
 			trace_port,
+			trace_locator: None,
 			local_endpoint,
 		}
 	}
-	pub fn line(&self) -> String {
-		format!(
-			"{PREFIX}{}",
-			serde_json::to_string(self).expect("readiness contains only text and a port")
-		)
+	/// The one line a supervisor reads. A local endpoint whose path is not
+	/// Unicode has no JSON form and is refused here.
+	pub fn line(&self) -> Result<String, String> {
+		let json = serde_json::to_string(self).map_err(|e| format!("server readiness cannot be rendered: {e}"))?;
+		Ok(format!("{PREFIX}{json}"))
 	}
 	pub fn parse(line: &str) -> Result<Self, String> {
 		let json = line
@@ -43,6 +46,13 @@ impl Announcement {
 		}
 		if ready.trace_port == Some(0) {
 			return Err("server readiness names an unbound timeline port".into());
+		}
+		if let Some(locator) = &ready.trace_locator {
+			let parsed = glowcap::parse_locator(locator).map_err(|_| "server trace locator is invalid")?;
+			let endpoint = parsed
+				.require_string_hint(rooms_application::web_channel::HINT)
+				.map_err(|_| "server trace locator needs a byte channel")?;
+			rooms_application::web_channel::endpoint(endpoint)?;
 		}
 		if let Some(endpoint) = &ready.local_endpoint {
 			endpoint.validate()?;

@@ -6,12 +6,12 @@
 //! `tools/gen/header/ocapn.zig`, the function signatures are *reflected* from the
 //! real `src/c_abi/net_transport/onion/mod.zig` exports, so the header cannot
 //! disagree with the implementation, and the prose lives here.
-//! `zig build gen-header-net-transport-onion-check` is the staleness gate;
+//! `zig build gen-header-net-transport-onion-check` is the staleness gate,
 //! `zig build gen-header-net-transport-onion` is the fixer.
 //!
 //! The shared frame/peer/context vocabulary (`GlowcapFrame`,
 //! `GlowcapManagedFrame`, `GlowcapContext`) is declared in `glowcap_ocapn.h`,
-//! which this header includes; only the three onion handles, the configuration
+//! which this header includes. Only the three onion handles, the configuration
 //! struct, and the `glowcap_onion_*` prototypes are new here.
 
 const std = @import("std");

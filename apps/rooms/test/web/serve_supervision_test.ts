@@ -41,8 +41,8 @@ Deno.test("the web front reports a room server that cannot start, and stops", as
 });
 
 Deno.test("rooms web UI attaches to a room server already on its port", async () => {
-	// Sharing a room port used to be fatal: the second instance's child could not
-	// bind and the process failed to start. Now the second attaches to the first.
+	// Sharing a room port must not be fatal: the second instance's child cannot
+	// bind, so the second instance attaches to the first.
 	const roomPort = freePort();
 	const httpFirst = freePort();
 	const httpSecond = freePort();

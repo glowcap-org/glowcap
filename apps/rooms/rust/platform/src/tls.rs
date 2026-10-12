@@ -1,5 +1,5 @@
 //! Host system trust, loaded off the capability executor. Callers name
-//! their protocol when reporting failures; certificate policy lives here.
+//! their protocol when reporting failures. Certificate policy lives here.
 use std::sync::Arc;
 use tokio_rustls::rustls;
 pub async fn system_config() -> Result<rustls::ClientConfig, String> {

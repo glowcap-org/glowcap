@@ -18,11 +18,11 @@ Retained content graphs can require more physical rows than the browser
 adapter's fixed snapshot and write inventories admit. Restarting batch
 application for every missing row repeats fingerprinting, validation and
 tentative writes, while retaining every loaded row increases memory with
-transaction size. Raising those inventories preserves both costs.
+transaction size. Raising those inventories keeps both costs.
 
-The existing core already owns record laws, names, collection barriers and
-exact recovery. IndexedDB already owns atomicity and serializes put values
-during the synchronous request call. The boundary can use both owners directly.
+The existing core already owns record laws, names, collection barriers and exact
+recovery. IndexedDB already owns atomicity and serializes put values during the
+synchronous request call. The boundary uses both owners directly.
 
 ## Decision
 
@@ -34,7 +34,7 @@ next callback and never retained across suspension.
 
 Only get may report an unloaded row. The next evaluation resumes at that read
 in the same physical transaction. Put and remove synchronously consume their
-key and value. Earlier writes remain queued in that transaction; they are
+key and value. Earlier writes remain queued in that transaction. They are
 neither discarded nor repeated. A write refusal is terminal and requires
 physical abort. Later name or collection barrier failures also abort the
 complete transaction. Metadata emission does not install a Store revision.
@@ -61,7 +61,7 @@ failed-open cleanup, so immediate reopen does not race a prior lock release.
 Physical browser tasks retain JS callbacks until the terminal event, independent
 of the embedding's Tokio LocalSet lifetime. A finite delivery task admitted on
 the existing LocalSet owns Host completion before I/O starts. Physical tasks
-transfer raw Work or separately retained capability occurrences; they never
+transfer raw Work or separately retained capability occurrences. They never
 construct scheduler-dependent reference guards or schedule Tokio cleanup.
 Restoration's two raw occurrence IDs transfer into caller-side guards only on
 consumption. Abandonment parks every occurrence, then acknowledges the relay
@@ -70,19 +70,19 @@ after a successful send. Physical attachment custody and the Host task barrier
 end at terminal completion, so an unpolled result cannot block retirement.
 Completed outcomes are delivered before unrelated Host progress. Destroying
 the LocalSet preserves physical callbacks and parked obligations, which need
-later explicit Host progress; it never creates another runtime.
+later explicit Host progress. It never creates another runtime.
 Completion errors are captured before Work release clears the C diagnostic.
 Idle attachment progress reclaims released endpoint boxes through an ordinary
 Vat boundary when the Vat reports retired state. This frees their fixed slots
 on the Host executor without requiring another application invocation. The
-idle predicate is constant time; physical restore callbacks never drive it.
+idle predicate is constant time. Physical restore callbacks never drive it.
 
 C keeps the cursor inline in its startup Store or fixed Work slot. The executor
 owns each submitted Work until physical retirement. Callback reentry cannot
 evaluate, finish or release that Loam owner. A thread-local stack of fixed
 evaluation frames owns this guard, so independent workers and Host progress
 share no guard state. Host-thread installation and
-retirement still require the executor to have joined; the callback guard is
+retirement still require the executor to have joined. The callback guard is
 not a thread synchronization or cancellation mechanism.
 
 This amends ADR-0186's discard-and-replay policy and its row-borrow lifetime.
@@ -113,6 +113,6 @@ close, partial restoration and LocalSet teardown before terminal retirement,
 then later cleanup. These cases do not measure cleanup latency or independent
 Store progress under separate storage blockers.
 
-The cursor removes batch replay; duplicate-mutation and in-batch target searches
+The cursor removes batch replay. Duplicate-mutation and in-batch target searches
 still scan the bounded batch. This decision does not establish globally linear
 evaluation, the full Rooms capacity profile or guaranteed browser storage quota.

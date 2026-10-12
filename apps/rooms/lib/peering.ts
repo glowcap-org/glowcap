@@ -34,10 +34,10 @@ export class RoomPublication {
 		} catch (error) {
 			failure = error;
 		}
-		// The reset and the release run on both outcomes, but out of a `finally`:
-		// a `throw` there would silently override the revoke failure this method
-		// still has to report. So record the revoke error, do the cleanup as
-		// ordinary code, and re-raise the revoke failure last.
+		// The reset and the release run on both outcomes, but outside a `finally`,
+		// since a `throw` there would silently override the revoke failure this
+		// method still has to report. So record the revoke error, do the cleanup
+		// as ordinary code, and re-raise the revoke failure last.
 		if (this.#revoking === revoking) this.#revoking = null;
 		if (this.#releaseAfterRevoke && this.#lease !== null) {
 			try {
@@ -58,12 +58,12 @@ export class RoomPublication {
 	#releaseLease(): void {
 		const lease = this.#lease;
 		if (lease === null) return;
-		// Commit the native release before dropping the only retry owner.
+		// Commit the release before dropping the only retry owner.
 		this.#session.release(lease);
 		this.#lease = null;
 	}
 
-	/** Let the lease go without revoking: the publication stays live at the
+	/** Let the lease go without revoking. The publication stays live at the
 	 * destination until its publisher Session ends, and this client keeps no way
 	 * to revoke it later. During an in-flight revoke, record the release intent
 	 * and commit it after that attempt settles. */
@@ -91,7 +91,7 @@ export class DirectoryPeering {
 	 * parallel application retain while waiting for the answer. */
 	readonly #failedSourceRefs = new Set<SourceHold>();
 	/** Publication owners whose compensating revoke refused. They remain here
-	 * until close can release the lease; the publisher Session is the server's
+	 * until close can release the lease. The publisher Session is the server's
 	 * final cleanup boundary for their listing. */
 	readonly #failedPublications = new Set<RoomPublication>();
 	readonly #inFlight = new Set<Promise<void>>();
@@ -126,7 +126,7 @@ export class DirectoryPeering {
 		const link = await room.link();
 		if (this.#closed) throw new Error("directory peering is closed");
 		// Enlivenment verifies the complete source-authored sturdyref and retains
-		// its canonical locator on the actual exporter session for later gives.
+		// its canonical locator on the exporter session for later gives.
 		const durable = await source.session.host.enliven(link);
 		const held: SourceHold = { session: source.session, ref: durable };
 		if (this.#closed) {
@@ -146,8 +146,8 @@ export class DirectoryPeering {
 			throw error;
 		}
 		// `send` admitted the occurrence before `ask` returned. The core now owns
-		// the staged handoff; keeping this wrapper until the reply would be a second
-		// retain with no authority role.
+		// the staged handoff, and keeping this wrapper until the reply would be a
+		// second retain with no authority role.
 		this.#releaseOrRetainSource(held);
 		const lease = await answer;
 		if (!(lease instanceof Ref)) throw new Error("publishDurableRoom did not return a lease capability");
@@ -264,9 +264,9 @@ export class DirectoryPeering {
 	}
 
 	/** Stop new publications, cancel any whose lease is still arriving, and
-	 * deterministically release every local owner. Server-side listings whose
-	 * leases were deliberately released remain scoped to the destination
-	 * Session; closing this capability does not rename release as revoke. */
+	 * release every local owner deterministically. Server-side listings whose
+	 * leases were released on purpose remain scoped to the destination Session.
+	 * Closing this capability does not turn release into revoke. */
 	close(): Promise<void> {
 		if (this.#closePromise !== null) return this.#closePromise;
 		this.#closed = true;
@@ -275,8 +275,8 @@ export class DirectoryPeering {
 		const forget = () => {
 			if (this.#closePromise === closing) this.#closePromise = null;
 		};
-		// tolerant: the caller holds `closing` and receives its failure; this
-		// chain only clears the memo, and its own rejection would be a duplicate.
+		// tolerant: the caller holds `closing` and receives its failure. This
+		// chain only clears the memo, and its rejection would be a duplicate.
 		void closing.finally(forget).catch(() => {});
 		return closing;
 	}

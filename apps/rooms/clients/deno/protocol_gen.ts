@@ -209,6 +209,14 @@ export const ROOM_TAILS: readonly RoomTail[] = [
 		effect: "depart",
 	},
 	{
+		tag: "offline",
+		trailing: [],
+		rest: "text",
+		sender: "room",
+		text: "any",
+		effect: "depart",
+	},
+	{
 		tag: "typing",
 		trailing: TYPING_TRAILING,
 		rest: null,

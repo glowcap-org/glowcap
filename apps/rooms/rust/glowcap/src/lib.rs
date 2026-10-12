@@ -1,5 +1,5 @@
 //! Borrowed Rooms protocol views over the existing glowcap Rust binding.
-//! Shared by services and browser Wasm; platform adapters own I/O.
+//! Shared by services and browser Wasm. Platform adapters own I/O.
 
 pub mod archive;
 pub mod client;
@@ -26,7 +26,7 @@ pub fn host_options() -> glowcap::HostOptions {
 }
 
 /// A view keeps custody with the binding's original delivered argument. Only
-/// an admitted attachment clones its capability guard; no numeric lookup exists.
+/// an admitted attachment clones its capability guard. No numeric lookup exists.
 #[derive(Clone, Copy)]
 pub struct Value<'a>(pub &'a Argument);
 impl rooms_application::room::authority::Reply for Value<'_> {

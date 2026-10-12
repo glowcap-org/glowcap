@@ -1,4 +1,4 @@
-// Count visits through the real projection; setup and teardown are unmeasured.
+// Count visits through the real projection. Setup and teardown are unmeasured.
 import { fixture, room } from "../session/managed_projection/fixture.ts";
 import * as store from "../../web/ui/store.ts";
 import type { Conv } from "../../web/ui/types.ts";

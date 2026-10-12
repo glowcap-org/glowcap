@@ -1,11 +1,11 @@
 /// <reference lib="dom" />
 
-// The browser offerer for the WebRTC browser-peer proof (ADR-0089 phase 6). A
+// The browser offerer for the WebRTC browser-peer proof (ADR-0089). A
 // real headless Chromium bundles this: `@glowcap/web`'s wasm Host plus
 // `@glowcap/webrtc`'s `RtcPeer`. It brings up a DataChannel to the native
 // answerer (`interop/webrtc_browser_peer/answerer.zig`) through the harness's
 // stdio signaling ferry, then runs a full keyed OCapN session over that channel
-// — fetch the answerer's `greeter`, call `greet`, and check the reply. This is
+// ,  fetch the answerer's `greeter`, call `greet`, and check the reply. This is
 // the browser twin of `webrtc-interop` (two native peers): here one end is a
 // browser tab driving the protocol core in wasm, with the DataChannel standing
 // in for the WebSocket the relay path uses.

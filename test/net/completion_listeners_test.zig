@@ -9,8 +9,8 @@ const glowcap = @import("glowcap");
 const net = glowcap.net;
 const completion = net.completion;
 
-/// `host_optional` marks io_uring, which a host kernel or policy may refuse;
-/// only a refusal the Linux selector would fall back from skips.
+/// `host_optional` marks io_uring, which a host kernel or policy may refuse.
+/// Only a refusal the Linux selector would fall back from skips.
 fn exercise(comptime Backend: type, host_optional: bool) !void {
     var backend = Backend.init(std.testing.allocator, 32, 4, 64) catch |err| {
         if (host_optional and builtin.os.tag == .linux and

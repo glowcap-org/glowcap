@@ -16,21 +16,22 @@ import { spawnWeb } from "../support/web_front.ts";
 // drives both DM transports against the live timeline.
 //
 // Then Alice closes the conversation and starts a second one with the same
-// person. Closing a direct line ends a connection and drops a history; it says
+// person. Closing a direct line ends its route and keeps its history; it says
 // nothing about who is reachable, so the members list must still offer her a
 // direct line to Bob afterwards, and taking it must reach him. The two facts go
-// together on purpose: an interface that keeps the button but cannot open a
+// together: an interface that keeps the button but cannot open a
 // second line, and one that opens a second line but hides the way in, are the
 // same broken promise from a reader's side.
 //
-// The room and both tabs run over plain TCP-through-relay (no iroh, no cargo):
+// The room and both tabs run over plain TCP-through-relay (no iroh):
 // the tabs reach the room over `/relay?target=…` and reach each other over a
-// DataChannel the room only signals, so this whole proof is deno-only.
+// DataChannel the room only signals. Rust supplies the native room/web services
+// and browser session runtime; Deno drives the page through Playwright.
 //
 // Needs deno, the wasm module (`zig build wasm-driver`), the native archives
-// (serve.ts's room server is native), and a Playwright Chromium
+// (the room server is native), and a Playwright Chromium
 // (the devcontainer image ships one).
-// Run: `deno run --allow-all apps/rooms/test/web/dm_tabs_proof.ts`.
+// Run: `.agents/skills/work/bin/glowcap-dev zig build rooms-web-dm-tabs`.
 
 import { Buffer } from "node:buffer";
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
@@ -39,6 +40,7 @@ import { inkContrast } from "../ink_contrast.ts";
 import { reapOwned } from "../support/children.ts";
 import { freePort, waitForHttp } from "../support/rooms_server.ts";
 import { awaitBubble, confirmTitleLeave, directOpened, fail, openDmTo } from "../page/harness.ts";
+import { namedDirectRow } from "../support/conversation_row.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "lobby";
@@ -139,8 +141,7 @@ const deadline = setTimeout(() => fail("web-dm-tabs scenario timed out after 180
 const httpPort = freePort();
 const roomPort = freePort();
 
-// serve.ts serves the page and runs the room + relay over plain TCP (no
-// `--transport=iroh`), so the whole proof is deno-only.
+// The native web service serves the page and runs the room + relay over plain TCP.
 spawnWeb({
 	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
@@ -166,7 +167,7 @@ try {
 	await openDmTo(alice.tab, "web-bob");
 	await send(alice.tab, DM_TEXT);
 
-	// Bob renders it — the direct message reached a browser that never listens,
+	// Bob renders it, the direct message reached a browser that never listens,
 	// over the DataChannel, with the room off the message path.
 	await openDmTo(bob.tab, "web-alice");
 	await awaitBubble(bob.tab, DM_TEXT, "Bob");
@@ -192,15 +193,15 @@ try {
 	// on the back-channel.
 	await sendFiles(bob.tab, [{ name: "from-bob.txt", contents: BOB_FILE }], REPLY_TEXT);
 
-	// Alice renders Bob's reply in her DM thread with him — the bidirectional
+	// Alice renders Bob's reply in her DM thread with him, the bidirectional
 	// completion of a direct line between two peers that both refuse a listener.
 	await awaitBubble(alice.tab, REPLY_TEXT, "Alice");
 	await downloadFile(alice.tab, "from-bob.txt", BOB_FILE, "Alice");
 
 	// A direct file line is a line, editable after the fact like a room's. Alice
 	// changes the files on the message she sent: she drops the first, keeps the
-	// second, and adds a new one. There is no room in the path — the handle she
-	// holds is one Bob minted on their direct connection — and Bob, who is the
+	// second, and adds a new one. There is no room in the path, the handle she
+	// holds is one Bob minted on their direct connection, and Bob, who is the
 	// durable owner of a direct line's display, redraws the message in place. The
 	// kept file is never re-sent; only the new one crosses.
 	{
@@ -220,6 +221,8 @@ try {
 			.catch(() => fail("the replacement direct file was not attached to the change"));
 		await alice.tab.fill("#line", "swapped one file on our direct line");
 		await alice.tab.click("#sendBtn");
+		await awaitBubble(alice.tab, "swapped one file on our direct line", "Alice after file replacement");
+		await sameBubble(alice.tab, ["also-from-alice.txt", "swapped-in.txt"], "Alice");
 		// Bob redraws the same line: the kept file and the new one, the dropped one
 		// gone, and the new one's bytes fetch over the same direct connection.
 		await sameBubble(bob.tab, ["also-from-alice.txt", "swapped-in.txt"], "Bob");
@@ -249,8 +252,8 @@ try {
 		).catch(() => fail("withdrawing a direct file line did not take its file away for Bob"));
 	}
 
-	// The rail is one rail. A direct line's row is the same object as a room's —
-	// a mark, a name, and the marks that end it — so the mark that closes it has
+	// The rail is one rail. A direct line's row is the same object as a room's,
+	// a mark, a name, and the marks that end it, so the mark that closes it has
 	// to land where the marks it replaces were, exactly as leaving a room lands
 	// on that room's count. This is the half of the rail no layout proof had
 	// reached: the room row's geometry is measured in `page_proof.ts`, and a
@@ -303,7 +306,7 @@ try {
 	//
 	// This is the teal half of a rule the page proof only ever checked on the
 	// amber, and it is the harder half: the selected row puts the readable teal on
-	// a wash of teal, and in syrup that readable teal *is* the teal — ink and
+	// a wash of teal, and in syrup that readable teal *is* the teal, ink and
 	// ground the same hue, with the wash lifting one toward the other. A room's
 	// count stood in exactly that place and came out under the line.
 	//
@@ -355,10 +358,13 @@ try {
 		undefined,
 		{ timeout: 20_000 },
 	).catch(() => fail("Alice closed the direct message but its thread stayed in her rail"));
+	await namedDirectRow(bob.tab, "web-alice").locator(".closed-mark").waitFor({ timeout: 20_000 })
+		.catch(() => fail("Bob's retired DM did not display CLOSED without a local close click"));
+	if (await bob.tab.locator("#line").isEnabled()) fail("Bob's closed DM still permits sending");
 
 	// The person is still there. Who can be reached directly is the room's
 	// answer, not this conversation's, so the members list still offers Alice a
-	// direct line to Bob — the way back in, and the only one she has once the
+	// direct line to Bob, the way back in, and the only one she has once the
 	// thread is gone.
 	const again = alice.tab.locator(`#members li:has-text("web-bob") button.dm-btn`);
 	await again.waitFor({ state: "visible", timeout: 30_000 }).catch(() =>

@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 /// Owns one unsubmitted core transaction. Metadata alone cannot expose use or
 /// control: restoration requires the committed records. Abort or drop before
-/// commit discards staging; after submission Store owns outcome recovery.
+/// commit discards staging. After submission Store owns outcome recovery.
 /// This guard adds one Rc retain and fixed scalar state, with no heap allocation
 /// or graph copy beyond the core resource preparation it already owns.
 pub struct StagedResource {
@@ -31,8 +31,15 @@ impl Store {
 		if self.inner.pending_creation.borrow().is_some() {
 			return Err(invalid("a creation outcome is still retained"));
 		}
+		// SAFETY: `GlowcapLoamResource` is a plain C struct of three `GlowcapLoamObject` values, each a fixed `uint8_t
+		// key[33]` array; all-zero is a valid value, and the callee fills it before it is read.
 		let mut raw = unsafe { core::mem::zeroed() };
 		check(
+			// SAFETY: `self.inner.store` is the `GlowcapLoamStore` borrowed from the LMDB storage owner `self.inner`
+			// holds, live because `live()` above found that owner unreleased; `policy.raw` is borrowed from `policy`
+			// and `identity`, `initial`, and `schema` are borrowed from this call's arguments, all live for the whole
+			// call (header: inputs are borrowed, the payload is copied into staging), and `raw` is the local
+			// out-parameter the callee fills.
 			unsafe {
 				ffi::glowcap_loam_resource_stage(
 					self.inner.store,
@@ -92,6 +99,9 @@ impl StagedResource {
 	/// A refused abort keeps this guard available for an exact retry.
 	pub fn abort(&mut self) -> Result<()> {
 		if self.staged {
+			// SAFETY: `self.inner.store` is the `GlowcapLoamStore` borrowed from the LMDB storage owner `self.inner`
+			// holds; while `self.staged` is true the Store is in its staging phase, so `glowcap_loam_lmdb_release`
+			// refuses Busy and the handle stays alive. The call takes no other pointer.
 			check(unsafe { ffi::glowcap_loam_store_abort(self.inner.store) }, false)?;
 			self.staged = false;
 		}
@@ -109,6 +119,9 @@ impl StagedResource {
 	#[cfg(not(target_arch = "wasm32"))]
 	pub fn commit(mut self) -> Result<Resource> {
 		self.submitting()?;
+		// SAFETY: `self.inner.storage` is the non-null `GlowcapLoamLmdb` handle from `glowcap_loam_lmdb_open`
+		// (`submitting` checked `live()` just above), released only by `StoreInner::close`; the call takes no other
+		// pointer and runs on the Host thread outside any turn.
 		let rc = unsafe { ffi::glowcap_loam_lmdb_commit(self.inner.storage.get()) };
 		if rc != ffi::GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED {
 			self.inner.pending_creation.borrow_mut().take();

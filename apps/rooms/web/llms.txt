@@ -20,6 +20,7 @@ Rooms has no HTTP API. Everything a client does is a call on an object it holds,
 - [Rooms](https://jimisaacs.github.io/glowcap/rooms/index.md): what Rooms is and what you can do in it.
 - [The Rooms protocol](https://jimisaacs.github.io/glowcap/rooms/protocol/index.md): every object, how you get it, what it answers, and how long it lives.
 - [Run Rooms](https://jimisaacs.github.io/glowcap/rooms/start/index.md): start it on a machine, join, message directly, share a session.
+- [Rooms across directories](https://jimisaacs.github.io/glowcap/rooms/directories/index.md): hold rooms on several directories and message members of each, with no link between the directories.
 - [Operate Rooms](https://jimisaacs.github.io/glowcap/rooms/operations/index.md): hosting, history, sessions, admin links.
 - [IRC and Rooms](https://jimisaacs.github.io/glowcap/rooms/irc/index.md): follow an IRC channel as a room, or join from an IRC client.
 - [glowcap](https://jimisaacs.github.io/glowcap/llms.txt): the library Rooms is built on, in the same form as this file.

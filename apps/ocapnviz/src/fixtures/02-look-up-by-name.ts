@@ -2,7 +2,7 @@ import { TimelineDocument } from "../engine/timeline.ts";
 import { payloadOf, wireFrames } from "./wire-frames.ts";
 
 /**
- * Chapter 02 — Look up a service by name.
+ * Chapter 02, Look up a service by name.
  *
  * A new client connects to a home hub hosting a thermostat, lights,
  * and music. It only knows the name "thermostat" and asks the
@@ -11,12 +11,12 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  *
  * On the wire: the client is at `127.0.0.1:9201` and the hub at
  * `127.0.0.1:9202`, over plain `tcp`. The client's end is its own
- * report; the hub's end is attached because the hub publishes
+ * report. The hub's end is attached because the hub publishes
  * its own trace of the same session and the two agree on the OCapN
  * Session ID. `tcp` itself proves nothing about who answered.
  * Both peers run glowcap, so this session settles on Cap'n Proto over
  * glowcap-next. That is the pairing a glowcap fleet configures
- * (`HostRuntime.Options.codec` / `.captp_version` in `src/driver/host_runtime.zig`); the
+ * (`HostRuntime.Options.codec` / `.captp_version` in `src/driver/host_runtime.zig`). The
  * Syrup / OCapN 1.0 baseline is what a session settles on the moment a peer
  * at either end cannot follow.
  */

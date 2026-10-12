@@ -1,5 +1,5 @@
 #lang racket
-;; exporter-gifter-host.rkt — Goblins Alice, the gifter in the handoff role
+;; exporter-gifter-host.rkt: Goblins Alice, the gifter in the handoff role
 ;; glowcap had never played live: **glowcap as the exporter**.
 ;;
 ;; The two shipped proofs cover the other two roles. `goblins-handoff` has
@@ -14,7 +14,7 @@
 ;; so Goblins is both gifter and exporter. Here Alice enlivens a greeter hosted
 ;; by *glowcap* and gifts that, so the exporter is glowcap. A Goblins recipient
 ;; (`gift-recipient.rkt`) then enlivens Alice's introducer, asks for the
-;; greeter, and receives a `desc:handoff-give` naming glowcap — which it can
+;; greeter, and receives a `desc:handoff-give` naming glowcap, which it can
 ;; only use by dialing glowcap directly and presenting a `desc:handoff-receive`.
 ;; If glowcap's gift registry mis-answers either verb, the recipient's call
 ;; never lands.

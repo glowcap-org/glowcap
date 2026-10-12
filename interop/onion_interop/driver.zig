@@ -6,7 +6,7 @@
 //! the pinned Spritely Goblins netlayer and the upstream OCapN suite. This is the
 //! step that proves a real Tor accepts those bytes. One peer asks Tor for a
 //! service, records its sturdyref, and withdraws it. A fresh child process
-//! restores the saved service key and serves a Greeter behind the same address;
+//! restores the saved service key and serves a Greeter behind the same address,
 //! the parent resolves the pre-restart sturdyref through Tor and calls it. The
 //! bytes in between cross the Tor network.
 //!
@@ -37,7 +37,7 @@ const swiss = "greeter";
 const greeting = "hello from a hidden service";
 
 /// How long to keep retrying the dial while the service descriptor publishes. A
-/// fresh v3 service is commonly reachable inside a minute; this is generous
+/// fresh v3 service is commonly reachable inside a minute. This is generous
 /// because a failure here should mean unreachable, not merely slow.
 const publish_budget_ms = 240_000;
 

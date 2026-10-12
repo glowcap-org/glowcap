@@ -1,7 +1,7 @@
 //! Transport-neutral client TLS engine contract.
 //!
-//! A concrete engine transforms caller-owned ciphertext and plaintext buffers;
-//! the driver owns socket I/O and readiness. Ciphertext produced by one step is
+//! A concrete engine transforms caller-owned ciphertext and plaintext buffers.
+//! The driver owns socket I/O and readiness. Ciphertext produced by one step is
 //! borrowed until explicitly consumed, so another step cannot overwrite bytes
 //! a completion backend still has in flight. A blocked plaintext write likewise
 //! pins the exact unconsumed tail across retries.
@@ -168,7 +168,7 @@ pub const Client = struct {
     }
 
     /// Move an unconsumed inbound tail inside driver-owned storage. Engines
-    /// borrow input only for `step`; the client performs the overlapping copy
+    /// borrow input only for `step`. The client performs the overlapping copy
     /// so the contract guard cannot observe an already-mutated source.
     pub fn relocateCiphertext(
         self: *Client,
@@ -205,8 +205,8 @@ pub const Client = struct {
     }
 
     /// Consume the engine and combine destruction failure with the first TLS
-    /// failure. An implicit destruction failure becomes a shutdown failure;
-    /// no callerless result is discarded here.
+    /// failure. An implicit destruction failure becomes a shutdown failure.
+    /// No callerless result is discarded here.
     pub fn deinitOutcome(self: *Client) ?Failure {
         var result = self.terminal_failure;
         if (self.pending_ciphertext.len != 0)

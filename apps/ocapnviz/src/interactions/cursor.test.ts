@@ -139,7 +139,7 @@ Deno.test("Add Peer with hover → crosshair", () => {
 Deno.test("Open Session keeps its own cursor over a peer it will take", () => {
 	// cursor.md step 5 before step 6: the tool's cursor outranks the verb's. The node
 	// the tool is about to act on is the last place to stop saying which tool is
-	// active — otherwise every authoring tool reads the same at the moment of
+	// active, otherwise every authoring tool reads the same at the moment of
 	// aiming, and the palette's distinction ends where it matters.
 	assertEquals(
 		cursorFor(
@@ -161,8 +161,8 @@ Deno.test("Select hovering peer → pointer", () => {
 
 Deno.test("Select hovering ruler → ew-resize (scrub cursor)", () => {
 	// A scrub moves the playhead along time; it does not resize anything. The
-	// `col-resize` handle cursor belongs to the two seams that do — an event
-	// pill's edge and the gutter's — and the two gestures must not read alike.
+	// `col-resize` handle cursor belongs to the two seams that do, an event
+	// pill's edge and the gutter's, and the two gestures must not read alike.
 	assertEquals(
 		cursorFor(ctx(), withHover(dummyHit("timeline-ruler", { t: 100 }))),
 		"ew-resize",
@@ -230,7 +230,7 @@ Deno.test("Select hovering gutter label → pointer", () => {
 });
 
 Deno.test("a row lifted out of the stack reads grabbing", () => {
-	// In flight, the reorder IS what is happening, and it is a move — the same
+	// In flight, the reorder IS what is happening, and it is a move, the same
 	// "you are carrying this" a pan shows.
 	const fsm = pressed({
 		tier: "default",
@@ -339,7 +339,7 @@ Deno.test("with a pick armed, a node the click refuses reads not-allowed", () =>
 	});
 	const hover = withHover(dummyHit("stage-peer", { peerId: "alice" }));
 	assertEquals(cursorFor(armed, hover, () => false), "not-allowed");
-	// Accepted, it is the tool's own cursor again — the refusal is the only
+	// Accepted. It is the tool's own cursor again. The refusal is the only
 	// thing that outranks it.
 	assertEquals(cursorFor(armed, hover, () => true), "copy");
 });
@@ -366,7 +366,7 @@ Deno.test("the refusal is asked about the armed pick and the node hovered", () =
 });
 
 Deno.test("a pick another tool armed is no partner for this one", () => {
-	// Tools do not inherit each other's picks — the app clears the armed slot
+	// Tools do not inherit each other's picks. The app clears the armed slot
 	// on a tool change, and the cursor must not read a stale one as a partner.
 	const asked: Parameters<ToolWillPick>[0][] = [];
 	cursorFor(

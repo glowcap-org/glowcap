@@ -1,7 +1,7 @@
 /**
  * Interruptions the reader actually finished. `hasSomethingToCommit`
  * is the one rule a buttonless move, a lost capture, and a `finished`
- * end all ask; the answer differs by state.
+ * end all ask. The answer differs by state.
  */
 
 import { assert, assertEquals } from "@std/assert";
@@ -17,11 +17,11 @@ import { dispatch, gctx, snap } from "./harness.ts";
  * ways: a pointermove carrying `buttons: 0`, a lost pointer capture, and a
  * `finished` end from the window watch in `gesture-router.ts`.
  * `hasSomethingToCommit` is the one rule all three ask, and these pin it per
- * state, because the answer differs by state and every one of them was previously
- * answered "cancel".
+ * state, because the answer differs by state and answering "cancel" for every
+ * one of them is wrong.
  *
  * It answers about the STATE only. Whether the reader finished the gesture at all
- * is the watch's `GestureEndReason`, pinned in `gesture-surface.test.ts`; a
+ * is the watch's `GestureEndReason`, pinned in `gesture-surface.test.ts`. A
  * `pointercancel` finishes nothing however promising the state looks.
  *
  * What the wrong answer looked like: a fast marquee selected nothing. The button
@@ -30,14 +30,14 @@ import { dispatch, gctx, snap } from "./harness.ts";
  * with its whole selection still only in the preview. Speed decided whether it
  * happened, so it read as random.
  *
- * The wiring from these to a real surface is browser-only — `use-surface-pointer`
- * is a hook, and Deno has no DOM — so what is checked here is the decision, and
+ * The wiring from these to a real surface is browser-only, `use-surface-pointer`
+ * is a hook, and Deno has no DOM, so what is checked here is the decision, and
  * the flick itself was measured in a browser: with one buttonless move ahead of
  * the release, a marquee over a peer went from selecting nothing to selecting the
  * same three entities a normal release does.
  *
  * Validated by injection: answering "pressed" instead of "dragging" fails both of
- * the first two. Answering a bare `false` — the old behavior — does not compile,
+ * the first two. Answering a bare `false` does not compile,
  * because the parameter goes unread, so it proves nothing and is not the check.
  */
 Deno.test("a drag the reader finished out of sight has something to commit", () => {
@@ -63,7 +63,7 @@ Deno.test("a drag the reader finished out of sight has something to commit", () 
 
 Deno.test("a press that never dragged has nothing to commit", () => {
 	// Nothing is in flight to commit, and ending it would fire a click at wherever
-	// the pointer was when the news arrived — which may be nowhere near what was
+	// the pointer was when the news arrived, which may be nowhere near what was
 	// pressed, since this path is reached precisely when we missed the events in
 	// between.
 	const { state } = dispatch(IDLE_MACHINE, [{

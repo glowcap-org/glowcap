@@ -1,8 +1,8 @@
 /**
  * Era sealing and the recompute signature, without going through the solver.
  *
- * `era-reuse.test.ts` proves the same start-arrangement through Engine ticks;
- * these ask `sealEras` and `layoutInputSignature` themselves, so a start that
+ * `era-reuse.test.ts` proves the same start-arrangement through Engine ticks.
+ * These ask `sealEras` and `layoutInputSignature` themselves, so a start that
  * snapped or a signature that ignored an Inspector end would fail here even
  * if the anneal happened to hide it.
  */
@@ -41,7 +41,7 @@ Deno.test("a short era eases from where the picture actually was", () => {
 		linear,
 	);
 	// The second era lasted 150 of a 600 ms window, so it starts 25% of the
-	// way from the first era's start (its own layout) toward that layout —
+	// way from the first era's start (its own layout) toward that layout,
 	// which is the same point, so the picture has not moved yet. A third era
 	// is what reads that progress.
 	assertEquals(sealed[1]?.start.get("alice"), { x: 0, y: 0 });

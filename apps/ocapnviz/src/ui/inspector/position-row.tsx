@@ -12,7 +12,7 @@ import { useScrubBracket } from "./edit-bracket.ts";
 import { Field } from "./fields.tsx";
 import { endRowIconButtonStyle, endRowStyle, valueMono } from "./styles.tsx";
 
-/** One coordinate scrub for the position row — `TimeScrubInput`'s
+/** One coordinate scrub for the position row, `TimeScrubInput`'s
  * sibling, formatting plain numbers instead of times. Same
  * `ScrubInput` engine, same ROW_H lock via the forwarded style. */
 function CoordScrubInput(
@@ -39,7 +39,7 @@ function CoordScrubInput(
 			formatInput={formatCoord}
 			label={label}
 			linear
-			// 1px of drag ≈ 1 world unit — the stage's own scale.
+			// 1px of drag ≈ 1 world unit. The stage's own scale.
 			pxPerDoubling={1}
 			style={{ flex: 1, minWidth: 0 }}
 		/>
@@ -53,12 +53,12 @@ const positionValueStyle = {
 	flex: "0 1 auto",
 } satisfies CSSProperties;
 
-/** Inspector row for a peer's placement — the position sibling of
+/** Inspector row for a peer's placement, the position sibling of
  * `OptionalTimeRow`, built from the same row idiom (ROW_H shell,
  * square ✕, opt-in button). Two states, narrated to the user as
- * WHO owns the position — "pinned" (the user authored it) vs
- * "auto" (the system places it automatically; mechanically, the
- * force layout). "auto" is the user word on purpose: "layout" is
+ * WHO owns the position, "pinned" (the user authored it) vs
+ * "auto" (the system places it automatically, mechanically, the
+ * force layout). "auto" is the user word: "layout" is
  * the implementation's name for the mechanism, and a UI string
  * that needs codebase knowledge to parse is an insider word in
  * pixel space.
@@ -87,15 +87,15 @@ export function PositionRow(
 		 *  peer's placement. */
 		pinned: { x: number; y: number } | null;
 		/** Where the peer sits right now (authored, or the layout's
-		 *  latest placement); null when it isn't on stage at all. */
+		 *  latest placement). Null when it isn't on stage at all. */
 		at: { x: number; y: number } | null;
 		editing: boolean;
 		onMove: ((pos: { x: number; y: number }) => void) | undefined;
 		onClear: (() => void) | undefined;
 		onPinHere: (() => void) | undefined;
-		/** Edit-transaction brackets (`EditorBindings` subset) — a
+		/** Edit-transaction brackets (`EditorBindings` subset), a
 		 *  coordinate scrub becomes one undo step. Required so a call
-		 *  site cannot silently ship unbracketed scrubs; pass the
+		 *  site cannot silently ship unbracketed scrubs. Pass the
 		 *  editor (undefined outside Build). */
 		editSession: EditBracket | undefined;
 		/** What the row is placing, for the strings a user reads. A session's

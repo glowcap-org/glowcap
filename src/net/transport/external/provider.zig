@@ -41,12 +41,14 @@ pub const Finished = union(enum) {
     failed: anyerror,
 };
 
+/// Provider implementors are unknown at this declaration, so the listener
+/// locator verbs keep `anyerror` return sets.
 pub const VTable = struct {
     start_connect: *const fn (ctx: *anyopaque, locator: model.PeerLocator) Started,
     /// Consumes `attempt` on every return.
     finish_connect: *const fn (ctx: *anyopaque, attempt: *anyopaque) Finished,
     cancel_connect: *const fn (ctx: *anyopaque, attempt: *anyopaque) void,
-    /// Null when the provider cannot listen; the listener verbs below are then
+    /// Null when the provider cannot listen. The listener verbs below are then
     /// null too. `identity` is the durable key of the Host the listener
     /// serves, which a key-designated profile publishes.
     listen: ?*const fn (ctx: *anyopaque, designator: []const u8, identity: ?PeerKey) Started = null,
@@ -70,7 +72,7 @@ pub const VTable = struct {
     /// `conn`, once. Null when the provider keeps none.
     conn_take_failure: ?*const fn (ctx: *anyopaque, conn: *anyopaque) ?foundation.FailureChain = null,
     /// Releases `conn` and its descriptor. A teardown failure is the
-    /// provider's to record; nothing waits on it here.
+    /// provider's to record. Nothing waits on it here.
     conn_close: *const fn (ctx: *anyopaque, conn: *anyopaque) void,
 };
 

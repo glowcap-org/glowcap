@@ -1,5 +1,5 @@
 #lang racket/base
-;; glowcap-projection-asker.rkt — Goblins client that sends canonical `op:get`
+;; glowcap-projection-asker.rkt: Goblins client that sends canonical `op:get`
 ;; and `op:index` against glowcap projection responders.
 ;;
 ;; Goblins 0.18.0 has no outbound projection API at the application layer; this

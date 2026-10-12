@@ -1,5 +1,5 @@
 // A room row's identity survives its publication becoming known. A room
-// joined by link starts with no publication id; the durable session backfills
+// joined by link starts with no publication id. The durable session backfills
 // the resolved id at a later reconcile, and the rail must keep showing one
 // row with its history rather than a second, empty sibling filed under the
 // publication key. A row already claiming a different publication is a

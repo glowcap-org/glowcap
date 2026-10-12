@@ -17,7 +17,7 @@ pub enum PendingWork {
 	/// Interrupt admitted work and wait for physical cancellation to complete.
 	Cancel,
 	/// Let admitted work settle before closing. `None` is an explicitly
-	/// unbounded finish; implicit resource cleanup always uses [`Cancel`](Self::Cancel).
+	/// unbounded finish. Implicit resource cleanup always uses [`Cancel`](Self::Cancel).
 	Finish { grace: Option<Duration> },
 }
 

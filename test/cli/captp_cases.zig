@@ -1,7 +1,7 @@
 //! In-process CapTP adapter golden: `cmdListen` + `cmdCall` over loopback.
 //!
 //! Proves the product CLI fronts wire `driver.Session` correctly (exit 0 and
-//! greeter payload). Not Goblins/suite wire evidence — see community-review.
+//! greeter payload). Not Goblins/suite wire evidence, see community-review.
 const std = @import("std");
 const cli = @import("cli");
 const glowcap = @import("glowcap");
@@ -115,7 +115,7 @@ test "MCP listen backgrounds and a client round-trips off the listener's own thr
     try listen_parsed.setString("publish", "greeter");
     try listen_parsed.setString("bind", "127.0.0.1:0");
 
-    // No concurrency wrapper on purpose: the MCP spelling returns as soon as
+    // No concurrency wrapper: the MCP spelling returns as soon as
     // the socket is bound, which is the whole point of the slice.
     try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdListen(&host, &listen_parsed));
     const uri = host.publishedLocator().?;
@@ -134,7 +134,7 @@ test "MCP listen backgrounds and a client round-trips off the listener's own thr
     try std.testing.expect(host.background_listener.?.accepted.load(.acquire) == 1);
 
     // A --publish listener goes quiet after its one partner, and records the
-    // benign stop so `info` reports it as no longer listening. The accept
+    // benign stop so `info` reports it as not listening. The accept
     // thread notices the client's close on its own cadence, so wait for the
     // store rather than racing it.
     var waited: usize = 0;
@@ -491,7 +491,7 @@ test "await queue finishes a dropped socket as connection failure" {
 
     try queue.enqueue(&client, "fetch never-published", &store, &progress);
 
-    // TUI order: wake-step (the site that used to `catch {}`), then tick.
+    // TUI order: wake-step, then tick.
     if (queue.busy()) {
         try queue.advanceSession(client.session.?, &store, cli.repl_await_queue.frame_ms);
     }

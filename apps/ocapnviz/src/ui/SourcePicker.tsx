@@ -10,7 +10,7 @@
  * arrived.
  *
  * What the buffer IS follows underneath, and only in Play and Build, because Live
- * has no document to describe — `DocumentFields` owns those rows.
+ * has no document to describe, `DocumentFields` owns those rows.
  */
 
 import { useState } from "react";
@@ -35,8 +35,8 @@ const sourceSelect = {
 	width: "100%",
 } satisfies React.CSSProperties;
 
-// The URL field is a field, so it wears `.ocv-input`. It used to wear
-// `.ocv-select` with the chevron cancelled inline, which also handed a
+// The URL field is a field, so it wears `.ocv-input`. Wearing `.ocv-select`
+// with the chevron cancelled inline would also hand a
 // thing you type into the dropdown's pointer cursor and unselectable
 // text. All that is left here is the mono face and the full width.
 const sourceTextInput = {
@@ -63,8 +63,8 @@ export function SourcePicker(
 		/** The buffer's actual provenance (derived in App). Null only
 		 * before the first source resolves. */
 		source: BufferSourceInfo | null;
-		/** The active engine — subscribed here (not at the App level,
-		 * which deliberately stays off the notify stream) so the
+		/** The active engine, subscribed here (not at the App level,
+		 * which stays off the notify stream) so the
 		 * "edited" badge appears the moment the first Build edit
 		 * lands, not on the next unrelated re-render. */
 		engine: Engine;
@@ -73,7 +73,7 @@ export function SourcePicker(
 		/** At least one record has arrived on this dial. */
 		liveObserved: boolean;
 		/** Whether a live capture is running. A capture lives in the
-		 *  engine the trace capability creates, so re-dialing throws it away —
+		 *  engine the trace capability creates, so re-dialing throws it away,
 		 *  the field therefore stops taking edits while one is running,
 		 *  and says why. Merely being connected protects nothing, so the
 		 *  field takes edits freely until Record.
@@ -157,7 +157,7 @@ export function SourcePicker(
 				source={source}
 				// A live Build undo stack is already "edited" before the mode exit
 				// captures the fork. `canUndo` is the whole question, because every
-				// change to the document is a step in the history — including setting
+				// change to the document is a step in the history, including setting
 				// where it opens, which is why the camera moving is not one.
 				edited={(source?.edited ?? false) ||
 					(mode === "build" && engine.canUndo)}
@@ -170,7 +170,7 @@ export function SourcePicker(
  * One panel holding where the buffer came from and what it says about itself.
  *
  * Both, in one box, because to a reader they are one thing: this document, and
- * how it got here. It carries no heading of its own — the section around it is
+ * how it got here. It carries no heading of its own. The section around it is
  * already called Document, and in Live, Connection.
  *
  * `PANEL` is the app's one recessed block and `kv` the Inspector's key/value grid
@@ -188,12 +188,12 @@ const panel = {
  *  What the reader types and what the socket dials are two different
  *  things, and this field is the seam between them. The text lives here
  *  while it is being typed and is handed up only when the reader says
- *  they are done — Enter, or leaving the field. Escape puts the field
+ *  they are done, Enter, or leaving the field. Escape puts the field
  *  back to the sturdyref in force.
  *
  *  It reads as an ordinary text box, so the reason for the seam is worth
  *  stating: subscribing is destructive. Every sturdyref the field hands up
- *  closes the current CapTP session and opens the newly authorized trace; a
+ *  closes the current CapTP session and opens the newly authorized trace. A
  *  half-typed sturdyref authorizes nothing. Handing drafts up a character at
  *  a time repeatedly tore down the current observation session and threw away
  *  any capture running on it.
@@ -256,7 +256,7 @@ function LiveSturdyrefField(
  *
  * A badge because it is a state rather than a value, which is the same reading
  * `OriginRow` gives "edited" and the Inspector gives a session's lifecycle. It was
- * a dot and a word in small-caps at their own size — the one thing in this panel
+ * a dot and a word in small-caps at their own size. The one thing in this panel
  * that was neither a control nor a labelled fact, so a reader scanning keys down
  * the left had to step over it.
  *

@@ -79,7 +79,7 @@ pub fn run(ctx: *Ctx, parsed: *Parsed) !u8 {
     signals.install();
 
     // `--publish` / `--once` accept one partner then exit; until then this
-    // process is intentionally idle on accept. Say so on stderr so a quiet
+    // process is idle on accept. Say so on stderr so a quiet
     // wait is not mistaken for a hang (stdout already carried the locator).
     if (publish_name) |name| {
         ctx.logInfo("listening; will publish {s} when a partner connects (Ctrl-C to stop)", .{name});
@@ -127,7 +127,7 @@ fn acceptLoop(ctx: *Ctx, server: *driver.Server, publish_name: ?[]const u8, once
 }
 
 /// Serve until the partner leaves or SIGINT/SIGTERM sets the stop latch.
-/// `Session.serve` parks in an unbounded read; chunked `stepReadable` lets the
+/// `Session.serve` parks in an unbounded read. Chunked `stepReadable` lets the
 /// latch end a published peer without closing the socket from another thread.
 fn serveUntilStop(session: *driver.Session) !void {
     while (!signals.stopRequested()) {

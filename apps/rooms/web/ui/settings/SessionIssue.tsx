@@ -185,7 +185,7 @@ export function SessionIssueModal(
 							/>
 						</div>
 						{/* Onward sharing and future changes start from safe answers, so they stay folded. */}
-						<details className="disclosure">
+						<details className="disclosure" data-align="center">
 							<summary>
 								{text.powers}
 								<span className="disclosure-said">{text.advancedSaid}</span>

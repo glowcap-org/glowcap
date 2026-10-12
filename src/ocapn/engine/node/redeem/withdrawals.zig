@@ -152,6 +152,7 @@ pub fn claim(self: *Node, peer_handle: PeerHandle, answer: u64, outcome: Outcome
     const key: Key = .{ .peer_handle = peer_handle, .answer = answer };
     const rows = &self.redeems.withdrawals.rows;
     const pending = rows.get(key) orelse return false;
+    // `peer_handle` is the session that delivered this resolve, so it is live.
     const slot = self.peers.getPtr(peer_handle) orelse unreachable;
     std.debug.assert(slot.pending_withdraw_count != 0);
     switch (outcome) {

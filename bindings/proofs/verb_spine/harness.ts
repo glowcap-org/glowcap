@@ -1,6 +1,6 @@
 // The shared stand for the verb-spine proof family: start the fixed Deno peer
 // (`fixture_peer.ts`), take a second copy of that peer's address and kill it so
-// there is a genuinely dead one to dial, then run one binding's client with
+// there is a dead one to dial, then run one binding's client with
 // both locators appended to argv and require the client's marker line for every
 // scene, in order.
 //
@@ -125,7 +125,7 @@ function spawnPeer(processes: ProofProcesses): Deno.ChildProcess {
 
 /** Bind a peer, take its advertised locator, and let the process exit so the
  * address is dialable-but-refused. Killing a real listener is what makes the
- * dead locator honest: it was minted by the same runtime as the live one, and
+ * dead locator realistic: it was minted by the same runtime as the live one, and
  * its port is released by process exit rather than by guesswork. */
 async function deadLocator(processes: ProofProcesses): Promise<string> {
 	const doomed = spawnPeer(processes);

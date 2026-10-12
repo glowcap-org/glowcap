@@ -14,12 +14,12 @@ amended_by: [ADR-0194]
 
 ## Context
 
-A handler that sends and then fails used to emit those sends anyway. The
-error path discarded only the staged `become`. Goblins treats a turn as a
-unit: on an exception it clears the turn's pending messages and still sends
-the break to the caller (`core.rkt`, the `new-msgs` reset). A turn that throws
-halfway through emitting half its effects breaks the reasoning "a turn either
-happens or it doesn't", and Goblins code ported to glowcap changes behavior.
+A handler that sends and then fails emitted those sends anyway. The error path
+discarded only the staged `become`. Goblins treats a turn as a unit: on an
+exception it clears the turn's pending messages and still sends the break to the
+caller (`core.rkt`, the `new-msgs` reset). A turn that throws halfway through
+emitting half its effects breaks the reasoning "a turn either happens or it
+doesn't", and Goblins code ported to glowcap changes behavior.
 
 ## Decision
 
@@ -50,11 +50,11 @@ duration of `Peer.send`. The workable shape is to record far sends as today and
 retract them when the turn fails: a plain deliver's session effects have exact
 inverses and nothing is encoded during a turn. A send the Node adopted to
 project a capability needs a Node-level rollback first. The
-[runtime semantics plan](../../planning/runtime-semantics.md) owns that work.
+[open obligations](../../roadmap.md#open-obligations-from-retired-plans) owns that work.
 
 ## Scope
 
-A mutable actor's direct state changes are not rolled back; ADR-0060's limit
+A mutable actor's direct state changes are not rolled back. ADR-0060's limit
 stands. Actors spawned during a failed turn stay alive, because the mutated
 state may already hold them.
 

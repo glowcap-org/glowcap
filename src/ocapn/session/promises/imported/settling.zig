@@ -30,7 +30,7 @@ pub const SettlingMovePlan = struct {
 
 /// Claim this promise incarnation's one next-profile wire settling
 /// subscription for one local application or Node consumer. False means the
-/// target already has the wire subscription; convergence joins consumers
+/// target already has the wire subscription. Convergence joins consumers
 /// through `prepareSettlingMove` instead of sending another listener.
 pub fn claimSettlingListener(
     self: *Session,
@@ -118,6 +118,9 @@ pub fn discardUnconsumedSettlingListener(self: *Session, source: session.Promise
         return;
     std.debug.assert(entry.settling_followers.items.len == 0);
     const resolver = entry.settling_listener_export;
+    // Presence and purpose are certain because `claimSettlingListener` set
+    // `settling_listener_export` beside the link row it minted, and
+    // `retireNodeSettlingResolver` transitioned that row to `.retired`.
     const purpose = self.outbound_resolver_link.getByKey(resolver) orelse unreachable;
     switch (purpose) {
         .retired => {},
@@ -163,7 +166,7 @@ pub fn settlingFollowersForAnswer(self: *Session, primary: model.AnswerPosition)
 }
 
 /// Validate that every local alias is still an unsettled outbound answer. The
-/// primary callback performs the wire-value validation once; aliases share
+/// primary callback performs the wire-value validation once. Aliases share
 /// that value and need only their own answer-state check.
 pub fn validateSettlingFollowers(self: *Session, primary: model.AnswerPosition) !void {
     for (settlingFollowersForAnswer(self, primary)) |answer| {
@@ -174,7 +177,7 @@ pub fn validateSettlingFollowers(self: *Session, primary: model.AnswerPosition) 
 
 /// Apply the primary callback's outcome to every local alias without
 /// re-installing its introduced imports. The one wire resolution introduced
-/// those references once; local fan-out does not create more wire mentions.
+/// those references once. Local fan-out does not create more wire mentions.
 pub fn applySettlingFollowers(
     self: *Session,
     primary: model.AnswerPosition,
@@ -218,7 +221,7 @@ pub fn takeSettlingFollowers(
 
 /// Detach a released local answer from its settling subscription in O(1).
 /// A released follower is swap-removed. Releasing the primary promotes the
-/// final follower and retargets the surviving resolver link; when only a Node
+/// final follower and retargets the surviving resolver link. When only a Node
 /// consumer remains, the application resolver link is removed but the wire
 /// listener stays armed for the Node.
 pub fn unlinkSettlingAnswer(

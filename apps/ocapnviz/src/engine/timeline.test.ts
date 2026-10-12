@@ -112,7 +112,7 @@ Deno.test(
 		assertEquals(doc.entities?.sessions?.s1?.a?.peer, "alice");
 		assertEquals(doc.entities?.sessions?.s1?.codec, "capnp");
 		assertEquals(doc.entities?.messages?.m1?.from, "alice");
-		// flightMs is no longer a separate field on MessageDefinition;
+		// flightMs is not a separate field on MessageDefinition;
 		// flight time lives in timing.duration after projection.
 		assertEquals(doc.entities?.messages?.m1?.label, "hello");
 	},
@@ -121,8 +121,8 @@ Deno.test(
 Deno.test(
 	"TimelineDocument parse transform leaves entities entries authored by hand alone",
 	() => {
-		// Explicit `entities` entries win over event-payload values
-		// — the transform only fills GAPS, never overwrites. Allows
+		// Explicit `entities` entries win over event-payload values,
+		// the transform only fills GAPS, never overwrites. Allows
 		// the user to author a different identity (label, profile)
 		// in entities even if an observation still carries the old.
 		const doc = TimelineDocument.parse({
@@ -248,7 +248,7 @@ Deno.test("observationsInRange treats fromT inclusive, toT exclusive", () => {
 });
 
 // rowOrder + rowHidden are additive optional per-category fields
-// for the Flash-grade timeline (PR 1). Fixtures predating them
+// for the timeline. Fixtures without them
 // must continue to parse identically.
 
 Deno.test("TimelineDocument accepts rowOrder (additive optional field)", () => {
@@ -308,7 +308,7 @@ Deno.test("TimelineDocument: events is optional in input — recording-only docs
 });
 
 Deno.test("TimelineDocument: input events project into recording.sources[0]", () => {
-	// Flat input shape — events at the doc root — gets projected
+	// Flat input shape, events at the doc root, gets projected
 	// into `recording.sources[0]` by the schema's .transform, and
 	// the events field is stripped from the runtime shape.
 	const parsed = TimelineDocument.parse({

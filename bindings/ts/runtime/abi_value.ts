@@ -4,7 +4,7 @@
 // `L`, and pointer-width fields go through its width-aware accessors, so the
 // same body projects the 64-bit dlopen targets and the wasm32 browser module.
 // Zig alone owns the CapTP wire codecs and protocol semantics.
-// All of this is package-internal — the peer/vat/connection
+// All of this is package-internal: the peer/vat/connection
 // modules import what they need (`encodeArgs`, `readArg`, `readArgArray`,
 // `refStruct`, `readReference`); the barrel exposes none of it. `encodeArg` and
 // `writeReference` are module-private, used only by their exported wrappers.

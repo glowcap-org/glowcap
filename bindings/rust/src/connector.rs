@@ -77,7 +77,7 @@ pub struct Connector {
 
 impl Connector {
 	/// Construct a connector for a static transport-symbol inventory.
-	/// Transport modules own this constructor call; generic application code
+	/// Transport modules own this constructor call. Generic application code
 	/// normally uses their `connector` factory.
 	pub fn new<F>(transports: &'static [&'static str], connect: F) -> Result<Self>
 	where

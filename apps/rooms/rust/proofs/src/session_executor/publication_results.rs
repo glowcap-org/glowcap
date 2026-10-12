@@ -440,7 +440,7 @@ async fn run_case(invalid: bool) {
 					assert!(host.send(&lease, "ready", &[]).await.is_err());
 					assert_eq!(
 						mutate(&host, &root, "command", &args).await.unwrap_err().message(),
-						Some("ApplicationRefused")
+						Some("original source capability required")
 					);
 					assert_eq!(calls.get(), 1, "a different source cannot resume this receipt");
 					// Root-owned replay is independently inspectable after physical close.

@@ -26,7 +26,7 @@ import { lineCarried } from "../commands.ts";
  * Built once per history array and kept beside it, keyed on the array itself,
  * so it dies with the array it describes and a write can never leave a stale
  * index behind. Every history write already copies the array, so building
- * the index costs the same order as the write; every lookup after it is a map
+ * the index costs the same order as the write. Every lookup after it is a map
  * read instead of a scan over up to `MAX_SCROLLBACK` lines. */
 interface LineIndex {
 	readonly byId: ReadonlyMap<number, number>;
@@ -73,7 +73,7 @@ export function lineByCoordinate(history: readonly Item[], coordinate: HistoryCo
 }
 
 /** A chat line with what its text carries stamped on it, so the log reads a
- * field where it used to parse. Stamped where the text is set: on making the
+ * field instead of parsing. Stamped where the text is set: on making the
  * line and on any change to its words. */
 function stamped(item: ChatItem): ChatItem {
 	const carried = lineCarried(item.text);
@@ -136,7 +136,7 @@ function writeUnread(projection: PageProjection, key: string, unread: Unread): v
 
 /** Keep an unread run attached to a row the reader can still reach. History
  * can lose rows through live scrollback, prefix restoration, or chronological
- * reconciliation; clearing the whole log clears a mark with nowhere to stand. */
+ * reconciliation. Clearing the whole log clears a mark with nowhere to stand. */
 function repairUnreadAfterDrop(unread: Unread, history: readonly Item[], gone: readonly Item[]): Unread {
 	if (unread.kind === "caught-up" || !gone.some((item) => item.id === unread.from)) return unread;
 	return history.length === 0 ? CAUGHT_UP : { ...unread, from: history[0].id };
@@ -166,7 +166,7 @@ export function chatItem(
 	});
 }
 
-/** Give a file its own UI identity. Message ids locate bubbles; attachment ids
+/** Give a file its own UI identity. Message ids locate bubbles. Attachment ids
  * locate independently transferring capabilities inside them. Both come from
  * one tab-local sequence so no data-layer map can confuse the two. */
 export function attachmentView(projection: PageProjection, fields: Omit<AttachmentView, "id">): AttachmentView {
@@ -204,7 +204,7 @@ export function updateAttachments(
 	if (history !== null) writeHistory(projection, key, history);
 }
 
-/** Change one file. Terminal state changes use this focused form; progress
+/** Change one file. Terminal state changes use this focused form. Progress
  * callbacks use `updateAttachments` through the frame coalescer in the session projection. */
 export function updateAttachment(projection: PageProjection, key: string, id: number, fields: AttachmentFields): void {
 	updateAttachments(projection, key, new Map([[id, fields]]));
@@ -356,7 +356,7 @@ export function reviseItem(projection: PageProjection, key: string, id: number, 
 
 /** Insert newly seen lines and reorder the account's existing section by its
  * own chronology. Full recorder coordinates identify the divider independently
- * of its display text; a standing-only account can have an empty section. */
+ * of its display text. A standing-only account can have an empty section. */
 export function insertArchiveLines(
 	projection: PageProjection,
 	key: string,
@@ -400,7 +400,7 @@ export function insertArchiveLines(
 
 /** Merge the attached session's own archive into its live log. Unlike a
  * separately shared history prefix, these rows fill gaps on either side of
- * live rows. The conversation's own order resolves equal timestamps; archive
+ * live rows. The conversation's own order resolves equal timestamps. Archive
  * coordinates remain identity-only. */
 export function reconcileHistory(
 	projection: PageProjection,
@@ -440,7 +440,7 @@ export function reconcileHistory(
 }
 
 /** One more unread line. A run that is already going keeps the line it started
- * on; a rule still up from the last visit adopts that same line, so arriving,
+ * on. A rule still up from the last visit adopts that same line, so arriving,
  * reading, and being interrupted again does not move the mark up the log. */
 function count(unread: Unread, at: number): Unread {
 	if (unread.kind === "unread") return { ...unread, count: unread.count + 1 };
@@ -489,7 +489,7 @@ export function updateItem(projection: PageProjection, key: string, id: number, 
 
 /** Reconcile a draft aimed at authority the room has withdrawn. Empty input was
  * the withdrawal intent and is complete. New words or files belong to the
- * reader, so preserve them while removing the stale edit target; their next
+ * reader, so preserve them while removing the stale edit target. Their next
  * submission becomes a new line instead of retrying an impossible mutation. */
 function detachDraftFromLine(projection: PageProjection, key: string, id: number): boolean {
 	const draftsState = projection.get().drafts;
@@ -503,7 +503,7 @@ function detachDraftFromLine(projection: PageProjection, key: string, id: number
 }
 
 /** The reader has caught up with this conversation. The unread count clears at
- * once; the rule in the log stays a moment longer, so arriving at a conversation
+ * once. The rule in the log stays a moment longer, so arriving at a conversation
  * still shows you where you left off. */
 export function markRead(projection: PageProjection, key: string): void {
 	const unread = unreadOf(projection, key);
@@ -523,7 +523,7 @@ export function clearUnreadRule(projection: PageProjection, key: string): void {
  *
  * Yours and only yours: the room keeps what was said and hands it back on the
  * way in again, so this is a window being tidied rather than anything being
- * destroyed. That is the whole reason it needs no permission — there is nothing
+ * destroyed. That is the whole reason it needs no permission. There is nothing
  * here to ask anybody about. */
 export function clearHistory(projection: PageProjection, key: string): void {
 	if (getConv(projection, key) === null) return;
@@ -532,8 +532,8 @@ export function clearHistory(projection: PageProjection, key: string): void {
 	writeHistory(projection, key, NO_HISTORY, CAUGHT_UP);
 	// The third way lines leave the log, through the same door as the other
 	// two: the scrollback trim and a closing conversation both hand what their
-	// departing lines were holding — object URLs, blob capabilities, the
-	// references governing our own lines — to the release seam. Bypassing it
+	// departing lines were holding (object URLs, blob capabilities, the
+	// references governing our own lines) to the release seam. Bypassing it
 	// here kept all of that alive until the directory session ended, for a
 	// reader who had just asked for the room to be emptied.
 	projection.letLinesGo(key, gone);
@@ -541,11 +541,11 @@ export function clearHistory(projection: PageProjection, key: string): void {
 /** Find the line a room names, and change it.
  *
  * By the room's own id rather than ours, because that is the only name both
- * sides share. A line nobody has — one that arrived before this tab did, or was
- * already cleared from this window — is not an error: the room said something
- * about a line we do not hold, and the honest answer is to do nothing. The
+ * sides share. A line nobody has (one that arrived before this tab did, or was
+ * already cleared from this window) is not an error: the room said something
+ * about a line we do not hold, and the right answer is to do nothing. The
  * change itself goes through `updateItem`, the one seam that keeps history
- * honest: a room saying a line was edited or withdrawn must reach the archive
+ * accurate: a room saying a line was edited or withdrawn must reach the archive
  * recorder exactly as a reader's own edit does, or the kept copy outlives the
  * takedown it claims to follow. */
 export function applyLineChange(

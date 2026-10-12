@@ -11,13 +11,13 @@ import { utf8Fits } from "../../lib/limits.ts";
 // WebRTC finds a path between two peers by trading candidate addresses. A
 // `host` candidate is an address on the machine's own networks, and it is the
 // only kind a browser can produce unaided. Two tabs on one machine, or two
-// people on one office network, reach each other with nothing else — which is
+// people on one office network, reach each other with nothing else, which is
 // why every proof in this tree passes without any of this, and why the gap
 // below stayed invisible until two people on different networks tried.
 //
 // Anywhere else, each side is behind a router that rewrote its address, and
 // neither can name itself in terms the other can dial. A STUN server answers
-// exactly one question — "what address did my packet appear to come from?" —
+// exactly one question, "what address did my packet appear to come from?",
 // and that answer is the candidate the other side can use. It sees no message
 // bytes: a direct line is encrypted end to end whether or not STUN helped
 // arrange it. ADR-0089 assumed this was here; it names an intermediary "only
@@ -25,7 +25,7 @@ import { utf8Fits } from "../../lib/limits.ts";
 //
 // The set is a deployment's to choose, because it names hosts that deployment
 // is willing to depend on and disclose an address to. `GLOWCAP_ROOMS_ICE_SERVERS`
-// is a comma-separated STUN list, and an empty value deliberately runs with
+// is a comma-separated STUN list, and an empty value runs with
 // none: a private network where every member can already reach every other wants
 // no outside host in the path at all. TURN credentials are short-lived bearer
 // authority, so the web-server policy mints them and this shared boundary only

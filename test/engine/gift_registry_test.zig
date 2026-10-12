@@ -185,7 +185,7 @@ test "withdraw rejects non-32-byte gift id before lookup or parking" {
         null,
         .{ .receive = view, .answer = .fromWire(.from(2)) },
     )) {
-        // Whatever else this unsigned fixture is refused for, it is no longer
+        // Whatever else this unsigned fixture is refused for, it is not
         // refused for its width: that is the whole claim.
         .settled => |prepared| {
             var settled = prepared;
@@ -364,7 +364,7 @@ test "consumed gifts do not count toward max_deposited_gifts" {
     var registry: GiftRegistry = .{};
     defer registry.deinit(allocator, null);
     // A registry that has already served max_deposited_gifts *completed*
-    // handoffs must keep accepting new deposits: a spent gift no longer counts.
+    // handoffs must keep accepting new deposits: a spent gift does not count.
     const limits: session.SessionLimits = .{ .max_deposited_gifts = 1 };
 
     var buf: [8]u8 = undefined;
@@ -556,8 +556,8 @@ test "a gifted near with no published name is refused at deposit" {
     try gifter.sendDepositGift(&gift_id, .{ .far = model.FarRef.object(9) });
     try std.testing.expectError(error.InvalidGift, cross_peer.pumpAll(&gifter, &exporter));
 
-    // The accepted side of this rule — a deposit whose gifted near does carry
-    // a swissnum — is what every live handoff step exercises end to end
+    // The accepted side of this rule, a deposit whose gifted near does carry
+    // a swissnum, is what every live handoff step exercises end to end
     // (`goblins-handoff`, `goblins-gift`, `deno-gifter-handoff`), so it is not
     // restated here against a hand-built session.
 }
@@ -585,7 +585,7 @@ test "a gifted far is refused at deposit rather than at the recipient's expense"
     // Refusing at the deposit is what puts the refusal on the gifter's own
     // session. Left for the withdraw responder to discover, the same gift
     // would abort the *recipient's* session instead, which is a seam a gifter
-    // could aim deliberately.
+    // could aim.
     try std.testing.expect(!exporter.giftRegistry().giftLive(&gift_id));
 }
 

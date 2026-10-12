@@ -5,15 +5,15 @@
 //! reads ready, instead of re-tracking every wire, resident, and mailbox
 //! descriptor per language.
 //!
-//! The set is Linux `epoll` or Darwin `kqueue` — both kernel objects whose
-//! own descriptor polls readable while any member is readable — and it
+//! The set is Linux `epoll` or Darwin `kqueue`, both kernel objects whose
+//! own descriptor polls readable while any member is readable, and it
 //! carries one `WakeChannel` of its own, so another thread can make a parked
 //! owner return without touching any member. On a platform with neither
-//! primitive `init` fails typed (`ReadinessUnavailable`); the face's
+//! primitive `init` fails typed (`ReadinessUnavailable`). The face's
 //! blocking verbs keep working without a set, because only the park-outside
 //! contract needs one.
 //!
-//! Membership is level-shaped. Ordinary wires use readable interest; a
+//! Membership is level-shaped. Ordinary wires use readable interest. A
 //! transport close transaction may temporarily switch its descriptor to
 //! writable interest. `remove` tolerates an fd that already left because the
 //! close and release paths sweep the same wire.
@@ -44,7 +44,7 @@ extern "c" fn kevent(
 ) c_int;
 extern "c" fn close(fd: c_int) c_int;
 
-/// `struct kevent` as Darwin declares it; spelled here so the Linux build
+/// `struct kevent` as Darwin declares it. Spelled here so the Linux build
 /// never touches `std.c`'s Darwin-only namespace.
 const DarwinKevent = extern struct {
     ident: usize,
@@ -105,7 +105,7 @@ pub const ReadySet = struct {
     }
 
     /// Close the set, on the owning thread, after every waking thread has
-    /// stopped. Members are not closed; they belong to their owners.
+    /// stopped. Members are not closed. They belong to their owners.
     pub fn deinit(self: *ReadySet) void {
         closeFd(self.fd);
         self.wake.deinit();
@@ -186,7 +186,7 @@ pub const ReadySet = struct {
     }
 
     /// Make the set readable from any thread, so a parked owner returns and
-    /// re-enters its step. A full channel is a successful coalesced wake; a
+    /// re-enters its step. A full channel is a successful coalesced wake. A
     /// broken channel is returned to the runtime that owns the parked work.
     pub fn postWake(self: *ReadySet) wake_channel.Failure!void {
         try self.wake_failure.check();
@@ -204,7 +204,7 @@ pub const ReadySet = struct {
     }
 
     /// Consume pending wake posts, on the owning thread, at the top of every
-    /// wait — a level-shaped wake left unread would pin the set readable
+    /// wait, a level-shaped wake left unread would pin the set readable
     /// forever. Darwin also requires draining queued kqueue notifications:
     /// polling the kqueue fd makes it readable, but the event stays queued
     /// until a `kevent` read consumes it.
@@ -224,7 +224,7 @@ pub const ReadySet = struct {
         var events: [32]DarwinKevent = undefined;
         var timeout = DarwinTimespec{ .tv_sec = 0, .tv_nsec = 0 };
         // One read consumes the queued wake notification. Do not loop: read
-        // filters are level-triggered, so a genuinely readable member would
+        // filters are level-triggered, so a readable member would
         // be returned forever until its owning transport services it.
         while (true) {
             const rc = kevent(

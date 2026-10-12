@@ -1,10 +1,10 @@
 /* The entry vocabulary: how a surface lists the things it knows about, one
    row each, and the named door that launches a new one. An entry's head
    carries the name, a short fact that qualifies it, and its acts at the
-   line's end; the body under it carries the longer facts, one line each. A
+   line's end. The body under it carries the longer facts, one line each. A
    launch row is a mark, a name with one sentence, and the act that goes.
    The questions and acts these rows carry are forms.css's, and plane.css
-   owns the ground both stand on; this sheet owns only the rows. It is
+   owns the ground both stand on. This sheet owns only the rows. It is
    imported after forms.css because a launch row lays out the field rows it
    contains. */
 
@@ -12,7 +12,7 @@
 /* A list of things the surface knows about, one entry each: a listener, a
    publication, a grant, a member, an operation waiting to be resumed. The
    head carries the name, whatever short fact qualifies it, and the acts at
-   the line's end; the body under it carries the longer facts, one line each.
+   the line's end. The body under it carries the longer facts, one line each.
    Rows rather than a table because the long fact in most of these is a piece
    of wire text, and a column beside a locator only forces it to wrap against
    its neighbors. */
@@ -37,6 +37,16 @@
 	padding-top: 12px;
 	border-top: 1px solid color-mix(in srgb, var(--rule) 55%, transparent);
 }
+/* A list of acts (`EntryActs`) is one card's choices, so its rows sit closer
+   and are told apart by the gap rather than a rule: a rule between them reads
+   as separate subjects instead of answers to one question. */
+.entries[data-acts] {
+	gap: var(--gap-row);
+}
+.entries[data-acts] > .entry + .entry {
+	padding-top: 9px;
+	border-top: none;
+}
 .entry-head {
 	display: flex;
 	align-items: center;
@@ -59,7 +69,7 @@
 	color: var(--ink);
 	overflow-wrap: anywhere;
 }
-/* A short fact beside the name stays on the head's line; the same voice as a
+/* A short fact beside the name stays on the head's line. The same voice as a
    body line under the head carries wire text, which breaks anywhere. */
 .entry-meta {
 	margin: 0;
@@ -72,6 +82,8 @@
 }
 .entry-head > .actions {
 	margin-inline-start: auto;
+	/* The group can wrap its buttons only after its own width is bounded. */
+	max-inline-size: 100%;
 }
 /* A head that tries to be one line. The name is the only part of one that can
    be any length, and left to itself it claims a share of the line and pushes
@@ -82,7 +94,7 @@
    It never gives up more than its longest word: a name squeezed past that
    breaks mid-word, which is worse than the act moving down. When even that
    does not fit, the line wraps as any line does, and on a phone it is told
-   where to break — the name takes the line, and what qualifies it shares the
+   where to break: the name takes the line, and what qualifies it shares the
    one below, one at each end. */
 .entry-head[data-one-line] > .entry-name {
 	flex: 0 1 auto;
@@ -97,7 +109,7 @@
 		flex: 1 1 100%;
 	}
 }
-/* An entry that cannot act fades as one piece; the sentence saying why keeps
+/* An entry that cannot act fades as one piece. The sentence saying why keeps
    full ink so the reason stays readable. */
 .entry[data-idle="true"] .entry-name,
 .entry[data-idle="true"] > .hint:first-of-type {

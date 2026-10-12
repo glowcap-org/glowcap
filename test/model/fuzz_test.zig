@@ -22,7 +22,7 @@
 //! dial is joined on identity rather than on how the address happened to be
 //! spelled, so a form that moves when canonicalised twice opens a second dial to
 //! a peer already being dialled. That one is worth stating because the function
-//! has an escape hatch — text it cannot parse comes back verbatim — and a
+//! has an escape hatch, text it cannot parse comes back verbatim, and a
 //! locator that writes but does not re-parse would slip between the two.
 
 const std = @import("std");

@@ -9,13 +9,7 @@ use std::collections::BTreeSet;
 use std::num::NonZeroU64;
 
 fn slot(key: Coordinate) -> (usize, u64) {
-	(
-		custody::Role::ALL
-			.iter()
-			.position(|role| *role == key.role)
-			.expect("declared role"),
-		key.key.slot().get(),
-	)
+	(key.role.index(), key.key.slot().get())
 }
 pub(super) struct Allocator {
 	used: BTreeSet<(usize, u64)>,
@@ -46,13 +40,13 @@ impl Allocator {
 		let index = custody::Role::ALL
 			.iter()
 			.position(|kind| *kind == role)
-			.expect("declared role");
+			.ok_or_else(|| loam::refusal("outgoing custody role is not declared"))?;
 		let slot = (1..=custody::MAX_FIELDS_PER_ROLE as u64 + 1)
 			.find(|slot| !self.used.contains(&(index, *slot)))
 			.ok_or_else(|| loam::refusal("outgoing custody slots exhausted"))?;
 		self.used.insert((index, slot));
 		Ok(FieldKey::new(
-			NonZeroU64::new(slot).expect("positive slot"),
+			NonZeroU64::new(slot).ok_or_else(|| loam::refusal("outgoing custody slots exhausted"))?,
 			self.generation,
 		))
 	}

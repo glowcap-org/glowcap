@@ -2,7 +2,7 @@
 //! HostRuntime resident (ADR-0193, ADR-0202).
 //!
 //! The adapters stack the way their dial targets allow: keyed-relay sits on
-//! the platform, whose socket addresses it dials; onion over relay, `inproc`
+//! the platform, whose socket addresses it dials. Onion over relay, `inproc`
 //! over onion, and foreign stream providers outermost. Each adapter passes
 //! the operations it does not own to the one it wraps, and each policy the
 //! symbols it does not own to its inner policy, so the one backend serves
@@ -48,7 +48,7 @@ pub fn Stack(comptime Platform: type) type {
             external: external.Options = .{ .providers = &.{} },
         };
 
-        /// Build the stack; the caller wraps it in `Resident.init`.
+        /// Build the stack. The caller wraps it in `Resident.init`.
         pub fn initBackend(allocator: std.mem.Allocator, options: Options) !Backend {
             const relay_backend = if (options.relay) |relay_options|
                 try Relay.initWithRelay(allocator, options.queue_entries, options.read_buffers, options.read_buffer_bytes, relay_options)

@@ -1,5 +1,5 @@
 //! One closed-loop admission driver for ordinary and managed integer calls.
-//! Each resource has at most one outstanding call; replies check exact state.
+//! Each resource has at most one outstanding call, replies check exact state.
 const std = @import("std");
 const w = @import("workload.zig");
 const m = @import("managed.zig");

@@ -5,7 +5,7 @@
 	text-underline-offset: 2px;
 }
 /* A block of code inside a line: recessed to the page's ground and squared
-   off to the chip radius. The mono and the recess already say listing; a
+   off to the chip radius. The mono and the recess already say listing. A
    coloured rule down its side said it a third time. */
 .bubble .code-block {
 	max-width: min(70vw, 520px);
@@ -44,7 +44,7 @@
 
    One line, ellipsed. A topic is a sentence somebody wanted everybody to see,
    and letting it wrap to four lines pushes the conversation off the screen to
-   make room for something that has not changed in a week — so it truncates, and
+   make room for something that has not changed in a week. So it truncates, and
    carries the whole of itself in a title the way every other truncating name in
    this page does. */
 /* The message log fills this column absolutely, so the bar has to say it is on
@@ -101,30 +101,30 @@
    say which of them: two lines said a minute apart can read almost alike, and
    picking the wrong one is a mistake a reader only finds after sending it. The
    ring is the app's own mark for the thing being worked on, so this borrows it
-   rather than inventing a second one — and it is a ring rather than a fill,
+   rather than inventing a second one, and it is a ring rather than a fill,
    because the mention treatment already owns the fill and the two must not be
    read for each other. `Message.tsx` has applied this class all along, saying
-   in its own comment that the line "can say it is the one"; nothing here drew
+   in its own comment that the line "can say it is the one". Nothing here drew
    it, so it could not. */
 .bubble.changing {
 	/* The ordinary band, in the accent. It is tempting to reach for the ink
 	   this bubble's own fill is read against, since a line can only be
-	   rewritten by whoever wrote it and their bubble is filled with the accent
-	   — but a band is a shadow, and a shadow falls outside the box it belongs
+	   rewritten by whoever wrote it and their bubble is filled with the accent,
+	   but a band is a shadow, and a shadow falls outside the box it belongs
 	   to. What it lands on is the log's own paper, not the fill, and a light
 	   ink there is a band nobody can see. Measured both ways. */
 	box-shadow: var(--ring);
 }
 
-/* A line taken back. It keeps its place — a line that vanished would leave every
-   reply to it reading as a non-sequitur — and shows none of what it said, since
+/* A line taken back. It keeps its place, a line that vanished would leave every
+   reply to it reading as a non-sequitur, and shows none of what it said, since
    striking the words through would leave them readable while claiming they had
    been withdrawn. */
 .bubble.withdrawn,
 /* Said twice, because a line can only be withdrawn by the person who wrote it
    and their own bubble carries a more specific rule than this one. Left to the
    first selector alone the fill, the ink and the border colour all stayed the
-   accent's — the dashed edge drawn in `transparent` — and the only part of
+   accent's, the dashed edge drawn in `transparent`, and the only part of
    this that ever reached the screen was the italics. A treatment that cannot
    apply to the one case it exists for is not a treatment. */ .row.mine .bubble.withdrawn {
 	background: none;
@@ -139,7 +139,7 @@
 }
 /* On a line of yours the ground is warmed paper, a shade darker than the paper
    the soft ink was chosen against, so the note takes a step toward the full
-   ink to keep its 4.5:1; the browser proof measures it over both stops. A
+   ink to keep its 4.5:1. The browser proof measures it over both stops. A
    withdrawn line stands on no tint and keeps the soft ink above. */
 .row.mine .edited-said {
 	color: color-mix(in srgb, var(--ink-soft) 55%, var(--ink));
@@ -161,9 +161,9 @@
 	opacity: .82;
 }
 /* Hidden until it is asked for. Covered, it is a control and looks like one to a
-   pointer; opened, it is ordinary text and stops being pressable, because there
+   pointer. Opened, it is ordinary text and stops being pressable, because there
    is nothing left to ask. The covered form keeps the text in the document so it
-   still lays out at its real width — a spoiler that resizes the message when it
+   still lays out at its real width: a spoiler that resizes the message when it
    opens gives itself away before it is read. */
 .spoiler {
 	all: unset;
@@ -182,7 +182,7 @@
 }
 
 /* A call to the whole room. Addressed to you, so it carries the weight a
-   mention carries, but not *to you in particular* — so it takes the teal this
+   mention carries, but not *to you in particular*. So it takes the teal this
    interface already spends on the other kind of reach rather than the amber a
    name wears. Outlined instead of filled, because filling it would make it
    compete with your own name in a line that carries both. */
@@ -231,8 +231,8 @@
 /* ── /me action lines ─────────────────────────────────────────────────── */
 /* Something somebody did, or a quiet aside, said in the room's centre. Italic
    and no fill: a pill in the accent was wearing the colour that already means
-   "this is about you", and neither of these is. Wrapped lines stay centred;
-   start-aligned text inside a centred box was the leftover of the pill that
+   "this is about you", and neither of these is. Wrapped lines stay centred.
+   Start-aligned text inside a centred box was the leftover of the pill that
    holds /list. */
 .sys.action .sys-line,
 .sys.notice .sys-line {
@@ -264,7 +264,7 @@
 	position: relative;
 }
 /* And the bubble's hover reaches out to where its mark will be. A reader coming
-   at the mark from the margin — which is where it is, and so where they aim —
+   at the mark from the margin (which is where it is, and so where they aim)
    was hovering nothing until they crossed into the message itself, and the mark
    they were aiming at only existed once they had stopped needing to aim. The
    strip is transparent and sits over the empty column beside the message. A
@@ -325,7 +325,7 @@
 .line-acts.open {
 	display: flex;
 }
-/* Where there is no pointer to hover with, the mark is simply there. Quiet
+/* Where there is no pointer to hover with, the mark is there. Quiet
    until it is aimed at, because it sits beside every message and a row of them
    down the log would read as decoration. */
 @media (hover: none) {
@@ -337,7 +337,7 @@
 		opacity: 1;
 	}
 	/* The strip is always up here, and a stamp beside every line would be a
-	   second column of numbers down a narrow screen; the group's stamp under
+	   second column of numbers down a narrow screen. The group's stamp under
 	   the stack is the phone's answer. */
 	.line-at {
 		display: none;
@@ -372,7 +372,7 @@
 	z-index: 7;
 }
 /* Opened upward when the mark is near the foot of the log, so the reader at the
-   end of a conversation — who is exactly the one pressing it — is not offered a
+   end of a conversation, who is exactly the one pressing it, is not offered a
    menu that runs off the bottom. */
 .line-menu.above {
 	top: auto;
@@ -429,7 +429,7 @@
 .line-menu-row.danger:focus-visible {
 	background: color-mix(in srgb, var(--danger) 12%, var(--paper));
 }
-/* Named for the bar that is gone; the menu that replaced it rises the same
+/* Named for the bar that is gone. The menu that replaced it rises the same
    way. */
 @keyframes acts-in {
 	from {
@@ -441,9 +441,9 @@
    digits there, so ordinary joins and leaves do not walk the toolbar sideways. */
 /* The rooms rail's toggle, and the left-hand answer to the Members button at the
    other end of the topbar: one control per rail, each reporting whether its rail
-   is showing. What it does differs by layout because the rails do — on desktop
+   is showing. What it does differs by layout because the rails do (on desktop
    the rail sits beside the conversation and this collapses it, on a phone the
-   rail is a screen of its own and this opens it — but "is the rooms list up?" is
+   rail is a screen of its own and this opens it) but "is the rooms list up?" is
    the same question in both, so it is the same button and the same aria-pressed.
 
    It wears the glowcap mark rather than a drawn menu glyph, because the mark is
@@ -469,7 +469,7 @@
 }
 /* ── Emoji picker popup ───────────────────────────────────────────────── */
 /* Inline completion: the list a sigil raises over the composer. One column,
-   keyboard-first — the picked row is state, not :hover, so the arrows and the
+   keyboard-first: the picked row is state, not :hover, so the arrows and the
    pointer highlight the same way. Anchored like the emoji tray, sized to its
    rows. A command list is every command this conversation can run, which is more
    than fits above a composer, so the box is bounded and scrolls rather than
@@ -491,8 +491,8 @@
 	   being drawn as a bar the width of the longest command's summary. */
 	width: max-content;
 	/* Wide enough to say what a command does. At 360 the summaries were cut
-	   mid-word, and the note saying a command is not granted here — the one thing
-	   on the row a reader has to act on — was cut off the end entirely. */
+	   mid-word, and the note saying a command is not granted here, the one thing
+	   on the row a reader has to act on, was cut off the end entirely. */
 	max-width: min(520px, calc(100% - 40px));
 	display: flex;
 	flex-direction: column;

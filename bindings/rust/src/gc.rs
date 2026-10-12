@@ -1,9 +1,9 @@
 //! Host reference, vow, and abandoned-reply retirement. Distributed reference
-//! GC (ADR-0063) is on by default and set per Host; vow and deferred-reply
+//! GC (ADR-0063) is on by default and set per Host. Vow and deferred-reply
 //! cleanup are always active.
 //! Owns the
 //! [`CapabilityGuard`] death rite, recursive application-value tracking, and the
-//! `glowcap_host_ref_release` drain. Session holds only the opt-in flag; the
+//! `glowcap_host_ref_release` drain. Session holds only the opt-in flag. The
 //! Host owns the pending queue because a Ref may outlive its arrival session.
 
 use std::cell::Cell;
@@ -16,7 +16,7 @@ use crate::session_shared::SessionShared;
 use crate::sys::host as ffi;
 
 /// Drops to one parked `glowcap_host_ref_release` delta of 1 for a Host id.
-/// The drop only parks the id and schedules the Host action drain —
+/// The drop only parks the id and schedules the Host action drain:
 /// it may run inside a behavior trampoline (a behavior dropping a `Ref`), where
 /// the host-driving verbs are refused, so the release itself always runs on the
 /// pumping task, never here.
@@ -28,7 +28,7 @@ pub(crate) struct CapabilityGuard {
 }
 
 /// One public Host vow's release right. The wrapper may die inside a behavior,
-/// so Drop only parks the id; the owner-loop drain performs the C call.
+/// so Drop only parks the id. The owner-loop drain performs the C call.
 pub(crate) struct VowGuard {
 	vow: u64,
 	host: Weak<HostShared>,
@@ -87,6 +87,10 @@ pub(crate) fn drain(host: &HostShared) -> crate::Result<()> {
 			break;
 		};
 		let raw = crate::sys::GlowcapReference { id: token };
+		// SAFETY: `host.raw()` is the `GlowcapHost` handle owned by `HostShared`, proven non-null by the `is_null`
+		// check at the head of `drain` and released only when the Host closes; `raw` is a local `GlowcapReference`
+		// borrowed for the call and read only during it. A refusal commits no release, so the queued token stays for
+		// retry.
 		crate::host::check_host(unsafe { ffi::glowcap_host_ref_release(host.raw(), &raw, 1) })?;
 		host.gc_pending.borrow_mut().pop_front();
 	}
@@ -95,6 +99,8 @@ pub(crate) fn drain(host: &HostShared) -> crate::Result<()> {
 			break;
 		};
 		host.abandon_vow(vow);
+		// SAFETY: as the `glowcap_host_ref_release` call above, for `host.raw()`; the call takes only the integer
+		// `vow` by value.
 		crate::host::check_host(unsafe { ffi::glowcap_host_vow_release(host.raw(), vow) })?;
 		host.vow_gc_pending.borrow_mut().pop_front();
 	}
@@ -103,6 +109,8 @@ pub(crate) fn drain(host: &HostShared) -> crate::Result<()> {
 			return Ok(());
 		};
 		let reason = b"deferred reply owner was dropped";
+		// SAFETY: as the `glowcap_host_ref_release` call above, for `host.raw()`; `reason` is a local byte-string
+		// literal borrowed for the call, and `resolver` is an integer passed by value.
 		crate::host::check_host(unsafe {
 			ffi::glowcap_host_resolver_abandon(host.raw(), resolver, reason.as_ptr(), reason.len())
 		})?;
@@ -118,7 +126,7 @@ pub(crate) fn retire(host: &HostShared) {
 }
 
 /// One shared guard owns each occurrence transferred by C, including local
-/// callback observations. Clones share its native retain; equal ids received
+/// callback observations. Clones share its native retain. Equal ids received
 /// independently must retain separate guards. The Rc lets behavior state
 /// outlive its argument tree, and Weak prevents a native actor/Host cycle.
 pub(crate) fn owned_guard(host: &Rc<HostShared>, id: u64) -> Rc<CapabilityGuard> {
@@ -137,7 +145,7 @@ pub(crate) fn disarm(reference: &Ref) {
 
 /// Attach one finalizer unit to every capability occurrence in a value the
 /// native Host has just projected to this GC-enabled session. The walk mutates
-/// only `Ref` leaves; container identity and application data stay unchanged.
+/// only `Ref` leaves. Container identity and application data stay unchanged.
 /// Each native occurrence owns one Host retain, so repeated equal ids remain
 /// distinct guards rather than being deduplicated in the binding.
 pub(crate) fn track_argument(shared: &Rc<SessionShared>, argument: &mut Argument) {
@@ -195,6 +203,9 @@ pub(crate) fn track_arguments(shared: &Rc<SessionShared>, arguments: &mut [Argum
 /// Lives here beside the finalizer path because both end in the same Host verb.
 pub(crate) fn release_ref(host_raw: *mut crate::sys::host::GlowcapHost, id: u64) -> crate::Result<()> {
 	let raw = crate::sys::GlowcapReference { id };
+	// SAFETY: `host_raw` is the `GlowcapHost` handle its caller, `Session::release`, takes from the session's
+	// `HostShared`, live for the call; `raw` is a local `GlowcapReference` borrowed for the call and read only during
+	// it.
 	let rc = unsafe { crate::sys::host::glowcap_host_ref_release(host_raw, &raw, 1) };
 	crate::host::check_host(rc)
 }

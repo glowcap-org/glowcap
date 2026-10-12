@@ -27,7 +27,7 @@
 //! a signed envelope is Syrup whatever each session negotiated, so the two
 //! ends verify the same bytes.
 //!
-//! Needs `racket` + the `goblins` collection on PATH; runs as the sibling step
+//! Needs `racket` + the `goblins` collection on PATH, runs as the sibling step
 //! `zig build goblins-native-pair-gift`, not in the in-tree check.
 
 const std = @import("std");

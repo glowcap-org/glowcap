@@ -40,7 +40,7 @@ pub const Options = struct {
     /// the foreign position absent instead of ambiguous, so the held-export
     /// check refuses it. Bootstrap remains position zero (ADR-0006).
     export_base: u64 = BOOTSTRAP_POSITION + 1,
-    /// Positions available past `export_base`; unbounded without a host range.
+    /// Positions available past `export_base`. Unbounded without a host range.
     export_span: u64 = std.math.maxInt(u64),
 };
 
@@ -60,7 +60,7 @@ pub fn init(allocator: std.mem.Allocator) Session {
 }
 
 /// Begin in negotiation on the default profile and feature set. The in-process
-/// handshake driver constructs both peers this way; `initWith` can override
+/// handshake driver constructs both peers this way. `initWith` can override
 /// the negotiated knobs.
 pub fn initNegotiating(allocator: std.mem.Allocator) Session {
     return initWith(allocator, .{ .negotiating = true });
@@ -78,7 +78,7 @@ pub fn preferenceOf(
     return .{ .captp_version = captp_version, .codec = codec, .features = features };
 }
 
-/// The one full constructor; every shorthand delegates here.
+/// The one full constructor. Every shorthand delegates here.
 pub fn initWith(allocator: std.mem.Allocator, options: Options) Session {
     return .{
         .allocator = allocator,

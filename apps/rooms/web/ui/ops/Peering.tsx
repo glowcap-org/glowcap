@@ -2,11 +2,11 @@
 // the capability (the Capabilities toggle is how it is taken).
 //
 // Publishing is the pane's one act: pick a room this tab has joined on
-// another directory, name it, and it becomes a foreign listing here — shown
+// another directory, name it, and it becomes a foreign listing here, shown
 // beside the local rooms for anyone on this directory to enter, and reached
 // through the source's own identity route when they do. The rows below the
 // form are this tab's publications, each with the one revocation its lease
-// carries. Revoking removes a room from discovery; references already handed
+// carries. Revoking removes a room from discovery. References already handed
 // out stay live, which the destination decides, not this pane. A tab holding
 // no other directory has nothing to offer, and the form says so rather than
 // drawing an empty picker.
@@ -49,7 +49,7 @@ export function PeeringPane(
 ) {
 	const session = useRoomsSession();
 	const [picked, setPicked] = useState("");
-	/** The published name, once the reader has touched it; an untouched field
+	/** The published name, once the reader has touched it. An untouched field
 	 * follows the picked room's own name. */
 	const [named, setNamed] = useState<string | null>(null);
 	const [publishing, setPublishing] = useState(false);

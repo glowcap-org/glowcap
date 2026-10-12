@@ -132,7 +132,7 @@
 ;; release the loop (which frees the wrapped host), then the sidecar
 ;; endpoint it retained, in that order so no resident call runs against a
 ;; freed endpoint. The close procedure was captured at adoption, so this
-;; path — reachable from the FFI finalizer thread — resolves no module.
+;; path (reachable from the FFI finalizer thread) resolves no module.
 (define (loop-native-release! lp)
   (cond
     [(not (loop-native-live? lp)) (values OK #f)]
@@ -153,8 +153,8 @@
      (values code failure)]))
 
 ;; A loop-owned host redeems handoffs inside its own steps (ADR-0112), so
-;; the exporter session it dialed exists with no wrapper yet; wrap it lazily
-;; — `build-session` registers it, so a repeat lookup answers this same
+;; the exporter session it dialed exists with no wrapper yet. It wraps lazily:
+;; `build-session` registers it, so a repeat lookup answers this same
 ;; object.
 (define (loop-wrap-session lp ptr) (wrap-loop-session lp ptr #f))
 

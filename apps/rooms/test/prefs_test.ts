@@ -1,5 +1,5 @@
-// Hermetic goldens for page settings. The URL wins when it names a value;
-// storage fills in when it does not.
+// Hermetic goldens for page settings. The URL wins when it names a value.
+// Storage fills in when it does not.
 import { assertEquals } from "./assert.ts";
 
 Object.defineProperty(globalThis, "matchMedia", {

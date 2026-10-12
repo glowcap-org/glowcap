@@ -8,16 +8,16 @@
 //! a snapshot's boxes.
 //!
 //! That is a lot of sharing to get right, and getting it wrong is quiet. A write
-//! that forgets to clone corrupts a snapshot nobody has restored yet; a restore
-//! that takes a box without retaining it frees state something else still names;
-//! a count that never falls leaks. None of those crashes at the moment it
+//! that forgets to clone corrupts a snapshot nobody has restored yet. A restore
+//! that takes a box without retaining it frees state something else still names.
+//! A count that never falls leaks. None of those crashes at the moment it
 //! happens.
 //!
 //! So this keeps its own record: a plain integer per actor, and per snapshot the
 //! integers as they stood when it was taken. The fuzzer writes the sequence of
-//! spawns, increments, snapshots, and restores; the record says what every actor
-//! should read back; and disagreement is a bug in the boxes. That covers the two
-//! failure modes worth the most — a snapshot that moved when it should not have,
+//! spawns, increments, snapshots, and restores. The record says what every actor
+//! should read back, and disagreement is a bug in the boxes. That covers the two
+//! failure modes worth the most, a snapshot that moved when it should not have,
 //! and a restore that landed somewhere other than where it was taken.
 //!
 //! Leaks and double frees are caught underneath by the testing allocator, which

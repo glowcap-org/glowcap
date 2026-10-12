@@ -51,10 +51,10 @@ const PublicationProbe = harness.PublicationProbe;
 
 /// A capability names one object on one session. The wire says so with an
 /// integer export position, and that integer means nothing outside the session
-/// that minted it — so handing a partner a capability that belongs to a
+/// that minted it, so handing a partner a capability that belongs to a
 /// different session is not a shorthand for anything, it is a category error.
 ///
-/// The suite below crosses sessions deliberately, because every other test in
+/// The suite below crosses sessions, because every other test in
 /// this tree drives one session at a time and therefore cannot see this class
 /// at all. `sendRedeeming` is what made crossing natural: it hands an
 /// application a second session beside a reply, and hosting the reply inbox on
@@ -86,7 +86,7 @@ test "cross-session: a capability minted on one session is refused as an argumen
     // Mint a capability on the SECOND session, then pad the FIRST session's
     // export table so the same integer position is occupied there too. The
     // padding is what turns a loud refusal into a silent substitution: without
-    // a colliding row the position is simply absent and any existence check
+    // a colliding row the position is absent and any existence check
     // catches it, which is why this class hides.
     const foreign = try second.a.served.spawn(&second.a.host.vat, Pad, .{});
     var pads: [8]driver.core.Exported = undefined;
@@ -184,7 +184,7 @@ test "cross-session: an adopted peer gets its own export range too" {
     // The completion loop owns its peers inline and hands them to the host
     // through `publishAndOpenAcceptedOver`, so an adopted session never passes through
     // the owned mint. That is the path with the most connections on it, and
-    // the one an application most plausibly holds two sessions of at once — so
+    // the one an application most plausibly holds two sessions of at once, so
     // it is the path a session-numbering fix least affords to miss.
     var host = test_host.init(allocator, @as([32]u8, @splat(0x50)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
@@ -212,7 +212,7 @@ test "cross-session: a released session's export range comes back for reuse" {
     // The ranges are carved out of one integer, so they are a fixed budget. A
     // host that never took a released session's range back would spend its
     // whole slot just by churning connections, and a peer who can open and
-    // close them reaches that on purpose. Reuse is what makes the slot a bound
+    // close them reaches that. Reuse is what makes the slot a bound
     // on how many sessions are live at once rather than on how many the host
     // may ever open.
     var host = test_host.init(allocator, @as([32]u8, @splat(0x51)), Host.Options.withFrameCap(frame_cap));
@@ -267,7 +267,7 @@ test "cross-session: a host that has spent its export slot refuses rather than n
     const allocator = std.testing.allocator;
     // The counter walks one range at a time through a slot the host's identity
     // picked. Carrying past the end would hand this host the *next* host's
-    // numbers, which aliases that host's sessions one for one — the very thing
+    // numbers, which aliases that host's sessions one for one, the very thing
     // the ranges exist to stop. Refusing the mint is the fail-closed answer;
     // reuse above is what keeps an honest host from ever arriving here.
     var host = test_host.init(allocator, @as([32]u8, @splat(0x53)), Host.Options.withFrameCap(frame_cap));

@@ -4,7 +4,7 @@
 use super::*;
 
 /// Stable endpoint-scoped identity carried by readiness records. Returns zero
-/// for an invalid handle; live peers are always nonzero.
+/// for an invalid handle. Live peers are always nonzero.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_id(peer: *const GlowcapWebrtcPeer) -> usize {
 	// SAFETY: the handle contract `borrowed` states.
@@ -103,13 +103,13 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_conn_try_send_packet(
 }
 
 /// Close the channel, waking any packet receiver with end of stream.
-/// Idempotent; `peer_free` still frees the handle afterward.
+/// Idempotent. `peer_free` still frees the handle afterward.
 ///
 /// # Safety
 /// `peer` must be a live pointer from `peer_new`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_conn_close(peer: *mut GlowcapWebrtcPeer) {
-	// SAFETY: the caller's contract above — a live pointer from `peer_new`.
+	// SAFETY: the caller's contract above, a live pointer from `peer_new`.
 	let peer = match unsafe { peer.as_ref() } {
 		Some(peer) => peer,
 		None => return,
@@ -132,16 +132,19 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_conn_close(peer: *mut GlowcapWeb
 /// reference to the endpoint-owned runtime.
 ///
 /// # Safety
-/// `peer` must have come from `peer_new` and not been freed; null is ignored.
+/// `peer` must have come from `peer_new` and not been freed. Null is ignored.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_free(peer: *mut GlowcapWebrtcPeer) {
 	if peer.is_null() {
 		return;
 	}
-	// SAFETY: the caller's contract above — an unfreed pointer from `peer_new`,
+	// SAFETY: the caller's contract above, an unfreed pointer from `peer_new`,
 	// with null already refused, so this frame is its last owner.
 	let failures = unsafe { peer.as_ref() }.unwrap().shared.endpoint.close_tasks.clone();
 	if catch_unwind(AssertUnwindSafe(|| {
+		// SAFETY: `peer` is non-null (checked above) and, per this function's `# Safety` contract, the unfreed pointer
+		// `peer_new` boxed with `Box::into_raw`; the `as_ref` borrow above ended with that statement, so this frame is
+		// its last owner and takes back the one allocation.
 		let peer = unsafe { Box::from_raw(peer) };
 		// Same ordering as `conn_close`: free a parked poller before closing.
 		publish_peer_closed(&peer.shared);

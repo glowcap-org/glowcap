@@ -1,5 +1,5 @@
-//! Content-addressed disk custody. Journal commitment owns reference changes;
-//! failed deletion remains explicit debt and never changes a committed reply.
+//! Content-addressed disk custody. Journal commitment owns reference changes.
+//! Failed deletion remains explicit debt and never changes a committed reply.
 use super::*;
 use rooms_application::{
 	archive::{Body, blobs},
@@ -44,7 +44,7 @@ fn hash(bytes: impl AsRef<[u8]>) -> String {
 	use std::fmt::Write;
 	let mut hex = String::with_capacity(64);
 	for b in bytes.as_ref() {
-		write!(&mut hex, "{b:02x}").expect("String write");
+		let _ = write!(&mut hex, "{b:02x}");
 	}
 	hex
 }
@@ -96,11 +96,14 @@ impl Blobs {
 				remove(&entry.path()).map_err(error)?;
 				continue;
 			}
+			let Some(item) = name.as_ref().and_then(|name| result.items.get_mut(name)) else {
+				return Err(corrupt("archive blob left the index while it was read"));
+			};
 			let size = entry.metadata().map_err(error)?.len();
 			if size > MAX_FILE_BYTES as u64 {
 				return Err(corrupt("archive blob exceeds its file ceiling"));
 			}
-			result.items.get_mut(name.as_ref().unwrap()).unwrap().size = Some(size as usize);
+			item.size = Some(size as usize);
 		}
 		result.directory.sync_all().map_err(error)?;
 		if result.usage().retained_bytes > max_bytes {
@@ -134,15 +137,23 @@ impl Blobs {
 			.sum::<usize>()
 			<= self.max_bytes
 	}
-	pub(super) fn committed(&mut self, changes: Changes) {
-		for (digest, delta) in changes {
-			let item = self.item(&digest);
-			item.references =
-				usize::try_from(item.references as i64 + i64::from(delta)).expect("committed reference balance");
+	pub(super) fn committed(&mut self, changes: Changes) -> Result<(), DiskFailure> {
+		// Every balance is checked before any is applied, so a refusal changes nothing.
+		let mut balances = Vec::with_capacity(changes.len());
+		for (digest, delta) in &changes {
+			let held = self.items.get(digest).map_or(0, |item| item.references);
+			let Ok(balance) = usize::try_from(held as i64 + i64::from(*delta)) else {
+				return Err(corrupt("archive blob reference balance fell below zero"));
+			};
+			balances.push(balance);
+		}
+		for ((digest, _), balance) in changes.iter().zip(balances) {
+			self.item(digest).references = balance;
 		}
 		// The next explicit cleanup or startup retries any failed deletion. Its
 		// physical bytes and entry remain charged until removal and directory sync.
 		let _ = self.cleanup();
+		Ok(())
 	}
 	pub(super) fn usage(&self) -> Usage {
 		let mut usage = Usage {

@@ -1,4 +1,4 @@
-//! CLI product honesty: the lab REPL's UX claims, the driver-root shadow,
+//! CLI product accuracy: the lab REPL's UX claims, the driver-root shadow,
 //! and the single JSON escaper.
 
 const std = @import("std");
@@ -9,8 +9,8 @@ const deadlines = @import("deadlines.zig");
 const appendViolation = util.appendViolation;
 const expectFileContains = util.expectFileContains;
 
-/// CapTP lab chrome/docs must match live keys: listen is argv-only; F1 (not
-/// prompt `?`) opens the help modal; no stub search theater; no product-taste
+/// CapTP lab chrome/docs must match live keys: listen is argv-only, F1 (not
+/// prompt `?`) opens the help modal. No stub search theater. No product-taste
 /// names in `cli/repl` module headers.
 pub fn checkCaptpLabUxHonesty(
     io: std.Io,
@@ -107,7 +107,7 @@ test "mentionsVerbInCode matches bare, call, and receiver-method phrasings" {
 ///
 /// There were two, written a minute apart by two changes that each thought they
 /// were the only one. When the first was taught to handle bytes that are not
-/// text, the second kept writing unparseable JSON — and the second was the one
+/// text, the second kept writing unparseable JSON, and the second was the one
 /// recording what room members send, which is the least trusted input the CLI
 /// has. A duplicate escaper does not announce itself: both compile, both look
 /// right, and they disagree only on input nobody tests by hand.
@@ -118,9 +118,9 @@ test "mentionsVerbInCode matches bare, call, and receiver-method phrasings" {
 /// `Identity`, `Capability`) forwards the core's type, so a reader learns the
 /// rule "driver.X is driver_core.X" and then meets one that is not. The
 /// owning face was `driver.Host` shadowing `driver_core.Host` until the
-/// ownership-vocabulary pass renamed it `HostRuntime`; nothing but this check
+/// ownership-vocabulary pass renamed it `HostRuntime`. Nothing but this check
 /// stops the next one.
-/// Textual on purpose: the two roots are separate modules, so a reflection
+/// Textual: the two roots are separate modules, so a reflection
 /// check would have to import both into the scaffolding build.
 pub fn checkDriverRootShadow(
     io: std.Io,

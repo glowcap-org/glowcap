@@ -1,5 +1,5 @@
 //! Persisted restart markers for an embedding's live reference lifetime.
-//! Store opening fences writers; this row independently fences Host restarts.
+//! Store opening fences writers. This row independently fences Host restarts.
 const std = @import("std");
 const core = @import("loam_core");
 
@@ -29,7 +29,7 @@ pub const Epoch = struct {
         return decode(try store.currentView(lease));
     }
 
-    /// A current checked lease supplies the marker; equal Store incarnations
+    /// A current checked lease supplies the marker. Equal Store incarnations
     /// alone do not establish that a live reference belongs to this lifetime.
     pub fn check(self: Epoch, store: *core.Store, lease: core.Lease) !void {
         const current = try read(store, lease);

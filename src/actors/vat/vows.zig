@@ -57,19 +57,19 @@ pub fn spawnReservedVow(self: *Vat, reservation: ResolverPairReservation) Resolv
     return .{ .vow = .{ .local = vow }, .resolver = resolver };
 }
 
-/// Settle a resolver vow fulfilled (ADR-0102). Top-level like `drive` —
+/// Settle a resolver vow fulfilled (ADR-0102). Top-level like `drive`,
 /// the vow's listener may open a nested drive, so a settle from inside a
 /// turn refuses (`SettleInTurn`) and re-enters later instead. Fulfillment
 /// prepares the listener's owned value before consuming the resolver, so
 /// allocation failure is retryable with the same settle authority.
-/// `value` is borrowed for the call; the settle spine clones what a
+/// `value` is borrowed for the call. The settle spine clones what a
 /// listener may outlive.
 pub fn fulfillVow(self: *Vat, resolver: u64, value: model.Argument) Error!void {
     try settleResolver(self, resolver, .{ .fulfilled = value });
 }
 
 /// Settle a resolver vow broken (ADR-0102). The same contract as
-/// `fulfillVow`; `reason` is borrowed for the call — the listener fires
+/// `fulfillVow`. `reason` is borrowed for the call, the listener fires
 /// within it and retains nothing.
 pub fn breakVow(self: *Vat, resolver: u64, reason: []const u8) Error!void {
     try settleResolver(self, resolver, .{ .broken = reason });
@@ -170,7 +170,7 @@ pub fn on(self: *Vat, vow: Vow, listener: Listener) Error!void {
 }
 
 /// Remove and return the listener on one still-pending local vow. The vow
-/// itself remains in the Vat and may settle normally; only this observer's
+/// itself remains in the Vat and may settle normally. Only this observer's
 /// lifetime ends. Host handle release uses this before freeing the listener's
 /// context, so a later local turn cannot call through a dead pointer.
 pub fn takeListener(self: *Vat, vow: Vow) ?Listener {
@@ -204,14 +204,14 @@ fn endSettle(self: *Vat) void {
 /// cloned into the settle arena shared with far settlement. Its depth guard
 /// lets a listener open a nested drive or far settle without freeing the
 /// outer listener's value.
-/// A broken resolution may carry a callback's dynamic diagnostic; that
+/// A broken resolution may carry a callback's dynamic diagnostic. That
 /// message receives the same settlement-lifetime protection.
 ///
 /// The turn has already run by the time this is called, so its waiter has
 /// no other producer. A refused clone therefore fires the listener broken
 /// with the exact failure name and then returns that failure to the driver,
 /// leaving the rest of the queue live. The far arms in `serve` keep their
-/// listener parked on a refusal instead; that is open to them only because
+/// listener parked on a refusal instead. That is open to them only because
 /// their producer survives it: a Host action stays parked for a retry, and a
 /// refused frame retires the session, whose release runs `breakFarVows`.
 pub fn settleLocal(self: *Vat, vow_id: u64, resolution: Resolution) Error!void {

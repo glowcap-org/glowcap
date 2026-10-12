@@ -32,6 +32,10 @@ impl rooms_glowcap::client::Tasks for HostPlatform {
 	}
 }
 impl rooms_glowcap::client::Deadline for HostPlatform {
+	fn monotonic_millis(&self) -> u64 {
+		static ORIGIN: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+		u64::try_from(ORIGIN.get_or_init(std::time::Instant::now).elapsed().as_millis()).unwrap_or(u64::MAX)
+	}
 	async fn within<T>(&self, milliseconds: u64, work: impl core::future::Future<Output = T>) -> Option<T> {
 		tokio::time::timeout(core::time::Duration::from_millis(milliseconds), work)
 			.await

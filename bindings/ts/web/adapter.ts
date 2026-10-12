@@ -358,7 +358,7 @@ export function makeWebAdapter(
 
 /** Open a WebSocket carrying raw OCapN frame bytes and adapt it to the
  * runtime's byte-channel seam. Each binary message is one inbound chunk; the
- * host's stream delimiter owns framing, exactly as over TCP. */
+ * host's stream delimiter owns framing, as over TCP. */
 function connectWebSocket(url: string): Promise<{
 	read(): Promise<Uint8Array | null>;
 	write(data: Uint8Array): Promise<void>;

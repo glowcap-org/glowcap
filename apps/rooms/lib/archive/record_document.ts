@@ -1,10 +1,10 @@
 // The archive record as the Rust runtime writes it: one JSON document per
-// record, keyed the way its disk archive and its browser projection key it.
-// `protocol.ts` owns the wire row the archive verbs carry and the one
-// validator behind it; this module owns the document, in both directions, so a
-// record crossing from the wasm session is parsed at that boundary rather than
-// trusted across it, and a record handed back for its bytes is written in the
-// form the runtime reads.
+// record, keyed as its disk archive and its browser projection key it.
+// `protocol.ts` owns the wire row the archive verbs carry and the validator
+// behind it. This module owns the document in both directions, so a record
+// crossing from the wasm session is parsed at that boundary and not trusted
+// across it, and a record handed back for its bytes is written in the form the
+// runtime reads.
 
 import type { Argument } from "@glowcap/runtime";
 import type { ArchivedAttachment } from "./record_attachments.ts";
@@ -79,7 +79,7 @@ function fields(raw: unknown, what: string, known: readonly string[]): Record<st
 	return document;
 }
 
-/** A safe integer becomes the wire's integer; anything else stays as it is,
+/** A safe integer becomes the wire's integer, and anything else stays as it is,
  * so the row validator refuses it with the sentence that names the field. */
 function integer(raw: unknown): Argument {
 	return typeof raw === "number" && Number.isSafeInteger(raw) ? BigInt(raw) : (raw as Argument);
@@ -99,8 +99,8 @@ function attachmentRow(raw: unknown): Argument {
 }
 
 /** Read one record document as the runtime wrote it. Every field answers to
- * the same validator the wire row answers to; an unknown field is refused the
- * way the runtime refuses one, so the two readers cannot drift apart quietly. */
+ * the same validator the wire row answers to. An unknown field is refused as
+ * the runtime refuses one, so the two readers cannot drift apart quietly. */
 export function parseArchiveRecordDocument(raw: unknown): ArchiveRecord {
 	const kind = raw !== null && typeof raw === "object" && !Array.isArray(raw)
 		? (raw as { kind?: unknown }).kind

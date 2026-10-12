@@ -54,7 +54,7 @@ for (const change of ["none", "draft", "source", "removed", "peer"] as const) {
 			result: () => Promise.resolve({ status: "ready", inbox: "new-route" }),
 			adopted: () => Promise.resolve(false),
 			originalIntent:
-				() => ["reconnect", "1", "startDirect", ["directory", "bob", "peer-registration", "new-opening"]],
+				() => ["reconnect", 1, "startDirect", ["directory", "bob", "peer-registration", "new-opening"]],
 			prepareResultAcquisition: (_revision: string, _imports: string, _releases: string, intent: string) => {
 				preparations++;
 				return Promise.resolve({
@@ -108,6 +108,15 @@ Deno.test("direct reconnect refuses a reused name before introduction", async ()
 	let freed = 0;
 	let introduced = 0;
 	const session = {
+		execute: async (
+			_id: string,
+			prepare: () => Promise<ManagedOperation>,
+			complete: (op: ManagedOperation) => Promise<void>,
+			continuation?: { settled(): Promise<void> },
+		) => {
+			await complete(await prepare());
+			await continuation?.settled();
+		},
 		refresh: () => Promise.resolve(current),
 		workspace: {
 			directoryReader: () =>
@@ -133,6 +142,15 @@ Deno.test("direct action returns the adopted conversation identity after reconne
 	let opening = "";
 	const selected: string[] = [];
 	const session = {
+		execute: async (
+			_id: string,
+			prepare: () => Promise<ManagedOperation>,
+			complete: (op: ManagedOperation) => Promise<void>,
+			continuation?: { settled(): Promise<void> },
+		) => {
+			await complete(await prepare());
+			await continuation?.settled();
+		},
 		refresh: () => Promise.resolve(current),
 		workspace: {
 			directoryReader: () =>

@@ -66,7 +66,7 @@ ordering and "these are the rows that matter" are authoring decisions and should
 survive a save. Both fields are optional and additive, so a document without
 them renders exactly as before.
 
-Timeline visibility is a timeline concern only. Hiding Bob's row hides the row;
+Timeline visibility is a timeline concern only. Hiding Bob's row hides the row.
 Bob still draws on the stage. The stage has its own per-layer visibility, and
 per-entity stage hiding is a separate feature.
 
@@ -100,7 +100,7 @@ engine so undo can rewind past a paste. The clipboard is per engine instance, so
 copying between documents is not supported.
 
 **Bulk delete and bulk drag.** Delete removes everything selected as one
-transaction and one undo step; a cascade that already removed something makes
+transaction and one undo step. A cascade that already removed something makes
 the second delete a no-op, and the transaction still collapses cleanly. Dragging
 any pill in the selection translates all of them together, preserving spacing,
 and the whole drag clamps at the first boundary rather than letting one item

@@ -3,7 +3,7 @@
 //! `tools/build/release/stage.zig` invokes this host tool inside its staging
 //! transaction, immediately before publishing the directory. The installation
 //! manifest module owns the row format, path policy, permission rule, and
-//! streaming digest; this tool owns only filesystem enumeration.
+//! streaming digest. This tool owns only filesystem enumeration.
 
 const std = @import("std");
 const manifest = @import("installation_manifest");

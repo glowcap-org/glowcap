@@ -10,7 +10,7 @@ use rooms_glowcap::client::{Deadline, Tasks, access::Control, workspace::Workspa
 use std::{future::Future, num::NonZeroUsize};
 
 /// Private embedding metadata, separate from exported workspace intent. These
-/// names select the actual committed root; they contain no grant inventory,
+/// names select the actual committed root. They contain no grant inventory,
 /// bearer links, endpoint reconstruction recipe or policy mirror.
 #[derive(Clone, Copy)]
 pub struct StartupAnchor {
@@ -31,11 +31,19 @@ impl StartupAnchor {
 	pub fn decode(bytes: [u8; Self::BYTES]) -> Result<Self> {
 		let marker = match bytes[99] {
 			0 if bytes[100..].iter().all(|byte| *byte == 0) => None,
-			1 => Some(LiveMarker::decode(bytes[100..].try_into().expect("fixed marker"))),
+			1 => Some(LiveMarker::decode(
+				bytes[100..]
+					.try_into()
+					.map_err(|_| loam::refusal("invalid private session startup anchor"))?,
+			)),
 			_ => return Err(loam::refusal("invalid private session startup anchor")),
 		};
 		Ok(Self {
-			resource: Resource::decode(bytes[..99].try_into().expect("fixed resource")),
+			resource: Resource::decode(
+				bytes[..99]
+					.try_into()
+					.map_err(|_| loam::refusal("invalid private session startup anchor"))?,
+			),
 			marker,
 		})
 	}
@@ -43,7 +51,7 @@ impl StartupAnchor {
 
 /// One owner for the callback, workers, attachment and Store. Transport and
 /// Host lifetime stay with the embedding. Public use and control are separate
-/// children; the private root never leaves this owner.
+/// children. The private root never leaves this owner.
 pub struct Opened<P: Tasks + Deadline + Clone + 'static> {
 	store: Store,
 	attachment: Attachment,
@@ -182,8 +190,8 @@ impl<P: Tasks + Deadline + Clone + 'static> Opened<P> {
 		self.anchor
 	}
 	/// Retain the workspace observer alongside its attachment. The embedding
-	/// supplies its reachable member route and owns synchronous presentation;
-	/// every membership still uses its saved original initiating source.
+	/// supplies its reachable member route and owns synchronous presentation.
+	/// Every membership still uses its saved original initiating source.
 	pub fn supervise_workspace<E: crate::entropy::Entropy + 'static>(
 		&mut self,
 		locator: &str,
@@ -195,12 +203,10 @@ impl<P: Tasks + Deadline + Clone + 'static> Opened<P> {
 		if self.activity.is_some() {
 			return Err(loam::refusal("Workspace realization is already owned"));
 		}
-		self.activity =
-			Some(
-				self.session
-					.supervise_workspace(self.access()?, locator, entropy, kinds, receive, report)?,
-			);
-		Ok(self.activity.as_ref().expect("owned workspace realization"))
+		let activity = self
+			.session
+			.supervise_workspace(self.access()?, locator, entropy, kinds, receive, report)?;
+		Ok(self.activity.insert(activity))
 	}
 	pub fn activity(&self) -> Option<&super::WorkspaceActivity<P>> {
 		self.activity.as_ref()

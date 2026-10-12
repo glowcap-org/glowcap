@@ -1,6 +1,6 @@
 // Reconcile one attached session archive read with the live log already drawn.
 // Archive coordinates name the same message across both paths. A missing row
-// is inserted by time; an existing row receives the archive's current edit,
+// is inserted by time. An existing row receives the archive's current edit,
 // withdrawal, and file shape without replacing unchanged file custody.
 
 import * as store from "../store.ts";
@@ -136,7 +136,7 @@ import {
 	keeperSession,
 } from "../../../lib/text/attached.ts";
 
-/** Render Rust-owned history read progress; scheduling and freshness stay there. */
+/** Render Rust-owned history read progress. Scheduling and freshness stay there. */
 export function projectAttachedHistoryRead(
 	page: RoomsPageContext,
 	key: string,

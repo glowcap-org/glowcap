@@ -40,7 +40,7 @@ pub fn deinit(self: *Node) void {
 
 /// Record the verbatim exporter locator embedded in gives for `peer_handle` when
 /// its session record is not itself dialable. `location` is borrowed and
-/// copied; null clears the override back to the session's signed record.
+/// copied. `null` clears the override back to the session's signed record.
 pub fn set(self: *Node, peer_handle: PeerHandle, location: ?model.PeerLocator) !void {
     const loc = location orelse {
         const locations = self.gifts.recipe.by_exporter.getPtr(peer_handle) orelse return;
@@ -69,7 +69,7 @@ pub fn set(self: *Node, peer_handle: PeerHandle, location: ?model.PeerLocator) !
 }
 
 /// Reserve the row needed to adopt route advice after a successful `id`
-/// withdrawal. Existing rows need no capacity; `putDiscoveredReserved` owns
+/// withdrawal. Existing rows need no capacity. `putDiscoveredReserved` owns
 /// the first-writer rule for an existing discovered route.
 pub fn reserveDiscoveredSlot(self: *Node, peer_handle: PeerHandle) !void {
     if (self.gifts.recipe.by_exporter.contains(peer_handle)) return;
@@ -97,8 +97,8 @@ pub fn putDiscoveredReserved(self: *Node, peer_handle: PeerHandle, location_byte
 }
 
 /// Replace the discovered recipe with one complete route just verified by
-/// enlivenment. A sturdyref is authored as one `(location, swiss)` authority;
-/// if listener state changed since an earlier dial, its location is the newer
+/// enlivenment. A sturdyref is authored as one `(location, swiss)` authority.
+/// If listener state changed since an earlier dial, its location is the newer
 /// advice and later gives must not stay pinned to the old route. Explicit
 /// application policy remains effective above it.
 pub fn replaceDiscovered(self: *Node, peer_handle: PeerHandle, location: model.PeerLocator) !void {

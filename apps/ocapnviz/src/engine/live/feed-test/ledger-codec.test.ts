@@ -6,9 +6,9 @@ import { CAPTP_VERSION_WIRE } from "../../../schema/topology.ts";
 import { expectKind } from "./harness.ts";
 
 Deno.test("the negotiated CapTP profile comes from the producer, not a guess", () => {
-	// The viewer used to stamp v1_0 on every session because the tap
-	// reported the codec and not the version, so a glowcap-to-glowcap
-	// session drawn as capnp still read as CapTP 1.0.
+	// The tap reports the codec and not the version, so the viewer must not
+	// stamp v1_0 on every session, or a glowcap-to-glowcap session drawn as
+	// capnp would read as CapTP 1.0.
 	const convert = makeBaseEventConverter();
 	const nextOut = convert({
 		v: 1,
@@ -134,9 +134,9 @@ Deno.test("an absent, empty, or non-string codec is unknown", () => {
 Deno.test("a departed producer's own node leaves with the last session to it", () => {
 	// The reported bug: refresh a tab and its node stayed on stage forever.
 	//
-	// A reporting host outlives its sessions on purpose — a room server is
-	// there whether or not anyone is connected — and that was right while the
-	// room server was the only producer. A browser tab is a producer now, and
+	// A reporting host outlives its sessions, a room server is
+	// there whether or not anyone is connected, and that was right while the
+	// room server was the only producer. A browser tab is a producer too, and
 	// its life ends when it reloads, so the endpoint says which producer left
 	// and the host it spoke for stops being one. What takes it off stage is
 	// the last session touching it going, and the converter ends this

@@ -1,5 +1,5 @@
 /**
- * ocapnviz App — buffer, mode, and which engine is live.
+ * ocapnviz App, buffer, mode, and which engine is live.
  *
  * The view of that engine lives in `AppView.tsx`. This module owns
  * the source order (edited fork, file, recording, fixture), the mode
@@ -45,7 +45,7 @@ import { newDocument } from "./builder/document-io.ts";
 import { AppView } from "./AppView.tsx";
 
 // `useClockSnapshot` is subscribed LOCALLY by `TimelinePanel`, not
-// here — subscribing at the App root would re-reconcile the whole
+// here, subscribing at the App root would re-reconcile the whole
 // tree on every Pixi tick.
 
 export function App() {
@@ -71,13 +71,13 @@ export function App() {
 	);
 	const bottomPaneMin = Math.max(BOTTOM_PANE_MIN, timelineMinHeight);
 	// Bumped on Reset Layout so TimelinePanel remounts with a fresh
-	// view (expansions / gutter) after storage is cleared — otherwise
+	// view (expansions / gutter) after storage is cleared, otherwise
 	// only the next reload would see the reset.
 	const [timelineLayoutResetKey, setTimelineLayoutResetKey] = useState(0);
 	// `timelineMinHeight` is the collapsed-fit height TimelinePanel
 	// publishes (chrome + every category collapsed). That is the drag
 	// floor. Fit / auto-size use `timelineIntrinsic` (live expansion)
-	// separately — do not fold it into the drag clamp, or an expanded
+	// separately, do not fold it into the drag clamp, or an expanded
 	// panel refuses every downward drag.
 
 	const {
@@ -94,12 +94,12 @@ export function App() {
 	// "Reset layout" is the whole-UI escape hatch, layer visibility
 	// included. Reset enables auto-size on the timeline so the
 	// bottom pane snaps to its intrinsic content height (instead
-	// of writing an arbitrary static default) — the auto-size
+	// of writing an arbitrary static default), the auto-size
 	// effect below keeps it pinned as the user expands/collapses
 	// categories afterwards.
 	const resetUi = useCallback(() => {
 		// Pin the bottom pane to the current intrinsic in the SAME
-		// commit that writes the defaults — otherwise React paints
+		// commit that writes the defaults, otherwise React paints
 		// `BOTTOM_PANE_DEFAULT` first and the auto-size effect shrinks
 		// to intrinsic on the next tick, producing a visible flash
 		// (most obvious in Live mode where intrinsic ≪ 220).
@@ -111,7 +111,7 @@ export function App() {
 		dispatch({ type: "set-auto-size-timeline", value: true });
 		// Timeline view (expansions / gutter) is a layout pref like sizes
 		// and visibility. Clear the store first, then remount the panel
-		// so its initializer reloads defaults in this session — not only
+		// so its initializer reloads defaults in this session, not only
 		// on the next page load.
 		forgetStoredValue(TIMELINE_VIEW_STORAGE_KEY);
 		setTimelineLayoutResetKey((k) => k + 1);
@@ -126,7 +126,7 @@ export function App() {
 	// Sources that can populate the buffer engine, in precedence
 	// order: Build-edited fork → imported file → live capture →
 	// scenario fixture. Exactly one is the buffer at a time, and the
-	// Source panel says which (`sourceInfo` below) — a source change
+	// Source panel says which (`sourceInfo` below). A source change
 	// (Open, leaving Live with a capture, fixture pick) clears
 	// whatever it replaces, so nothing shadows silently.
 	const [loadedFile, setLoadedFile] = useState<
@@ -146,7 +146,7 @@ export function App() {
 	const [editedDoc, setEditedDoc] = useState<TimelineDocument | null>(null);
 
 	// Bottom-pane sizing rule: the user's stored value IS the
-	// visible pane height. No `min(stored, intrinsic)` coupling —
+	// visible pane height. No `min(stored, intrinsic)` coupling,
 	// the previous rule made drag-up feel dead until you'd first
 	// dragged down past intrinsic, and made the "drag to enable
 	// overflow scroll" gesture undiscoverable. Symmetric resize
@@ -168,7 +168,7 @@ export function App() {
 	}, [timelineIntrinsic, bottomPaneMin, setSizes]);
 
 	// Auto-size effect: while the toggle is on, pin
-	// `bottomPaneHeight` to the panel's current intrinsic — so
+	// `bottomPaneHeight` to the panel's current intrinsic, so
 	// expanding/collapsing categories, swapping modes (which
 	// remounts the panel and republishes intrinsic), or loading a
 	// doc with more lanes all refit the pane. The user opts out
@@ -182,7 +182,7 @@ export function App() {
 	// synchronously before paint. A regular useEffect ran each
 	// link after a separate commit, producing a one-frame paint at
 	// the *old* pane height with the *new* lane count (or vice
-	// versa) — the visible stutter.
+	// versa), the visible stutter.
 	useLayoutEffect(() => {
 		if (!state.autoSizeTimeline) return;
 		if (timelineIntrinsic <= 0) return;
@@ -192,7 +192,7 @@ export function App() {
 			return { ...s, bottomPaneHeight: target };
 		});
 		// `sizes.bottomPaneHeight` is in the deps so the effect re-
-		// pins after any external write — notably `resetSizes()` from
+		// pins after any external write, notably `resetSizes()` from
 		// Reset Layout, which writes `BOTTOM_PANE_DEFAULT` over the
 		// already-pinned intrinsic. Without this dep a second Reset
 		// click leaves the pane stuck at the default (e.g. 220px) even
@@ -243,7 +243,7 @@ export function App() {
 	// Stop unmounts the capture and leaves the connection standing.
 	const [recording, setRecording] = useState(false);
 
-	// Runs unconditionally (rules-of-hooks) — an empty url dials nothing
+	// Runs unconditionally (rules-of-hooks). An empty url dials nothing
 	// outside Live mode.
 	const {
 		connected: liveConnected,
@@ -258,7 +258,7 @@ export function App() {
 	const handleStartRecord = useCallback(() => setRecording(true), []);
 	const handleDiscardRecording = useCallback(() => setRecording(false), []);
 	// Stop claims the recording as the unsaved buffer source and
-	// lands in Play — record, stop, review. Consent to replace the
+	// lands in Play, record, stop, review. Consent to replace the
 	// buffer was given at the Record press (the confirm lives in
 	// LiveControls).
 	const handleStopRecord = useCallback(() => {
@@ -333,7 +333,7 @@ export function App() {
 					JSON.parse(await file.text()),
 				);
 				setLoadedFile({ name: file.name, doc: parsed });
-				// Open replaces the buffer wholesale — a prior capture or
+				// Open replaces the buffer wholesale. A prior capture or
 				// edited fork would otherwise shadow the loaded file.
 				setRecordedDoc(null);
 				setEditedDoc(null);
@@ -358,7 +358,7 @@ export function App() {
 	);
 
 	// Live before Record renders nothing, because a capture is what
-	// there is to render and nobody has asked for one — the feed is
+	// there is to render and nobody has asked for one. The feed is
 	// connected either way, and the connection dot says so. The shell
 	// (top bar, mode toggle, the Record affordance) still needs an
 	// engine to hang off, so idle Live gets a blank one: empty doc,
@@ -388,7 +388,7 @@ export function App() {
 
 	// Dev/test introspection hook. Tests and the browser console
 	// can read the latest store selection AND the live engine
-	// without poking React internals. Overwritten each render —
+	// without poking React internals. Overwritten each render,
 	// there's only ever one App.
 	useEffect(() => {
 		const g = globalThis as unknown as {
@@ -406,7 +406,7 @@ export function App() {
 	const overStage = useOverStage();
 	const { held, shortcuts } = useKeyboardInput({ overStage });
 	// Space follows the hovered surface: over the stage it is the
-	// temporary hand (any mode — panning mutates nothing), anywhere
+	// temporary hand (any mode, panning mutates nothing), anywhere
 	// else it is transport. A claim is the key's own lifetime, so
 	// everything that speaks about the key reads it: the tip, the
 	// FSM's gesture context, the click gating below.

@@ -1,5 +1,5 @@
-//! Pure Rooms checkpoint transitions. The caller supplies current live facts;
-//! this module neither fetches authority nor performs storage or network I/O.
+//! Pure Rooms checkpoint transitions. The caller supplies current live facts.
+//! This module neither fetches authority nor performs storage or network I/O.
 mod invitations;
 pub use invitations::{accept_handed, receive_room_link};
 #[cfg(test)]
@@ -344,7 +344,7 @@ impl Command {
 	}
 }
 
-/// Secret answers have a separate owner and accessor; serializing the intent
+/// Secret answers have a separate owner and accessor. Serializing the intent
 /// cannot accidentally include them. Adapters retain these only in secret custody.
 pub struct BridgeSubmission {
 	conversation: DocumentText,
@@ -456,8 +456,8 @@ fn conversation<'a>(state: &'a mut State, id: &DocumentText) -> Result<&'a mut C
 }
 
 /// Reconcile selection after its authoritative conversation is removed.
-/// A remaining room keeps its roster available for reopening direct threads;
-/// within that, the directory the reader was using is the least surprising
+/// A remaining room keeps its roster available for reopening direct threads.
+/// Within that, the directory the reader was using is the least surprising
 /// continuation. A closed direct thread is never selected as a fallback.
 fn select_remaining(state: &mut State, preferred_directory: Option<&Id>) {
 	let selected = state

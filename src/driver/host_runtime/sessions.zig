@@ -15,7 +15,7 @@ const AdmissionError = Error || error{ProviderContract};
 /// Release one session and its wire: outbound the core already queued for it
 /// is written first (a condemned session's abort must reach the partner). A
 /// transport refusal closes the wire through the ordinary observable failure
-/// path; post-commit core failures become the Runtime's sticky terminal cause.
+/// path. Post-commit core failures become the Runtime's sticky terminal cause.
 /// The core then breaks its vows and fail-closes sibling answers before the
 /// transport is released.
 pub fn releaseWire(self: *HostRuntime, session: *driver_core.HostSession) !void {
@@ -72,20 +72,37 @@ fn claimSessionHandleOwned(self: *HostRuntime, session: *driver_core.HostSession
 
 /// Resolve the live exporter session named by one opaque Host capability and
 /// ensure the Runtime's single application handle owns it. Repeated exposure
-/// is idempotent; a previously internal redeem wire is admitted as application
+/// is idempotent. An internal redeem wire is admitted as application
 /// work and claimed before its pointer crosses an adapter.
 pub fn claimReferenceExporter(self: *HostRuntime, raw_ref: u64) AdmissionError!?*driver_core.HostSession {
     self.enterDriver();
     defer self.leaveDriver();
 
     const session = self.core.capabilitySession(self.core.capabilityFromRaw(raw_ref)) orelse return null;
-    const wire = self.wires.get(session.peer_handle) orelse return null;
-    if (wire.session != session) return null;
+    claimExporterSessionOwned(self, session) catch |err| switch (err) {
+        error.SessionNotOwned => return null,
+        else => return err,
+    };
+    return session;
+}
+
+/// Adopt a borrowed exporter into the Runtime's single application handle.
+/// Safe inside a callback: this only checks admission and updates ownership.
+/// It never drives transport, dispatches callbacks, or releases the wire.
+pub fn claimExporterSession(self: *HostRuntime, session: *driver_core.HostSession) AdmissionError!void {
+    self.enterDriver();
+    defer self.leaveDriver();
+    try claimExporterSessionOwned(self, session);
+}
+
+fn claimExporterSessionOwned(self: *HostRuntime, session: *driver_core.HostSession) AdmissionError!void {
+    if (session.host != self.core) return Error.SessionNotOwned;
+    const wire = self.wires.get(session.peer_handle) orelse return Error.SessionNotOwned;
+    if (wire.session != session) return Error.SessionNotOwned;
     if (!wire.session_handle_claimed) {
         try Internal.admitApplicationOperation(self);
         try claimSessionHandleOwned(self, session);
     }
-    return session;
 }
 
 /// Whether this runtime still owns the exact session shell named by a queued

@@ -11,6 +11,10 @@ impl Drop for Receipt<'_> {
 		if !self.retired.get() {
 			// The callback is synchronous and Host handles are thread-confined.
 			// Clear the stack address before the native-owned cell escapes.
+			// SAFETY: `self.cell` is the `ActorCell` that `register_actor_cell` was handed; this branch runs only while
+			// `retired` is false, meaning `ctx_free` has not run and the cell has not been reclaimed (the reclaim path
+			// sets `retired` first), so the allocation is still live, and the Host's single thread makes no concurrent
+			// access.
 			unsafe {
 				(*self.cell).registration.set(core::ptr::null());
 			}
@@ -20,7 +24,7 @@ impl Drop for Receipt<'_> {
 
 /// Run one C ABI registration with a stack receipt observed by ctx_free.
 /// INVALID_ARGUMENT can occur both before transfer (reentry) and after it
-/// (a durable-name collision); the status cannot answer who owns the cell.
+/// (a durable-name collision). The status cannot answer who owns the cell.
 ///
 /// # Safety
 /// `cell` must be a fresh, unregistered ActorCell. `run` makes exactly one

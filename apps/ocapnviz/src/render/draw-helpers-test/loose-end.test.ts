@@ -74,7 +74,7 @@ Deno.test("a claim is drawn as the lesser of the two shapes", () => {
 
 Deno.test("a claim's outline still reads as dashed at half a node", () => {
 	// The dash is a fixed length in world units, so halving the body does not
-	// halve the dash — it halves how many fit. Three to a side is the floor
+	// halve the dash. It halves how many fit. Three to a side is the floor
 	// where a reader still sees a dashed square rather than a corner mark and a
 	// smudge, and it is what stops the claim's outline from quietly becoming a
 	// solid one as the shape shrinks.

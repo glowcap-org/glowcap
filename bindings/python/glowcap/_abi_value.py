@@ -5,7 +5,7 @@ structs: ``_arg_to_c`` / ``_args_to_c`` / ``_ref_to_c`` on the way out
 (retaining each borrowed byte owner on a caller-supplied ``keepalive`` list for
 the duration of the synchronous C call), ``_arg_from_c`` / ``_ref_from_c`` on
 the way back.
-This module does not encode or decode CapTP frames; Zig owns both wire codecs
+This module does not encode or decode CapTP frames. Zig owns both wire codecs
 and every protocol decision. Re-exported value types come from :mod:`glowcap`.
 """
 
@@ -87,7 +87,7 @@ _NATIVE_CAPTP_VERSION = _captp_version_name(_abi.NATIVE_CAPTP_VERSION)
 
 def _captp_version_id(version: str) -> int:
     """The ``GLOWCAP_CAPTP_*`` id for a CapTP profile name (ADR-0003).
-    ``v1_0`` is the interop floor a Goblins vat speaks; ``next`` is the
+    ``v1_0`` is the interop floor a Goblins vat speaks. ``next`` is the
     glowcap-to-glowcap track ``Offer.native`` prefers with Cap'n Proto."""
     if version == "v1_0":
         return _abi.CAPTP_V1_0

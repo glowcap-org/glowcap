@@ -30,7 +30,7 @@ pub const Capabilities = struct {
         self.* = undefined;
     }
 
-    /// Privileged creation persists a descriptor; no reference escapes
+    /// Privileged creation persists a descriptor. No reference escapes
     /// before commit. The caller roots it or retains it through content edges.
     pub fn stageUse(self: *Capabilities, read: *Read, grant: core.GrantId, rooted: bool) !loam.ObjectId {
         if (read.store != self.store) return error.ForeignStore;

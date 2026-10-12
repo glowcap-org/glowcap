@@ -1,5 +1,5 @@
 /**
- * Glyphs — the small monochrome icons in toolbars, segmented controls,
+ * Glyphs. The small monochrome icons in toolbars, segmented controls,
  * and inline buttons. Each is a self-contained component marked
  * `aria-hidden`, so the surrounding button's `aria-label` or `title`
  * carries the name. Every glyph paints `currentColor`, which is how a
@@ -39,7 +39,7 @@ const STROKE = 1.4;
  *  off the pixel grid, which costs more than the pixel of air gains. */
 const ICON = 14;
 
-/** Floppy disk — "save". The notch at the top doubles as the
+/** Floppy disk, "save". The notch at the top doubles as the
  * write-protect tab. */
 export function SaveGlyph() {
 	return (
@@ -61,19 +61,19 @@ export function SaveGlyph() {
 	);
 }
 
-/** Folder — open-from-file. */
-/** New — a page with a plus, beside `FolderGlyph`'s page-in-a-tray. Same 14px
+/** Folder, open-from-file. */
+/** New. A page with a plus, beside `FolderGlyph`'s page-in-a-tray. Same 14px
  *  box and 1.5 stroke as the rest of the cluster, so the three file actions read
  *  as one set. */
 /**
- * Back to 100% and centered — a crosshair.
+ * Back to 100% and centered, a crosshair.
  *
  * A target rather than a frame, because `FitGlyph` below is the frame: four
  * corners mean "make everything fit", and this means "put the view back on the
  * middle at its true size". Two icons made of corners would be one icon wearing
  * two meanings.
  *
- * Not a circular arrow either. That says undo, and this does not undo anything —
+ * Not a circular arrow either. That says undo, and this does not undo anything,
  * the camera's position is not on the undo stack (`render/stage-view.ts`).
  */
 export function RecenterGlyph() {
@@ -96,7 +96,7 @@ export function RecenterGlyph() {
 }
 
 /**
- * Fit — four corners with nothing between them.
+ * Fit, four corners with nothing between them.
  *
  * One glyph, two surfaces: the timeline fits the time window to its content, the
  * stage fits the camera to the picture. Same act on two axes, so the same mark,
@@ -165,7 +165,7 @@ export function FolderGlyph() {
 	);
 }
 
-/** Curved arrow doubling back — undo. */
+/** Curved arrow doubling back, undo. */
 export function UndoGlyph() {
 	return (
 		<svg
@@ -185,7 +185,7 @@ export function UndoGlyph() {
 	);
 }
 
-/** Mirror of UndoGlyph — redo. */
+/** Mirror of UndoGlyph, redo. */
 export function RedoGlyph() {
 	return (
 		<svg
@@ -206,7 +206,7 @@ export function RedoGlyph() {
 }
 
 /**
- * Trash can — "delete". Lid, handle, tapered can, two slots.
+ * Trash can, "delete". Lid, handle, tapered can, two slots.
  *
  * The slots run straight down: a lean of a fifth of a pixel reads as no
  * lean at all and greys both edges. The handle stands nearly three
@@ -235,7 +235,7 @@ export function TrashGlyph() {
 }
 
 /**
- * Question mark — the reference.
+ * Question mark, the reference.
  *
  * No ring around it. A circle this small leaves the mark inside it about
  * seven pixels tall, and at one-and-a-half pixels of stroke the hook closes
@@ -268,14 +268,14 @@ export function HelpGlyph() {
 }
 
 /**
- * Cross — "clear this", the other half of the pin wherever a value can be a
+ * Cross, "clear this", the other half of the pin wherever a value can be a
  * reader's own: unpin a peer's position, clear an authored time, put the stage
  * back where the document opens.
  *
  * A drawing rather than the `×` character it replaces, for the reason at the top of
  * this file: a glyph set holds together at one stroke weight, and a multiplication
  * sign set in the UI face beside a filled pin is two weights in one row. It also
- * meant the mark had two forms — `×` in the code, `✕` in whatever was typed next —
+ * meant the mark had two forms, `×` in the code, `✕` in whatever was typed next,
  * and the two are different characters.
  */
 export function ClearGlyph() {
@@ -296,14 +296,14 @@ export function ClearGlyph() {
 }
 
 /**
- * Pushpin — "pin this here", the authoring verb wherever a value can be a
+ * Pushpin, "pin this here", the authoring verb wherever a value can be a
  * reader's own rather than the app's: a peer's position in the Inspector, the view
  * a document opens at in the document panel. The ✕ beside it is the other half in
  * both places.
  *
  * The one filled glyph in the set, and the one drawn smaller than `ICON`. A pin is
- * a silhouette rather than an outline — drawn in strokes at this size the head and
- * the shaft merge — and a filled shape carries more ink than a stroked one at
+ * a silhouette rather than an outline, drawn in strokes at this size the head and
+ * the shaft merge, and a filled shape carries more ink than a stroked one at
  * equal size, so it is run out at eleven to weigh the same as its neighbours.
  * Its viewBox is twelve rather than eleven for the same reason the rest match
  * theirs: the shape was drawn on a twelve-unit grid, and redrawing it to match
@@ -323,7 +323,7 @@ export function PinGlyph() {
 	);
 }
 
-/** Crescent moon — switch to dark. Two arcs meeting at their tips,
+/** Crescent moon, switch to dark. Two arcs meeting at their tips,
  *  which reads as a moon where a bitten circle does not. */
 export function MoonGlyph() {
 	return (
@@ -344,7 +344,7 @@ export function MoonGlyph() {
 }
 
 /**
- * Sun — switch to light. A filled disc with eight rays around it. The
+ * Sun, switch to light. A filled disc with eight rays around it. The
  * disc is filled rather than stroked because a ring this small closes
  * up into a blob, and a blob with eight marks around it is not a sun.
  */
@@ -368,7 +368,7 @@ export function SunGlyph() {
 	);
 }
 
-/** Open hand — the pan tool. Palm with four finger notches,
+/** Open hand. The pan tool. Palm with four finger notches,
  * simplified to read at 12 px. */
 export function HandGlyph() {
 	return (
@@ -388,7 +388,7 @@ export function HandGlyph() {
 	);
 }
 
-/** Tilted-arrow pointer — the "select" cursor. */
+/** Tilted-arrow pointer. The "select" cursor. */
 export function SelectGlyph() {
 	return (
 		<svg width="11" height="12" viewBox="0 0 11 12" aria-hidden="true">
@@ -403,7 +403,7 @@ export function SelectGlyph() {
 	);
 }
 
-/** Rounded square (echoing the peer body shape) with a "+" — reads
+/** Rounded square (echoing the peer body shape) with a "+", reads
  * as "place a new peer here." */
 export function AddPeerGlyph() {
 	return (
@@ -425,7 +425,7 @@ export function AddPeerGlyph() {
 	);
 }
 
-/** Two dots connected by a line — "session edge between two peers." */
+/** Two dots connected by a line, "session edge between two peers." */
 export function OpenSessionGlyph() {
 	return (
 		<svg
@@ -445,7 +445,7 @@ export function OpenSessionGlyph() {
 	);
 }
 
-/** Arrow-headed line — "message traveling from sender to receiver." */
+/** Arrow-headed line, "message traveling from sender to receiver." */
 export function SendMessageGlyph() {
 	return (
 		<svg

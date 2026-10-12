@@ -1,7 +1,7 @@
 //! Per-binding keyed-relay rendezvous proof: the Rust binding cold-dials a
 //! non-listening peer by its key designator through the reference relay's
 //! rendezvous bridge (ADR-0088). The core classifies the locator as the
-//! rendezvous dial shape; the binding opens the WebSocket leg the locator's
+//! rendezvous dial shape. The binding opens the WebSocket leg the locator's
 //! `rendezvous-relay` hint names, the one rendezvous routing authority.
 //!
 //! Run via `zig build rust-keyed-relay-rendezvous` (the harness passes

@@ -169,7 +169,7 @@ test "failed application operation leaves a provisional exporter retireable" {
     try std.testing.expect(failure == .fail);
 
     failing.fail_index = failing.alloc_index;
-    var pending: driver.core.Served.PendingSend = undefined;
+    var pending: driver.core.PendingSend = undefined;
     try std.testing.expectError(error.OutOfMemory, client.beginSendNamed(
         pair.a,
         &pending,

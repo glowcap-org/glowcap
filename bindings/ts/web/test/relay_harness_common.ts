@@ -1,7 +1,7 @@
 // Shared spine for the three relay contract harnesses (tcp, backpressure,
 // iroh). Each harness spawns a relay program named on its own command line and
 // drives one scenario against it, so one harness proves the same contract for
-// every runtime's relay — the Deno reference, the Python relay, the Rust relay,
+// every runtime's relay: the Deno reference, the Python relay, the Rust relay,
 // and any binding added later. The per-runtime differences (which program, its
 // ready marker, its environment) are arguments, not forked copies.
 //

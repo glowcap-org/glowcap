@@ -35,7 +35,7 @@ const DM_TEXT = "hi Bob, privately, over a DataChannel the room only signaled";
 const REPLY_TEXT = "got it Alice, replying over the same channel";
 
 // Join `ROOM` as `nick` in a fresh, isolated tab, in webrtc DM mode, and wait
-// until the composer is live — the signal that the keyed session to the room
+// until the composer is live, the signal that the keyed session to the room
 // is up and the tab is advertising its `webrtc` identity.
 async function joinAs(
 	browser: Browser,
@@ -119,7 +119,7 @@ try {
 	await openDmTo(alice.tab, "web-bob");
 	await send(alice.tab, DM_TEXT);
 
-	// Bob renders it — the message crossed the DataChannel, with the room's
+	// Bob renders it, the message crossed the DataChannel, with the room's
 	// only contribution the signaling exchange.
 	await openDmTo(bob.tab, "web-alice");
 	await awaitBubble(bob.tab, DM_TEXT, "Bob");

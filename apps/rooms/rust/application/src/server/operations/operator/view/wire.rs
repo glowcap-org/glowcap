@@ -7,11 +7,11 @@ pub(crate) fn tuple<A: ListArgument, const N: usize>(value: &A) -> Result<[A; N]
 	if value.list_len() != Some(N) {
 		return Err(Refusal::Shape);
 	}
-	let fields: [Option<A>; N] = core::array::from_fn(|i| value.at(i));
-	if fields.iter().any(Option::is_none) {
-		return Err(Refusal::Shape);
-	}
-	Ok(fields.map(Option::unwrap))
+	let fields = (0..N)
+		.map(|i| value.at(i))
+		.collect::<Option<alloc::vec::Vec<A>>>()
+		.ok_or(Refusal::Shape)?;
+	<[A; N]>::try_from(fields).map_err(|_| Refusal::Shape)
 }
 pub(crate) fn text<const N: usize, const NONEMPTY: bool>(
 	value: &impl ListArgument,
@@ -20,7 +20,7 @@ pub(crate) fn text<const N: usize, const NONEMPTY: bool>(
 		.text()
 		.filter(|s| Text::<N, NONEMPTY>::accepts_utf16(s.encode_utf16()))
 		.ok_or(Refusal::Text)?;
-	Ok(Text::new(text.into()).expect("checked text"))
+	Text::new(text.into()).ok_or(Refusal::Text)
 }
 pub(crate) fn number<const POSITIVE: bool>(value: &impl ListArgument) -> Result<SafeInteger<POSITIVE>, Refusal> {
 	value
@@ -63,7 +63,7 @@ pub(crate) fn list<A: ListArgument, T, const N: usize>(
 	for i in 0..len {
 		out.push(Object(read(&value.at(i).ok_or(Refusal::Shape)?)?));
 	}
-	Ok(List::new(out).expect("bounded operator page"))
+	List::new(out).ok_or(Refusal::Budget)
 }
 pub fn read_stewardship<A: ListArgument>(value: &A) -> Result<Stewardship, Refusal> {
 	let [name, label, visible, generation, issued, steward] = tuple(value)?;
@@ -84,7 +84,7 @@ pub fn read_stewardship<A: ListArgument>(value: &A) -> Result<Stewardship, Refus
 }
 fn room<A: ListArgument>(value: &A) -> Result<Room, Refusal> {
 	let [id, kind, name, origin, proof, retained, members, more] = tuple(value)?;
-	// Direct tuples historically require a room id; the JSON view permits an
+	// Direct tuples require a room id; the JSON view permits an
 	// empty id. Keep that wire distinction explicit rather than normalizing it.
 	if id.text().is_none_or(str::is_empty) {
 		return Err(Refusal::Text);
@@ -227,16 +227,15 @@ pub fn read_snapshot<A: ListArgument>(value: &A) -> Result<Snapshot, Refusal> {
 	if pages.list_len() != Some(7) {
 		return Err(Refusal::Shape);
 	}
-	let empty = || List::new(Vec::new()).expect("empty page");
 	let mut snapshot = Snapshot {
 		revision: revision(&rev)?,
-		stewardships: empty(),
-		links: List::new(Vec::new()).unwrap(),
-		registrations: List::new(Vec::new()).unwrap(),
-		sessions: List::new(Vec::new()).unwrap(),
-		rooms: List::new(Vec::new()).unwrap(),
-		references: List::new(Vec::new()).unwrap(),
-		trouble: List::new(Vec::new()).unwrap(),
+		stewardships: List::default(),
+		links: List::default(),
+		registrations: List::default(),
+		sessions: List::default(),
+		rooms: List::default(),
+		references: List::default(),
+		trouble: List::default(),
 		next: Object(Categories {
 			stewardships: Nullable::Null,
 			links: Nullable::Null,
@@ -247,13 +246,13 @@ pub fn read_snapshot<A: ListArgument>(value: &A) -> Result<Snapshot, Refusal> {
 			trouble: Nullable::Null,
 		}),
 		totals: Object(Categories {
-			stewardships: SafeInteger::new(0).unwrap(),
-			links: SafeInteger::new(0).unwrap(),
-			registrations: SafeInteger::new(0).unwrap(),
-			sessions: SafeInteger::new(0).unwrap(),
-			rooms: SafeInteger::new(0).unwrap(),
-			references: SafeInteger::new(0).unwrap(),
-			trouble: SafeInteger::new(0).unwrap(),
+			stewardships: SafeInteger::ZERO,
+			links: SafeInteger::ZERO,
+			registrations: SafeInteger::ZERO,
+			sessions: SafeInteger::ZERO,
+			rooms: SafeInteger::ZERO,
+			references: SafeInteger::ZERO,
+			trouble: SafeInteger::ZERO,
 		}),
 	};
 	let mut seen = [false; 7];

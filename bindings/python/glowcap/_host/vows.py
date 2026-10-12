@@ -24,7 +24,7 @@ class _VowRow:
     __slots__ = ("state", "track_gc")
 
     def __init__(self, track_gc: bool = False):
-        # Exactly one of three shapes, so "settled with a live waiter" cannot
+        # One of three shapes, so "settled with a live waiter" cannot
         # exist: _MINTED (registered), an asyncio.Future (a parked waiter), or
         # an (ok, payload) tuple (a settled outcome).
         self.state = _MINTED

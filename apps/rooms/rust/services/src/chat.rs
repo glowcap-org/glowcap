@@ -206,11 +206,10 @@ pub async fn run(locator: &str, room: &str, nick: &str) -> Result<(), String> {
 	let mut terminal = match Terminal::open() {
 		Ok(terminal) => terminal,
 		Err(error) => {
-			return Err(cleanup::combine(
-				Err(error),
+			return Err(cleanup::failed(
+				error,
 				runtime.close(PendingWork::Cancel).await.map_err(|e| e.to_string()),
-			)
-			.unwrap_err());
+			));
 		}
 	};
 	let mut chat = None;
@@ -222,13 +221,14 @@ pub async fn run(locator: &str, room: &str, nick: &str) -> Result<(), String> {
 		let directory = Directory::fetch(Client::new(session, HostPlatform))
 			.await
 			.map_err(|e| e.to_string())?;
-		chat = Some(Chat {
+		chat.insert(Chat {
 			directory,
 			room: None,
 			messages: None,
 			nick: nick.into(),
-		});
-		chat.as_mut().unwrap().interact(room, &mut terminal).await
+		})
+		.interact(room, &mut terminal)
+		.await
 	};
 	let mut result =
 		tokio::select! { result = work => result, _ = interrupt.recv() => Ok(()), _ = terminate.recv() => Ok(()) };

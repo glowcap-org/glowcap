@@ -10,7 +10,7 @@
 // is set. Doc attributes and visibility pass through per function, so a public
 // reader (the core's `last_error`) and a private transport pair mint from the
 // same definition. The read is two-pass: a null probe for the length, then a
-// `len + 1` buffer — the C side reserves one byte for a NUL terminator and
+// `len + 1` buffer: the C side reserves one byte for a NUL terminator and
 // copies at most `cap - 1` message bytes, so the second call receives all
 // `len` of them.
 macro_rules! error_slot {
@@ -32,11 +32,16 @@ macro_rules! error_slot {
 
 		$(#[$reader_meta])*
 		$reader_vis fn $reader() -> Option<String> {
+			// SAFETY: `$extern_reader` is an archive's `*_last_error` reader, which reads that archive's thread-local
+			// slot and needs no handle; the null buffer with capacity zero is the length probe, so the callee writes
+			// nothing and returns the message length.
 			let len = unsafe { $extern_reader(core::ptr::null_mut(), 0) };
 			if len == 0 {
 				return None;
 			}
 			let mut buf = vec![0u8; len + 1];
+			// SAFETY: as the probe above; `buf` is a local `Vec<u8>` of `len + 1` bytes, live for the call, and the
+			// callee writes at most `buf.len() - 1` message bytes plus a NUL terminator and returns the count written.
 			let written = unsafe { $extern_reader(buf.as_mut_ptr(), buf.len()) };
 			buf.truncate(written.min(buf.len()));
 			Some(String::from_utf8_lossy(&buf).into_owned())

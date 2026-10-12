@@ -34,9 +34,9 @@ export interface Attachment {
 	mime: string;
 	size: number;
 	blob: Ref;
-	/** The picture's own pixel size, zero when it is not one or nobody
+	/** The picture's pixel size, zero when it is not a picture or nobody
 	 * measured it. A reader uses it to leave the right space before the bytes
-	 * arrive; nothing depends on it being true. */
+	 * arrive. Nothing depends on it being true. */
 	width: number;
 	height: number;
 }
@@ -45,8 +45,8 @@ export interface Attachment {
 export interface AttachmentSource {
 	name: string;
 	mime: string;
-	/** Existing callers may own bytes already; browser files instead provide a
-	 * bounded reader so selecting a file does not duplicate it in memory. */
+	/** Existing callers may own bytes already. Browser files provide a bounded
+	 * reader instead, so selecting a file does not duplicate it in memory. */
 	bytes?: Uint8Array;
 	size?: number;
 	read?: (offset: number, length: number) => Promise<Uint8Array>;
@@ -73,15 +73,15 @@ export const ATTACHMENT_RECORD_SPAN = 7;
 
 /** Read the file records a message carries, one after another from `recordAt`,
  * each `"file", name, mime, size, blob, width, height`. Empty for an ordinary
- * line. A record that does not read is where the walk stops, because the rest
- * of the line can no longer be trusted to be what it claims. */
+ * line. A record that does not read ends the walk, because the rest of the
+ * line can no longer be trusted to be what it claims. */
 export function readAttachments(args: Argument[], recordAt = ROOM_RECORD_AT): Attachment[] {
 	const out: Attachment[] = [];
 	for (let at = recordAt; args[at] === "file"; at += ATTACHMENT_RECORD_SPAN) {
-		// Stop at the cap rather than throw: this walks a message a peer or room
+		// Stop at the cap and do not throw. This walks a message a peer or room
 		// controls, and a throw here escapes the receive turn and erases the
-		// whole message — worse than showing the first files, which is exactly
-		// what a malformed record below already does. Bound on receive, one way.
+		// whole message, which is worse than showing the first files, as a
+		// malformed record below already does. Bound on receive, one way.
 		if (out.length === MAX_MESSAGE_FILES) break;
 		const record = readAttachmentRecord(args, at);
 		if (record === null) break;
@@ -93,8 +93,8 @@ export function readAttachments(args: Argument[], recordAt = ROOM_RECORD_AT): At
 /** Parse an attachment suffix as one complete, bounded record sequence. This
  * is for mutation verbs that must not accept a valid prefix while ignoring a
  * trailing capability or malformed record. Ordinary message display keeps the
- * tolerant reader above because its input is remote content rather than an
- * admitted state transition. */
+ * tolerant reader above because its input is remote content, not an admitted
+ * state transition. */
 export function readAttachmentsExact(args: Argument[], recordAt = ROOM_RECORD_AT): Attachment[] {
 	const remaining = args.length - recordAt;
 	if (remaining < 0 || remaining % ATTACHMENT_RECORD_SPAN !== 0) {
@@ -113,10 +113,10 @@ export function readAttachmentsExact(args: Argument[], recordAt = ROOM_RECORD_AT
 	return out;
 }
 
-/** Parse exactly one attachment record. Message readers may stop on null;
- * mutation verbs use the same parser but reject null and trailing arguments,
- * so the record vocabulary has one authority without making ordinary message
- * display all-or-nothing. */
+/** Parse exactly one attachment record. Message readers may stop on null.
+ * Mutation verbs use the same parser but reject null and trailing arguments,
+ * so the record vocabulary has one authority and ordinary message display is
+ * not all-or-nothing. */
 function readAttachmentRecord(args: Argument[], at: number): Attachment | null {
 	if (args[at] !== "file") return null;
 	const name = args[at + 1];
@@ -140,12 +140,12 @@ function readAttachmentRecord(args: Argument[], at: number): Attachment | null {
 /** Read a direct line's `refile(caption, ...keep, ...records)` arguments: the
  * caption, the kept indices, and the new files riding inline.
  *
- * This is the receiving half of `PostedLine.refile` with sources, and every
- * argument is the peer's, so the shape is refused rather than trusted:
- * an index that repeats, or names no file among the line's `currentFiles`,
- * and a result past `MAX_MESSAGE_FILES` all throw. The count bound matters
- * beyond one call — kept files compound across refiles, so without it a peer
- * could grow one line's set without limit, one refile at a time. */
+ * This is the receiving half of `PostedLine.refile` with sources. Every
+ * argument is the peer's, so the shape is refused and not trusted: an index
+ * that repeats, or names no file among the line's `currentFiles`, and a result
+ * past `MAX_MESSAGE_FILES` all throw. The count bound matters beyond one call.
+ * Kept files compound across refiles, so without it a peer could grow one
+ * line's set without limit, one refile at a time. */
 export function readRefileChange(
 	args: Argument[],
 	currentFiles: number,
@@ -153,7 +153,7 @@ export function readRefileChange(
 	if (typeof args[0] !== "string") throw new Error("refile needs a caption");
 	const caption = args[0];
 	// Keep indices are the bigints after the caption, up to where the file
-	// records begin — a record always opens with the string "file".
+	// records begin. A record always opens with the string "file".
 	let recordAt = 1;
 	const keep: number[] = [];
 	const seen = new Set<number>();
@@ -182,8 +182,8 @@ export function readRefileChange(
 
 export { attachmentRefusal };
 
-/** Validate a source before minting an actor for it. A direct-message sender is
- * its file host, so this is the same admission boundary the room server owns
+/** Validate a source before creating an actor for it. A direct-message sender
+ * is its file host, so this is the same admission boundary the room server owns
  * for room-hosted files. */
 export function validateAttachmentSource(source: AttachmentSource): number {
 	const size = sourceSize(source);
@@ -203,8 +203,8 @@ interface HostedSource {
 
 // A room server owns a global held-media budget. Direct files have no server,
 // so their sender owns the equivalent process-wide budget here. The queue is
-// short and bounded; removing a completed row by identity is therefore simpler
-// than maintaining a second index that could disagree with its order.
+// short and bounded, so removing a completed row by identity is simpler than
+// maintaining a second index that could disagree with its order.
 const hostedSources: HostedSource[] = [];
 let hostedSourceBytes = 0;
 
@@ -237,7 +237,7 @@ function retainHostedSource(source: AttachmentSource, size: number): HostedSourc
  *
  * Once one ascending reader has received the complete file, the actor drops
  * its source. A DM has one recipient, and that recipient now owns the local
- * copy; retaining a browser `File` in the sender's Host after that point would
+ * copy. Retaining a browser `File` in the sender's Host after that point would
  * keep every sent file alive until the tab closed. */
 function sourceBlob(slot: HostedSource, session: Session): Behavior {
 	const { name, size } = slot;
@@ -269,18 +269,18 @@ function sourceBlob(slot: HostedSource, session: Session): Behavior {
 	};
 }
 
-/** Append sender-hosted files to any application message. `leading` remains
- * that message type's vocabulary; attachment records are one additive suffix.
- * The resulting capabilities travel over the target's existing CapTP session,
- * independently of how its byte channel was realized.
+/** Append sender-hosted files to any application message. `leading` stays
+ * that message type's vocabulary, and attachment records are one additive
+ * suffix. The resulting capabilities travel over the target's existing CapTP
+ * session, whatever its byte channel is.
  *
  * The local handles are handed back after the send settles. A successful send
  * has already granted the receiver the export retain that keeps each blob
- * callable; a failed one granted nobody anything.
+ * callable, and a failed one granted nobody anything.
  *
- * Answers whatever the target answered — a direct line's `dm` answers a line
+ * Answers whatever the target answered. A direct line's `dm` answers a line
  * handle the sender holds to change or take the message back, so this passes it
- * up rather than discarding it. */
+ * up instead of discarding it. */
 export async function sendWithAttachments(
 	session: Session,
 	target: Ref,
@@ -345,8 +345,8 @@ export async function sendWithAttachments(
 }
 
 /** One declared pixel dimension, or zero for anything that is not a sane one.
- * Unknown and nonsense read the same here on purpose: both mean the reader
- * has no space to reserve, which is a layout decision rather than a refusal. */
+ * Unknown and nonsense read the same here: both mean the reader has no space
+ * to reserve, which is a layout decision and not a refusal. */
 function pixelCount(value: Argument | undefined): number {
 	if (typeof value !== "bigint" || value <= 0n || value > BigInt(MAX_IMAGE_DIM)) return 0;
 	return Number(value);
@@ -370,8 +370,8 @@ export function attachmentArgs(attachment: Attachment): Argument[] {
 	];
 }
 
-/** Ask the room to admit one file and mint the capability that will carry it.
- * No bytes move here: a composer can establish every file's authority, publish
+/** Ask the room to admit one file and create the capability that will carry it.
+ * No bytes move here. A composer can establish every file's authority, publish
  * the message atomically, and only then drive those capabilities in parallel. */
 export async function beginUpload(
 	session: Session,
@@ -393,12 +393,12 @@ export async function beginUpload(
 	return upload;
 }
 
-/** Thrown when an upload is stopped rather than failing on its own. Named so a
- * caller can tell a reader's own decision apart from a transfer that broke. */
+/** Thrown when an upload is stopped and did not fail on its own. A caller can
+ * tell a reader's decision apart from a transfer that broke. */
 export class UploadStopped extends Error {
 	constructor() {
-		// Read by a person: this text is what the file's row says afterwards, and
-		// what it says is the reader's own decision rather than a fault.
+		// A person reads this text as the file's row afterward, and it records
+		// the reader's decision and not a fault.
 		super("Stopped");
 		this.name = "UploadStopped";
 	}
@@ -406,20 +406,19 @@ export class UploadStopped extends Error {
 
 /** Wait for one chunk's answer, and give up if it never comes. The bound is
  * larger than an ordinary request's because a read for bytes the room has not
- * received yet waits rather than answering short, and that wait is honest. */
+ * received yet waits instead of answering short, and that wait is expected. */
 function chunkWithin<T>(answer: Promise<T>, what: string, stallMs: number): Promise<T> {
 	return answerWithin(answer, what, stallMs);
 }
 
-/** Fill one admitted file. Writes within a file stay ordered; callers run one
- * of these per file concurrently.
+/** Fill one admitted file. Writes within a file stay ordered, and callers run
+ * one of these per file concurrently.
  *
  * `signal` stops it. A file is written one bounded chunk per round trip, so
- * stopping is a matter of not starting the next one — there is no write to
- * interrupt and nothing half-sent beyond the chunk already in the air. That
- * makes the longest a stop can take one chunk, whatever the file's size, which
- * is what lets a reader who picked the wrong sixty-megabyte file take it back
- * rather than wait for it. */
+ * stopping means not starting the next one. There is no write to interrupt and
+ * nothing half-sent beyond the chunk already in the air. A stop therefore
+ * takes at most one chunk, whatever the file's size, which lets a reader who
+ * picked the wrong sixty-megabyte file take it back instead of waiting. */
 
 export async function fillUpload(
 	session: Session,
@@ -465,9 +464,9 @@ export function postStagedFiles(session: Session, room: Ref, caption: string): P
 }
 
 /** Pull a whole attachment through its blob capability, one bounded chunk per
- * round trip. The record's size bounds the allocation up front; a blob that
- * answers more than it declared, or dries up short of it, is refused rather
- * than trusted. `onProgress` hears bytes-so-far after each chunk. */
+ * round trip. The record's size bounds the allocation up front. A blob that
+ * answers more than it declared, or dries up short of it, is refused and not
+ * trusted. `onProgress` hears bytes-so-far after each chunk. */
 export async function fetchBlob(
 	session: Session,
 	attachment: Attachment,

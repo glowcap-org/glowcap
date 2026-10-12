@@ -6,8 +6,8 @@
 // `RemotePromise` handle, fetch/enliven mint→await, far-send `sendFar` /
 // `promiseFor`, live in `promise.ts`. Spawn/publish hosting, ADR-0064
 // proxies, and Host-reference send·tell dispatch live in `trampoline.ts`. The
-// byte-fed embedder pump — handshake,
-// read transport packets, feed, drain, flush — lives in `pump.ts`. The host owns
+// byte-fed embedder pump (handshake,
+// read transport packets, feed, drain, flush) lives in `pump.ts`. The host owns
 // everything else: routing, redemption, gift origination, far vows. `mod.ts`
 // re-exports the public members.
 
@@ -45,7 +45,7 @@ export {
  * (ADR-0082), both spent before the handshake starts. */
 export { HANDSHAKE_TIMEOUT_MS };
 
-/** How transport packets move for one connection — the seam the byte-fed pump
+/** How transport packets move for one connection. It is the seam the byte-fed pump
  * reads and the FLUSH drain writes. The core supplies the TCP wrapper below
  * over the runtime's own sockets; the `@glowcap/iroh` companion supplies the
  * iroh one, so the iroh artifact stays out of this core module entirely.
@@ -82,12 +82,12 @@ export interface SendRedeemingResult {
 }
 
 /** What a loop-minted `Session` needs from the native loop that owns it
- * (ADR-0112). Declared here — implemented by `driver_loop.ts`'s `DriverLoop` —
+ * (ADR-0112). Declared here and implemented by `driver_loop.ts`'s `DriverLoop`,
  * so the Session arms can dispatch on it without importing the loop tier. */
 export interface DriverLoopHandle {
 	/** One zero-timeout step plus an event dispatch, on the driving thread. */
 	stepNow(): void;
-	/** Schedule one step soon — a kick that is legal from inside a turn. */
+	/** Schedule one step soon: a kick that is legal from inside a turn. */
 	scheduleStep(): void;
 	/** Schedule one deferred step and join its complete effect drain. */
 	settleStep(): Promise<void>;
@@ -106,7 +106,7 @@ export interface DriverLoopHandle {
 }
 
 /** The loop-backed `Channel` (ADR-0112): the native loop owns the wire, so it
- * carries no byte verbs the pump would drive — only the closed event the serve
+ * carries no byte verbs the pump would drive. It has only the closed event the serve
  * promise awaits and the loop back-reference the Session arms dispatch on. */
 export interface LoopChannel extends Channel {
 	readonly driverLoop: DriverLoopHandle;
@@ -129,6 +129,11 @@ export interface LoopChannel extends Channel {
 export class Session extends SessionApplication {
 	private constructor(ptr: Ptr, host: Host, transport: Channel) {
 		super(ptr, host, transport);
+		// Join the host's registry here, not in the base constructor: the
+		// registry stores `Session`, and only this constructor can type `this`
+		// as one. Nothing can observe the registration window, because a
+		// FLUSH action cannot run until construction returns to the loop.
+		host.registerSession(ptr, this);
 	}
 
 	// ── Construction: establish, dial, accept ──────────────────────────────────

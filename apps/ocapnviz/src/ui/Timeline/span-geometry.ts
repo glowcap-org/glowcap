@@ -1,5 +1,5 @@
 /**
- * Span screen-geometry — the single source of truth for "where on
+ * Span screen-geometry, the single source of truth for "where on
  * the canvas does this t-range live?" Used by both lane-paint
  * (deciding pill vs stamp, clamping to the plot band) and hit-test
  * (building the click envelope around what the user can actually
@@ -8,7 +8,7 @@
  *
  * Stamp/bucket layout (count badges, label placement) and pill
  * styling (color, radius application, edge-fade stripes) stay in
- * the painter — those don't affect hit-testability. The contract
+ * the painter, those don't affect hit-testability. The contract
  * here is narrower: clamp the on-screen rect of a single span,
  * report whether it had to be promoted to its minimum-width stamp.
  */
@@ -18,7 +18,7 @@
  *  the same minimum so a span too short to render as a pill is
  *  still as clickable as the stamp the user sees. Independent of
  *  hit-test's `EDGE_HANDLE_PX` (which is a click tolerance around
- *  an edge, not a paint footprint) — the two happen to be equal
+ *  an edge, not a paint footprint). The two happen to be equal
  *  by coincidence, NOT by structural linkage. */
 export const SPAN_MIN_PILL_PX = 6;
 
@@ -30,9 +30,9 @@ export const SPAN_RADIUS = 3;
 export const SPAN_PILL_INSET_Y = 2;
 
 export type SpanRect = {
-	/** Canvas-px left edge — clamped to `plotX`. */
+	/** Canvas-px left edge, clamped to `plotX`. */
 	left: number;
-	/** Canvas-px right edge — clamped to `plotX + plotWidth`. For
+	/** Canvas-px right edge, clamped to `plotX + plotWidth`. For
 	 *  open-ended spans (endT non-finite) `right` is the plot's right
 	 *  boundary, so the visible pill still has a real right edge for
 	 *  paint and a real hit envelope for hit-test. */
@@ -41,13 +41,13 @@ export type SpanRect = {
 	 *  so paint draws a fixed-footprint stamp at the start anchor and
 	 *  hit-test inherits the same minimum width. */
 	isStamp: boolean;
-	/** True when the unclamped left edge was below `plotX` — the span
+	/** True when the unclamped left edge was below `plotX`, the span
 	 *  starts before the visible window. Paint draws a left-edge
-	 *  fade as a "trails off to the left" cue; hit-test ignores. */
+	 *  fade as a "trails off to the left" cue. Hit-test ignores. */
 	leftClamped: boolean;
 	/** True when the unclamped right edge was past `plotX + plotWidth`
-	 *  — the span extends past the visible window OR the span is
-	 *  open-ended (endT non-finite). Paint draws a right-edge fade;
+	 *:  the span extends past the visible window OR the span is
+	 *  open-ended (endT non-finite). Paint draws a right-edge fade.
 	 *  hit-test ignores. The open-ended case folds in here because
 	 *  it's the same paint behavior: a "trails off to the right" cue
 	 *  with no real entity edge to grab. Right-edge resize-handle
@@ -57,14 +57,14 @@ export type SpanRect = {
 	rightClamped: boolean;
 };
 
-/** Compute the on-screen rect of a span — what the renderer paints,
+/** Compute the on-screen rect of a span, what the renderer paints,
  *  what hit-test should accept clicks against. Returns null when the
  *  span is fully outside the visible plot band.
  *
  *  Single source of truth for "where does this span live on screen"
- *  — the resolver-as-renderer doctrine, extended into pixel space.
+ *:  the resolver-as-renderer doctrine, extended into pixel space.
  *  Paint reads it to decide long-pill vs stamp and to clamp the pill
- *  to the plot band; hit-test reads it to build the click envelope.
+ *  to the plot band. Hit-test reads it to build the click envelope.
  *  The two stay in lockstep by construction. */
 export function spanScreenRect(args: {
 	startT: number;

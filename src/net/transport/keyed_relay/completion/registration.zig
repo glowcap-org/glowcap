@@ -49,7 +49,7 @@ pub const State = struct {
     close_ud: ?u64 = null,
     /// Monotonic time before which no replacement leg starts.
     retry_at_ms: i64 = 0,
-    /// A turn could not reserve its completion seats; the next turn retries.
+    /// A turn could not reserve its completion seats. The next turn retries.
     owed: bool = false,
 
     pub const Config = struct {
@@ -109,7 +109,7 @@ pub fn Machine(
         const Fd = Backend.Fd;
         const Identity = Types.Identity;
 
-        /// The listener handle; row ids start at one, so it names no leg.
+        /// The listener handle. Row ids start at one, so it names no leg.
         pub const listen_fd: Fd = Namespace.fdFromComptimeId(0);
 
         /// Start registering `identity` at the next turn.

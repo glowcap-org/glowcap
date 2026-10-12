@@ -1,6 +1,6 @@
 //! The listener's life under the provider seam: activation, advertisement,
-//! and restoration preserve the provider failure chain; a pending listener
-//! closes without publishing; accepts cancel, park, and survive close in the
+//! and restoration preserve the provider failure chain. A pending listener
+//! closes without publishing. Accepts cancel, park, and survive close in the
 //! order the events committed.
 
 const std = @import("std");
@@ -597,7 +597,7 @@ test "listener close preserves an ACCEPTED event committed by an earlier step" {
     while (client_seen.dialed_session == null and rounds < 2_000) : (rounds += 1) {
         try expectStep(cdrv.glowcap_driver_step(client, 5));
         try drainEvents(client, &client_seen);
-        // Deliberately do not drain the server: ACCEPTED must remain native-
+        // Do not drain the server: ACCEPTED must remain native-
         // owned across listener close once the handshake commits it.
         try expectStep(cdrv.glowcap_driver_step(server, 5));
     }

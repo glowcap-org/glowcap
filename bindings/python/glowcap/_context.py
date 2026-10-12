@@ -3,7 +3,7 @@
 An allocation scope Hosts and netlayers can be created in, routing every
 allocation through host-supplied callables (or the default allocator). Holds the
 ``CFUNCTYPE`` trampolines alive for as long as the library can call them.
-Re-exported from the :mod:`glowcap` package; import from there.
+Re-exported from the :mod:`glowcap` package. Import from there.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ class Context:
         alloc(size: int, alignment: int) -> int     # address, or 0 on failure
         free(address: int, size: int, alignment: int) -> None
 
-    The callables own the memory they hand out; the library calls them from any
+    The callables own the memory they hand out. The library calls them from any
     thread that touches a handle in the context, so they must be thread-safe.
     """
 
@@ -64,7 +64,7 @@ class Context:
         """A context that routes every allocation through host callables.
 
         ``alloc(size, alignment)`` returns the address of a fresh block (or 0 on
-        failure); ``free(ptr, size, alignment)`` releases one."""
+        failure). ``free(ptr, size, alignment)`` releases one."""
         self = cls.__new__(cls)
         self._raw = None
         self._handle_count = 0
@@ -272,8 +272,8 @@ class Context:
             self._release_now()
 
     def _release_now(self) -> None:
-        # Release the context first — it frees its own storage through the
-        # allocator — then drop the callback trampolines that policy borrowed.
+        # Release the context first, it frees its own storage through the
+        # allocator, then drop the callback trampolines that policy borrowed.
         if self._raw:
             _lib.glowcap_context_release(self._raw)
             self._raw = None

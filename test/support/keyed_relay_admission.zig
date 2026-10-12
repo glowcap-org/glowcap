@@ -76,6 +76,11 @@ pub const AdmissionPlatform = struct {
         return port;
     }
 
+    /// A scripted listener binds at `openListener`; nothing pends.
+    pub fn listenerPending(_: *AdmissionPlatform, _: Fd) bool {
+        return false;
+    }
+
     pub fn openListener(_: *AdmissionPlatform, _: u16) !Fd {
         return 40;
     }
@@ -248,7 +253,7 @@ pub fn admissionBackend(allocator: std.mem.Allocator) !AdmissionBackend {
     );
 }
 
-/// Direct adapter tests deliberately stop at intermediate states. Teardown
+/// Direct adapter tests stop at intermediate states. Teardown
 /// still honors the production lifecycle: request close through the public
 /// backend contract and consume every completion before deinit.
 pub fn deinitAdmissionBackend(backend: *AdmissionBackend) void {

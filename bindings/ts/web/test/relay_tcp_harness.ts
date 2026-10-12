@@ -2,8 +2,8 @@ import * as tcp from "@glowcap/tcp";
 // The TCP relay proof, parameterized over the relay program. A wasm browser peer
 // holds a keyed OCapN session when its WebSocket routes through a byte-transparent
 // relay to a native TCP host. One harness proves this for every runtime's relay
-// (Deno, Python, Rust, …); the relay under test is named on the command line —
-// see `relay_harness_common.ts` for the argument shape.
+// (Deno, Python, Rust, …); the relay under test is named on the command line.
+// See `relay_harness_common.ts` for the argument shape.
 //
 // Three processes: a native TCP host, the relay forwarding WebSocket ↔ TCP, and
 // the browser peer (wasm) dialing through it. The relay never parses a frame, so

@@ -109,7 +109,7 @@ pub struct PreviousFile {
 }
 impl FileView {
 	/// Retain this line's selection. It leases the same entry and cannot revive
-	/// an expired view; the final selection retires the entry for new readers.
+	/// an expired view. The final selection retires the entry for new readers.
 	pub fn select(self) -> Selection {
 		self.entry.selections.set(self.entry.selections.get() + 1);
 		Selection { file: self }
@@ -140,7 +140,7 @@ pub struct Materialized {
 	description: Rc<FileDescription>,
 }
 impl Materialized {
-	/// A span outside the retained bytes is the caller's mistake; the bytes
+	/// A span outside the retained bytes is the caller's mistake. The bytes
 	/// themselves are all here.
 	pub fn span(&self, offset: u64, maximum: usize) -> Result<Chunk, Error> {
 		self.retained.bytes.span(offset, maximum).map_err(Error::invalid)
@@ -244,7 +244,7 @@ impl<P: Deadline + Clone + 'static> MediaFiles<P> {
 }
 impl<P: Deadline + Clone + 'static> MediaFiles<P> {
 	/// Retain a whole immutable upload batch under the receiver's ordinary
-	/// eviction policy. Kept files and admitted readers survive; a refusal
+	/// eviction policy. Kept files and admitted readers survive. A refusal
 	/// leaves prior custody intact, like outgoing direct-source admission.
 	pub fn uploads(
 		&self,
@@ -285,7 +285,7 @@ impl<P: Deadline + Clone + 'static> MediaFiles<P> {
 			.map(|row| row.entry.clone())
 			.collect();
 		self.make_space(&mut rows, uploads.len(), bytes, &selected)?;
-		Ok(uploads
+		uploads
 			.into_iter()
 			.map(|(blob, bytes)| {
 				let (answer, result) = tokio::sync::oneshot::channel();
@@ -297,22 +297,22 @@ impl<P: Deadline + Clone + 'static> MediaFiles<P> {
 							.await
 							.map_err(|_| "the local upload ended without acknowledging every byte".to_owned())
 					},
-				));
-				UploadCapture { answer, bytes }
+				)?);
+				Ok(UploadCapture { answer, bytes })
 			})
-			.collect())
+			.collect()
 	}
 	pub fn usage(&self) -> Usage {
 		self.budget.usage()
 	}
-	/// Admit on a LocalSet. New work begins after the actor turn; duplicate
+	/// Admit on a LocalSet. New work begins after the actor turn. Duplicate
 	/// retained capabilities share the same result, including a capture refusal.
 	pub fn receive(&self, session: &Session, attachment: Attachment<Ref>) -> Result<FileView, Error> {
 		self.receive_many(session, vec![attachment])
 			.map(|mut files| files.remove(0))
 	}
 	/// Admit the whole selection before evicting or starting any source. Shared
-	/// capabilities spend capacity once; selected existing rows cannot be victims.
+	/// capabilities spend capacity once. Selected existing rows cannot be victims.
 	pub fn receive_many(&self, session: &Session, attachments: Vec<Attachment<Ref>>) -> Result<Vec<FileView>, Error> {
 		self.receive_retaining(session, attachments, &[])
 	}
@@ -378,34 +378,36 @@ impl<P: Deadline + Clone + 'static> MediaFiles<P> {
 		let bytes = fresh.iter().map(|file| file.description.size()).sum();
 		self.make_space(&mut rows, fresh.len(), bytes, &selected)?;
 		for attachment in fresh {
-			rows.push_back(self.capture(session, attachment));
+			rows.push_back(self.capture(session, attachment)?);
 		}
-		Ok(attachments
+		attachments
 			.into_iter()
 			.zip(preserved)
 			.map(|(attachment, preserved)| {
-				let entry = preserved.unwrap_or_else(|| {
-					rows.iter()
+				let entry = match preserved {
+					Some(entry) => entry,
+					None => rows
+						.iter()
 						.find(|row| {
 							row.identity
 								.borrow()
 								.as_ref()
 								.is_some_and(|(owner, blob)| owner.same_host(&host) && blob == &attachment.blob)
 						})
-						.expect("admitted selection")
+						.ok_or_else(|| Error::invalid("an admitted incoming file is no longer retained"))?
 						.entry
-						.clone()
-				});
-				FileView {
+						.clone(),
+				};
+				Ok(FileView {
 					entry: entry.clone(),
 					description: if *entry.description == attachment.description {
 						entry.description.clone()
 					} else {
 						Rc::new(attachment.description)
 					},
-				}
+				})
 			})
-			.collect())
+			.collect()
 	}
 	fn make_space(
 		&self,
@@ -429,24 +431,20 @@ impl<P: Deadline + Clone + 'static> MediaFiles<P> {
 						bytes + if row.reclaimable() { row.description.size() } else { 0 },
 					)
 				});
+		let pinned = || Error::exhausted("media files are pinned at their capture or memory ceiling");
 		if rows.len() - free_rows + count > MAX_SOURCES
 			|| !self.budget.can_admit_many(count, bytes, free_files, free_bytes)
 		{
-			return Err(Error::exhausted(
-				"media files are pinned at their capture or memory ceiling",
-			));
+			return Err(pinned());
 		}
 		while rows.len() + count > MAX_SOURCES || !self.budget.can_admit_many(count, bytes, 0, 0) {
-			let at = rows
-				.iter()
-				.position(&victim)
-				.expect("batch preflight found reclaimable custody");
-			rows.remove(at).expect("retained row").expire();
+			let at = rows.iter().position(&victim).ok_or_else(pinned)?;
+			rows.remove(at).ok_or_else(pinned)?.expire();
 		}
 		Ok(())
 	}
 	/// Retain a validated local source batch for outgoing messages. Selected
-	/// existing views survive pressure; failure leaves all prior custody intact.
+	/// existing views survive pressure. Failure leaves all prior custody intact.
 	pub fn retain_sources(
 		&self,
 		sources: Vec<rooms_glowcap::client::sources::Source>,
@@ -462,37 +460,37 @@ impl<P: Deadline + Clone + 'static> MediaFiles<P> {
 		let selected: Vec<_> = protected.iter().map(|file| file.entry.clone()).collect();
 		let mut rows = self.rows.borrow_mut();
 		self.make_space(&mut rows, sources.len(), bytes, &selected)?;
-		Ok(sources
+		sources
 			.into_iter()
 			.map(|source| {
 				let platform = self.platform.clone();
 				let row = self.capture_with(source.description().clone(), None, async move {
 					source.materialize(&platform).await
-				});
+				})?;
 				let file = FileView {
 					entry: row.entry.clone(),
 					description: row.description.clone(),
 				};
 				rows.push_back(row);
-				file
+				Ok(file)
 			})
-			.collect())
+			.collect()
 	}
 
-	fn capture(&self, session: &Session, attachment: Attachment<Ref>) -> Row {
+	fn capture(&self, session: &Session, attachment: Attachment<Ref>) -> Result<Row, Error> {
 		let identity = Some((session.host(), attachment.blob.clone()));
 		let description = attachment.description.clone();
 		let file = File::received(Client::new(session.borrowed(), self.platform.clone()), attachment);
 		self.capture_with(description, identity, async move { Captured::read(&file).await })
 	}
 	/// A capture that did not deliver every byte is a source that stopped
-	/// answering; the retained diagnostic is bounded like every other reason.
+	/// answering. The retained diagnostic is bounded like every other reason.
 	fn capture_with(
 		&self,
 		description: FileDescription,
 		identity: Option<(Host, Ref)>,
 		capture: impl std::future::Future<Output = Result<Captured, String>> + 'static,
-	) -> Row {
+	) -> Result<Row, Error> {
 		let size = description.size();
 		let entry = Rc::new(Entry {
 			identity: RefCell::new(identity),
@@ -504,10 +502,12 @@ impl<P: Deadline + Clone + 'static> MediaFiles<P> {
 			pins: Cell::new(0),
 			selections: Cell::new(0),
 		});
+		// make_space admitted this file; a reservation that still fails is an
+		// accounting defect reported as a refusal, not a dropped service.
 		let mut permit = self
 			.budget
 			.reserve(size)
-			.expect("preflight and eviction reserved capacity");
+			.ok_or_else(|| Error::invalid("media capacity was not reserved for an admitted file"))?;
 		let completion = Completion {
 			entry: Rc::downgrade(&entry),
 		};
@@ -524,14 +524,14 @@ impl<P: Deadline + Clone + 'static> MediaFiles<P> {
 				*entry.result.borrow_mut() = Some(result);
 			}
 		});
-		Row {
+		Ok(Row {
 			entry,
 			task: Some(task),
-		}
+		})
 	}
 
 	/// Retire this view without cancelling its admitted source read. A pending
-	/// materialization remains charged until the capture actually ends.
+	/// materialization remains charged until the capture ends.
 	pub fn expire(&self, file: &FileView) {
 		if self
 			.rows

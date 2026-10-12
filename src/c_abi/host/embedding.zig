@@ -34,7 +34,7 @@ pub const DriverClaim = struct {
 pub const ClaimError = error{HostAlreadyOwned};
 
 /// Borrow the existing Host for a companion attachment. Terminal release is
-/// refused until the companion returns this borrow; it owns no driving rights.
+/// refused until the companion returns this borrow. It owns no driving rights.
 pub const AttachmentBorrow = struct {
     inst: *common.Instance,
     pub fn core(self: AttachmentBorrow) *driver_core.Host {
@@ -64,7 +64,7 @@ pub const valueProjectionBound = common.valueProjectionBound;
 
 /// Claim the C handle's transport/action-drain ownership for a native driver
 /// construction. `HostRuntime.initWithCore` validates whether the core itself
-/// can transfer; rollback restores this token if it cannot.
+/// can transfer. Rollback restores this token if it cannot.
 pub fn claimForDriver(handle: ?*c.GlowcapHost) ClaimError!?DriverClaim {
     const inst = common.instanceFrom(handle) orelse return null;
     if (inst.drive_owner != .embedder) return error.HostAlreadyOwned;
@@ -76,7 +76,7 @@ pub fn releaseFromDriver(handle: *c.GlowcapHost) ?anyerror {
     return common.releaseFromDriver(handle);
 }
 
-/// The C handle a core session projects as; the driver archive's events carry
+/// The C handle a core session projects as. The driver archive's events carry
 /// sessions in the same handle vocabulary every `glowcap_host_*` verb takes.
 pub fn sessionHandle(hs: *driver_core.HostSession) *c.GlowcapHostSession {
     return @ptrCast(hs);

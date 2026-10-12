@@ -91,7 +91,7 @@
 	pointer-events: auto;
 }
 /* A line with nothing to say leaves the row rather than holding a place in it.
-   Stacked, an empty line cost nothing because the others were laid over it; in
+   Stacked, an empty line cost nothing because the others were laid over it. In
    a row it would take its width and its gap, and push what is beside it along
    for no reason. */
 .composer .composer-status > :empty {
@@ -116,7 +116,7 @@
 	flex-direction: row;
 	/* The row supplies this control's width. The general Said button fills an
 	   in-flow parent, and keeping that 100% here would claim the whole row and
-	   push Show — and whatever is standing beside it — past the edge. */
+	   push Show, and whatever is standing beside it, past the edge. */
 	width: auto;
 }
 .composer-availability .said-show {
@@ -184,8 +184,8 @@
    it, so the words being changed are not competing with a label, and it carries
    the way out beside its name because Escape is not discoverable. */
 /* A strip that comes out from behind the composer rather than sitting on top of
-   it. Its box carries on past the composer's top edge — the padding below its
-   words is the part that goes under — and the composer, which is opaque and
+   it. Its box carries on past the composer's top edge, the padding below its
+   words is the part that goes under, and the composer, which is opaque and
    comes after it, paints over that: no bottom edge, no bottom corners, the
    sides running down out of sight. A strip that stopped short instead read as a
    second box stacked above the first. */
@@ -244,6 +244,18 @@
 .composer-input {
 	width: 100%;
 }
+.draft-sync {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--gap-line);
+}
+.draft-sync > .said {
+	flex: 1;
+	min-width: 0;
+}
+.draft-sync > .button {
+	flex-shrink: 0;
+}
 .composer-actions,
 .composer-actions-left {
 	display: flex;
@@ -281,4 +293,12 @@
 }
 .composer textarea::placeholder {
 	color: var(--ink-soft);
+}
+
+/* Refusals belong to the gesture, independently of draft synchronization. */
+.action-feedback {
+	display: grid;
+	gap: 0.25rem;
+	min-width: 0;
+	overflow-wrap: anywhere;
 }

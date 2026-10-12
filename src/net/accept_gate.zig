@@ -10,8 +10,8 @@
 //! and returns `ConnectionLost`, and `join` takes and releases the operation
 //! lease so the caller knows no wait still reads listener state. The `tcp` and
 //! `onion` listeners run it. The inproc listener has no socket to poll and
-//! keeps its condition-variable shape; the iroh sidecar offers no descriptor,
-//! so its accept seat polls in bounded slices instead; the keyed-relay box
+//! keeps its condition-variable shape. The iroh sidecar offers no descriptor,
+//! so its accept seat polls in bounded slices instead. The keyed-relay box
 //! waits on a background task rather than a socket.
 
 const std = @import("std");

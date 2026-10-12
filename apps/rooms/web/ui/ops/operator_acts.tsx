@@ -42,7 +42,7 @@ export function useOperatorActs(): OperatorActs {
 	const run = (key: string, request: () => Promise<string>) => {
 		if (running.current.has(key) || sweeping) return;
 		// Whether this act is the commitment of a question already open on its
-		// row. An act pressed without one — a grant, a reset — must not put away
+		// row. An act pressed without one (a grant, a reset) must not put away
 		// a question the reader opened while it was in flight, and rows reuse one
 		// key for both acts, so settling cannot tell them apart by key alone.
 		const commitsQuestion = confirming === key;

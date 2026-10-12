@@ -1,10 +1,10 @@
-//! accountability-on-glowcap — a real application on glowcap's own runtime.
+//! accountability-on-glowcap: a real application on glowcap's own runtime.
 //!
 //! The same accountability shape as the Goblins worked example, on glowcap as its
 //! CapTP runtime: a vat hosts an Affordance behind an OCapN capability, a caller invokes
 //! it across a real TCP/OCapN session, and every invocation produces a signed,
 //! transparency-logged Episode attributing the caller. Identity (KERI), Episodes,
-//! and the transparency log all live above glowcap; glowcap provides only the
+//! and the transparency log all live above glowcap, glowcap provides only the
 //! capability-secure wire.
 //!
 //! Run it with one command:
@@ -13,7 +13,7 @@
 //!
 //! Two real `engine.Peer`s talk over a 127.0.0.1 socket pair on a
 //! `std.Io.Threaded` backend. The host accepts on a concurrent fiber, the caller
-//! drives this one. The host publishes the Affordance by name; the caller fetches
+//! drives this one. The host publishes the Affordance by name. The caller fetches
 //! it and eventual-sends an `invoke`. Attribution is not a trusted
 //! header: the caller signs the request with its KERI key and sends the key event
 //! log that binds that key to its AID, and the host refuses to account for an

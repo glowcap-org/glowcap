@@ -83,7 +83,7 @@ engineTest("paste with missing external ref returns validation error", () => {
 	const payload = sourceEngine.extractPayload({
 		sessions: new Set(["s1"]),
 	});
-	// Target is empty — alice and bob don't exist there.
+	// Target is empty, alice and bob don't exist there.
 	const r = e.paste(payload);
 	assert(!r.ok);
 	assertEquals(r.error.code, "validation");

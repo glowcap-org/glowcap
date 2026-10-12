@@ -40,7 +40,7 @@ export function extractClipboardPayload(
 	};
 
 	// 1. Collect entity definitions for each selected id. Per-kind
-	//    expansion via a single typed-key loop — adding a new entity
+	//    expansion via a single typed-key loop, adding a new entity
 	//    kind extends ENTITIES_KEY + EntityKind and this picks it up.
 	const entities: ClipboardEntities = {};
 	for (const kind of ["peer", "session", "message"] as const) {

@@ -1,5 +1,5 @@
 //! `pairedWithOffers`: build two live peers from two negotiation offers,
-//! refusing offers that share no codec, profile, or CapTP version — the
+//! refusing offers that share no codec, profile, or CapTP version, the
 //! factory every pairing scenario family drives.
 
 const std = @import("std");

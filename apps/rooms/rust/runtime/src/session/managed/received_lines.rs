@@ -1,5 +1,5 @@
 //! Received direct lines share callback admission and the session task owner.
-//! A displayed line handle requests retirement; the session drains its worker.
+//! A displayed line handle requests retirement. The session drains its worker.
 use super::{InboxOrigin, Membership, Session, inbox, supervision};
 use glowcap::{Behavior, Ref, Result, loam};
 use rooms_application::room::message::LineId;
@@ -50,10 +50,10 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		LineReceiver(Rc::downgrade(&self.state))
 	}
 	/// The trusted consumer derives retained_bytes from its behavior's metadata
-	/// and files. Admission charges that material before construction; queue and
+	/// and files. Admission charges that material before construction. Queue and
 	/// actor counts also share the session's callback budget. Refile must reserve
 	/// its full resulting metadata through LineMemory before committing. No
-	/// payload bytes are assembled; the charge survives actual worker retirement.
+	/// payload bytes are assembled. The charge survives actual worker retirement.
 	pub fn receive_line(
 		&self,
 		origin: InboxOrigin,

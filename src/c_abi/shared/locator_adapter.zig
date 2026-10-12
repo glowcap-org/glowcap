@@ -1,5 +1,5 @@
 //! Archive-neutral conversion between the locator POD layout and the OCapN
-//! model. The layout stays dependency-free in `locator.zig`; semantic
+//! model. The layout stays dependency-free in `locator.zig`. Semantic
 //! validation remains model-owned through `model.validatePeerLocator`.
 
 const std = @import("std");
@@ -43,7 +43,7 @@ pub const BorrowedLocator = struct {
 };
 
 /// Own the hint-view storage needed to project one borrowed model locator.
-/// The locator bytes remain borrowed from `value`; caller-provided storage
+/// The locator bytes remain borrowed from `value`. Caller-provided storage
 /// avoids allocation for small, callback-scoped projections.
 pub const Projection = struct {
     view: locator.GlowcapLocatorView,

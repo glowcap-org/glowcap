@@ -1,5 +1,5 @@
-//! Browser I/O for the shared Rust Host. These adapters move opaque bytes;
-//! the Host still owns framing, identity admission, and CapTP execution.
+//! Browser I/O for the shared Rust Host. These adapters move opaque bytes.
+//! The Host still owns framing, identity admission, and CapTP execution.
 //!
 //! Passing a socket transfers exclusive use of its event-handler properties.
 //! Keep the resulting Channel in Session custody, or await Channel::close for
@@ -34,9 +34,9 @@ pub fn websocket(socket: WebSocket) -> Channel {
 /// Adopt an opening or open ordered, reliable RTCDataChannel. Invalid channel
 /// configuration is retained as an I/O failure and retired through the same
 /// observed close path. Signaling must authenticate the association between
-/// remote SDP and a peer key before supplying Session identity proof; the
+/// remote SDP and a peer key before supplying Session identity proof. The
 /// browser's DTLS implementation checks the SDP fingerprint. The caller still
-/// owns the peer connection; use RtcPeer to transfer both resources together.
+/// owns the peer connection. Use RtcPeer to transfer both resources together.
 pub fn data_channel(channel: RtcDataChannel) -> Channel {
 	data_channel_status(channel).0
 }

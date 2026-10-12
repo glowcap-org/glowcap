@@ -1,8 +1,10 @@
 //! Runtime lifecycle recipients and listener-owned transport state.
 //!
 //! These are bounded values retained across turns. They describe who owns a
-//! committed outcome; the HostRuntime remains the only component that drives
-//! transport I/O or chooses lifecycle policy.
+//! committed outcome. The HostRuntime remains the only component that drives
+//! transport I/O or chooses lifecycle policy. The observer callbacks keep
+//! `anyerror` return sets: their implementors are application code unknown at
+//! these declarations.
 
 const std = @import("std");
 
@@ -39,7 +41,7 @@ pub const ActiveListener = struct {
     locator: model.PeerLocator,
     closing: bool = false,
     /// A provider/readiness failure that retired the listener. Explicit close
-    /// leaves this null; asynchronous stop failure is then the primary.
+    /// leaves this null. Asynchronous stop failure is then the primary.
     terminal_failure: ?OperationFailure = null,
 };
 
@@ -80,7 +82,7 @@ pub const CloseObserver = struct {
 };
 
 /// How a HostRuntime is driven, chosen once at construction. The blocking
-/// native face waits on the live wires itself; the stepped face hands an
+/// native face waits on the live wires itself. The stepped face hands an
 /// embedder one readiness descriptor and publishes through the recipients
 /// below (ADR-0112).
 pub const DriveOptions = union(enum) {
@@ -91,7 +93,7 @@ pub const DriveOptions = union(enum) {
 /// The two recipients a stepped runtime publishes through. Both arrive with
 /// the readiness set, before any wire exists, so every wire the runtime adopts
 /// reserves its close publication at adoption and every unclaimed completion
-/// has a taker; neither is optional on that face.
+/// has a taker. Neither is optional on that face.
 pub const SteppedOptions = struct {
     completion_sink: CompletionSink,
     close_observer: CloseObserver,
@@ -114,7 +116,7 @@ pub const SessionAcceptObserver = struct {
     /// Ordinary queue pressure refuses this arrival without failing the host.
     can_accept: *const fn (ctx: *anyopaque) bool = canAcceptAlways,
     /// An arrival failed after admission. Reservation release remains with
-    /// abandoned; blocking consumers may additionally report its exact cause.
+    /// abandoned. Blocking consumers may additionally report its exact cause.
     arrival_failed: ?*const fn (ctx: *anyopaque, tag: u64, failure: OperationFailure) void = null,
     reserve: *const fn (ctx: *anyopaque, tag: u64) anyerror!void = reserveNoop,
     release: *const fn (ctx: *anyopaque, tag: u64) void = releaseNoop,

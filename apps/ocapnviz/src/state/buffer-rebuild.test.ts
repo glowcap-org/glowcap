@@ -2,7 +2,7 @@
  * When a new source document means a new buffer.
  *
  * The buffer carries the undo history, so rebuilding it empties Undo.
- * These cases pin the two near-misses that used to do exactly that:
+ * These cases pin the two near-misses that could do exactly that:
  * switching between Play and Build, and leaving Build, which hands the
  * working document back as the source so the picker names what you
  * built.

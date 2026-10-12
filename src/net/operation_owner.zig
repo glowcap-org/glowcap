@@ -6,7 +6,7 @@
 //! reactor. Cancellation capacity is therefore reserved when the owner is
 //! created: one worker drains per-operation reap/cancel requests and performs
 //! the final cancel-and-join at shutdown.
-//! A raw thread is deliberate here: `std.Io.Group.async` is allowed to execute
+//! A raw thread is used here: `std.Io.Group.async` is allowed to execute
 //! eagerly under resource pressure, which would park construction on the wait.
 //! `join` is the release barrier: after it returns no admitted task can still
 //! touch the parent or its `std.Io` backend.
@@ -22,11 +22,11 @@ pub const OperationOwner = struct {
 
     io: Io,
     group: Io.Group = .init,
-    /// High bit seals admission; low bits count callers between admission and
+    /// High bit seals admission. Low bits count callers between admission and
     /// `Group.concurrent`. Shutdown sets the high bit without waiting. The
     /// cancellation worker repeatedly cancels registered operations while the
     /// low bits drain, so a racing start is either included or refused, never
-    /// stranded. Canceling first is load-bearing because `Group.concurrent`
+    /// stranded. Canceling first is required because `Group.concurrent`
     /// may run a blocking operation inline under resource pressure.
     admission: std.atomic.Value(usize) = .init(0),
     cancel_thread: ?std.Thread = null,
@@ -37,7 +37,7 @@ pub const OperationOwner = struct {
     queued_tail: ?*CancelableOperation = null,
 
     /// Initialize at the owner's final address. Reserving the cancellation
-    /// worker here makes `shutdown` infallibly nonblocking later; callers must
+    /// worker here makes `shutdown` infallibly nonblocking later. Callers must
     /// refuse construction if concurrency is unavailable. This is one worker
     /// per blocking operation owner, not per connection or session.
     pub fn init(self: *OperationOwner, io: Io) error{ConcurrencyUnavailable}!void {
@@ -60,7 +60,7 @@ pub const OperationOwner = struct {
 
     /// Start one independently cancelable blocking operation. `operation` and
     /// `context` must remain alive until `retire` runs. Normal claim queues an
-    /// await; cancellation queues a targeted `Group.cancel`, both on the
+    /// await. Cancellation queues a targeted `Group.cancel`, both on the
     /// owner's reserved worker so the caller never joins blocking I/O.
     pub fn startCancelable(
         self: *OperationOwner,
@@ -99,7 +99,7 @@ pub const OperationOwner = struct {
     }
 
     /// Queue cancellation and retirement. False has the same already-owned
-    /// meaning as `reap`; the operation still retires exactly once.
+    /// meaning as `reap`. The operation still retires exactly once.
     pub fn cancel(self: *OperationOwner, operation: *CancelableOperation) bool {
         return self.queueOperation(operation, .cancel);
     }
@@ -253,8 +253,8 @@ pub const OperationOwner = struct {
     }
 };
 
-/// Intrusive task ownership embedded in an attempt. It adds no heap allocation;
-/// the provider's one `OperationOwner` worker reaps or cancels it.
+/// Intrusive task ownership embedded in an attempt. It adds no heap allocation.
+/// The provider's one `OperationOwner` worker reaps or cancels it.
 pub const CancelableOperation = struct {
     owner: *OperationOwner,
     group: Io.Group = .init,
@@ -269,7 +269,7 @@ pub const CancelableOperation = struct {
 };
 
 /// One task-to-caller completion edge. Result fields written before `signal`
-/// are visible after `wait`; the task and caller may use different OS threads.
+/// are visible after `wait`. The task and caller may use different OS threads.
 pub const OperationLatch = struct {
     mutex: Io.Mutex = .init,
     condition: Io.Condition = .init,

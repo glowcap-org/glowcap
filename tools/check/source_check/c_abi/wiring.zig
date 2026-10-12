@@ -169,7 +169,7 @@ pub fn checkUnwiredHostPluginApis(
     if (try fileContains(io, gpa, root, "src/ocapn/engine/node/redeem/dials.zig", "allocator.dupe(u8, exporter_locator)")) {
         try appendViolation(gpa, violations, "src/ocapn/engine/node/redeem/dials.zig: acceptGive must not dupe the verbatim exporter URI — pending row owns parts only", .{});
     }
-    // Zig dual borrow API must stay deleted — one pendingDial view.
+    // Zig dual borrow API must stay deleted, one pendingDial view.
     for ([_][]const u8{ "pub fn pendingDialLocator", "pub fn pendingDialParts", "PendingDialParts" }) |needle| {
         for ([_][]const u8{
             "src/ocapn/engine/node.zig",
@@ -180,7 +180,7 @@ pub fn checkUnwiredHostPluginApis(
             }
         }
     }
-    // Named materialize is for the proxy fire owner only — not a free fan-out API.
+    // Named materialize is for the proxy fire owner only, not a free fan-out API.
     if (try srcHasCallOutsideAllowlist(io, gpa, root, violations, "materializeResolutionForStore(", &.{
         "src/ocapn/engine/node/proxies/settlement.zig",
         "src/ocapn/model/owned.zig",
@@ -258,7 +258,7 @@ pub fn checkUnwiredHostPluginApis(
     if (try fileContains(io, gpa, root, "src/c_abi/host/mod.zig", "GlowcapPendingDial")) {
         try appendViolation(gpa, violations, "src/c_abi/host/mod.zig: fixed fragment pending-dial struct must stay deleted — shared GlowcapLocatorView is the ABI vocabulary", .{});
     }
-    // Dual C pending-dial exports must stay deleted — one complete locator projection.
+    // Dual C pending-dial exports must stay deleted, one complete locator projection.
     for ([_][]const u8{ "glowcap_host_pending_dial_locator", "glowcap_host_pending_dial_parts" }) |needle| {
         if (try fileContains(io, gpa, root, "src/c_abi/host/host.zig", needle)) {
             try appendViolation(gpa, violations, "src/c_abi/host/host.zig: `{s}` must stay deleted — use glowcap_host_pending_dial", .{needle});
@@ -334,7 +334,7 @@ pub fn checkUnwiredHostPluginApis(
 
 /// `host/pump.zig` is Host-private pump mechanics: only the Host core's own
 /// responsibility files may import it. Cross-file `pub fn` stays for Zig module
-/// visibility; this gate is what keeps the boundary from rotting into a second
+/// visibility. This gate is what keeps the boundary from rotting into a second
 /// public API.
 pub fn checkHostPumpImportGate(
     io: std.Io,
@@ -344,7 +344,7 @@ pub fn checkHostPumpImportGate(
 ) !void {
     // The Host core is the `src/driver/core/` directory: `host.zig` and the
     // siblings split out of it, each still implementing `Host` verbs behind
-    // decl aliases. The pump is private to that directory as a whole — the
+    // decl aliases. The pump is private to that directory as a whole, the
     // list stopped naming files when every slice of the split was adding one.
     const host_core_dir = "src/driver/core/";
     const needle = "@import(\"host/pump.zig\")";

@@ -3,7 +3,7 @@
 //! This internal owner handles the complete interception transaction: session
 //! handshake policy, signed-give redemption, withdraw resolution claims, and
 //! proxy-listener projection. The supported hooks remain direct aliases on
-//! `Host`; this module is not a consumer namespace.
+//! `Host`. This module is not a consumer namespace.
 
 const std = @import("std");
 
@@ -19,7 +19,7 @@ const crossed_hellos = @import("../crossed_hellos.zig");
 const capability_lower = @import("capabilities/lower.zig");
 
 /// Bound on the backing a proxy fan-out's recipient arena keeps between
-/// recipients of one fire; a larger staging is released at the next reset.
+/// recipients of one fire. A larger staging is released at the next reset.
 const steady_proxy_recipient_arena_bytes = 4096;
 
 const Host = host_mod.Host;
@@ -77,7 +77,7 @@ pub fn interceptFulfilledReference(
 }
 
 /// The before-serve hook on every Host CapTP session. Cross-file `pub` is
-/// implementation visibility; the supported surface remains the Host alias.
+/// implementation visibility. The supported surface remains the Host alias.
 pub fn hostBeforeServe(ctx: ?*anyopaque, served: *Served, event: *engine.Event) anyerror!bool {
     _ = served;
     const session: *HostSession = @ptrCast(@alignCast(ctx.?));
@@ -168,9 +168,9 @@ pub fn hostResolveInterceptor(
     return interceptFulfilled(&session.host.node, session.peer_handle, answer, fulfilled);
 }
 
-/// Claim a proxy home-listener delivery. The ordinary miss path only peeks;
-/// materialization and application projection happen after the exact export
-/// has been identified.
+/// Claim a proxy home-listener delivery. The ordinary miss path only peeks.
+/// Materialization and application projection happen after the exact export has
+/// been identified.
 fn claimProxyListenerFire(host: *Host, peer_handle: engine.PeerHandle, event: *const engine.Event) !bool {
     const body = event.wireView();
     if (body != .deliver) return false;

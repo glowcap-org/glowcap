@@ -36,7 +36,6 @@
     "DENO_DIR": "/home/vscode/.cache/glowcap/tool/deno",
     "npm_config_cache": "/home/vscode/.cache/glowcap/tool/npm",
     "PIP_CACHE_DIR": "/home/vscode/.cache/glowcap/tool/pip",
-    "PLAYWRIGHT_BROWSERS_PATH": "/usr/local/share/ms-playwright",
     "PLTUSERHOME": "/opt/glowcap-racket-userhome",
     "RUSTUP_HOME": "/usr/local/rustup",
     "UV_CACHE_DIR": "/home/vscode/.cache/glowcap/tool/uv",

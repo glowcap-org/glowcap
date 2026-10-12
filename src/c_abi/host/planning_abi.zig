@@ -6,16 +6,16 @@
 /// GlowcapDialPlan.shape: open a TCP socket to host:port (tcp, keyed-tcp).
 pub const GLOWCAP_DIAL_SHAPE_HOST_PORT: u32 = 0;
 /// GlowcapDialPlan.shape: peer-id open (node-id designator + addresses + reach).
-/// Today produced only by the `iroh` locator scheme; the tag names the open
+/// Produced only by the `iroh` locator scheme. The tag names the open
 /// shape, not the netlayer archive.
 pub const GLOWCAP_DIAL_SHAPE_PEER_ID: u32 = 1;
-/// GlowcapDialPlan.shape: signaling-mediated open (webrtc). No dialable address;
-/// the channel comes up through an offer/answer/ICE exchange before the keyed
+/// GlowcapDialPlan.shape: signaling-mediated open (webrtc). No dialable address.
+/// The channel comes up through an offer/answer/ICE exchange before the keyed
 /// handshake. The signaling reference arrives through the handoff mechanism
-/// (ADR-0089 phase 5).
+/// (ADR-0089).
 pub const GLOWCAP_DIAL_SHAPE_SIGNALING: u32 = 2;
 /// GlowcapDialPlan.shape: rendezvous-bridged open (keyed-relay). No dialable
-/// address; the peer holds an inbound socket at a relay under its key
+/// address. The peer holds an inbound socket at a relay under its key
 /// designator, and the dialer opens the relay rendezvous leg its host is
 /// configured for (ADR-0088).
 pub const GLOWCAP_DIAL_SHAPE_RENDEZVOUS: u32 = 3;
@@ -27,12 +27,12 @@ pub const GLOWCAP_DIAL_REACH_CONFIGURED: u32 = 1;
 /// GlowcapDialPlan.reach_kind (peer-id shape): the caller posture in reach_value.
 pub const GLOWCAP_DIAL_REACH_EXPLICIT: u32 = 2;
 
-/// glowcap_host_plan_dial posture_policy: a redeem (a DIAL action) — direct when
+/// glowcap_host_plan_dial posture_policy: a redeem (a DIAL action), direct when
 /// a hint is present, else the node's configured posture. posture_value ignored.
 pub const GLOWCAP_DIAL_POSTURE_REDEEM: u32 = 0;
 /// glowcap_host_plan_dial posture_policy: a connect with a posture in posture_value.
 pub const GLOWCAP_DIAL_POSTURE_EXPLICIT: u32 = 1;
-/// glowcap_host_plan_dial posture_policy: a connect that named no posture; a
+/// glowcap_host_plan_dial posture_policy: a connect that named no posture. A
 /// peer-id dial refuses GLOWCAP_ERR_INVALID_ARGUMENT (a posture is required).
 pub const GLOWCAP_DIAL_POSTURE_EXPLICIT_NONE: u32 = 2;
 

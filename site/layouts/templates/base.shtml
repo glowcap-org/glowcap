@@ -127,6 +127,7 @@
 					<span class="nav-heading">Rooms</span>
 					<a class="$site.page('rooms').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms').link()">Overview</a>
 					<a class="$site.page('rooms/start').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms/start').link()">Run Rooms</a>
+					<a class="$site.page('rooms/directories').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms/directories').link()">Across directories</a>
 					<a class="$site.page('rooms/architecture').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms/architecture').link()">How it works</a>
 					<a class="$site.page('rooms/protocol').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms/protocol').link()">The protocol</a>
 					<a class="$site.page('rooms/operations').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('rooms/operations').link()">Operate Rooms</a>
@@ -367,7 +368,7 @@
 					root.append(fit, svg);
 					img.replaceWith(host);
 				}).catch((why) => {
-					// The img is still in the page, so the diagram is still shown —
+					// The img is still in the page, so the diagram is still shown,
 					// in its light palette, since the swap is what lets it follow
 					// the theme. Say so rather than nothing: a 404 here is a build
 					// or deploy fault, and silence would make it look like success.
@@ -409,7 +410,7 @@
 					const target = document.getElementById(location.hash.slice(1));
 					if (target) requestAnimationFrame(() => target.scrollIntoView());
 				}
-				// Two headings is a page you can simply read; the list earns its
+				// Two headings is a page you can read; the list earns its
 				// column only once there is somewhere to jump. The ids above remain
 				// useful to direct links on shorter pages.
 				if (heads.length < 3) return;
@@ -425,7 +426,7 @@
 				}
 				toc.hidden = false;
 				document.body.classList.add("has-toc");
-				// Mark the section you are actually in. The rootMargin pins the
+				// Mark the section you are in. The rootMargin pins the
 				// decision line near the top of the viewport, so the highlight
 				// moves when a heading reaches the top rather than when it
 				// happens to be centred.

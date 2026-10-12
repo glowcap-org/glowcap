@@ -9,21 +9,23 @@
 //! it, because a line about somebody joining is the room's voice.
 use super::{protocol::fold, seat::PREFIX};
 use crate::room::inbox::{MAX_NICK, nick_refusal};
-use alloc::{collections::BTreeMap, string::String, vec::Vec};
+use alloc::{
+	collections::BTreeMap,
+	string::{String, ToString},
+	vec::Vec,
+};
 
 /// How many IRC names one bridged room will carry. A larger channel is not
-/// refused; its roster is, because a roster crosses the wire whole.
+/// refused. Its roster is, because a roster crosses the wire whole.
 pub const ROSTER_LIMIT: usize = 256;
 
 /// How an IRC nick is written as a name in the room's own namespace. A name
 /// that will not fit is refused rather than shortened, because shortening
 /// merges identities.
-pub fn display_nick(nick: &str) -> Result<String, String> {
+pub fn display_nick(nick: &str) -> Result<String, Invalid> {
 	let display = alloc::format!("{PREFIX}{nick}");
 	if display.encode_utf16().count() > MAX_NICK || nick_refusal(&display).is_some() {
-		return Err(alloc::format!(
-			"IRC nickname cannot be represented safely in Rooms: {nick:?}"
-		));
+		return Err(Invalid::NickUnrepresentable { nick: nick.into() });
 	}
 	Ok(display)
 }
@@ -46,14 +48,14 @@ impl Roster {
 	}
 	/// Take one name. Answers the name as shown when it was not already
 	/// here, `None` when it was, so a caller announces an arrival once.
-	pub fn add(&mut self, nick: &str) -> Result<Option<String>, String> {
+	pub fn add(&mut self, nick: &str) -> Result<Option<String>, Invalid> {
 		let display = display_nick(nick)?;
 		let folded = fold(&display);
 		if self.nicks.contains_key(&folded) {
 			return Ok(None);
 		}
 		if self.nicks.len() >= ROSTER_LIMIT {
-			return Err(alloc::format!("IRC roster exceeds {ROSTER_LIMIT} names"));
+			return Err(Invalid::RosterFull);
 		}
 		self.nicks.insert(folded, display.clone());
 		Ok(Some(display))
@@ -67,7 +69,7 @@ impl Roster {
 	/// One name becoming another: both halves, so the room can say a rename
 	/// as the departure and arrival every client draws. `None` when this
 	/// roster does not hold the old name.
-	pub fn rename(&mut self, from: &str, to: &str) -> Result<Option<(String, String)>, String> {
+	pub fn rename(&mut self, from: &str, to: &str) -> Result<Option<(String, String)>, Invalid> {
 		let Some(was) = display_nick(from)
 			.ok()
 			.and_then(|display| self.nicks.remove(&fold(&display)))
@@ -94,11 +96,11 @@ impl Roster {
 	}
 	/// A NAMES reply under assembly: names folded to their display form,
 	/// refused past the roster limit.
-	pub fn assemble(pending: &mut BTreeMap<String, String>, nick: &str) -> Result<(), String> {
+	pub fn assemble(pending: &mut BTreeMap<String, String>, nick: &str) -> Result<(), Invalid> {
 		let display = display_nick(nick)?;
 		let folded = fold(&display);
 		if !pending.contains_key(&folded) && pending.len() >= ROSTER_LIMIT {
-			return Err(alloc::format!("IRC roster exceeds {ROSTER_LIMIT} names"));
+			return Err(Invalid::RosterFull);
 		}
 		pending.insert(folded, display);
 		Ok(())
@@ -110,9 +112,53 @@ impl Roster {
 	}
 }
 
+/// Why a nick or roster change is refused. `Display` is the exact line the
+/// room reports.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Invalid {
+	/// The nick cannot be written as a Rooms name.
+	NickUnrepresentable { nick: String },
+	/// The roster is at its limit.
+	RosterFull,
+}
+
+impl core::fmt::Display for Invalid {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		match self {
+			Self::NickUnrepresentable { nick } => {
+				write!(f, "IRC nickname cannot be represented safely in Rooms: {nick:?}")
+			}
+			Self::RosterFull => write!(f, "IRC roster exceeds {ROSTER_LIMIT} names"),
+		}
+	}
+}
+
+impl core::error::Error for Invalid {}
+
+/// A roster line is plain text to the peer: no failure code applies.
+impl From<Invalid> for crate::server::Refusal {
+	fn from(invalid: Invalid) -> Self {
+		Self::plain(invalid)
+	}
+}
+impl From<Invalid> for String {
+	fn from(invalid: Invalid) -> Self {
+		invalid.to_string()
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn every_invalid_line_is_the_line_it_replaced() {
+		assert_eq!(
+			Invalid::NickUnrepresentable { nick: "a b".into() }.to_string(),
+			"IRC nickname cannot be represented safely in Rooms: \"a b\""
+		);
+		assert_eq!(Invalid::RosterFull.to_string(), "IRC roster exceeds 256 names");
+	}
 
 	#[test]
 	fn names_are_prefixed_folded_and_bounded() {

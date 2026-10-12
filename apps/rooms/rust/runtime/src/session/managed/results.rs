@@ -32,7 +32,7 @@ pub(super) enum Prepared {
 	Capability(Acquisition),
 }
 /// The bounded job owns typed data and transient publication acquisition.
-/// Room-link, moderator and stewardship replies hold one URI; creation retains both
+/// Room-link, moderator and stewardship replies hold one URI. Creation retains both
 /// bootstrap roles. Only these replies allocate an acquisition Rc and future.
 /// Plain acknowledgments go directly to settlement.
 pub(super) struct Acquisition {
@@ -54,9 +54,13 @@ enum Lookup {
 pub(super) struct Settlement(pub Argument);
 impl Settlement {
 	/// One bounded diagnostic string survives observation and settlement retry.
-	/// Formatting stops at 4096 UTF-16 units; ordinary String growth retains at
+	/// Formatting stops at 4096 UTF-16 units. Ordinary String growth retains at
 	/// most twice the 12 KiB UTF-8 bound, even if the peer's failure was larger.
-	/// The original receipt owns it through cold restoration; it grants no replay.
+	/// The original receipt owns it through cold restoration. It grants no replay.
+	pub(super) fn refused(error: &glowcap::Error) -> Self {
+		Self(Argument::List(vec!["refused".into(), reason::format(error).into()]))
+	}
+	/// Retained uncertainty uses the same bounded diagnostic envelope as refusal.
 	pub(super) fn unknown(error: &glowcap::Error) -> Self {
 		Self(Argument::List(vec!["unknown".into(), reason::format(error).into()]))
 	}
@@ -109,15 +113,16 @@ impl Prepared {
 			(Reply::Line, value) => {
 				let (reference, id) = rooms_glowcap::client::posted_line::reply(value)?;
 				let reference = reference.cloned();
-				let key = FieldKey::new(
-					NonZeroU64::new(1).expect("result slot"),
-					NonZeroU64::new(1).expect("result generation"),
-				);
+				let key = FieldKey::new(NonZeroU64::MIN, NonZeroU64::MIN);
+				let id = id
+					.map(|id| {
+						rooms_application::fields::SafeInteger::new(id.get())
+							.ok_or_else(|| loam::refusal("invalid posted line identity"))
+					})
+					.transpose()?;
 				let data = serde_json::to_string(&PostedLine {
 					line: reference.as_ref().map(|_| key),
-					id: id.map(|id| {
-						rooms_application::fields::SafeInteger::new(id.get()).expect("bounded line identity")
-					}),
+					id,
 					history: None,
 				})
 				.map_err(|_| loam::refusal("invalid posted line data"))?;
@@ -147,10 +152,7 @@ impl Prepared {
 			(Reply::RoomLink, value) => {
 				let value = rooms_glowcap::Value(value);
 				let uri = authority::room_link(&value).map_err(|_| loam::refusal("invalid room link result"))?;
-				let key = FieldKey::new(
-					NonZeroU64::new(1).expect("result slot"),
-					NonZeroU64::new(1).expect("result generation"),
-				);
+				let key = FieldKey::new(NonZeroU64::MIN, NonZeroU64::MIN);
 				let data = serde_json::to_string(&RoomLink { room: key })
 					.map_err(|_| loam::refusal("invalid room link data"))?;
 				Ok(Self::Capability(Acquisition {
@@ -179,10 +181,7 @@ impl Prepared {
 			(Reply::Stewardship, value) => {
 				let row = view::read_stewardship(&rooms_glowcap::Value(value))
 					.map_err(|_| loam::refusal("invalid stewardship result"))?;
-				let key = FieldKey::new(
-					NonZeroU64::new(1).expect("result slot"),
-					NonZeroU64::new(1).expect("result generation"),
-				);
+				let key = FieldKey::new(NonZeroU64::MIN, NonZeroU64::MIN);
 				let returned = match row.steward {
 					Nullable::Null => None,
 					Nullable::Value(uri) => Some((
@@ -327,8 +326,19 @@ pub(super) fn outcome(
 	call: &mut Call<'_>,
 ) -> Result<Outcome<References>> {
 	if let Some(reason) = failure_reason(value)? {
-		return Ok(Outcome::Unknown {
-			reason: Text::new(reason.into()).expect("bounded diagnostic"),
+		let diagnostic =
+			Text::new(reason.into()).ok_or_else(|| loam::refusal("invalid terminal observation reason"))?;
+		let status = value
+			.as_list()
+			.and_then(|parts| parts.first())
+			.and_then(|status| status.as_str())
+			.ok_or_else(|| loam::refusal("invalid terminal observation status"))?;
+		return Ok(if status == "refused" {
+			// The private executor proves absence either at Host admission or
+			// through validated application advice. Text alone grants no replay.
+			Outcome::Refused { reason: diagnostic }
+		} else {
+			Outcome::Unknown { reason: diagnostic }
 		});
 	}
 	let Some((data, fields)) = parts(value)? else {
@@ -410,8 +420,8 @@ pub(super) fn outcome(
 		return Err(loam::refusal("result data does not match retained fields"));
 	}
 	Ok(Outcome::Committed {
-		result: Text::new(data.into()).expect("checked result text"),
-		retained: List::new(retained).expect("checked result fields"),
+		result: Text::new(data.into()).ok_or_else(|| loam::refusal("invalid result text"))?,
+		retained: List::new(retained).ok_or_else(|| loam::refusal("invalid result fields"))?,
 	})
 }
 /// A failed observation owns no returned capability fields.
@@ -419,7 +429,7 @@ fn failure_reason(value: &Argument) -> Result<Option<&str>> {
 	let Some([Argument::String(status), Argument::String(reason)]) = value.as_list() else {
 		return Ok(None);
 	};
-	if status != "unknown"
+	if !matches!(status.as_str(), "unknown" | "refused")
 		|| !Text::<{ custody::MAX_OBSERVATION_REASON_UNITS }, true>::accepts_utf16(reason.encode_utf16())
 	{
 		return Err(loam::refusal("invalid terminal observation reason"));
@@ -460,7 +470,7 @@ pub(super) fn restore(outcome: &mut Outcome<References>, call: &mut Call<'_>, in
 				))
 			})
 			.collect::<Result<Vec<_>>>()?;
-		*retained = List::new(fields).expect("existing bounded result fields");
+		*retained = List::new(fields).ok_or_else(|| loam::refusal("invalid retained result fields"))?;
 	}
 	Ok(())
 }
@@ -469,9 +479,14 @@ pub(super) fn disclose(
 	call: &mut Call<'_>,
 	input: Invocation<'_>,
 ) -> Result<Option<Argument>> {
-	if let Outcome::Unknown { reason } = outcome {
+	if let Outcome::Unknown { reason } | Outcome::Refused { reason } = outcome {
+		let status = if matches!(outcome, Outcome::Refused { .. }) {
+			"refused"
+		} else {
+			"unknown"
+		};
 		return Ok(Some(Argument::List(vec![
-			"unknown".into(),
+			status.into(),
 			reason
 				.text()
 				.as_str()

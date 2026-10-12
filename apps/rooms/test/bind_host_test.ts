@@ -3,7 +3,7 @@ import { isLoopbackHost, isWildcardHost } from "./support/bind_host.ts";
 import { assertEquals } from "./assert.ts";
 
 Deno.test("a wildcard bind is recognized in every spelling of the any-address", () => {
-	// The three literals the rooms fronts used to compare against by hand.
+	// The three literals every rooms front must treat as the any-address.
 	for (const host of ["0.0.0.0", "::", "[::]"]) {
 		assertEquals(isWildcardHost(host), true, host);
 	}

@@ -1,7 +1,7 @@
 /**
- * `hitTestGutter` — chevron, eyeball, category-eyeball, and row-drag
+ * `hitTestGutter`, chevron, eyeball, category-eyeball, and row-drag
  * in the lane-label column. These cases construct row descriptors
- * directly; they do not need the plot-area fixture.
+ * directly. They do not need the plot-area fixture.
  */
 
 import { assertEquals } from "@std/assert";
@@ -29,7 +29,7 @@ Deno.test("hitTestGutter: eyeball click on per-entity row", () => {
 			hidden: false,
 		},
 	];
-	// px=24, py=15 — inside the per-entity eyeball hit zone
+	// px=24, py=15, inside the per-entity eyeball hit zone
 	// [ROW_EYEBALL_X - 8, ROW_EYEBALL_X + 8) where ROW_EYEBALL_X
 	// is HEADER_EYEBALL_X + ROW_INDENT_PX (24 + 6 = 30). The
 	// 16-px hit zone still covers 24, so the test point survived
@@ -48,7 +48,7 @@ Deno.test("hitTestGutter: category-eyeball click on header row", () => {
 	const rows: RowDescriptor[] = [
 		{ kind: "category-collapsed", category: "peers", y: 0, height: 30 },
 	];
-	// px=24 (HEADER_EYEBALL_X), py=15 — inside the category-eyeball
+	// px=24 (HEADER_EYEBALL_X), py=15, inside the category-eyeball
 	// hit zone, so wins over the rest of the header's chevron toggle.
 	const hit = hitTestGutter(24, 15, rows);
 	assertEquals(hit?.kind, "category-eyeball");
@@ -63,7 +63,7 @@ Deno.test(
 		const rows: RowDescriptor[] = [
 			{ kind: "category-collapsed", category: "peers", y: 0, height: 30 },
 		];
-		// px=50 (well past HEADER_EYEBALL_X + 8 = 32) — header
+		// px=50 (well past HEADER_EYEBALL_X + 8 = 32), header
 		// chevron branch.
 		const hit = hitTestGutter(50, 15, rows);
 		assertEquals(hit?.kind, "chevron");
@@ -89,7 +89,7 @@ Deno.test("hitTestGutter: row-drag handle on entity-row label area", () => {
 Deno.test("hitTestGutter: hidden-on-stage rows keep drag + eyeball", () => {
 	// Now that the eyeball gates STAGE rendering instead of timeline
 	// geometry, the row stays at full height and stays fully
-	// interactive — reorder + tap-to-select work whether or not the
+	// interactive, reorder + tap-to-select work whether or not the
 	// entity is currently hidden on the stage.
 	const rows: RowDescriptor[] = [
 		{

@@ -104,8 +104,8 @@ test "unknown flag on dial is usage, and diagnostics land in the test capture" {
     var c = testCtx(gpa, &environ, &threaded);
     defer c.deinit();
 
-    // Both diagnostic routes — the `log.err` line and the usage block that
-    // `argv.writeStderr` routes through the same seam — must land in
+    // Both diagnostic routes, the `log.err` line and the usage block that
+    // `argv.writeStderr` routes through the same seam, must land in
     // `log.test_capture`, never the process stderr, which the build runner
     // would echo under its `failed command:` label on a green run.
     cli.log.test_capture.reset();
@@ -114,6 +114,21 @@ test "unknown flag on dial is usage, and diagnostics land in the test capture" {
     const diags = cli.log.test_capture.captured();
     try std.testing.expect(std.mem.indexOf(u8, diags, "unknown flag \"--nope\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, diags, "Usage:") != null);
+}
+
+test "a missing positional is named, not only refused" {
+    const gpa = std.testing.allocator;
+    var environ = std.process.Environ.Map.init(gpa);
+    defer environ.deinit();
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    var c = testCtx(gpa, &environ, &threaded);
+    defer c.deinit();
+
+    cli.log.test_capture.reset();
+    const code = try cli.cmd.dispatch(&fixture_root, &c, &.{ "ocapn", "dial" });
+    try std.testing.expectEqual(cli.exit_codes.usage, code);
+    try std.testing.expect(std.mem.indexOf(u8, cli.log.test_capture.captured(), "missing required argument <locator>") != null);
 }
 
 test "a diagnostic longer than the line buffer truncates visibly, never vanishes" {
@@ -303,8 +318,8 @@ test "missing dial locator is usage" {
 }
 
 test "a flag does not swallow the next flag as its value" {
-    // `glowcap --identity --json init` used to read `--json` as the identity
-    // path. It wrote a key to a file literally named `--json`, left a
+    // `glowcap --identity --json init` must not read `--json` as the identity
+    // path, which would write a key to a file named `--json`, leave a
     // `--json.lock` beside it, dropped the flag the user actually typed, and
     // exited zero. Nothing in that sequence told them anything was wrong.
     const gpa = std.testing.allocator;
@@ -320,7 +335,7 @@ test "a flag does not swallow the next flag as its value" {
 }
 
 test "the same value flag given twice is usage, not last-wins" {
-    // `--identity old.key --identity new.key` used to read one key file and
+    // `--identity old.key --identity new.key` must not read one key file and
     // never mention the other. Persistent flags make this easy to hit by
     // accident, since the same flag is accepted at the root and again at the
     // subcommand.

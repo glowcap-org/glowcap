@@ -91,10 +91,30 @@ pub const Operation = opaque {
     /// revision identifies the owner's resource snapshot, never grant admission.
     pub const BoundResource = struct { id: core.ResourceId, kind: core.KindId, object: loam.ObjectId, revision: core.Revision };
 
+    /// Trusted embedding accounting data. The current grant and its parents
+    /// already belong to this operation's validated working set. Copy their
+    /// durable record names into caller storage. Names confer no authority.
+    /// Hosting invokes this only after require, never as holder inspection.
+    pub fn accountingPath(self: *Operation, buffer: []loam.ObjectId) ![]const loam.ObjectId {
+        const value = state(self);
+        if (value.binding.role != .use) return error.WrongRole;
+        try value.opened();
+        var grants = try value.read.?.grantView();
+        var path = grants.ancestry(value.descriptor.grant);
+        var count: usize = 0;
+        while (try path.next()) |grant| {
+            if (count == buffer.len) return error.DepthLimit;
+            const binding = (try value.read.?.binding(.{ .grant = grant.id })).?;
+            buffer[count] = binding.object orelse return error.InvalidRecord;
+            count += 1;
+        }
+        return buffer[0..count];
+    }
+
     /// Trusted embedding metadata before declaration, without scoped admission.
-    /// Never expose this as holder-facing inspection; describe owns that path.
+    /// Never expose this as holder-facing inspection. Describe owns that path.
     /// Hosting retains one scalar copy for its synchronous callbacks.
-    /// The row is also needed by require; no additional lease or read spine exists.
+    /// The row is also needed by require. No additional lease or read spine exists.
     pub fn boundResource(self: *Operation, target: core.ResourceId) !BoundResource {
         const value = state(self);
         if (value.binding.role != .use) return error.WrongRole;
@@ -106,7 +126,7 @@ pub const Operation = opaque {
     }
 
     /// Owned bounded values, valid as a snapshot only. Drive read demands and
-    /// retry exactly as require; no owner/grant IDs or revisions are exposed.
+    /// retry exactly as require. No owner/grant IDs or revisions are exposed.
     pub fn describe(self: *Operation, target: core.ResourceId) !Description {
         const value = state(self);
         if (value.binding.role != .use) return error.WrongRole;
@@ -343,7 +363,7 @@ pub const Operation = opaque {
     /// An inspector can describe effective use at its immutable exact resource
     /// without acquiring a use endpoint. Collection and subtree policies need
     /// a target-specific inspection contract rather than a misleading aggregate.
-    /// All values are scalar snapshots; the existing model owns every read.
+    /// All values are scalar snapshots. The existing model owns every read.
     pub fn inspectFixedAccess(self: *Operation) !Description {
         const own = try self.inspectGrant(null);
         const target = switch (own.ceiling.scope) {

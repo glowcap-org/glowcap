@@ -1,7 +1,7 @@
 //! Generates the shared C vocabulary header from `c_abi`.
 //!
 //! Function signatures, constants, and layouts are reflected from the Zig
-//! declarations. `libglowcap_host` supplies the application-facing CapTP API;
+//! declarations. `libglowcap_host` supplies the application-facing CapTP API,
 //! this archive supplies allocation, frame, value, and locator vocabulary.
 
 const std = @import("std");

@@ -1,10 +1,13 @@
 # Learn glowcap by example
 
 Start with chapter 01. In one short Zig program, one peer publishes an object
-and another fetches it and calls it. The numbered chapters build on it over
-loopback TCP. Rooms, further down, is a complete chat application over
-encrypted iroh that runs in the browser with `zig build rooms-web`. Every chapter and helper
-is a runnable build target:
+and another fetches it and calls it over encrypted TCP that proves the
+listener's key to the dialer. Chapter 02 uses the same transport for a
+three-party introduction. Later chapters cover actor, protocol, and storage
+mechanics in process. The lower-level transport helpers use cleartext loopback
+TCP, the testing transport. Rooms, further down, is a complete chat
+application over encrypted iroh that runs in the browser with
+`zig build rooms-web`. Every chapter and helper is a runnable build target:
 
 ```sh
 zig build examples
@@ -23,9 +26,9 @@ These programs use the same small API from several languages:
 
 The demos start their own server on an available port. Pass `-Dport=9099` to
 choose one. Rooms, tasks, and tools also accept `-Dattach=true` when you want
-their clients to join a server you started separately. Accountability's Zig-only
-sibling, `zig build accountability`, is the same app under `check`, without the
-other language callers.
+their clients to join a server you started separately.
+`zig build accountability` runs the Zig-only version of Accountability, which is
+part of `check`.
 
 Missing optional language runtimes are reported as skipped. Each application's
 README has its standalone commands.
@@ -50,11 +53,12 @@ For the command line instead of Zig, use the [CLI guide](../docs/cli.md).
 
 ## Small mechanics
 
-- [`readme_quick_start.zig`](zig/readme_quick_start.zig) compiles the exact
+- [`readme_quick_start.zig`](zig/readme_quick_start.zig) compiles the
   sealed `noise-tcp` client shown in the root README and supplies the greeter
   it calls.
 - [`connect_explicit_buffers.zig`](zig/connect_explicit_buffers.zig) repeats
-  chapter 01 with caller-owned buffers and the lower-level blocking API.
+  chapter 01's greeter conversation over testing TCP, with caller-owned
+  buffers and the lower-level blocking API, which cannot use Noise TCP.
 - [`many_sessions_one_loop.zig`](zig/many_sessions_one_loop.zig) repeats
   chapter 02's introduction for sixteen clients at once, served by one
   directory `Server` thread.
@@ -77,4 +81,4 @@ choose before you adapt one of these programs.
 | Path | Role |
 | --- | --- |
 | [`site/examples/`](../site/examples/README.md) | Per-transport first-call tabs on Start building, the binding pages, and the transport pages |
-| [`bindings/proofs/`](../bindings/proofs/README.md) | Cross-language binding proofs; the Rust clients live where Cargo expects them, under `bindings/rust/examples/` |
+| [`bindings/proofs/`](../bindings/proofs/README.md) | Cross-language binding proofs. The Rust clients live where Cargo expects them, under `bindings/rust/examples/` |

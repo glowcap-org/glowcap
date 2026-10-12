@@ -61,7 +61,7 @@ async fn start(started: Rc<Cell<bool>>) -> Result<(), Error> {
 	server::run(
 		config,
 		stop,
-		|ready: &Ready| {
+		|ready: &Ready| -> Result<(), Error> {
 			started.set(true);
 			let location = ready.location.as_str();
 			let token = match glowcap::parse_locator(location) {
@@ -85,8 +85,9 @@ async fn start(started: Rc<Cell<bool>>) -> Result<(), Error> {
 			}
 			eprint!(
 				"{}",
-				boot_block(transport, location, keeps, &ready.capabilities, ready.trace.as_deref())
+				boot_block(transport, location, keeps, &ready.capabilities, ready.trace.as_deref())?
 			);
+			Ok(())
 		},
 		report,
 	)
@@ -104,25 +105,27 @@ fn boot_block(
 	keeps: bool,
 	capabilities: &[server::Minted],
 	trace: Option<&str>,
-) -> String {
-	let locator = glowcap::parse_locator(location).expect("Ready carries the server's validated locator");
-	let capability_lines = || {
-		capabilities.iter().map(|cap| {
-			if cap.capability.id == "trace" {
-				format!(
-					"{} {}",
-					cap.capability.token,
-					trace.expect("minted timeline owns its advertised recipe")
-				)
-			} else {
-				cap.line(&locator)
-					.expect("bounded boot swiss and validated locator form a sturdy reference")
-			}
-		})
+) -> Result<String, Error> {
+	let locator = glowcap::parse_locator(location)
+		.map_err(|e| Error::Refused(format!("the server's own locator is invalid: {e}").into()))?;
+	let capability_lines = || -> Result<Vec<String>, Error> {
+		capabilities
+			.iter()
+			.map(|cap| {
+				if cap.capability.id == "trace" {
+					let recipe = trace.ok_or_else(|| {
+						Error::Refused("the minted timeline capability has no advertised recipe".into())
+					})?;
+					Ok(format!("{} {}", cap.capability.token, recipe))
+				} else {
+					cap.line(&locator)
+				}
+			})
+			.collect()
 	};
 	let mut lines: Vec<String> = Vec::new();
 	if std::env::var("GLOWCAP_ROOMS_SUPERVISED").as_deref() == Ok("1") {
-		lines.extend(capability_lines());
+		lines.extend(capability_lines()?);
 	} else {
 		lines.push("rooms: directory listening".into());
 		lines.push(String::new());
@@ -135,7 +138,7 @@ fn boot_block(
 			lines.push(String::new());
 			lines.push("  operator capabilities, retain each complete URI:".into());
 			lines.push(String::new());
-			lines.extend(capability_lines());
+			lines.extend(capability_lines()?);
 		}
 		lines.push(String::new());
 		lines.push("rooms: ready".into());
@@ -144,5 +147,5 @@ fn boot_block(
 	if !block.is_empty() {
 		block.push('\n');
 	}
-	block
+	Ok(block)
 }

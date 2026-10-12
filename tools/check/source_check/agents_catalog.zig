@@ -115,7 +115,7 @@ pub fn checkSkillCatalog(
         };
 
         // A skill is discovered through its frontmatter, and its invocation
-        // name is the directory name — a mismatched `name:` advertises a skill
+        // name is the directory name, a mismatched `name:` advertises a skill
         // that cannot be invoked as written.
         const skill_contents = skills.readFileAlloc(io, skill_path, gpa, .limited(1 << 20)) catch |err| {
             try appendViolation(gpa, violations, ".agents/skills/{s}/SKILL.md: failed to read with {s}", .{ entry.path, @errorName(err) });

@@ -8,7 +8,7 @@ pub const Entropy = driver.Host.DurableSwiss.Entropy;
 pub const LookupOptions = @import("discovery.zig").Options;
 
 /// Enable bounded on-demand restoration for this Host's durable namespace.
-/// Call once after opening the Store; no publication or actor scan is needed.
+/// Call once after opening the Store. No publication or actor scan is needed.
 pub fn listen(attachment: *h.Attachment, options: LookupOptions) !void {
     _ = try @import("discovery.zig").Discovery.create(attachment, options);
 }
@@ -23,7 +23,7 @@ pub fn stage(attachment: *h.Attachment, entropy: Entropy, target: driver.Capabil
 }
 
 /// Privileged transaction composition for a target allocated in the same batch.
-/// This stores a recipe; it does not create or publish any Host capability.
+/// This stores a recipe. It does not create or publish any Host capability.
 pub fn stageTarget(store: *core.Store, entropy: Entropy, target: core.ObjectId) !core.ObjectId {
     const id = try store.allocateId();
     try store.putCopying(.{ .id = id, .revision = 0, .schema = schema.id, .rooted = true, .payload = &entropy, .edges = &.{.{ .target = target }} }, null);
@@ -57,7 +57,7 @@ pub fn activeTarget(view: core.RecordView) !core.ObjectId {
 /// Commit this transaction through the attachment's write lane: its terminal
 /// outcome applies the registry transition (see `fenceRetirements`), so no
 /// application coordination between commit and registry removal is required.
-/// Staging reserves bounded retirement custody; it refuses while another
+/// Staging reserves bounded retirement custody. It refuses while another
 /// tombstone for this record is already pending or custody is exhausted.
 pub fn stageRetirement(attachment: *h.Attachment, lease: core.Lease) !void {
     const view = try attachment.store.currentView(lease);
@@ -68,7 +68,7 @@ pub fn stageRetirement(attachment: *h.Attachment, lease: core.Lease) !void {
 }
 
 /// Reserved custody for one staged tombstone. Bounded by the attachment's
-/// `max_retirements`; a duplicate record refuses rather than double-fencing.
+/// `max_retirements`. A duplicate record refuses rather than double-fencing.
 fn reserve(attachment: *h.Attachment, record: core.ObjectId, swiss: driver.Host.DurableSwiss) !void {
     for (attachment.retirements) |slot| if (slot) |held| if (held.record.eql(record)) return error.RetirementPending;
     for (attachment.retirements) |*slot| if (slot.* == null) {
@@ -94,8 +94,8 @@ fn removeFromRegistry(owner: *h.Attachment, swiss: driver.Host.DurableSwiss) !vo
 }
 
 /// The commit-to-registry fence for one terminal batch. Every tombstoned
-/// publication record in the batch loses discovery now — including unknown
-/// outcomes, which fail closed — and keeps its reserved custody until the
+/// publication record in the batch loses discovery now, including unknown
+/// outcomes, which fail closed, and keeps its reserved custody until the
 /// outcome resolves. Stale custody from abandoned staging clears here.
 pub fn fenceRetirements(owner: *h.Attachment, batch: core.Batch) !void {
     for (batch.changes) |change| {
@@ -146,7 +146,7 @@ pub fn deferRepublish(owner: *h.Attachment) void {
 }
 
 /// Retry through the ordinary top-level advance and read lane. A refusal
-/// leaves the slot intact; successful reads only install cache residency, so
+/// leaves the slot intact. Successful reads only install cache residency, so
 /// neither write recovery nor read completion has to perform Host allocation.
 pub fn advanceRepublish(owner: *h.Attachment) !bool {
     if (owner.store.phase != .idle) return false;

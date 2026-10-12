@@ -1,4 +1,4 @@
-//! The OCapN/actor seam over the wire: one vat publishes an actor; another vat
+//! The OCapN/actor seam over the wire: one vat publishes an actor. Another vat
 //! eventual-sends (`<-`) to it through a *far* ref and observes the promise. The
 //! send routes over the peer as an `op:deliver`, the published actor runs a turn
 //! and resolves the answer, and the inbound resolution fires the far promise's
@@ -271,7 +271,7 @@ test "a resolve carrying a handoff give fires the listener typed: verbatim envel
     try std.testing.expect(captured.fired);
     try std.testing.expect(captured.typed);
     // The envelope is the verbatim signed give, byte-for-byte what the gifter
-    // minted — the recipient relays it unaltered inside its handoff-receive.
+    // minted, the recipient relays it unaltered inside its handoff-receive.
     try std.testing.expectEqualStrings(give, captured.envelope[0..captured.envelope_len]);
     // The exporter location projects through the one URI grammar, dialable.
     try std.testing.expectEqualStrings("ocapn://127.0.0.1%3A9070.tcp", captured.uri[0..captured.uri_len]);
@@ -279,7 +279,7 @@ test "a resolve carrying a handoff give fires the listener typed: verbatim envel
 }
 
 /// A resolve interceptor that claims replies fulfilling with an integer over
-/// 100, recording what it saw; smaller replies pass through untouched.
+/// 100, recording what it saw. Smaller replies pass through untouched.
 const ClaimBigReplies = struct {
     claimed: usize = 0,
 
@@ -319,7 +319,7 @@ test "a resolve interceptor claims a served reply before it reaches the wire, an
     const remote: actors.Ref = .{ .far = model.FarRef.object(7) };
 
     // First call replies 205: the interceptor claims it, so the client's
-    // promise stays unsettled — nothing crossed the wire back.
+    // promise stays unsettled. Nothing crossed the wire back.
     const claimed_promise = try client_port.send(&client, remote, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
     var claimed_result: i64 = 0;
     try client_port.on(&client, claimed_promise, .{ .ctx = &claimed_result, .func = capture.captureInt });
@@ -388,7 +388,7 @@ test "an answered deliver to an exported-but-unbound position breaks the answer 
     var pair = try engine.pairing.paired(allocator);
     defer pair.deinit();
 
-    // The position is exported at peer level — the engine admits deliveries —
+    // The position is exported at peer level, the engine admits deliveries,
     // but no actor is bound to it (`peer.exportObject` without
     // `vat.bindExport`, the hand-wired embedder shape).
     var server = actors.Vat.init(allocator);
@@ -408,7 +408,7 @@ test "an answered deliver to an exported-but-unbound position breaks the answer 
     try client_port.on(&client, promise, .{ .ctx = &captured, .func = BrokenCapture.fire });
 
     // The server vat owns the event (it answers for the position) and breaks
-    // the answer — a `false` here is the silent drop that stranded the
+    // the answer, a `false` here is the silent drop that stranded the
     // partner's promise forever.
     try shuttle(&pair.p1, &pair.p2);
     {

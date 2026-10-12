@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-field-rhythm-probe.ts — is the Inspector on one rhythm?
+ * playwright-field-rhythm-probe.ts: is the Inspector on one rhythm?
  *
  * Usage: playwright-field-rhythm-probe.ts [url]
  *

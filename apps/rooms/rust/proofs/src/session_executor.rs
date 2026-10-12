@@ -3,6 +3,8 @@ mod activity;
 mod activity_archives;
 mod activity_direct;
 mod activity_offers;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod admission;
 mod archive_readers;
 mod authority_retirement;
 mod bridge;
@@ -16,6 +18,8 @@ mod connection_results;
 mod creation_results;
 mod direct_callbacks;
 mod direct_files;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod direct_lifetime;
 mod direct_openings;
 mod direct_restart;
 mod direct_results;

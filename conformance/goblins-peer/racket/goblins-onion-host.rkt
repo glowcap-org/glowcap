@@ -1,5 +1,5 @@
 #lang racket/base
-;; goblins-onion-host.rkt — a Goblins vat reachable at a Tor onion address.
+;; goblins-onion-host.rkt: a Goblins vat reachable at a Tor onion address.
 ;;
 ;; The vat runs its own CapTP, unchanged, over the onion netlayer upstream
 ;; Goblins ships. Nothing in this file is glowcap's: `new-onion-netlayer` is

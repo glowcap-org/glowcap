@@ -27,7 +27,7 @@ pub const InitOutcome = union(enum) {
 };
 
 /// Initialize one immutable native TLS runtime. Refusal consumes no caller
-/// input; success owns its copied/system trust independently of `trust`.
+/// input. Success owns its copied/system trust independently of `trust`.
 pub fn init(
     io: std.Io,
     allocator: std.mem.Allocator,

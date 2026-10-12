@@ -8,7 +8,7 @@ pub(super) struct VowTable {
 	unobserved: RefCell<VecDeque<u64>>,
 	/// Exact terminal projection failure for late observers after teardown has
 	/// cleared per-vow rows. Protocol authority remains in the native Host or
-	/// driver loop; this only preserves the binding-side observation cause.
+	/// driver loop. This only preserves the binding-side observation cause.
 	terminal_failure: RefCell<Option<Error>>,
 }
 
@@ -46,7 +46,7 @@ impl VowTable {
 				}
 				// Minted, or re-awaited: (re)park a waiter. A prior
 				// `Awaited`'s sender is dropped here, breaking that stale
-				// receiver — the same overwrite the two-field form performed.
+				// receiver: the same overwrite the two-field form performed.
 				VowState::Minted | VowState::Awaited(_) => {
 					let (tx, rx) = oneshot::channel();
 					row.state = VowState::Awaited(tx);
@@ -140,16 +140,16 @@ enum Waiting {
 enum VowState {
 	/// Registered, not yet awaited and not yet settled.
 	Minted,
-	/// A caller is awaiting; the outcome fires this sender.
+	/// A caller is awaiting. The outcome fires this sender.
 	Awaited(oneshot::Sender<Result<Argument>>),
-	/// The outcome landed before anyone awaited; held for a late observation.
+	/// The outcome landed before anyone awaited. Held for a late observation.
 	Settled(Result<Argument>),
 }
 
 struct VowRow {
 	state: VowState,
 	/// Host whose application retain this outcome owns. Session opt-in is
-	/// sampled at mint; Host-owned lookup results always track their retains.
+	/// sampled at mint. Host-owned lookup results always track their retains.
 	/// Weak custody cannot keep the native Host alive after retirement.
 	gc_host: Option<std::rc::Weak<HostShared>>,
 }
@@ -191,7 +191,7 @@ impl HostShared {
 	}
 
 	/// The vow's eventual outcome: the fulfilled wire value, or a typed
-	/// rejection — `ErrorKind::Broken` for a partner break, `ErrorKind::Closed`
+	/// rejection: `ErrorKind::Broken` for a partner break, `ErrorKind::Closed`
 	/// when the settle was the disconnect's own break. Settles immediately
 	/// from the recorded state when the outcome already landed.
 	pub(crate) fn await_vow(self: &Rc<HostShared>, vow: u64) -> impl std::future::Future<Output = Result<Argument>> {
@@ -214,7 +214,7 @@ impl HostShared {
 	}
 
 	// The drain's settle arms: fire the waiter, or record the outcome for a
-	// late observation (bounded FIFO — an outcome nobody ever awaits is evicted
+	// late observation (bounded FIFO: an outcome nobody ever awaits is evicted
 	// at the cap). Called from `action::run`'s SETTLE / FAIL arms.
 	pub(crate) fn settle_vow(&self, vow: u64, outcome: Result<Argument>) {
 		self.vows.settle(vow, outcome);
@@ -226,7 +226,7 @@ impl HostShared {
 
 	/// Settle every binding-side waiter after the loop itself has failed before
 	/// it could project C ABI FAIL events. The core Host remains the semantic
-	/// authority; this only prevents its wrapper promises from parking forever
+	/// authority. This only prevents its wrapper promises from parking forever
 	/// when the projection path is what died.
 	pub(crate) fn fail_pending_vows(&self, code: i32, detail: &str) {
 		self.vows.fail_pending(code, detail);

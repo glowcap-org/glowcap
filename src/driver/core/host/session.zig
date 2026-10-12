@@ -2,7 +2,7 @@
 //! transport-packet framing, stream delimiting, and retained-tail resumption.
 //!
 //! This is an internal owner. Consumers reach the supported type and verbs
-//! through `host.zig`; sibling `pub` declarations provide only Zig cross-file
+//! through `host.zig`. Sibling `pub` declarations provide only Zig cross-file
 //! visibility and do not widen `driver.core`'s namespace.
 
 const std = @import("std");
@@ -24,9 +24,9 @@ const crypto = foundation.crypto;
 
 /// One packet-fed CapTP session shell: a node-registered peer under a `Served`
 /// serve core, minted by `Host.openDialedLocator` /
-/// `Host.openAcceptedAdvertised` and freed by `Host.releaseSession`. This is
-/// not a `net.Connection` — it is the CapTP
-/// partner the host routes and serves; the ABI name stays
+/// `Host.openAcceptedAdvertised` and freed by `Host.releaseSession`. Unlike a
+/// `net.Connection`, it is the CapTP
+/// partner the host routes and serves. The ABI name stays
 /// `GlowcapHostSession`. The embedder writes what `takeTransportOutbound`
 /// drains and feeds what it reads through `Host.feedTransportPacket` (never
 /// the `Served` directly, so the host's action pump always runs).
@@ -35,22 +35,22 @@ pub const HostSession = struct {
     peer_handle: engine.PeerHandle,
     served: Served,
     /// The actual netlayer name this session was opened through. Owned by
-    /// the shell; sturdyref peer equality includes it and never infers it from
+    /// the shell. Sturdyref peer equality includes it and never infers it from
     /// a partner's signed claim.
     transport: []const u8,
     role: Role,
     /// Compact accounting, lifecycle, and intrusive queue membership for this
-    /// shell. See `ControlWord`; this is operational storage, not CapTP state.
+    /// shell. See `ControlWord`. This is operational storage, not CapTP state.
     control: ControlWord = .{},
     /// The 32-byte seed of the key this session signs with: its keyed hello,
     /// and every handoff record naming this session (ADR-0097). Held per
     /// session because session identity and durable node identity are different
     /// facts. The Host derives it from a process-fresh, domain-separated root
-    /// and monotonic counter; reconnecting cannot recreate an earlier session's
+    /// and monotonic counter, so reconnecting cannot recreate an earlier session's
     /// key or side name.
     session_seed: [crypto.SEED_BYTES]u8 = undefined,
     /// The sealed byte channel this session's wire runs through (ADR-0107),
-    /// or null for every unsealed session — one nullable pointer on the
+    /// or null for every unsealed session. It is one nullable pointer on the
     /// shell, with the channel itself heap-boxed only when a sealed transport
     /// is opened. Created by the open verbs in `sessions.zig`, freed with the
     /// shell.
@@ -73,7 +73,7 @@ pub const HostSession = struct {
     /// The unconsumed stream tail `Host.feedBytes` keeps between chunks: a
     /// partial frame straddling two reads, or the frames one read coalesced
     /// behind the handshake hello (feeding stops at session-open). Owned by
-    /// the shell and freed with it; capacity a burst grew past
+    /// the shell and freed with it. Capacity a burst grew past
     /// `steady_feed_tail_bytes` returns when the tail fully drains.
     ///
     /// It is the same `foundation.Spill` the `net` tier folds its parser over,
@@ -84,12 +84,12 @@ pub const HostSession = struct {
     feed_tail: foundation.Spill = .{},
     /// A complete frame remains in `feed_tail` because a prior frame in the
     /// same read crossed the outbound waterline or hit retryable pressure.
-    /// The core queues a FLUSH wake; once the embedder has drained outbound,
+    /// The core queues a FLUSH wake. Once the embedder has drained outbound,
     /// `takeStreamOutbound` resumes this tail under the ordinary Host latch.
     feed_resume_pending: bool = false,
 
     /// Which half of the handshake this session is, carrying the one datum
-    /// only the dialing half has: the partner designator it dialed — the key
+    /// only the dialing half has: the partner designator it dialed, which is the key
     /// the crossed-hellos tiebreak looks an outbound up by. Host-owned bytes,
     /// freed with the shell.
     pub const Role = union(enum) {
@@ -104,7 +104,7 @@ pub const HostSession = struct {
     /// One compact control word per session. The operation ceiling is an
     /// explicit admission boundary: reaching it refuses the next operation
     /// before that operation can commit. The remaining bits are existing
-    /// intrusive memberships and one-shot facts; packing them together keeps
+    /// intrusive memberships and one-shot facts. Packing them together keeps
     /// session close inside the footprint budget.
     const ControlWord = packed struct(u32) {
         pending_operations: u24 = 0,
@@ -163,7 +163,7 @@ pub const HostSession = struct {
 
     /// Drain one encoded outbound frame for the embedder to write, or null
     /// when the queue is empty. Owned: the caller frees the returned frame.
-    /// Top-level: refused under the callback latch — the enclosing verb's
+    /// Top-level: refused under the callback latch because the enclosing verb's
     /// unwind is still encoding, so a mid-callback drain would race it.
     ///
     /// On a sealed session (ADR-0107) what drains is wire bytes the embedder
@@ -172,7 +172,7 @@ pub const HostSession = struct {
     /// (the outer Syrup prefix rides inside the plaintext). Until the
     /// handshake completes, encoded CapTP frames stay queued and this returns
     /// null once the handshake bytes drain. A frame that cannot be sealed is
-    /// unrecoverable — it has left the queue and no plaintext may follow —
+    /// unrecoverable (it has left the queue and no plaintext may follow),
     /// so the session is condemned without an abort echo and the caller sees
     /// `SealedChannelFailed` (or the allocation failure that forced it).
     pub fn takeOutbound(self: *HostSession) HostError!?foundation.Frame {
@@ -202,7 +202,7 @@ pub const HostSession = struct {
 
     /// One transport-ready packet: `prefixBytes()` followed by the owned
     /// payload. Clear byte streams carry the canonical outer Syrup byte-string
-    /// prefix; message-framed transports and sealed channels use an empty
+    /// prefix. Message-framed transports and sealed channels use an empty
     /// prefix. This is the sole authority for that distinction.
     pub const TransportOutbound = struct {
         payload: foundation.Frame,
@@ -244,8 +244,8 @@ pub const HostSession = struct {
     }
 
     /// Resume input already retained by a previous feed, without treating an
-    /// empty transport packet as new input. Byte streams may have a held tail;
-    /// message-framed transports never do.
+    /// empty transport packet as new input. Byte streams may have a held tail.
+    /// Message-framed transports never do.
     pub fn resumeFeed(self: *HostSession) !void {
         try self.host.refuseReentry();
         try self.host.checkSession(self);
@@ -266,13 +266,13 @@ pub const HostSession = struct {
         }
     }
 
-    /// The live trace's outbound seat — the mirror of the inbound seat in
+    /// The live trace's outbound seat, the mirror of the inbound seat in
     /// `hostBeforeServe`: every frame leaves through this drain, so a
     /// deliver's verb and wire bytes are reported here, where the encoded
     /// frame exists. A send-time fact would predate the deferred encode
     /// (no bytes to report) and would report near sends that never touch
     /// the wire. One borrowed view decode per outbound frame, paid only
-    /// while a sink is installed; a non-deliver frame or one without a
+    /// while a sink is installed. A non-deliver frame or one without a
     /// symbol verb is protocol traffic the trace skips, as inbound.
     fn traceOutboundFrame(self: *HostSession, frame: *const foundation.Frame) void {
         const host = self.host;
@@ -310,7 +310,7 @@ pub const HostSession = struct {
     /// Whether inbound bytes are parked where no readiness wait can see them:
     /// paused outer frames in `feed_tail`, or a sealed session's staged
     /// channel bytes (ADR-0107). An embedder resumes them through
-    /// `HostSession.resumeFeed`; every byte-fed pump asks this one question
+    /// `HostSession.resumeFeed`. Every byte-fed pump asks this one question
     /// instead of reaching into the two owners separately.
     pub fn pausedInboundPending(self: *const HostSession) bool {
         if (self.feed_tail.isActive()) return true;
@@ -319,23 +319,22 @@ pub const HostSession = struct {
     }
 };
 
-/// Encode `session`'s enqueued outbound and queue its flush action — the public
+/// Encode `session`'s enqueued outbound and queue its flush action. This is the public
 /// entry point for the pump every host verb ends with, for an embedder (the
 /// owning face, ADR-0090) that drove the served core directly with a
 /// session-local verb and owes the wire the encode.
 pub fn flushSession(self: *Host, session: *HostSession) !void {
-    // Latch-legal on purpose, like the `dirtyThenPump` it invokes: a nested
+    // Latch-legal like the `dirtyThenPump` it invokes: a nested
     // verb inside a listener enqueues, and the enclosing top-level verb's
-    // unwind encodes — so a session verb that ends in this flush keeps working
-    // from callback context, the same contract the old owning tier's pure
-    // `served.*` forwards carried.
+    // unwind encodes, so a session verb that ends in this flush keeps working
+    // from callback context.
     self.assertOwner();
     try self.checkSession(session);
     try host_pump.dirtyThenPump(self, session.peer_handle);
 }
 
 /// Break every far vow still parked on `session`'s Vat. The partner's retained
-/// abort diagnostic wins when one arrived; otherwise `message` is used.
+/// abort diagnostic wins when one arrived. Otherwise `message` is used.
 pub fn breakFarVows(self: *Host, session: *HostSession, message: []const u8) !void {
     try self.refuseReentry();
     try self.checkSession(session);
@@ -346,7 +345,7 @@ pub fn breakFarVows(self: *Host, session: *HostSession, message: []const u8) !vo
 }
 
 /// Apply the core-owned terminal consequences of an adapter-observed physical
-/// transport loss. The adapter reports the fact; the Host seals admission,
+/// transport loss. The adapter reports the fact. The Host seals admission,
 /// retires routing authority, breaks pending work, and queues the idempotent
 /// close notification here.
 pub fn transportClosed(self: *Host, session: *HostSession, message: []const u8) !void {
@@ -384,7 +383,7 @@ pub fn partnerIdentity(self: *Host, session: *HostSession) !vocab.PartnerIdentit
 }
 
 /// Record the durable key proved by the realizer of `session`'s byte channel
-/// (ADR-0105). This must arrive before the partner hello is applied; repeating
+/// (ADR-0105). This must arrive before the partner hello is applied. Repeating
 /// the same evidence is idempotent and conflicting evidence is refused.
 pub fn bindVerifiedChannelKey(self: *Host, session: *HostSession, designator: []const u8) !void {
     self.assertOwner();
@@ -414,7 +413,7 @@ pub fn bindVerifiedChannelKey(self: *Host, session: *HostSession, designator: []
 /// beside `engine.Peer` (gated at 1 KiB in `engine`) and the completion loop's
 /// `Conn` wrapper (gated at 128 bytes of overhead in `net.completion`). One
 /// `HostSession`, and therefore one inline `Served` Port, is minted per adopted
-/// session in `mintShell`; the Vat is Host-wide and charged once per Host.
+/// session in `mintShell`. The Vat is Host-wide and charged once per Host.
 /// `engine.Peer` itself lives behind a pointer here, gated on its own. Crossing
 /// this ceiling is a design event that raises the budget here and in
 /// `docs/ladder.md` step 2 together, with the bytes justified, never a check to
@@ -433,7 +432,7 @@ comptime {
     ));
 }
 
-/// Retained-capacity bound for a session's `feed_tail` between bursts — the
+/// Retained-capacity bound for a session's `feed_tail` between bursts, the
 /// engine's steady-queue posture at the byte-fed tier. A burst that grew the
 /// tail past this frees the excess when the tail drains, at the price of one
 /// growth re-allocation when the next burst begins.
@@ -454,7 +453,7 @@ pub fn feedBorrowedCommitted(session: *HostSession, frame: foundation.FrameView)
         error.EventServeOutOfMemory => return err,
         else => {
             // The frame is authoritative and cannot be replayed. Give a
-            // protocol-shaped failure its typed abort; a host-internal error
+            // protocol-shaped failure its typed abort. A host-internal error
             // has no wire projection, but still closes this consumed session.
             session.served.port.peer.emitFailure(err);
             if (session.served.port.peer.sessionIsOpen())
@@ -466,7 +465,7 @@ pub fn feedBorrowedCommitted(session: *HostSession, frame: foundation.FrameView)
 
 /// Feed one plaintext stream chunk through the tail-and-parse machinery: with
 /// no pending tail, parse the borrowed chunk in place and retain only an
-/// incomplete suffix; while a tail is active, extend it (the one bounded
+/// incomplete suffix. While a tail is active, extend it (the one bounded
 /// copy) and parse from there. The one body both `Host.feedBytes` arms share:
 /// the unsealed verb hands it the caller's bytes, the sealed arm each opened
 /// record's plaintext.
@@ -500,7 +499,7 @@ fn parseOuterStreamPrefix(session: *HostSession, bytes: []const u8, was_open: bo
     var consumed: usize = 0;
     while (consumed < bytes.len) {
         // A prior frame in this same chunk may have crossed the waterline.
-        // Stop before dispatching another frame; the caller retains the suffix
+        // Stop before dispatching another frame. The caller retains the suffix
         // in `feed_tail`, so replay is neither required nor permitted.
         if (consumed != 0 and session.served.queuedOutboundBytes() >= session.outbound_high_water_bytes)
             return .{ .consumed = consumed, .needs_resume = true };
@@ -531,7 +530,7 @@ fn parseOuterStreamPrefix(session: *HostSession, bytes: []const u8, was_open: bo
             .shape = shape,
         }) catch |err| {
             // A prior prefix already applied makes this chunk committed. Keep
-            // the unapplied suffix and resume it from the core-issued wake; an
+            // the unapplied suffix and resume it from the core-issued wake. An
             // OOM on the first direct frame still leaves the borrowed chunk
             // retryable by its caller.
             if (err == error.OutOfMemory and consumed != 0)
@@ -583,7 +582,7 @@ fn resumeFeedTail(self: *Host, session: *HostSession) HostError!void {
             },
             // A retained frame has no caller left that can own an arbitrary
             // dispatch error. Preserve the concrete cause in the peer's abort
-            // and terminal state; the stream projection reports that state.
+            // and terminal state. The stream projection reports that state.
             else => terminal: {
                 session.served.port.peer.recordFailure(err);
                 host_pump.condemnAndClose(self, session, .other, @errorName(err));

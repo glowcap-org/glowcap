@@ -19,12 +19,12 @@ Terminal custody, strict durability and exclusive opening remain in force.
 ## Context
 
 The first foreign resource profile has portable Store and Host owners, but its
-LMDB executor cannot run in a browser. [IndexedDB's transaction lifecycle](https://www.w3.org/TR/IndexedDB/#transaction-lifecycle)
-permits dependent requests during active request events and reports commitment
-through a terminal event.
-Moving validation into JavaScript would duplicate transaction, identity and
-managed authority laws. This decision preserves the sync no-I/O core, explicit
-custody and one authority per fact established by ADR-0161 and ADR-0185.
+LMDB executor cannot run in a browser. [IndexedDB's transaction
+lifecycle](https://www.w3.org/TR/IndexedDB/#transaction-lifecycle) permits
+dependent requests during active request events and reports commitment through a
+terminal event. Moving validation into JavaScript would duplicate transaction,
+identity and managed authority laws. This decision keeps the sync no-I/O core
+and explicit custody of ADR-0161 and ADR-0185.
 
 ## Decision
 
@@ -40,11 +40,11 @@ The adapter reports completion, known abort or an indeterminate write after
 physical transaction retirement. Host-thread installation consumes that outcome
 through the existing Store tickets. An aborted recovery drops its tentative
 result and preserves the original barrier. Recovery reads the exact committed
-receipt; it never submits another write to settle uncertainty.
+receipt. It never submits another write to settle uncertainty.
 
 Rust retains one transaction task and its callback through IndexedDB's terminal
 event. An observer can disappear while that owner continues. Creation retains
-its provisional result for later observation; attachments retain content contexts
+its provisional result for later observation. Attachments retain content contexts
 through all work and successful detach. These are existing Host owners and the
 embedding executor, with no additional actor runtime.
 
@@ -83,8 +83,8 @@ and unchanged mutation. `loam-abi-test` runs it under `check`.
 `loam-browser-test` drives the linked Rust/C consumer in Chromium. It exercises
 sharing, narrowed admission, edits and receipt replay, ancestor pause/resume,
 page reload and cold publication discovery. It also proves exclusive custody,
-callback retirement, observer abandonment, mid-batch quota rollback, mutation retry after refusal, and unrelated
-actor progress during blocked storage. Adapter statistics expose bounded
-snapshot and overlay bytes, database requests, evaluation passes and copies.
-The proof belongs to `check-external`; `check` validates generated Wasm layouts
-against the actual compiled C archive.
+callback retirement, observer abandonment, mid-batch quota rollback, mutation
+retry after refusal, and unrelated actor progress during blocked storage.
+Adapter statistics expose bounded snapshot and overlay bytes, database requests,
+evaluation passes and copies. The proof belongs to `check-external`. `check`
+validates generated Wasm layouts against the compiled C archive.

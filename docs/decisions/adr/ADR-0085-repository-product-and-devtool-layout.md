@@ -3,7 +3,7 @@ id: ADR-0085
 status: accepted
 date: 2026-07-16
 tags: [repository, apps, tools, cli, layout]
-decision: "Product binaries live under cli/ and apps/; demos under apps/; the dev-tool verbs are test/ (top-level), tools/check/, and tools/gen/, with tools/c-abi/ for the C-ABI operator toolkit. tools/ never hosts product apps."
+decision: "Product binaries live under cli/ and apps/. Demos under apps/. The dev-tool verbs are test/ (top-level), tools/check/, and tools/gen/, with tools/c-abi/ for the C-ABI operator toolkit. tools/ never hosts product apps."
 supersedes: []
 superseded_by: []
 amends: []
@@ -14,27 +14,24 @@ amended_by: [ADR-0150]
 
 ## Context
 
-`tools/` had become a flat dump of gates, generators, and operator scripts, and
-the name invited dumping first-party product apps (for example ocapnviz) beside
-maintainer codegen. `cli/` already owns the installable `glowcap` binary
-([ADR-0084](ADR-0084-glowcap-cli-product-boundary.md)); `apps/` owns
-demos. There was no honest home for a major in-tree product that is neither the
-CLI nor a showcase. The usual maintainer verbs (`test`, `check`, `gen`) were
-not visible as peer families.
+A flat `tools/` of gates, generators, and operator scripts invites first-party
+product apps (for example ocapnviz) beside maintainer codegen. `cli/` owns the
+installable `glowcap` binary
+([ADR-0084](ADR-0084-glowcap-cli-product-boundary.md)). A major in-tree product
+that is neither the CLI nor a showcase needs its own home, and the maintainer
+verbs (`test`, `check`, `gen`) should be visible as peer families.
 
 ## Decision
 
 1. **Product binaries** live under `cli/` (the `glowcap` binary) and top-level
    `apps/` (first-party apps with their own binaries, such as ocapnviz). They
    consume the public `glowcap` module and are not part of `libglowcap_*`.
-2. **Demos and product apps share `apps/`.** As first decided, the demo
-   apps lived under `examples/apps/` with `apps/` reserved for product
-   binaries; amended 2026-07-19 to fold the demo apps into `apps/` — one
-   home for everything built on the application surface, with
-   `examples/` keeping the teaching-sized single-file walks. The demos
-   still teach and dogfood; a product app still ships its own binary.
+2. **Demos and product apps share `apps/`.** That gives one home for everything
+   built on the application surface, with `examples/` holding the teaching-sized
+   single-file walks. The demos teach and dogfood, and a product app ships its
+   own binary.
 3. **Dev-tool verbs:**
-   - `test/`: correctness scenarios (already top-level; not nested under
+   - `test/`: correctness scenarios (already top-level, not nested under
      `tools/`).
    - `tools/check/`: gates and hygiene (`arch_check`, `source_check`).
    - `tools/gen/`: codegen that must stay in lockstep with `src/`, headers,
@@ -52,20 +49,17 @@ not visible as peer families.
 
 ## Alternatives Considered
 
-- **Product apps under `tools/ocapnviz/`.** Rejected: conflates maintainer
-  codegen with first-party products; the flat `tools/` dump is the failure mode
-  this ADR closes.
+- **Product apps under `tools/ocapnviz/`.** Rejected: it conflates maintainer codegen with first-party products.
 - **Rename `tools/` to `codegen/` and leave gates at the root.** Rejected: check
-  and gen are the same kind of maintainer family; keeping the widely cited
-  `tools/` name with peer children is enough once apps leave.
-- **Move `test/` under `tools/test/`.** Rejected: `test/` is already the
-  established top-level verb and gate surface.
+  and gen are the same kind of maintainer family, and the widely cited `tools/`
+  name with peer children suffices once apps leave.
+- **Move `test/` under `tools/test/`.** Rejected: `test/` is the established top-level verb and gate surface.
 
 ## Consequences
 
 - `apps/README.md` and `tools/README.md` state the contracts.
 - Living-state docs and the CLI design layout table name the axes.
-- Generator path citations move under `tools/gen/`; C-ABI operator paths under
-  `tools/c-abi/`; gate imports become `tools/check/*`.
+- Generator path citations move under `tools/gen/`. C-ABI operator paths under
+  `tools/c-abi/`. Gate imports become `tools/check/*`.
 - Adding a generator is one `tools/gen/` module plus one `build.zig` table row
   that drives the shared verify/emit harness.

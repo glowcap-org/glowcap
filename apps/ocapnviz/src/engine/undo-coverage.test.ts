@@ -1,10 +1,10 @@
 /**
  * Every authoring action is one undo step.
  *
- * An author changing the composition — a label, an id, an end's claim,
- * a moment in a trajectory, a pin, a row's order — must be able to take
+ * An author changing the composition, a label, an id, an end's claim,
+ * a moment in a trajectory, a pin, a row's order, must be able to take
  * it back. Nothing here is about how the composition is VIEWED (zoom,
- * pan, the playhead, which panes are open); those are not edits and
+ * pan, the playhead, which panes are open). Those are not edits and
  * carry no history.
  *
  * The table below holds one case per `BuilderIntent` kind, and it is
@@ -16,7 +16,7 @@
  * Each case asserts the whole round trip against the WHOLE document,
  * not against `DocSnapshot`. A mutation that lands in a doc field the
  * snapshot does not carry would round-trip perfectly against the
- * snapshot and still be lost on undo; comparing documents is what
+ * snapshot and still be lost on undo. Comparing documents is what
  * catches that.
  */
 
@@ -30,7 +30,7 @@ function engineTest(name: string, fn: () => void): void {
 	Deno.test({ name, sanitizeOps: false, sanitizeResources: false, fn });
 }
 
-/** Peers `a`/`b` carry a session with a state change on it; `s2` has one
+/** Peers `a`/`b` carry a session with a state change on it, `s2` has one
  *  end nothing has attributed, so the endpoint intents have something to
  *  edit. `m1` gives the message intents a subject. */
 const source = {
@@ -105,8 +105,8 @@ function freshEngine(): Engine {
 	return new Engine(TimelineDocument.parse(structuredClone(source)));
 }
 
-/** The whole document as comparable text. Deliberately not
- *  `takeSnapshot` — see this file's header. */
+/** The whole document as comparable text. Not
+ *  `takeSnapshot`, see this file's header. */
 function docText(e: Engine): string {
 	return JSON.stringify(e.doc);
 }

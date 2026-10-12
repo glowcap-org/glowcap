@@ -1,6 +1,6 @@
 /**
- * Retime a mark or a span. The two addresses — an observation id
- * (`moveEvent`) and an entity (`moveEntitySpan`) — commit through
+ * Retime a mark or a span. The two addresses, an observation id
+ * (`moveEvent`) and an entity (`moveEntitySpan`), commit through
  * one back half so they cannot drift in what a finished gesture
  * writes. Insert and remove live in [`events.ts`](./events.ts).
  */
@@ -14,21 +14,21 @@ import type { AuthoringContext } from "./context.ts";
 import { commitMoves, type MovePatch, occupiedMoment, type PlannedMove } from "./move-commit.ts";
 
 /** Drag gesture against an event. Each variant encodes exactly the
- *  inputs that gesture needs — no booleans that "only matter for
+ *  inputs that gesture needs, no booleans that "only matter for
  *  message-sent", no optional `arrivalT` that flips the meaning of
  *  `newT` from "body anchor" to "left edge". The engine narrows on
- *  `kind` to pick the right span-edge writer; an invalid pairing
+ *  `kind` to pick the right span-edge writer. An invalid pairing
  *  (e.g. `resize-end` on a peer event) is unrepresentable.
  *
  *  - `translate`: body slide. For message-sent the paired delivered
- *    auto-slides by the same dt (flight time preserved); for
+ *    auto-slides by the same dt (flight time preserved). For
  *    peer-joined and session-opened, every event scoped to the same
  *    entity slides by dt.
  *  - `resize-start`: left-edge resize. For peer-joined and
  *    session-opened, only the start moves and the paired close
  *    stays put. For message-sent, sent moves and arrival stays
  *    pinned.
- *  - `resize-end`: message-only — sent stays, arrival moves to
+ *  - `resize-end`: message-only, sent stays, arrival moves to
  *    `newArrivalT`. Span-shaped peers/sessions resize on the right
  *    by `translate`-ing the close event (peer-left, session-closed)
  *    directly, since the close event IS the right edge. */
@@ -37,15 +37,15 @@ export type MoveIntent =
 	| { kind: "resize-start"; eventId: string; newT: number }
 	| { kind: "resize-end"; eventId: string; newArrivalT: number };
 
-/** A span-shaped entity a timeline drag can retime — peer or session.
+/** A span-shaped entity a timeline drag can retime, peer or session.
  *  Messages stay event-addressed: a message always has its
  *  `message-sent` observation, so the event path covers it. */
 export type SpanRef = { kind: "peer" | "session"; id: string };
 
 /** Drag gesture against an entity's span, addressed by the entity
  *  itself rather than an observation event. This is what makes a
- *  freshly authored entity — which has `entity.timing` but no
- *  observation events yet — retimeable exactly like a loaded one:
+ *  freshly authored entity, which has `entity.timing` but no
+ *  observation events yet, retimeable exactly like a loaded one:
  *  the gesture names the span, and whatever observations exist are
  *  kept in sync as a consequence, not consulted as a precondition.
  *
@@ -133,7 +133,7 @@ export function moveEvent(
 		if (def?.timing) {
 			const eff = messageEffective(ctx.doc, ev.messageId);
 			// Translate dt is measured against the painted start, not the
-			// observation's t — the two can differ after a storage-shaped
+			// observation's t. The two can differ after a storage-shaped
 			// Inspector edit, and the pill must land where the gesture
 			// dropped it. The observation itself still moves to `newT`.
 			const span = intent.kind === "resize-start"
@@ -167,7 +167,7 @@ export function moveEvent(
 			// The whole peer moves: its departure and every update keep
 			// their spacing from the join, the way a session's state
 			// changes ride along with it below. An update needs no keyframe
-			// patch beside the move — the projection re-derives every
+			// patch beside the move. The projection re-derives every
 			// property's track from these observations on the next run.
 			for (const e of events) {
 				if (e === ev) continue;
@@ -227,9 +227,9 @@ export function moveEvent(
 		if (intent.kind === "translate") {
 			// The whole session moves: its close and every moment on its
 			// trajectory keep their spacing from the open. An endpoint
-			// attribution needs no keyframe patch beside the move — the
+			// attribution needs no keyframe patch beside the move, the
 			// projection re-derives that track from these observations on
-			// the next run — while the state track is authored on the
+			// the next run, while the state track is authored on the
 			// definition and has to be moved there too.
 			for (const e of events) {
 				if (e === ev) continue;
@@ -319,10 +319,10 @@ export function moveEvent(
 }
 
 /** Retime a peer or session span by naming the entity (see
- *  `MoveSpanIntent`). Anchored on the effective range — the same
- *  source of truth the timeline paints — so the gesture means "the
+ *  `MoveSpanIntent`). Anchored on the effective range, the same
+ *  source of truth the timeline paints, so the gesture means "the
  *  edge you can see moves to `newT`". Observation events that exist
- *  for the entity move to agree; an entity with no observations yet
+ *  for the entity move to agree. An entity with no observations yet
  *  (freshly authored) retimes through `entity.timing` alone.
  */
 export function moveEntitySpan(

@@ -193,6 +193,7 @@
    (room-tail "roster" '() 'text 'room 'any 'arrive)
    (room-tail "join" NAMED-TRAILING #f 'room 'any 'arrive)
    (room-tail "leave" NAMED-TRAILING #f 'room 'any 'depart)
+   (room-tail "offline" '() 'text 'room 'any 'depart)
    (room-tail "typing" TYPING-TRAILING #f 'room 'empty 'stay)
    (room-tail "away" AWAY-TRAILING #f 'room 'any 'stay)
    (room-tail "seat" SEAT-TRAILING #f 'room 'any 'stay)

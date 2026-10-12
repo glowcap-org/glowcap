@@ -4,7 +4,7 @@
 // own struct layout through the single export `glowcap_wasm_abi_layout`, because
 // the wasm32 field offsets differ from the 64-bit host mirror `abi.ts` carries
 // and cannot be reached from it. This check instantiates the module, reads the
-// descriptor, and proves it is well formed — the JS marshaller depends on that
+// descriptor, and proves it is well formed, the JS marshaller depends on that
 // blob, so a malformed or misordered descriptor must fail the build, not a
 // browser at runtime.
 //

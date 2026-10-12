@@ -14,7 +14,7 @@
 //! The matcher accepts the semantic resolve-shaped message used by in-process
 //! helpers and tests, plus the wire resolver-callback deliver that V1.0 peers
 //! send. Next-profile wire settlement reaches the same resolver-export path via
-//! `op:listen`; codecs reject wire `op:resolve` there.
+//! `op:listen`. Codecs reject wire `op:resolve` there.
 
 const std = @import("std");
 
@@ -48,7 +48,7 @@ pub const FetchOutcome = union(enum) {
 /// The result of matching one inbound message against a pending fetch.
 pub const FetchMatch = union(enum) {
     settled: FetchOutcome,
-    /// Unrelated to the fetch; ownership of the message returns to the caller to
+    /// Unrelated to the fetch. Ownership of the message returns to the caller to
     /// buffer for its next `recv`.
     unrelated: model.Message,
 };
@@ -56,7 +56,7 @@ pub const FetchMatch = union(enum) {
 /// Allocate the resolver export + outbound answer and build the wire-canonical
 /// `op:deliver target=<bootstrap> args=[fetch <swissnum>]`. On V1.0 the message
 /// carries `resolve_me_desc = Near(object(resolver))` (the resolver-callback
-/// notification form Goblins V1.0 peers use); next omits it and follows the
+/// notification form Goblins V1.0 peers use). Next omits it and follows the
 /// answered operation with a listener.
 ///
 /// Atomic on failure: the heap allocations run first (unwound by errdefer), the
@@ -111,7 +111,7 @@ pub fn prepareFetchSwissnum(
 
 /// Decide whether `msg` (owned) settles the fetch identified by
 /// `(answer_position, resolver_export)`. A settling message is consumed and its
-/// payload extracted into an owned `FetchOutcome`; an unrelated message is
+/// payload extracted into an owned `FetchOutcome`. An unrelated message is
 /// handed back unchanged for the caller to re-own.
 pub fn tryMatchFetchOutcome(
     allocator: std.mem.Allocator,
@@ -142,7 +142,7 @@ pub fn tryMatchFetchOutcome(
     }
 }
 
-/// A fulfilled fetch settles to exactly one reference; any other fulfill
+/// A fulfilled fetch settles to exactly one reference. Any other fulfill
 /// argument shape is malformed. Both settlement decoders below reach the same
 /// verdict from their own break handling, so the fulfill arm lives here once.
 fn fulfilledReferenceOutcome(allocator: std.mem.Allocator, arg: model.Argument) !FetchOutcome {

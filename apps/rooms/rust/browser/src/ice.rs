@@ -71,7 +71,7 @@ impl Source {
 		Self::new("/ice")
 	}
 	/// Cancellation drops only this observation. A concurrent caller shares
-	/// the same admitted request; the source owns it through fetch retirement.
+	/// the same admitted request. The source owns it through fetch retirement.
 	pub async fn configuration(&self) -> Result<RtcConfiguration, Error> {
 		if self.0.closed.get() {
 			return Err(Error::Closed);

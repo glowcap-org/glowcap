@@ -3,7 +3,7 @@
 // reads to a person.
 //
 // The browser proof drives a picture and a plain file end to end. Video and
-// sound differ from those only by this branch — there is no third code path —
+// sound differ from those only by this branch. There is no third code path,
 // so the branch is pinned here rather than by carrying a video fixture through
 // a headless browser to learn the same fact.
 

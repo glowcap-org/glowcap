@@ -1,13 +1,13 @@
-//! Scalar admission fixes the target; the archive worker restores exact custody.
+//! Scalar admission fixes the target. The archive worker restores exact custody.
 use super::*;
 use rooms_application::content::session::custody::{self, Coordinate, FieldKey};
 
 /// One Rc retains the existing private writer, platform and exact archive
 /// coordinate from admission through capture and storage. The bounded inbox
-/// and eight outgoing workers own preparation; MAX_PENDING and MAX_BYTES bound
+/// and eight outgoing workers own preparation. MAX_PENDING and MAX_BYTES bound
 /// queued restoration. No URI, workspace snapshot or archive capability is
-/// copied. One boxed restoration future lends this owner to the archive worker;
-/// resolving before dispatch would make archive downtime prevent delivery.
+/// copied. One boxed restoration future lends this owner to the archive worker.
+/// Resolving before dispatch would make archive downtime prevent delivery.
 struct Target<P> {
 	writer: Rc<super::super::executor::Writer>,
 	platform: P,

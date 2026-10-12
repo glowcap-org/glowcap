@@ -7,15 +7,13 @@
 //! constants to it. This is the same rule for the documents an application
 //! writes to disk and to browser storage.
 //!
-//! A number above one is not merely untidy. It is a claim that earlier shapes
-//! existed and were supported, which invites the next reader to write the
-//! migration that answers for them, against versions no file anywhere has ever
-//! carried. One document here had reached four in a single commit, having never
-//! had a first, second, or third shape at all.
+//! A number above one claims that earlier shapes existed and were supported,
+//! which invites the next reader to write a migration for versions no file has
+//! carried.
 //!
 //! The version *field* is not what this refuses. Keeping it is what makes a
-//! real version possible later, on the day glowcap intentionally supports a
-//! shape it has released. Until that day the honest value is one.
+//! real version possible later, on the day glowcap supports a
+//! shape it has released. Until that day the value is one.
 //!
 //! Scoped by discovery rather than by a list, so a document added tomorrow is
 //! covered without anyone remembering to enrol it: what it looks for is a

@@ -6,8 +6,8 @@ protocol scenarios are the authority for every semantic claim. The Rust, Deno,
 Python, and Racket bindings consume the C ABI and are never the oracle.
 
 [`docs/vision.md`](docs/vision.md) is the goal every change serves; read it
-before scoping new work, and keep `docs/shipped.md` honest about how far the
-code has reached.
+before scoping new work, and keep `docs/shipped.md` matching how far the code
+has reached.
 
 ## Start Here
 
@@ -40,8 +40,8 @@ the OCapN spec in `conformance/ocapn-spec/`. The
 
 ## First Principles
 
-- Every change moves toward the vision or protects it. Performance, the
-  architecture, and that destination are not traded for convenience.
+- Every change moves toward the vision or protects it. Convenience never
+  buys performance, architecture, or that destination.
 - Protocol correctness and capability semantics come before implementation
   convenience. A semantic claim needs a scenario or fixture.
 - Fix the root. No workarounds or quick fixes; when the right fix looks too

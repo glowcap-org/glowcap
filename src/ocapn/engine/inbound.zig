@@ -5,8 +5,8 @@
 //! `mod.zig` so the peer object holds construction, the send path, and the queue
 //! surface while this file owns the parse-validate-apply spine. They are free
 //! functions over `*Peer` (the same shape `v1_0` and `pipeline` use), not
-//! methods, because the cluster is one cohesive responsibility — the inbound
-//! seam — and reads better named than scattered through the struct body. The
+//! methods, because the cluster is one cohesive responsibility, the inbound
+//! seam, and reads better named than scattered through the struct body. The
 //! public entry methods (`recvBorrowed`, `recvStreamPrefix`, `step`) stay on
 //! `Peer` and call in here.
 
@@ -39,8 +39,8 @@ const prepareIntroducedImportReleases = shortening.prepareIntroducedImportReleas
 const commitPreparedImportRelease = shortening.commitPreparedImportRelease;
 
 /// One inbound pipelined deliver after its destination and maintenance are
-/// prepared. It owns the prepared call, resolver link, and shortening work;
-/// commit borrows the validated frame view and its import record only long
+/// prepared. It owns the prepared call, resolver link, and shortening work.
+/// Commit borrows the validated frame view and its import record only long
 /// enough to apply authority before publishing those consequences.
 const PreparedPipelinedDeliver = struct {
     call: pipeline.PreparedPipelinedCall,
@@ -131,6 +131,11 @@ pub fn emitAbortForError(self: *Peer, err: anyerror) void {
 }
 
 pub fn dispatchOwnedFrameInner(self: *Peer, frame_in: foundation.Frame) !void {
+    checkFrameSize(self, frame_in.bytes().len) catch |err| {
+        var frame = frame_in;
+        frame.deinit();
+        return err;
+    };
     const wire_profile = self.inboundProfile();
     const decoded_body = codec.dispatch.decodeBodyForProfile(
         self.inboundCodec(),
@@ -142,6 +147,13 @@ pub fn dispatchOwnedFrameInner(self: *Peer, frame_in: foundation.Frame) !void {
         return err;
     };
     try applyDecodedOwnedFrame(self, frame_in, decoded_body, wire_profile);
+}
+
+/// Every ingress form shares this inclusive frame limit. Whole-frame callers
+/// check before copying or queueing. Dispatch rechecks queued frames because
+/// the caller may have lowered the session limit since admission.
+pub fn checkFrameSize(self: *const Peer, size: usize) error{FrameTooLarge}!void {
+    if (size > self.limits().max_frame_bytes) return error.FrameTooLarge;
 }
 
 /// Enforce the durable identity a dial named against the partner's hello claim.
@@ -177,7 +189,7 @@ fn checkPartnerDurableClaim(self: *Peer, ss: model.view.StartSession) !void {
 ///
 /// `decoded_body` may borrow `frame_in`'s own bytes (frame boundary) or a
 /// separate stream buffer that outlives this call (`recvStreamPrefix`). It
-/// must stay valid until apply completes; afterwards the queued row owns only
+/// must stay valid until apply completes. Afterwards the queued row owns only
 /// `frame_in`, and `Peer.pollEvent` decodes it once more when it surfaces.
 fn applyDecodedOwnedFrame(
     self: *Peer,
@@ -265,10 +277,10 @@ fn applyDecodedOwnedFrame(
         switch (classified_deliver.?.route) {
             // Surfaces as a semantic `Resolve` (ADR-0010, ADR-0095). The resolution is
             // a *borrowed* view over the deliver's args, applied through the
-            // session's resolver-callback seam below — no owned
+            // session's resolver-callback seam below, no owned
             // materialization. `recordResolverCallbackResolve` settles the
             // outbound answer and installs any `far` the fulfill introduces,
-            // but does not store the resolution itself — the surfaced frame,
+            // but does not store the resolution itself, the surfaced frame,
             // kept alive on the event queue, carries the value to the
             // application. The borrow stays valid because that frame outlives
             // the apply call.
@@ -399,7 +411,7 @@ fn applyDecodedOwnedFrame(
         .answer_override = answer_override,
         // The codec this frame arrived in, not the session's. A handshake
         // frame is Syrup on a session that settles on something else, and an
-        // event is decoded again by whoever drains it — after the settle. Ask
+        // event is decoded again by whoever drains it, after the settle. Ask
         // the session for its codec there and a hello re-reads as the codec it
         // just negotiated, which fails silently at the drain and skips
         // everything the hello was supposed to trigger.

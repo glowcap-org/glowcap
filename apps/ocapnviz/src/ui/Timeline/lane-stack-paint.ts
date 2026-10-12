@@ -1,15 +1,15 @@
 /**
- * Masked lane-stack paint — the Scrubber's category headers, entity
+ * Masked lane-stack paint. The Scrubber's category headers, entity
  * rows, zebra, and row-drag insertion bar. `scrubber-paint.ts` owns
  * the scene: mask, pads, this stack, then chrome overlays.
  *
  * Paints into the masked `lanesGfx` / `lanesLabels` / `lanesGlyphGfx`
  * so partial rows clip at the viewport. The layout cursor stays in
- * unscrolled space; paint coords subtract `scrollY`, which keeps
+ * unscrolled space. Paint coords subtract `scrollY`, which keeps
  * row-drag insertion-index math identical to the scrollY=0 case.
  *
  * Hit-testing walks the same stack through `iterateRows` in
- * `row-layout.ts`; this module is paint only.
+ * `row-layout.ts`. This module is paint only.
  */
 
 import type { Graphics } from "pixi.js";
@@ -103,7 +103,7 @@ export function drawLaneStack({
 			spanId === highlightId ||
 			selectionSet.has(entityKey({ kind: laneKindSingular, id: spanId }));
 		// Anchor (the Inspector-follow entity) is always
-		// `selection?.kind === laneKind && selection.id === spanId` —
+		// `selection?.kind === laneKind && selection.id === spanId`,
 		// App passes the store's anchor through as `selection`. The
 		// halo paints thicker for the anchor so the user reads
 		// which selected span the Inspector tracks under multi-
@@ -111,11 +111,10 @@ export function drawLaneStack({
 		const isAnchor = (spanId: string): boolean => spanId === highlightId;
 		const isExpandedCategory = expandedCategories.has(lane);
 
-		// Bail when the lane's TOP edge falls below the viewport —
+		// Bail when the lane's TOP edge falls below the viewport,
 		// anything below that won't even partially render through the
 		// mask. Subsequent lanes start even lower, so break entirely.
-		// (Pre-mask this was a tighter "header bottom past lanesMaxY"
-		// check; the mask now handles the bottom-clip visually, so we
+		// (The mask handles the bottom-clip visually, so we
 		// only need a cheaper "fully offscreen below" check here.)
 		if ((y - scrollY) > lanesMaxY) break;
 
@@ -133,7 +132,7 @@ export function drawLaneStack({
 				continue;
 			}
 
-			// Hover bg on the gutter portion of the row — same
+			// Hover bg on the gutter portion of the row, same
 			// "button-like" affordance you'd get from a list-item hover
 			// in the rest of the app. Drawn behind the chevron/label so
 			// it never obscures the glyph.
@@ -144,7 +143,7 @@ export function drawLaneStack({
 			}
 
 			// Lane label with chevron indicating it can be expanded.
-			// Eyeball glyph reads the STORED category flag directly —
+			// Eyeball glyph reads the STORED category flag directly,
 			// independent of per-entity flags (the cascade is applied
 			// at draw time in the Stage, not surveyed here).
 			drawCategoryHeader(
@@ -203,11 +202,10 @@ export function drawLaneStack({
 		const headerCenterY = headerLaneY + CATEGORY_HEADER_HEIGHT / 2;
 		// Top cull: only skip when the header is ENTIRELY above the
 		// viewport. Partial headers render and get clipped by the
-		// mask. (Pre-mask any negative-y header was dropped to avoid
-		// bleeding into the Overview pane above; the mask handles
-		// that visually now.)
+		// mask. (The mask keeps a negative-y header from bleeding into
+		// the Overview pane above.)
 		const headerOffTop = headerLaneY + CATEGORY_HEADER_HEIGHT < 0;
-		// Persistent gutter tint on the header — distinctly
+		// Persistent gutter tint on the header, distinctly
 		// stronger than the entity-row zebra below so the parent
 		// / child boundary is legible at a glance, plus the
 		// entity-row indent (`ROW_INDENT_PX`) reinforcing the
@@ -232,7 +230,7 @@ export function drawLaneStack({
 				gutterX,
 				categoryVisMode?.[lane] ?? "visible",
 			);
-			// Header band tint over the row body — a tick stronger
+			// Header band tint over the row body. A tick stronger
 			// than the row zebra (which tops out at 0.06) so the
 			// header reads as a continuous label band, not just
 			// another row. Extends through both pads via `rowBgX/W`.
@@ -242,14 +240,14 @@ export function drawLaneStack({
 		}
 		// 1-px divider under the header, spanning the FULL panel
 		// (gutter + plot). Makes the parent / children boundary
-		// explicit — the gutter tint + plot tint above set the
+		// explicit, the gutter tint + plot tint above set the
 		// grouping intent; this rule gives a visible "everything
 		// below is INSIDE this category" cut, the same way Flash /
 		// After Effects show layer-group borders.
 		//
 		// Lives in the LANE_GAP region BELOW the header (not at the
 		// header's last pixel) so it can't touch the bottom of the
-		// category-eyeball glyph — the `label`-mode eye renders a
+		// category-eyeball glyph, the `label`-mode eye renders a
 		// 1-px strike at `centerY + 5` (= header bottom - 2). Sliding
 		// the divider 1 px down leaves a clean 1-px breathing band
 		// between the two horizontal marks.
@@ -272,7 +270,7 @@ export function drawLaneStack({
 		// Row-reorder drag state for this category, plus the y at
 		// which the insertion bar (drop target) should paint. Tracked
 		// during the row loop so we can draw the bar after the rows
-		// finish — drawing it inline would risk being overwritten by
+		// finish, drawing it inline would risk being overwritten by
 		// the next row's zebra fill. `dropY` lines up with the TOP
 		// edge of the row currently occupying `finalIndex` (the row
 		// being dragged is dimmed in-place; the bar shows the
@@ -285,7 +283,7 @@ export function drawLaneStack({
 		for (const entityId of orderedEntities) {
 			const entityData = laneData.byEntity.get(entityId);
 			if (!entityData) continue;
-			// Resolve the per-entity visibility mode (4-state — see
+			// Resolve the per-entity visibility mode (4-state, see
 			// engine's `setRowVisMode`). The three doc lists are
 			// exclusive so first-match-wins.
 			const visMode: EyeGlyphMode = hiddenSet.has(entityId)
@@ -306,7 +304,7 @@ export function drawLaneStack({
 			// hard-break to keep paint out of the ruler band).
 			if (rowY > lanesMaxY) break;
 			// Top cull: only skip when the row is ENTIRELY above the
-			// viewport — partial top rows render through the mask.
+			// viewport, partial top rows render through the mask.
 			const rowOffTop = rowY + rowH < 0;
 
 			if (laneRowDrag && entityIndex === laneRowDrag.finalIndex) {
@@ -314,7 +312,7 @@ export function drawLaneStack({
 			}
 
 			if (rowOffTop) {
-				// Scrolled above the viewport — advance the layout cursor
+				// Scrolled above the viewport, advance the layout cursor
 				// and skip all painting + zebra accounting consistent with
 				// the visible region.
 				y += rowH + LANE_GAP;
@@ -324,7 +322,7 @@ export function drawLaneStack({
 			}
 
 			// Zebra row tint, dimmed when the entity is hidden ON STAGE
-			// (the eyeball semantics — see `RowHidden` doctrine in
+			// (the eyeball semantics, see `RowHidden` doctrine in
 			// engine/timeline.ts) OR when the row is the source of an
 			// in-flight reorder drag (visually lifted so the user sees
 			// what's moving). The row stays at full height so
@@ -360,7 +358,7 @@ export function drawLaneStack({
 			// row's own span carries, read back through `laneRowLabel`, so
 			// the column and the pill beside it cannot call one entity two
 			// things. `visMode` selects the 4-state glyph (visible / label
-			// / body / both) — see `drawEyeGlyph`. The label dims when ANY
+			// / body / both), see `drawEyeGlyph`. The label dims when ANY
 			// hidden state is active so partially-hidden rows read as muted.
 			drawRowGutter(
 				graphics,
@@ -403,7 +401,7 @@ export function drawLaneStack({
 			entityIndex += 1;
 		}
 
-		// Drop-target insertion bar — drawn AFTER the row loop so it
+		// Drop-target insertion bar, drawn AFTER the row loop so it
 		// sits on top of the zebra tint at the landing slot. 2px
 		// accent-colored line spanning the full row width (gutter +
 		// plot) so it reads as "this is where the dragged row lands".

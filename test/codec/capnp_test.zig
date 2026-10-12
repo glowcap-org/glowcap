@@ -465,7 +465,7 @@ test "Cap'n Proto set of scalars keeps each element's pointer word null (canonic
     const target = model.Reference{ .far = model.FarRef.object(7) };
 
     // A set of scalar integers: every element is an `Argument` struct (2 data
-    // words, 1 pointer word) whose lone pointer word is null — a scalar arm names
+    // words, 1 pointer word) whose lone pointer word is null, a scalar arm names
     // no sub-object. The set-graft encode path copies each standalone-encoded
     // element into the composite-list slot and relocates its pointer words; a null
     // pointer must stay null. Grafting it as a struct pointer offset by the graft

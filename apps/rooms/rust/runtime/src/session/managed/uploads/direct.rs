@@ -80,16 +80,16 @@ impl Pipeline {
 		if self.pending.is_none() {
 			match self.start() {
 				Ok(execution) => self.pending = Some(execution),
-				Err(_) => {
+				Err(error) => {
 					self.finished = true;
-					return Ok(Some(Settlement::absent()));
+					return Ok(Some(Settlement::refused(&error)));
 				}
 			}
 		}
 		let outcome = self
 			.pending
 			.as_mut()
-			.expect("retained direct execution")
+			.ok_or_else(|| refuse("direct upload execution is not retained"))?
 			.completed()
 			.await?;
 		self.pending = None;
@@ -106,7 +106,10 @@ impl Pipeline {
 				};
 				complete(settlement, reply, None).map(Some)
 			}
-			EffectResult::Unsent(_) => Ok(Some(Settlement::absent())),
+			EffectResult::Unsent(error) => Ok(Some(Settlement::refused(&error))),
+			EffectResult::Unknown(error) if rooms_glowcap::client::binding_admission_refusal(&error).is_some() => {
+				Ok(Some(Settlement::refused(&error)))
+			}
 			_ => Ok(None),
 		}
 	}

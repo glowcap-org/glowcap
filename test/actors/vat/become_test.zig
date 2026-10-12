@@ -218,7 +218,7 @@ test "a refused settlement copy breaks its waiter and leaves the next turn live"
 
 /// A mutable actor whose failing verb mutates `self` *before* erroring: the
 /// pin for the module-header contract that mutable turns are not
-/// transactional — the write survives while the caller sees the break. The
+/// transactional, the write survives while the caller sees the break. The
 /// persistent flavor's mirror pin is "a handler error discards the pending
 /// become" above.
 const MutateThenFail = struct {

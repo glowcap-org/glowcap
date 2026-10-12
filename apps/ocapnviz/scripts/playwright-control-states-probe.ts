@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-control-states-probe.ts — what a control actually looks
+ * playwright-control-states-probe.ts: what a control looks
  * like at rest, under the pointer, and with the keyboard on it.
  *
  * Usage: playwright-control-states-probe.ts <out-dir> [url]
@@ -104,7 +104,7 @@ for (const theme of ["light", "dark"] as const) {
 	}
 
 	// The chevron is a background image, so a `<select>` can carry a
-	// perfectly good CSS rule and still paint nothing — a stroke the same
+	// perfectly good CSS rule and still paint nothing. A stroke the same
 	// colour as the surface, or a glyph clipped by the appearance reset.
 	// Report what each dropdown actually resolved, and whether it left
 	// room for it.

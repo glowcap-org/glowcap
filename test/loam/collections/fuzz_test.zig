@@ -10,8 +10,8 @@
 //! Which is why this target is worth more than a crash check. There is a
 //! reference implementation sitting in the standard library, so every operation
 //! has an answer to be checked against rather than merely surviving. The fuzzer
-//! writes the sequence of puts, removes, and lookups; a plain hash map says what
-//! the answers should be; and any disagreement is a bug in the trie.
+//! writes the sequence of puts, removes, and lookups. A plain hash map says what
+//! the answers should be, and any disagreement is a bug in the trie.
 //!
 //! One property the reference cannot model, and the one the whole design exists
 //! for: an old version keeps its own contents. Versions are kept alive here

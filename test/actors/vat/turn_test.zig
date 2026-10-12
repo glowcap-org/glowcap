@@ -103,7 +103,7 @@ test "a reentrant near-call that becomes leaves the outer frame's self intact" {
 
 /// The aliased-reply half of the reentrant-become hazard: the *outer* frame
 /// stages no become of its own, so the inner frame's promoted become installs
-/// at the outer frame's unwind — freeing the box the outer reply's bytes
+/// at the outer frame's unwind, freeing the box the outer reply's bytes
 /// borrow. The reply must be severed onto the turn arena, not returned raw.
 const AliasedBecomer = struct {
     pub const snapshot_persistent = true;
@@ -129,7 +129,7 @@ test "a reply aliasing state survives an inner reentrant become" {
     defer vat.deinit();
 
     const a = try vat.spawn(AliasedBecomer, .{ .label = "old-name".* });
-    // The reply reflects the state the turn ran as — the old label — and its
+    // The reply reflects the state the turn ran as, the old label, and its
     // bytes stay live even though the inner become's install freed the old box
     // as the near-call returned.
     const reply = try vat.near(a, .{ .verb = "outer" });

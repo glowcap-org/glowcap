@@ -1,4 +1,4 @@
-// Two-stage managed-room creation and its capability-occurrence custody.
+// Two-stage managed-room creation and its capability-occurrence ownership.
 
 import { Ref, retainCleanupFailures, type Session } from "@glowcap/runtime";
 import { ask } from "./ask.ts";
@@ -67,7 +67,7 @@ export async function openManagedRoom(
 		session.release(bootstrap);
 	} catch (error) {
 		// A release can fail after consuming its occurrence. Never attempt it a
-		// second time; only retire the room that cannot be returned safely.
+		// second time, and retire only the room that cannot be returned safely.
 		throw await retainCleanupFailures(error, [() => session.release(room)]);
 	}
 	return { room, roomLink: authority[0], managerLink: authority[1] };

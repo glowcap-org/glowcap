@@ -77,7 +77,7 @@ pub const primitive_seeds = [_][]const u8{
 
 /// Every shape in the checked-in corpus, for a target that wants the whole set.
 ///
-/// Deliberately not including anything the fuzzer found. A crash belongs to the
+/// Not including anything the fuzzer found. A crash belongs to the
 /// target that crashed on it: seeding it into the other eight is noise, and the
 /// build check that holds a saved input against its replay looks for it in that
 /// target's own file. Each target keeps its own `regression_seeds` and appends
@@ -117,7 +117,7 @@ fn drawBytes(v: u64) [8]u8 {
 ///
 /// No length prefix. That framing belongs to a target whose first draw is a
 /// slice, and putting it in front of a program means the first byte of the
-/// length is read as the end-of-program check instead — which answers "stop"
+/// length is read as the end-of-program check instead, which answers "stop"
 /// for any seed whose length is not a multiple of 256.
 ///
 /// Hand-writing these is how two targets ended up running programs their

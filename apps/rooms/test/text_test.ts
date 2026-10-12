@@ -41,8 +41,8 @@ Deno.test("with no name granted the foot says the plain connected word", () => {
 });
 
 // How one directory is doing is that directory's own fact, and every surface
-// that reports it reads these. The page used to hold a single value for it, so
-// a directory coming back cleared the notice for one that was still away.
+// that reports it reads these. A single page-wide value would let a directory
+// coming back clear the notice for one that was still away.
 Deno.test("a connected directory has nothing for a row to say", () => {
 	assertEquals(dirStanding("connected"), "");
 	assertEquals(dirCaptionSaid("this directory", "connected"), "this directory");
@@ -109,9 +109,9 @@ Deno.test("a refusal names the measure the limit is kept in", () => {
 Deno.test("a message is refused by what it costs, and says so", () => {
 	const room = { type: "room", key: "k", id: "design" } as unknown as Parameters<typeof composerLineRefusal>[0];
 	// Well under the limit in characters, over it in what the wire carries. The
-	// sentence used to promise this reader thousands of characters they could
-	// not have, and the further their script sits from ASCII the further out it
-	// was.
+	// sentence must not promise this reader thousands of characters they cannot
+	// have, and the further their script sits from ASCII the further out that
+	// promise would be.
 	const japanese = "あ".repeat(3000);
 	assertEquals(japanese.length < MAX_LINE, true);
 	assertEquals(lineCost(japanese) > MAX_LINE, true);
@@ -119,8 +119,8 @@ Deno.test("a message is refused by what it costs, and says so", () => {
 	assertEquals(composerLineRefusal(room, "あ".repeat(10)), null);
 });
 
-// The counter over the composer, which used to watch only a bridged room's
-// smaller cap: the app's own was met by pressing Send.
+// The counter over the composer watches a bridged room's smaller cap and the
+// app's own, so neither is first met by pressing Send.
 Deno.test("the counter watches whichever cap is in force", () => {
 	const app = { type: "room" as const };
 	const bridged = { type: "room" as const, lineBytes: 512 };
@@ -128,7 +128,7 @@ Deno.test("the counter watches whichever cap is in force", () => {
 	assertEquals(lineCapSaid(app, "x".repeat(100)), null);
 	assertEquals(lineCapSaid(app, "x".repeat(6000)), null);
 	assertEquals(lineCapSaid(bridged, "x".repeat(100)), null);
-	// The app's own wall is counted now, and is not called the room's.
+	// The app's own wall is counted, and is not called the room's.
 	assertEquals(lineCapSaid(app, "x".repeat(7000)), { over: false, said: "1192 bytes left" });
 	assertEquals(lineCapSaid(app, "x".repeat(8192)), { over: false, said: "0 bytes left" });
 	assertEquals(lineCapSaid(app, "x".repeat(9000)), { over: true, said: "808 bytes too long" });

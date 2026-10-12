@@ -22,6 +22,9 @@ impl Tasks for Platform {
 	}
 }
 impl Deadline for Platform {
+	fn monotonic_millis(&self) -> u64 {
+		0
+	}
 	async fn within<T>(&self, ms: u64, work: impl std::future::Future<Output = T>) -> Option<T> {
 		tokio::time::timeout(std::time::Duration::from_millis(ms.min(20)), work)
 			.await

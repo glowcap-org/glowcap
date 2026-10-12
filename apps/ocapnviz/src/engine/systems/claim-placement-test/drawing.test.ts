@@ -51,7 +51,7 @@ layoutTest(
 	() => {
 		// The two never stand on the stage together, so every moment draws exactly
 		// one of them and a resolution asked of the moment would name that one.
-		// Asked of the document — where the ambiguity is — it names neither, and
+		// Asked of the document, where the ambiguity is, it names neither, and
 		// that is the answer both surfaces need: the layout refuses to lean the
 		// claim, so a frame that resolved it anyway would key this session onto
 		// Alice's lane and shove the real session on that pair out of its own.
@@ -107,7 +107,7 @@ layoutTest(
 	() => {
 		// The degenerate segment, read from both sides. The end claims to be
 		// Alice and Alice is already sitting at the other end of this very
-		// session, so there is no direction to lean in — and a frame that
+		// session, so there is no direction to lean in, and a frame that
 		// resolved it anyway would key the pair as Alice-to-Alice, which is not a
 		// corridor anything runs along.
 		const doc = projectFromObservations(docOf([
@@ -131,7 +131,7 @@ layoutTest(
 
 layoutTest("naming a peer on the wire makes the end beside it a claim", () => {
 	// A peer's durable name is what a claim matches, so writing one turns an
-	// ordinary loose end into a claim about that peer — and the placement has
+	// ordinary loose end into a claim about that peer, and the placement has
 	// to follow in the same edit. Re-seeking alone left the layout answering
 	// from the peer's old identity: the end was drawn as a claim, at half a
 	// peer's width and with its wire cut short, while still standing where an

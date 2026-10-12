@@ -31,7 +31,7 @@ async fn scenario() {
 	let writer = peer.owners.authority.take().unwrap();
 	let writing = tokio::task::spawn_local(writer.run(shared.clone()));
 	let original = issue(&shared).await;
-	// Capture the batch's intent but deliberately do not poll its admission.
+	// Capture the batch's intent but do not poll its admission.
 	let delayed = authority::request_revoke(&shared.borrow(), Kind::Room, original.clone());
 	let revoke_now = authority::request_revoke(&shared.borrow(), Kind::Room, original.clone());
 	revoke_now.await.unwrap();

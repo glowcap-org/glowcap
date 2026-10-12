@@ -2,16 +2,16 @@
 //! driver header (`glowcap_host.h`), and the two transport headers
 //! (`glowcap_net_transport_tcp.h`, `glowcap_net_transport_inproc.h`) agree with
 //! the Zig C ABI sources they mirror, so the two cannot silently drift. The
-//! headers keep their prose (they are the C consumer's contract documents); this
+//! headers keep their prose (they are the C consumer's contract documents). This
 //! test is the compiler-checked guarantee that their layouts and constants match
 //! the source.
 //!
-//! The build translates the headers into the `c_headers` module; every assertion
+//! The build translates the headers into the `c_headers` module. Every assertion
 //! compares a C declaration against the Zig `extern struct` / constant /
 //! function it is supposed to equal. The shared vocabulary (frame/context types,
 //! codes) is declared once in `glowcap_ocapn.h`, which the transport headers
 //! include, so struct and constant parity is checked against the `c_abi` (ocapn)
-//! source; each transport module's functions are checked separately (ADR-0059).
+//! source. Each transport module's functions are checked separately (ADR-0059).
 
 const std = @import("std");
 const glowcap = @import("glowcap");

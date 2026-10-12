@@ -1,29 +1,23 @@
 // The screen a person meets after something went wrong mid-change.
 //
-// It was written entirely about the session's own knowledge: "This durable
-// change stopped before the session knew its final outcome", "Tell the session
-// whether the outside action completed. It cannot tell from here", "Resume the
-// recorded recovery path, or abandon it before it produces a result." Somebody
-// reading that has just had a crash and now has to decide something, and none
-// of it tells them what they are deciding.
-//
-// The decision is small once it is said plainly: something you started may or
-// may not have gone through, Rooms cannot check, so either say it did or drop
-// it. That is what these say.
+// The reader has just had a crash and has a decision to make. The decision is
+// small: something you started may or may not have gone through, Rooms cannot
+// check, so either say it did or drop it. The sentences here say that.
 
 export function recoveryTitle(count: number): string {
 	return count === 1 ? "Unfinished change" : "Unfinished changes";
 }
 
 export function recoveryLead(count: number): string {
+	if (count === 0) return "There are no unfinished changes to review.";
 	return count === 1
 		? "Something you started didn't finish, and Rooms can't tell whether it went through."
 		: "Some things you started didn't finish, and Rooms can't tell whether they went through.";
 }
 
-/** Per row, what this one needs from the reader. `external` is the one Rooms
- * genuinely cannot check for itself, which is the whole reason this screen
- * exists rather than a retry. */
+/** Per row, what this one needs from the reader. `external` is the case Rooms
+ * cannot check for itself, which is why this screen exists instead of a
+ * retry. */
 export const recoveryExternalHint =
 	"Rooms can't check this one. If you know it went through, say so. Otherwise drop it.";
 export const recoveryPreparedHint = "Pick this back up, or drop it before it does anything.";
@@ -46,13 +40,13 @@ export const recoveryMarkAllDone = "They went through";
 export const recoveryDrop = "Drop it";
 export const recoveryDropAll = "Drop them";
 
-/** What state a row is in, said as a state rather than as a phase name. */
+/** What state a row is in. */
 export const recoveryPhaseUnresolved = "Needs an answer";
 export const recoveryPhasePrepared = "Ready to resume";
 export const recoveryPhaseCompleted = "Result recorded";
 export const recoveryPhaseDefault = "Ready to finish";
 
-/** Where a retained operation stands, as a chip. */
+/** Where an unfinished operation stands, as a chip. */
 export const recoveryStatus: Record<"pending" | "committed" | "unknown" | "unsent" | "saving" | "working", string> = {
 	pending: "Waiting for a reply",
 	committed: "Went through",
@@ -61,7 +55,7 @@ export const recoveryStatus: Record<"pending" | "committed" | "unknown" | "unsen
 	saving: "Went through",
 	working: "In progress",
 };
-/** What the one act on a row does, said under its name. */
+/** What the act on a row does, said under its name. */
 export const recoveryRowHint: Record<"pending" | "committed" | "unknown" | "unsent" | "saving" | "working", string> = {
 	pending: "The other side has not answered yet. Pick it back up to keep waiting for it.",
 	committed: "It went through. Finish to keep what it returned in this session.",
@@ -128,4 +122,12 @@ export function recoverySubject(
 		default:
 			return "An earlier change";
 	}
+}
+
+export const recoveryOperationDetails = "Operation details";
+
+/** The full list could not be read, so the list below is only what this tab
+ * still holds and the count in the lead would be a guess. */
+export function recoveryListUnread(failure: string): string {
+	return `Rooms couldn't read the rest of this session's unfinished changes. ${failure}`;
 }

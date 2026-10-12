@@ -54,7 +54,7 @@ pub fn maybeInstallInboundListener(peer: *Peer, listen: model.view.Listen) !void
 }
 
 /// The listener's mention is the session's to release, beside the fire that
-/// spends it or when the listener is discarded; it is never an application
+/// spends it or when the listener is discarded. It is never an application
 /// reference, so no caller's `op:gc-exports` may address it.
 fn listenerEntryFromListen(peer: *Peer, listen: model.view.Listen) !session.ListenerEntry {
     const position = listen.listener.position() orelse return session.Error.InvalidReference;

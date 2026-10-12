@@ -131,7 +131,7 @@ test "responder auto-resolves an inbound bootstrap fetch (no manual reply)" {
             // The fetch fulfilled with the responder's bootstrap export. Assert
             // the reference's *position* equals that export position; stay agnostic to
             // the near/far wire-perspective discriminator (matcher returns the
-            // reference as decoded — `fetch.tryMatchFetchOutcome` does not flip —
+            // reference as decoded, `fetch.tryMatchFetchOutcome` does not flip,
             // and the codec round-trips `Near`↔`desc:import-object` symmetrically).
             const position: u64 = switch (ref) {
                 .near => |near| near.export_position.int(),

@@ -1,11 +1,11 @@
 # apps/
 
 First-party applications live here. They use the same public
-`connect`/`publish`/`fetch`/`send`/`serve` API as the language bindings, not
-private `libglowcap_*` calls.
+`connect`/`publish`/`fetch`/`send`/`serve` API as the language bindings and
+call no private `libglowcap_*` functions.
 
 - [`rooms/`](rooms/): capability-secure chat. The browser UI
-  (`zig build rooms-web`) rides encrypted iroh; `demo-rooms` is the
+  (`zig build rooms-web`) rides encrypted iroh. `demo-rooms` is the
   cross-language room without a browser.
 - [`tasks/`](tasks/): a shared task board (`zig build demo-tasks`).
 - [`tools/`](tools/): the delegation/attenuation/revocation showcase for AI
@@ -30,7 +30,7 @@ Rooms, Tasks, and Tools share one convention:
 
 - Deno starts the server and coordinates the run.
 - The Zig client always joins.
-- Python, Racket, and Rust join when their runtimes are on `PATH`; missing
+- Python, Racket, and Rust join when their runtimes are on `PATH`. Missing
   optional runtimes are reported and skipped.
 - `-Dport=9099` chooses a port instead of using an available one.
 - `-Dattach=true` runs the clients against an existing server and leaves it

@@ -6,14 +6,14 @@
 //! `tools/gen/header/ocapn.zig`, the function signatures are *reflected* from the real
 //! `src/c_abi/net_transport/iroh/mod.zig` exports, so the header cannot disagree
 //! with the implementation, and the prose lives here.
-//! `zig build gen-header-net-transport-iroh-check` is the staleness gate;
+//! `zig build gen-header-net-transport-iroh-check` is the staleness gate,
 //! `zig build gen-header-net-transport-iroh` is the fixer. Both run cargo-free:
 //! the generator reflects types only and links the sidecar stubs
 //! (`tools/gen/stub/iroh_sidecar.zig`).
 //!
 //! The shared frame/peer/context vocabulary (`GlowcapFrame`,
 //! `GlowcapManagedFrame`, `GlowcapContext`) is declared in `glowcap_ocapn.h`,
-//! which this header includes; only the two iroh handles and the
+//! which this header includes. Only the two iroh handles and the
 //! `glowcap_iroh_*` prototypes are new here.
 
 const std = @import("std");

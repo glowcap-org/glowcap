@@ -1,5 +1,5 @@
 // A held directory has a conversation of its own: a view, not a room and not a
-// workspace row. Pressing the directory selects that view; the card still opens
+// workspace row. Pressing the directory selects that view. The card still opens
 // from the title. The title's close mark asks to leave, in that card. An empty
 // directory's rail row stays while only that view is open, because empty means
 // no rooms and no direct lines. The composer is a command line for that

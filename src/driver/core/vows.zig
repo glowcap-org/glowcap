@@ -1,11 +1,11 @@
 //! Host vows and resolver pairs: the read side every asynchronous host verb
 //! returns, and the reservation/attachment machinery behind it.
 //!
-//! One of `host.zig`'s responsibilities, kept beside it rather than in it. The
-//! `Host` still owns the state — the vow map, the resolver index, the id
-//! sources — and still presents the `vow*`, `deferTurn`, and `resolver*`
-//! verbs as its own through decl aliases, so a caller reads one `Host`
-//! surface. What lives here is the operation side of that lifecycle: mint,
+//! One of `host.zig`'s responsibilities, kept in a sibling file. The
+//! `Host` owns the state (the vow map, the resolver index, the id
+//! sources) and presents the `vow*`, `deferTurn`, and `resolver*`
+//! verbs through decl aliases, so a caller reads one `Host`
+//! surface. This file holds the operation side of that lifecycle: mint,
 //! listener attachment, eventual sends, and projections. `vows/settlement.zig`
 //! owns the row's one terminal transition and completion dispatch.
 
@@ -39,7 +39,7 @@ const ResolvedVow = struct { row: *VowRow, session: *HostSession };
 const Projection = union(enum) { index: i64, untag: []const u8, get: []const u8 };
 
 /// Every fallible resource needed to publish one Host vow after its semantic
-/// operation commits. The row and both queue capacities are Host-owned; the
+/// operation commits. The row and both queue capacities are Host-owned. The
 /// typed listener reservation belongs to the Vat/Port settlement namespace.
 pub const VowReservation = struct {
     row: *VowRow,
@@ -50,7 +50,7 @@ pub const VowReservation = struct {
 /// the resolution borrowed (zero-copy) and keeps settlement off the action
 /// queue. A remote answer reserves its eventual `op:gc-answer` carrier here,
 /// before the callback can make settlement infallible. A second listener on a
-/// pending row is refused `AlreadyListening`; a completed public vow is
+/// pending row is refused `AlreadyListening`. A completed public vow is
 /// refused `AlreadySettled` but remains a valid pipeline target until release.
 pub fn vowOn(self: *Host, vow_id: u64, listener: actors.Listener) !void {
     const resolved = try resolveVowSession(self, vow_id);
@@ -256,15 +256,15 @@ pub fn reserveVowAt(
 }
 
 /// Release the only owned resource in an uncommitted reservation. Reserved
-/// map/FIFO capacity is intentionally retained for the next operation.
+/// map/FIFO capacity is retained for the next operation.
 pub fn cancelVowReservation(self: *Host, reservation: VowReservation) void {
     self.allocator.destroy(reservation.row);
 }
 
 /// Mint a Host vow whose producing operation is admitted now but cannot be
 /// attached to its eventual session yet. Inline handoff sends use this while
-/// redemption is pending. The row is fully observable to `vowOn` immediately;
-/// its producer later settles it through `fireVow` and may transfer its
+/// redemption is pending. The row is fully observable to `vowOn` immediately.
+/// Its producer later settles it through `fireVow` and may transfer its
 /// session ownership with `moveDeferredVow` before that settlement.
 pub fn mintDeferredVow(
     self: *Host,
@@ -340,8 +340,8 @@ pub fn commitVow(
 }
 
 /// Explicit-listener commit for Host-core bridges whose terminal callback does
-/// more than retire and queue the raw resolution. The id counter is deliberately
-/// unchanged; the continuation decides whether its id is fresh or pre-minted.
+/// more than retire and queue the raw resolution. The id counter is
+/// unchanged, and the continuation decides whether its id is fresh or pre-minted.
 pub fn commitVowWithListener(
     self: *Host,
     session: *HostSession,
@@ -425,7 +425,7 @@ fn pipelineAnswer(row: *const VowRow) !model.AnswerPosition {
 /// The live session and row a latch-legal vow verb operates on: assert the
 /// owner, resolve the vow's row and its session, and refuse a released or
 /// unknown vow or a dead session alike with `NoSuchVow`. Settled embedder rows
-/// deliberately remain valid pipeline targets until explicit release.
+/// remain valid pipeline targets until explicit release.
 /// `vowOn`, `vowSend`, and `vowProjection` share this prelude
 /// and differ only in the body that follows.
 fn resolveVowSession(self: *Host, vow_id: u64) HostError!ResolvedVow {

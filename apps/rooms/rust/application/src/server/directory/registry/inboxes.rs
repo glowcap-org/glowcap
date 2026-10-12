@@ -1,9 +1,9 @@
 //! Bounded offers belong to one peer registration and one direct opening.
-//! Introduction transfers the offer; later openings cannot retain retired inboxes.
+//! Introduction transfers the offer. Later openings cannot retain retired inboxes.
 use super::*;
 
 /// The directory retains at most MAX_DM_INBOXES actual references per offerer.
-/// Keys survive capability settlement and retries; borrowed lookups make no
+/// Keys survive capability settlement and retries. Borrowed lookups make no
 /// temporary key copies. Introduction transfers each occurrence out of custody.
 pub(super) struct Offers<R> {
 	peers: BTreeMap<String, BTreeMap<String, R>>,
@@ -23,6 +23,9 @@ impl<R> Offers<R> {
 	}
 	pub fn holds_peer(&self, peer: &str) -> bool {
 		self.peers.contains_key(peer)
+	}
+	pub fn holds(&self, peer: &str, opening: &str) -> bool {
+		self.peers.get(peer).is_some_and(|held| held.contains_key(opening))
 	}
 	pub fn admit(&self, peer: &str, opening: &str) -> Result<(), Refusal> {
 		if !crate::directory::introduction::valid_opening(opening) {
@@ -54,7 +57,7 @@ impl<R> Offers<R> {
 		let inbox = held.remove(opening)?;
 		self.count -= 1;
 		if held.is_empty() {
-			self.peers.remove(peer).expect("consumed peer");
+			self.peers.remove(peer);
 		}
 		Some(inbox)
 	}
@@ -71,6 +74,17 @@ impl<R> Offers<R> {
 }
 
 impl<C: Copy + Ord, R: Clone> Registry<C, R> {
+	/// Borrow existing offer custody before admission. Reading an offered inbox
+	/// does not ask its owner to mint another one. The adapter checks this in the
+	/// same synchronous turn as admission and consumption.
+	pub fn introduction_ready(&self, connection: C, nick: &str, id: &str, opening: &str) -> bool {
+		let Some(caller) = self.own(connection) else {
+			return false;
+		};
+		self.rows
+			.get(&fold(nick))
+			.is_some_and(|target| target.id.as_str() == id && target.offered.holds(caller.id.as_str(), opening))
+	}
 	pub fn prepare_inbox(
 		&self,
 		connection: C,
@@ -84,7 +98,8 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 			connection,
 			owner: peers.owner.id.clone(),
 			peer: for_nick.into(),
-			target: Id::parse(for_id).expect("validated registration"),
+			target: Id::parse(for_id)
+				.map_err(|_| Refusal::coded(FailureCode::NickTooLong, "offerInbox has an invalid registration ID"))?,
 			opening: opening.into(),
 		})
 	}
@@ -100,8 +115,14 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 			));
 		}
 		let waiting = (peers.recipient.connection, peers.recipient.inbox.clone());
-		let own_key = self.by_connection.get(&offer.connection).expect("validated connection");
-		let own = self.rows.get_mut(own_key).expect("validated registration");
+		let gone = || {
+			Refusal::coded(
+				FailureCode::NotRegistered,
+				"the inbox owner's registration changed before its capability settled",
+			)
+		};
+		let own_key = self.by_connection.get(&offer.connection).ok_or_else(gone)?;
+		let own = self.rows.get_mut(own_key).ok_or_else(gone)?;
 		let mut effects = Effects::default();
 		if let Some(prior) = own.offered.put(offer.target.as_str(), &offer.opening, offered) {
 			effects.release(offer.connection, prior);

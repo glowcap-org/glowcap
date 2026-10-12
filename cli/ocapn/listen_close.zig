@@ -1,5 +1,5 @@
 //! Explicit close for a CLI-owned `driver.Server`. Implicit `deinit` retains
-//! leftovers on the Runtime with no product-front recipient; this barrier
+//! leftovers on the Runtime with no product-front recipient. This barrier
 //! returns the exact chain so `close` and argv listen can keep it.
 
 const glowcap = @import("glowcap");

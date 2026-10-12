@@ -13,7 +13,7 @@ pub fn Machine(comptime Self: type, comptime Types: type) type {
         const Fd = Types.Fd;
 
         /// Arm an ordinary recv on the caller-owned wake descriptor. Its
-        /// completion runs `handler` on the loop thread and re-arms; the
+        /// completion runs `handler` on the loop thread and re-arms. The
         /// descriptor must outlive the loop's borrowed use (ADR-0102).
         pub fn armWake(
             self: *Self,
@@ -33,7 +33,7 @@ pub fn Machine(comptime Self: type, comptime Types: type) type {
         }
 
         /// A wake recv completed: run the handler and re-arm. A closed or
-        /// faulted channel (teardown pulled the mailbox) stays disarmed; a
+        /// faulted channel (teardown pulled the mailbox) stays disarmed. A
         /// re-arm the backend cannot admit right now is retried before the
         /// next wait, bounded like an owed close.
         pub fn onWakeCompletion(self: *Self, result: i32) !void {
@@ -63,7 +63,7 @@ pub fn Machine(comptime Self: type, comptime Types: type) type {
 
         /// Retire the caller-owned wake recv without touching its descriptor.
         /// A refused cancel submission mints no completion and is retried on a
-        /// bounded poll; an admitted one owns a distinct completion in addition
+        /// bounded poll. An admitted one owns a distinct completion in addition
         /// to the target recv completion.
         pub fn retryWakeCancel(self: *Self) !void {
             if (!self.wake_cancel_submit_pending) return;

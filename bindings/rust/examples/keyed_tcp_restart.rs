@@ -1,5 +1,5 @@
 //! Per-binding keyed-tcp restart proof (ADR-0075): happy path, key-squatter
-//! refusal, and same-seed-fresh-port restart — the Rust sibling of
+//! refusal, and same-seed-fresh-port restart: the Rust sibling of
 //! `test/driver/keyed_tcp_restart_test.zig`.
 //!
 //! Run via `zig build rust-keyed-tcp-restart` (needs cargo).
@@ -38,7 +38,7 @@ async fn listen(seed: [u8; 32]) -> Result<tcp::Server, String> {
 }
 
 /// Dial, wait until the host has published, then fetch/call. `connect` must run
-/// concurrently with `accept` so the listener unblocks; the oneshot orders
+/// concurrently with `accept` so the listener unblocks. The oneshot orders
 /// publish ahead of fetch.
 async fn call_greeter(partner: &Locator, published: oneshot::Receiver<()>) -> Result<(), String> {
 	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))

@@ -74,7 +74,7 @@ pub const Auth = union(enum) {
 };
 
 /// Where Tor forwards the service's virtual port. Both forms are the control
-/// protocol's own; the pinned Goblins always uses `unix`.
+/// protocol's own. The pinned Goblins always uses `unix`.
 pub const Forward = union(enum) {
     /// A Unix socket path, formatted as `unix:<path>`.
     unix: []const u8,
@@ -166,7 +166,7 @@ pub fn writeSetEventsHsDesc(buf: []u8) Error![]const u8 {
 
 /// What a reply line's separator says about the lines after it.
 pub const Continuation = enum {
-    /// `-`: an intermediate line; more follow.
+    /// `-`: an intermediate line. More follow.
     mid,
     /// ` `: the last line of this reply.
     end,
@@ -182,7 +182,7 @@ pub const Reply = struct {
     text: []const u8,
 
     /// Whether this is a success code. Tor answers `250` for the requests this
-    /// module sends; anything else is the daemon declining, and the caller
+    /// module sends. Anything else is the daemon declining, and the caller
     /// reports the code rather than reinterpreting it.
     pub fn isOk(self: Reply) bool {
         return self.code == 250;
@@ -226,7 +226,7 @@ pub fn parseLine(line: []const u8) Error!Reply {
 /// Strip a line terminator from `line`, accepting either `\r\n` or a bare `\n`.
 ///
 /// The pinned Goblins reads to `\n` and then trims a trailing `\r`, so a daemon
-/// that sent only `\n` would be tolerated there; this matches that tolerance
+/// that sent only `\n` would be tolerated there. This matches that tolerance
 /// rather than being stricter than the peer it must agree with.
 pub fn trimLineEnding(line: []const u8) []const u8 {
     var out = line;
@@ -236,7 +236,7 @@ pub fn trimLineEnding(line: []const u8) []const u8 {
 }
 
 /// A bounded append cursor over a caller buffer. The two credential forms build
-/// their line byte by byte, so they need somewhere to refuse an overrun; every
+/// their line byte by byte, so they need somewhere to refuse an overrun. Every
 /// append returns `LineTooLong` rather than truncating, because a truncated
 /// credential is a request the daemon would answer differently.
 const Cursor = struct {
@@ -271,7 +271,7 @@ fn checkLen(written: []const u8) Error![]const u8 {
 }
 
 /// Refuse a credential that could not survive the quoted-string form. The
-/// control protocol's quoting covers `"` and `\`, which the writer escapes; a
+/// control protocol's quoting covers `"` and `\`, which the writer escapes. A
 /// carriage return or newline would end the line early and turn the rest of the
 /// password into a forged request, so it is refused outright.
 fn checkQuotable(text: []const u8) Error!void {

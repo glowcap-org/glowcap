@@ -1,4 +1,4 @@
-//! A fresh Host cannot use its predecessor's registrations or direct routes.
+//! A fresh Host cannot use its predecessor's registrations or membership routes.
 //! Retire their selections before exposing the workspace. Nickname intent,
 //! history, drafts, initiating sources and original receipts remain durable.
 use super::{records, refuse};
@@ -31,21 +31,40 @@ pub(super) fn invoke(call: &mut loam::Call<'_>, input: loam::Invocation<'_>, roo
 		row.assigned_nick = None;
 	}
 	for row in record.intent.conversations.as_mut_slice() {
-		let workspace::Conversation::Direct(row) = row else {
-			continue;
+		let lines = match row {
+			workspace::Conversation::Direct(row) => {
+				changed |= !row.closed || row.access.is_some() || row.inbox.is_some();
+				row.closed = true;
+				if let Some(key) = row.access.take() {
+					record.custody.remove(coordinate(custody::Role::DirectAccess, key));
+				}
+				if let Some(key) = row.inbox.take() {
+					record.custody.remove(coordinate(custody::Role::DirectInbox, key));
+				}
+				&mut row.lines
+			}
+			workspace::Conversation::Room(row) => {
+				changed |= row.seat.is_some() || row.topic.is_some() || row.files.is_some() || row.inbox.is_some();
+				if let Some(key) = row.seat.take() {
+					record.custody.remove(coordinate(custody::Role::RoomSeat, key));
+				}
+				if let Some(key) = row.topic.take() {
+					record.custody.remove(coordinate(custody::Role::RoomTopic, key));
+				}
+				if let Some(key) = row.files.take() {
+					record.custody.remove(coordinate(custody::Role::RoomFiles, key));
+				}
+				if let Some(key) = row.inbox.take() {
+					record.custody.remove(coordinate(custody::Role::RoomInbox, key));
+				}
+				&mut row.lines
+			}
 		};
-		changed |= !row.closed || row.access.is_some() || row.inbox.is_some() || !row.lines.is_empty();
-		row.closed = true;
-		if let Some(key) = row.access.take() {
-			record.custody.remove(coordinate(custody::Role::DirectAccess, key));
-		}
-		if let Some(key) = row.inbox.take() {
-			record.custody.remove(coordinate(custody::Role::DirectInbox, key));
-		}
-		for line in row.lines.as_slice() {
+		changed |= !lines.is_empty();
+		for line in lines.as_slice() {
 			record.custody.remove(coordinate(custody::Role::Line, line.handle));
 		}
-		row.lines = Default::default();
+		*lines = Default::default();
 	}
 	// Foreign listings belong to the publishing connection. Keep no selected
 	// lease after its Host ends, and retain any room authority still selected

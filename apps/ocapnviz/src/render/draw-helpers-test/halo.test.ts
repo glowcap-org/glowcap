@@ -1,7 +1,7 @@
 /**
  * The node focus ring: selected, anchor, and hover.
  *
- * The body a ring hugs is a world thing; the ring's own geometry is a
+ * The body a ring hugs is a world thing. The ring's own geometry is a
  * statement about the reader's state, so it is measured in screen
  * pixels.
  */
@@ -60,7 +60,7 @@ Deno.test("the focus ring hugs the body it rings, whatever its size", () => {
 
 Deno.test("the anchor ring is the selected ring plus one inside it", () => {
 	// Under multi-select the reader has to see which of the selected things the
-	// Inspector follows, and the answer must not be a different ring — it is the
+	// Inspector follows, and the answer must not be a different ring. It is the
 	// same ring with a second one inside.
 	const selected = halo(30, "selected", false);
 	const anchor = halo(30, "anchor", false);
@@ -126,7 +126,7 @@ Deno.test("a focus ring holds one screen size at every zoom", () => {
 Deno.test("the anchor and hover rings hold their screen inset too", () => {
 	// The whole selection vocabulary has to read as one thing at any zoom, so a
 	// ring that compensates while the ring inside it does not would come apart as
-	// the camera pulls back — the inner ring would drift out through the outer.
+	// the camera pulls back. The inner ring would drift out through the outer.
 	const radius = 30;
 	const anchorInsets = new Set<string>();
 	const hoverInsets = new Set<string>();

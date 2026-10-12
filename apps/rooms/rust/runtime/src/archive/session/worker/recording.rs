@@ -31,7 +31,7 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 	}
 	/// Store a recording whose capture landed. Bytes the source could not
 	/// deliver leave the line archived without them, the same line the room
-	/// keeps; a capture cut short by an erasure or by closing is refused.
+	/// keeps. A capture cut short by an erasure or by closing is refused.
 	pub(super) async fn captured(
 		&mut self,
 		landed: Result<(Id, Result<Vec<capture::Captured>, Error>), JoinError>,
@@ -115,14 +115,12 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 				.await
 			{
 				Err(error) => Err(error),
-				Ok(revision) => {
-					match writer {
-						Keeper::Local(_) => self.standings.remember(standing),
-						Keeper::Peer(peer) => peer.target().standings.borrow_mut().remember(standing),
-					}
-					.expect("prepared standing has validated kind");
-					Ok(Some(revision))
+				Ok(revision) => match writer {
+					Keeper::Local(_) => self.standings.remember(standing),
+					Keeper::Peer(peer) => peer.target().standings.borrow_mut().remember(standing),
 				}
+				.map(|()| Some(revision))
+				.map_err(Error::invalid_by),
 			},
 		};
 		Ok(Recorded {

@@ -18,7 +18,7 @@ pub const StringView = extern struct {
 };
 
 /// One ICE server record. URLs and credentials are borrowed for endpoint
-/// construction; the sidecar copies them into endpoint-owned configuration.
+/// construction. The sidecar copies them into endpoint-owned configuration.
 pub const IceServerConfig = extern struct {
     urls: ?[*]const StringView,
     url_count: usize,
@@ -157,7 +157,7 @@ pub const PeerId = enum(usize) {
 // ── The resident ─────────────────────────────────────────────────────────────
 
 /// A signaling call that could not complete. `BufferTooSmall` names an SDP or
-/// candidate too large for the caller's buffer; the caller retries with a larger
+/// candidate too large for the caller's buffer. The caller retries with a larger
 /// one. `SignalTooLarge` names malformed or unusable signaling input before it
 /// enters the sidecar parser. `SignalFailed` is any other sidecar refusal.
 pub const SignalError = error{ SignalFailed, BufferTooSmall, SignalTooLarge };
@@ -176,7 +176,7 @@ pub const Peer = struct {
     pub const InitError = error{PeerCreateFailed};
 
     /// Create a peer in one of the two signaling roles. The offerer creates the
-    /// data channel and produces the SDP offer; the answerer receives the
+    /// data channel and produces the SDP offer. The answerer receives the
     /// channel and produces the answer. The readiness path reads and writes
     /// session packets with `tryReceivePacket` / `trySendPacket`.
     fn init(resident: *Resident, is_offerer: bool) InitError!Peer {
@@ -207,7 +207,7 @@ pub const Peer = struct {
     }
 
     /// Close the data channel and connection without freeing the handle,
-    /// waking any parked reader with end of stream. Idempotent; the shutdown
+    /// waking any parked reader with end of stream. Idempotent. The shutdown
     /// lever for a host whose read parks on another thread. `deinit` still frees.
     pub fn close(self: *Peer) void {
         glowcap_webrtc_sidecar_conn_close(self.peer);
@@ -283,7 +283,7 @@ pub const Peer = struct {
     }
 
     /// Non-blocking channel-open check. `WouldBlock` means wait for an `ev_open`
-    /// or `ev_closed` readiness record and retry; `Failed` is terminal setup
+    /// or `ev_closed` readiness record and retry. `Failed` is terminal setup
     /// failure.
     pub const OpenError = error{ WouldBlock, Closed, Failed };
 
@@ -299,7 +299,7 @@ pub const Peer = struct {
     pub const TryPacketError = error{ WouldBlock, Closed, Failed, BufferTooSmall };
 
     /// Non-blocking packet receive for readiness owners. `WouldBlock` means
-    /// re-arm on `ev_readable`; `Closed` is clean end of stream.
+    /// re-arm on `ev_readable`. `Closed` is clean end of stream.
     pub fn tryReceivePacket(self: *Peer, buf: []u8) TryPacketError!usize {
         const n = glowcap_webrtc_sidecar_conn_try_receive_packet(self.peer, buf.ptr, buf.len);
         if (n == 0) return error.Closed;
@@ -322,22 +322,22 @@ pub const Peer = struct {
 };
 
 /// The WebRTC netlayer resident: one shared sidecar runtime, readiness fd, and
-/// stable peer-id namespace. It intentionally exposes no `Netlayer`: a bare
+/// stable peer-id namespace. It exposes no `Netlayer`: a bare
 /// `webrtc` locator carries no signaling authority, so generic address-based
 /// dial and listen methods would be false APIs. The host's dial classifier still
-/// identifies the signaling shape; a signaling owner creates peers here.
+/// identifies the signaling shape. A signaling owner creates peers here.
 pub const Resident = struct {
     endpoint: *CEndpoint,
 
     pub const InitError = IceConfigError || error{EndpointCreateFailed};
 
-    /// One endpoint's configuration; the C ABI's `GlowcapWebrtcConfig` is the
+    /// One endpoint's configuration. The C ABI's `GlowcapWebrtcConfig` is the
     /// authority on what each setting means. A single config so a future
     /// endpoint setting rides it without growing the constructor's arity.
     ///
     /// `include_loopback_candidates` defaults to false, so a peer offers
     /// loopback only where a caller says it wants it. Two peers in one process
-    /// or on one host need it and say so; a deployment neither needs it nor
+    /// or on one host need it and say so. A deployment neither needs it nor
     /// wants to advertise addresses a partner can never use.
     pub const Config = struct {
         ice_servers: []const IceServerConfig = &.{},
@@ -368,7 +368,7 @@ pub const Resident = struct {
     }
 
     /// Borrowed, read-only OS readiness fd. Register it once and call
-    /// `drainReady` whenever it wakes; the resident owns it until `deinit`.
+    /// `drainReady` whenever it wakes. The resident owns it until `deinit`.
     pub fn readinessFd(self: *const Resident) i32 {
         return glowcap_webrtc_sidecar_endpoint_readiness_fd(self.endpoint);
     }
@@ -384,7 +384,7 @@ pub const Resident = struct {
     }
 
     /// Borrow the generic driver's independent subscription. Calling this
-    /// lazily creates the second sidecar queue; raw signaling continues to use
+    /// lazily creates the second sidecar queue. Raw signaling continues to use
     /// `readinessFd`/`drainReady` and cannot lose events to the driver.
     pub fn driverReadinessFd(self: *const Resident) i32 {
         return glowcap_webrtc_sidecar_endpoint_driver_readiness_fd(self.endpoint);
@@ -398,7 +398,7 @@ pub const Resident = struct {
 
     /// Park on the readiness fd for at most `timeout_ms`, then perform the same
     /// ordered wake-byte and record drain as `drainReady`. This is the blocking
-    /// embedding helper; reactors register `readinessFd` and call `drainReady`
+    /// embedding helper. Reactors register `readinessFd` and call `drainReady`
     /// from their own poller instead.
     pub fn pollReady(self: *const Resident, out: []ReadyEvent, timeout_ms: i32) error{ReadinessFailed}!usize {
         const fd = self.readinessFd();

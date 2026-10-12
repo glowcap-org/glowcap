@@ -278,7 +278,7 @@ fn reserveConcurrentEnlivenments(allocator: std.mem.Allocator) !void {
     var names: [32][1]u8 = undefined;
     var registered: usize = 0;
     // Even if either cache structure or pending index cannot grow, every
-    // previously admitted reply still owns its reservation and swissnum.
+    // admitted reply still owns its reservation and swissnum.
     defer for (names[0..registered], 0..) |*name, i| {
         s.settlePendingEnlivenIntoCache(name, .{
             .import_position = .from(i + 1),
@@ -473,7 +473,7 @@ test "enliven round-trips over the wire, then a repeat enliven hits the cache" {
     try std.testing.expectEqual(cap_export, enlivened.far.import_position.int());
     try std.testing.expectEqual(@as(?model.AnswerPosition, null), p1.session_state.pendingEnlivenAnswer("swiss"));
 
-    // A repeat enliven now short-circuits to the cached reference, no wire traffic.
+    // A repeat enliven short-circuits to the cached reference, no wire traffic.
     const cached = try sturdyref.prepareEnliven(allocator, &p1.session_state, ref);
     try std.testing.expect(cached == .cached);
     try std.testing.expectEqual(cap_export, cached.cached.far.import_position.int());

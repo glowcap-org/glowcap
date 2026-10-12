@@ -151,7 +151,7 @@ impl<'a> ControlDescription<'a> {
 	}
 }
 /// Exact row identity is descriptive. It cannot retrieve a use or control
-/// capability; mutations must address a control the caller actually holds.
+/// capability. Mutations must address a control the caller holds.
 #[derive(Clone, Copy, Debug)]
 pub struct GrantDescription<'a> {
 	pub slot: u32,

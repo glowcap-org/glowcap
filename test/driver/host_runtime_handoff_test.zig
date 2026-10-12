@@ -1,12 +1,12 @@
 //! The front-door handoff proof (ADR-0090): a three-party give settles as a
 //! live, callable capability *inside* the recipient's blocking `call`, with no
-//! redeem verb in sight — the contract every binding's `Session` carries,
+//! redeem verb in sight, the contract every binding's `Session` carries,
 //! proven here for the owning native tier.
 //!
 //! Three hosts on TCP loopback. The exporter publishes `treasure`. The gifter
-//! holds one `driver.HostRuntime` with two sessions — a dialed session to the
+//! holds one `driver.HostRuntime` with two sessions, a dialed session to the
 //! exporter (where it fetched the treasure) and an accepted session from the
-//! recipient — and its introducer actor replies with the fetched capability,
+//! recipient, and its introducer actor replies with the fetched capability,
 //! which the host core turns into a signed give because the capability's home
 //! is the *other* session. The recipient's `call` hears the give, and its own
 //! pump answers the redeem: dials the exporter, withdraws, and settles the
@@ -19,7 +19,7 @@
 //!
 //! Validated against an injected defect: with the pump's redeem answer
 //! sabotaged (`answerDial` reporting `dialFailed` unconditionally), the
-//! introduce call settles broken and this test fails; restored, it passes.
+//! introduce call settles broken and this test fails. Restored, it passes.
 //! A green run therefore proves the redeem path executed, not merely that
 //! nothing crashed.
 
@@ -90,8 +90,8 @@ const Introducer = struct {
 };
 
 /// The exporter: publish `treasure` on the first accepted session (the
-/// gifter), then interleave serving with accepting the second session — the
-/// recipient's redeem dial — and keep pumping until the latch drops. One
+/// gifter), then interleave serving with accepting the second session, the
+/// recipient's redeem dial, and keep pumping until the latch drops. One
 /// host under both accepts, so the withdraw on session two finds the gift the
 /// deposit on session one recorded.
 fn exporterServe(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
@@ -168,8 +168,8 @@ fn serverSideRedeem(
     defer arena_state.deinit();
 
     // The accepted Session fetches the introducer *from its partner* and calls
-    // it; the reply is a give naming the exporter, and this host — built by
-    // `driver.listen`, not by hand — dials and redeems inside the call.
+    // it; the reply is a give naming the exporter, and this host, built by
+    // `driver.listen`, not by hand, dials and redeems inside the call.
     const introducer = try accepted.fetch("introducer");
     const introduced = try accepted.call(introducer, "introduce", &.{}, arena_state.allocator());
     if (introduced == .broken) std.debug.print("server-side redeem broke: {s}\n", .{introduced.broken});

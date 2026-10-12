@@ -2,7 +2,13 @@
 // generated from Rust's application authority in `failure_data.ts`; this file
 // only reconstructs that typed cause from the generic Glowcap error display.
 
-import { ROOMS_ERROR_CODES, type RoomsErrorCode } from "./failure_data.ts";
+import {
+	ADMISSION_OWNERS,
+	ADMISSION_SCOPES,
+	MAX_RETRY_DELAY_MS,
+	ROOMS_ERROR_CODES,
+	type RoomsErrorCode,
+} from "./failure_data.ts";
 export * from "./failure_data.ts";
 
 const CODES: ReadonlySet<string> = new Set(ROOMS_ERROR_CODES);
@@ -15,6 +21,23 @@ export class RoomsError extends Error {
 		this.name = "RoomsError";
 	}
 
+	/** Validated server delay. Other failures and malformed metadata confer no
+	 * permission to schedule a retry. The delay never promises admission. */
+	get retryAfterMs(): number | null {
+		if (this.code !== "rate-limited") return null;
+		const match = /^retry-after-ms=(\d+); scope=([a-z-]+)(?:; owner=([a-z-]+))?$/.exec(this.detail);
+		if (match === null || !(ADMISSION_SCOPES as readonly string[]).includes(match[2])) return null;
+		if (match[3] != null && !(ADMISSION_OWNERS as readonly string[]).includes(match[3])) return null;
+		const delay = Number(match[1]);
+		return Number.isSafeInteger(delay) && delay >= 1 && delay <= MAX_RETRY_DELAY_MS ? delay : null;
+	}
+
+	get retryScope(): string | null {
+		if (this.retryAfterMs == null) return null;
+		const start = this.detail.indexOf("; scope=") + "; scope=".length;
+		const end = this.detail.indexOf("; owner=", start);
+		return this.detail.slice(start, end < 0 ? undefined : end);
+	}
 	/** Reconstruct the canonical reason or the generic Glowcap error wrapper.
 	 * Code-shaped text inside detail is never promoted to a machine code. */
 	static from(reason: string): RoomsError | null {

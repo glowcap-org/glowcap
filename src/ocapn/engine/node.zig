@@ -1,4 +1,4 @@
-//! `Node` — the sans-io cross-session handoff router (ADR-0066 / ADR-0079).
+//! `Node`: the sans-io cross-session handoff router (ADR-0066 / ADR-0079).
 //!
 //! A `Node` is the **router half** of Goblins' `mycapn`: the tables distinct from
 //! a per-partner CapTP session. The multi-session CapTP **endpoint** (identity +
@@ -18,11 +18,11 @@
 //! its own transport and async loop, registers each live session's peer with
 //! the node, feeds the peer the bytes it reads, drains the bytes the peer
 //! produces, and asks the node to route sends. Every route value is an integer
-//! `peer_handle` or owned bytes, so the router is pure data, which is exactly why it
+//! `peer_handle` or owned bytes, so the router is pure data, which is why it
 //! lives here in the sync, no-I/O engine core (not the I/O-bearing driver layer)
 //! instead of being reimplemented per binding, and why the sans-io
 //! `libglowcap_ocapn` archive can project it (ADR-0066). The vat (turn loop,
-//! promise resolution, behavior dispatch) stays above the node; the standard
+//! promise resolution, behavior dispatch) stays above the node. The standard
 //! `driver_core.Host` owns one beside the Node, while embedders still own the
 //! scheduler and transport policy above this core boundary.
 //!
@@ -100,8 +100,8 @@ pub const Node = struct {
     /// Max third parties one introducing-session proxy row will introduce to a
     /// single home promise (ADR-0009).
     ///
-    /// The recipient side drives this count — it asks, and the application
-    /// answers each time with the same foreign promise — while the *home* side
+    /// The recipient side drives this count, it asks, and the application
+    /// answers each time with the same foreign promise, while the *home* side
     /// pays when that promise settles to a capability: one signed give and one
     /// `deposit-gift` per recipient, on a session that did one thing. Without
     /// a bound the amplification is unbounded and aimed at a peer that is not
@@ -117,10 +117,10 @@ pub const Node = struct {
     /// locator advice. These are Node-owned limits because the hint is consumed
     /// while staging a cross-session redeem, before any one CapTP session's
     /// `SessionLimits` exists on the dial path. The count includes only
-    /// alternatives; the primary locator is always one additional path.
+    /// alternatives. The primary locator is always one additional path.
     allocator: std.mem.Allocator,
     /// The node's durable identity, expanded once at construction. Hosts draw
-    /// fresh keys for their sessions; a standalone Node may use this key as its
+    /// fresh keys for their sessions. A standalone Node may use this key as its
     /// session identity through `sessionSecret`. `SecretKey.seed` recovers the
     /// 32 bytes it was built from, so they are not stored twice.
     secret: crypto.SecretKey,
@@ -136,7 +136,7 @@ pub const Node = struct {
     handoff_changes: handoff_waiters.Changes = .empty,
     /// Optional Host-owned mapping between a Port-local export position and
     /// the exact local actor it names. This is node-wide because all Ports of
-    /// one Host project the same Vat; keeping it here spends no bytes per Peer.
+    /// one Host project the same Vat. Keeping it here spends no bytes per Peer.
     local_object_projection: ?engine.bootstrap.gifts.LocalObjectProjection = null,
     /// Optional Host-owned directory used to authenticate a signed give before
     /// its out-of-order deposit exists. Node-wide, so it costs no bytes per
@@ -149,7 +149,7 @@ pub const Node = struct {
     /// Host-owned transport semantics and physical carrier lookup, shared by
     /// every registered Peer without spending a field per session. The engine
     /// cannot infer a carrier from a partner's advertised locator, which may
-    /// intentionally name another route.
+    /// name another route.
     transport_resolver: ?TransportResolver = null,
     /// Registered CapTP sessions keyed by `peer_handle`: the node-owned,
     /// heap-pinned peer for each live session, whose stable address the
@@ -165,8 +165,8 @@ pub const Node = struct {
     /// fail the route closed. Hand the same handle to a later session and the
     /// stale route would forward a redeemed capability onto it instead.
     peers: std.AutoHashMapUnmanaged(PeerHandle, PeerSlot) = .empty,
-    /// The next peer handle to hand out. Monotonic, so no handle is ever reused;
-    /// at one session per nanosecond a `u64` lasts longer than the hardware.
+    /// The next peer handle to hand out. Monotonic, so no handle is ever reused.
+    /// At one session per nanosecond a `u64` lasts longer than the hardware.
     next_peer_handle: u64 = 0,
     /// V1 Goblins compares a receive count against state on its long-lived
     /// Gifter-Exporter coordinator, not the fresh Receiver-Exporter session
@@ -175,11 +175,11 @@ pub const Node = struct {
     /// is issuance compatibility only: accepted replay state stays on each
     /// Receiver-Exporter Peer, and next uses the session-local emitted cursor.
     next_v1_emitted_handoff_count: u64 = 0,
-    /// Where this node's next session starts handing out export positions; see
+    /// Where this node's next session starts handing out export positions. See
     /// `initialExportBase`. A plain counter, not an atomic: one thread drives a
     /// node, so every other table here can be a plain map too.
     next_export_base: u64,
-    /// One past the last range this node may draw — the top of its own slot.
+    /// One past the last range this node may draw, the top of its own slot.
     /// The counter stops here instead of carrying into the next node's slot,
     /// which would alias that node's sessions one for one.
     export_base_end: u64,
@@ -187,13 +187,13 @@ pub const Node = struct {
     /// what keeps the session field a bound on *concurrent* sessions rather
     /// than on how many a node may ever mint: a node that churns connections
     /// would otherwise spend its slot and stop minting, which a peer who
-    /// can open and close connections reaches on purpose. Oldest-first, so a
+    /// can open and close connections reaches. Oldest-first, so a
     /// range is reused only after every other freed one has been, and a stale
     /// capability from the released session is as far as it can be from naming
     /// a live object in the session that inherits its numbers.
     freed_export_bases: fifo.ActionFifo(u64) = .{},
     /// One preallocated return slot per live session. Session registration
-    /// reserves before publishing its export range; release then recycles that
+    /// reserves before publishing its export range. Release then recycles that
     /// range without allocation or a failure channel it cannot honestly use.
     export_base_return_reservations: usize = 0,
     /// Capability route id -> exporter route. Applications hold these through
@@ -203,7 +203,7 @@ pub const Node = struct {
     /// A fetched far import enrolled under a node-unique route id (ADR-0069), so two
     /// imports at the same wire position on different CapTP sessions never collide.
     /// The `Route` names the home session and the real `far(position)` to
-    /// address there — the same shape a redeemed route uses. Sends route through
+    /// address there, the same shape a redeemed route uses. Sends route through
     /// it, the gifter-side interceptor re-gifts through it, and it is swept in
     /// `removePeer`. Ids are drawn from the shared `next_route_id` counter, so a
     /// given id is in `redeemed` or here, never both.
@@ -218,19 +218,19 @@ pub const Node = struct {
     /// One stack-bound Host lowering transaction, present only while the
     /// caller is synchronously entering `Peer.send`/`tell`. The Node claims
     /// the exact opaque retains whose routes it moves into a delayed inline
-    /// gift batch; unclaimed retains remain the caller's rollback authority.
+    /// gift batch. Unclaimed retains remain the caller's rollback authority.
     outbound_staging_leases: ?[]OutboundStagingLease = null,
     /// The next node-local capability route id.
     next_route_id: model.CapabilityRouteId = .from(1),
     /// Complete advertised locator snapshots and the explicitly selected
-    /// acceptable route. The Catalog is inline; Node remains its aggregate.
+    /// acceptable route. The Catalog is inline. Node remains its aggregate.
     locators: locator_catalog.Catalog = .{},
     /// Recipient-side exporter discovery, dial deduplication, and tracked
-    /// withdrawals. The aggregate is inline; its child modules own the complete
+    /// withdrawals. The aggregate is inline. Its child modules own the complete
     /// transaction without adding a runtime object.
     redeems: redeem.State = .{},
     /// Gifter-side entropy tickets and canonical exporter location recipes.
-    /// The aggregate is inline; its leaves own the complete origination.
+    /// The aggregate is inline. Its leaves own the complete origination.
     gifts: handoff_gifts.State = .{},
     /// Delayed cross-session Passable projections, inline in the Node while
     /// their batch owner holds the complete transaction and its pressure facts.
@@ -334,7 +334,7 @@ pub const Node = struct {
     }
 
     /// Install the seam that answers "what key does this session sign with"
-    /// (ADR-0097). The Host installs it once; a standalone node without one
+    /// (ADR-0097). The Host installs it once. A standalone node without one
     /// signs with its durable key.
     pub fn setSessionSecretResolver(self: *Node, resolver: SessionSecretResolver) void {
         self.session_secret_resolver = resolver;
@@ -364,7 +364,7 @@ pub const Node = struct {
     fn sessionSecret(self: *const Node, peer_handle: PeerHandle) ?crypto.SecretKey {
         const resolver = self.session_secret_resolver orelse return self.secretKey();
         // Once a Host installs session-key authority, a missing session is
-        // terminal. Falling back to the Node key would deliberately sign a
+        // terminal. Falling back to the Node key would sign a
         // receive or give with an identity the named session never held.
         return resolver.resolve(resolver.ctx, peer_handle);
     }
@@ -514,7 +514,7 @@ pub const Node = struct {
 
     /// Terminal owner cancellation spends every entropy request before an
     /// embedder can turn it into new handoff work. Queued ticket actions become
-    /// stale no-ops; failure storage and scheduler reservations retire here.
+    /// stale no-ops. Failure storage and scheduler reservations retire here.
     pub fn cancelPendingGifts(self: *Node) void {
         passable_batches.cancelAll(self);
         gift_tickets.cancelAll(self);
@@ -573,7 +573,7 @@ pub const Node = struct {
     /// identity: ordinary data plus enrolled foreign routes, never raw
     /// positions borrowed from some other session. This is the low-level peer
     /// face of the Host projection above. Every recipient materializes and
-    /// stages independently; `resolution` remains one owner until all
+    /// stages independently. `resolution` remains one owner until all
     /// projections have adopted or broken, then is freed exactly once.
     pub const consumeProjectedProxyListenerFire = proxy_settlement.consumeProjectedListenerFire;
 

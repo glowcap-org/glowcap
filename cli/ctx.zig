@@ -36,10 +36,10 @@ pub const Ctx = struct {
     secret: ?crypto.SecretKey = null,
     /// Live session for REPL / MCP multi-command context.
     /// The dial transports a retained session keeps reaching through. The
-    /// session's host resolves later dials against this slice — a redeem
-    /// reaches an exporter this way (ADR-0090) — so the residents and the
+    /// session's host resolves later dials against this slice (a redeem
+    /// reaches an exporter this way, ADR-0090), so the residents and the
     /// slice storage must outlive the session, not the dialing frame. Slot 0
-    /// is always tcp; slots 1 and 2 join when `GLOWCAP_RENDEZVOUS` configures
+    /// is always tcp. Slots 1 and 2 join when `GLOWCAP_RENDEZVOUS` configures
     /// the relay provider's clear and sealed rendezvous profiles.
     rendezvous_provider: ?relay_runtime.Provider = null,
     session: ?*Session = null,
@@ -51,18 +51,18 @@ pub const Ctx = struct {
     /// wrapper reachable until a later close crosses its release barrier.
     pending_session: ?*Session = null,
     /// The non-argv fronts' background listener (`listen` on MCP or the
-    /// REPL), or null. One per context; `close` and `deinit` stop it.
+    /// REPL), or null. One per context. `close` and `deinit` stop it.
     background_listener: ?*@import("ocapn/listen_background.zig").Handle = null,
     /// Last listen locator minted in this process (owned).
     last_locator: ?[]const u8 = null,
     /// Publishes `last_locator` to the foreground-listen worker's observer.
     /// Replacement and release remain sequential command operations.
     last_locator_ready: std.atomic.Value(bool) = .init(false),
-    /// Exclusive identity/state lock; held while this process owns CapTP identity.
+    /// Exclusive identity/state lock. Held while this process owns CapTP identity.
     state_guard: ?state_lock.Guard = null,
     /// Callerless Runtime leftovers delivered through `unhandled_failure` after
     /// the last deterministic close return. Drained by session finish and
-    /// `closeOwned`; not a second journal.
+    /// `closeOwned`. Not a second journal.
     callerless: ?FailureChain = null,
 
     fn statePosture(self: *const Ctx) xdg.StatePosture {
@@ -124,7 +124,7 @@ pub const Ctx = struct {
     }
 
     /// Product log line for CapTP verbs. Honors the lab divert when the TUI
-    /// alt-screen is active (see `operability/log.setDivert`); else stderr.
+    /// alt-screen is active (see `operability/log.setDivert`). Else stderr.
     pub fn logInfo(self: *Ctx, comptime fmt: []const u8, args: anytype) void {
         const log = @import("operability/log.zig");
         log.info(self.io, fmt, args);
@@ -134,8 +134,8 @@ pub const Ctx = struct {
         const log = @import("operability/log.zig");
         log.err(self.io, fmt, args);
         // MCP/REPL capture sinks: also emit a `--json` failure body so tools/call
-        // text is never blank on isError. Skip `.stdout` — Zig's test runner owns
-        // stdout via `--listen=-`, and argv `--json` keeps failures on stderr today.
+        // text is never blank on isError. Skip `.stdout`, Zig's test runner owns
+        // stdout via `--listen=-`, and argv `--json` keeps failures on stderr.
         if (self.json != .json) return;
         const cap = switch (self.sink) {
             .buffer => |b| b,
@@ -224,7 +224,7 @@ pub const Ctx = struct {
     }
 
     /// Keep a refused one-shot session reachable in the retained slot when it
-    /// has no primary session; otherwise use the bounded sidecar owner.
+    /// has no primary session. Otherwise use the bounded sidecar owner.
     pub fn retainOneShotSession(self: *Ctx, session: *Session) void {
         if (self.session == null) {
             if (self.pending_session != null) @panic("pending session owner already occupied");
@@ -260,7 +260,7 @@ pub const Ctx = struct {
     }
 
     /// Stop the background listener's accept thread. Consuming success (or a
-    /// consumed server close) clears the slot; a non-consuming relay refusal
+    /// consumed server close) clears the slot. A non-consuming relay refusal
     /// keeps this handle as the retry owner.
     pub fn closeBackgroundListener(self: *Ctx) ?FailureChain {
         const handle = self.background_listener orelse return null;
@@ -270,7 +270,7 @@ pub const Ctx = struct {
     }
 
     /// One close of every process-owned CapTP resource: listener, then session,
-    /// then relay. The first refusal is primary; later ones are consequences.
+    /// then relay. The first refusal is primary. Later ones are consequences.
     pub fn closeOwned(self: *Ctx, pending: glowcap.driver.PendingWork) ?FailureChain {
         var failure = self.closeBackgroundListener();
         if (self.closeSession(pending)) |cleanup| self.retainCleanup(&failure, cleanup);
@@ -282,7 +282,7 @@ pub const Ctx = struct {
         return failure;
     }
 
-    /// Keep `later` as the primary when `failure` is empty; otherwise note it
+    /// Keep `later` as the primary when `failure` is empty. Otherwise note it
     /// as a cleanup consequence of the already-authoritative refusal.
     pub fn retainCleanup(_: *const Ctx, failure: *?FailureChain, later: FailureChain) void {
         if (failure.*) |*primary| {

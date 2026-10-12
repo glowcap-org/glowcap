@@ -3,7 +3,7 @@
 //! session over a WebSocket at `/`, every socket presenting the trace swiss.
 //! The room's own trace goes in through the same door every other peer's
 //! does. The policy in `rooms_application::server::trace` decides what each
-//! line means; this owns the sockets, the trace tap, and the trace object.
+//! line means. This owns the sockets, the trace tap, and the trace object.
 
 use super::super::notice::{Notice, Report};
 use glowcap::{Argument, Host, Ref, Session, TraceEvent, TraceKind, current_session};
@@ -65,7 +65,7 @@ impl Feed {
 	fn now_ns(&self) -> u64 {
 		u64::try_from(self.start.elapsed().as_nanos()).unwrap_or(u64::MAX)
 	}
-	/// Every subscriber hears `line`; one that cannot keep up is closed, and
+	/// Every subscriber hears `line`. One that cannot keep up is closed, and
 	/// a fresh viewer replays.
 	fn broadcast(&mut self, line: &str) {
 		let mut gone = Vec::new();
@@ -80,12 +80,12 @@ impl Feed {
 	}
 	/// A record that did not reach its viewer. A partner that has left is the
 	/// ordinary end of a viewer, so it goes quietly through the same removal an
-	/// orderly departure takes; any other refusal is the viewer's own pace and
+	/// orderly departure takes. Any other refusal is the viewer's own pace and
 	/// goes through `retire`.
 	///
 	/// The distinction lives here rather than at the delivery site because
 	/// `retire` takes its reason as words: a cause laundered into that string is
-	/// how a viewer that simply left came to be journaled as one that could not
+	/// how a viewer that left came to be journaled as one that could not
 	/// keep up, which sent an operator looking for a slow consumer that was
 	/// never there.
 	fn undeliverable(&mut self, at: usize, session: &Session, cause: &glowcap::Error) {
@@ -138,6 +138,23 @@ pub(crate) struct Trace {
 	draining: JoinHandle<()>,
 }
 
+pub(crate) fn locator(
+	port: u16,
+	publish: Option<String>,
+	connect: Option<String>,
+) -> Result<glowcap::Locator, super::super::error::Error> {
+	let producer = publish.unwrap_or_else(|| format!("ws://127.0.0.1:{port}{PUBLISH_PATH}"));
+	trace::producer_endpoint(&producer).map_err(super::super::error::Error::refused)?;
+	let channel = connect.unwrap_or_else(|| format!("ws://127.0.0.1:{port}{}", trace::CHANNEL_PATH));
+	rooms_application::web_channel::endpoint(&channel).map_err(super::super::error::Error::refused)?;
+	Ok(glowcap::tcp::locator("127.0.0.1", port)
+		.with_hint("trace-publish", glowcap::HintValue::String(producer))
+		.with_hint(
+			rooms_application::web_channel::HINT,
+			glowcap::HintValue::String(channel),
+		))
+}
+
 impl Trace {
 	/// Bind the endpoint on `port` (zero takes an ephemeral one) guarded by
 	/// `swiss`, publish the trace object under the same swiss, and tap this
@@ -160,7 +177,7 @@ impl Trace {
 		let mut endpoint = Endpoint::new(epoch);
 		let local_scope = endpoint
 			.admit_producer(false)
-			.expect("the endpoint's own producer is never bounded");
+			.ok_or_else(|| super::super::error::Error::refused("the trace endpoint refused its own producer"))?;
 		let feed: Shared = Rc::new(RefCell::new(Feed {
 			endpoint,
 			subscribers: Vec::new(),
@@ -174,16 +191,7 @@ impl Trace {
 			weak: std::rc::Weak::new(),
 		}));
 		feed.borrow_mut().weak = Rc::downgrade(&feed);
-		let producer = publish.unwrap_or_else(|| format!("ws://127.0.0.1:{port}{PUBLISH_PATH}"));
-		trace::producer_endpoint(&producer).map_err(super::super::error::Error::refused)?;
-		let channel = connect.unwrap_or_else(|| format!("ws://127.0.0.1:{port}{}", trace::CHANNEL_PATH));
-		rooms_application::web_channel::endpoint(&channel).map_err(super::super::error::Error::refused)?;
-		let locator = glowcap::tcp::locator("127.0.0.1", port)
-			.with_hint("trace-publish", glowcap::HintValue::String(producer))
-			.with_hint(
-				rooms_application::web_channel::HINT,
-				glowcap::HintValue::String(channel),
-			);
+		let locator = locator(port, publish, connect)?;
 		let sturdyref = glowcap::format_sturdyref(&locator, swiss.as_bytes(), glowcap::CaptpVersion::V1_0)?;
 		{
 			let feed = feed.clone();

@@ -82,7 +82,7 @@ export function MessageKindLabel() {
 /** The solid square the stage draws for a node a peer is on. Filled, with a
  *  solid inset edge: somebody is there, and the picture says so plainly.
  *
- *  It is a style rather than only a component because two surfaces need it —
+ *  It is a style rather than only a component because two surfaces need it,
  *  the swatch beside a peer's name, and the legend row that teaches the
  *  filled body against the hollow one below. Color is the caller's: a peer
  *  swatch takes the profile's color, and the legend holds color constant so
@@ -111,16 +111,16 @@ export function PeerSwatch({ profile, size = 12 }: {
 
 /** The color a node body wears when nothing about it says which
  *  implementation is behind it. The legend's fill row and its hollow row
- *  share it, so that pair differs only in fill and edge — which is the one
+ *  share it, so that pair differs only in fill and edge, which is the one
  *  thing the row is there to teach. */
 export const NEUTRAL_BODY_COLOR = hex(PROFILE_FALLBACK_COLOR);
 
 /** The dashed, faintly-filled square the stage draws where a session's end
- *  has no peer on it. A node's shape, deliberately not a solid one: something
+ *  has no peer on it. A node's shape, not a solid one: something
  *  IS on the other end of the wire, and nothing has proved what.
  *
- *  It lives here beside the other swatches because two surfaces draw it — the
- *  legend that teaches the shape, and the chip that names a selected one —
+ *  It lives here beside the other swatches because two surfaces draw it, the
+ *  legend that teaches the shape, and the chip that names a selected one,
  *  and a legend that drifted from the thing it explains teaches the wrong
  *  shape. */
 export function endpointSwatchStyle(size = 12): React.CSSProperties {
@@ -174,7 +174,7 @@ export function MessageSwatch({ size = 10 }: { size?: number }) {
 //
 // `SIZE.xs` is the tracked-uppercase eyebrow step in `tokens.ts`, and a
 // badge is exactly that. It was a step larger than the `chip` above it,
-// which cost the badges room they need — "not yet joined" is three words
+// which cost the badges room they need, "not yet joined" is three words
 // and it was wrapping to three lines inside a one-line row.
 //
 // Which is the other half: a badge never wraps and never shrinks. It is
@@ -204,20 +204,20 @@ export const stateChipBase = {
 } satisfies React.CSSProperties;
 
 /** Lifecycle status of an entity at the current playhead.
- *  "active"     — entity is on-stage right now (in the ECS)
- *  "before"     — entity exists in the doc but hasn't started yet
+ *  "active":     entity is on-stage right now (in the ECS)
+ *  "before":     entity exists in the doc but hasn't started yet
  *                 (peer not yet joined / session not yet opened /
  *                 message not yet sent)
- *  "after"      — entity has ended (peer left / session closed /
+ *  "after":      entity has ended (peer left / session closed /
  *                 message delivered)
- *  "off-stage"  — defensive: in the doc with no clear start/end
+ *  "off-stage":  defensive: in the doc with no clear start/end
  *                 boundary but not in the ECS (shouldn't normally
- *                 happen; renders so the bug is visible). */
+ *                 happen. Renders so the bug is visible). */
 export type LifecycleStatus = "active" | "before" | "after" | "off-stage";
 
 /** Sidebar chip indicating where the selected entity is in its
  *  lifecycle relative to the playhead. Selection itself is valid
- *  whenever the entity exists in the doc — this chip is what
+ *  whenever the entity exists in the doc. This chip is what
  *  surfaces "exists but not on stage right now". `entity` colors
  *  the label with kind-specific vocabulary ("not yet joined"
  *  for peers, "not yet open" for sessions, etc.) so the chip
@@ -318,7 +318,7 @@ export function attributionChipStyle(
  * The three standings are not degrees of one thing, and the styles say so. A
  * signature somebody checked reads solid and confident. A producer speaking
  * about its own end is true by construction and quieter for it. This viewer's
- * own correlation is drawn weakest on purpose, in the dashed outline the stage
+ * own correlation is drawn weakest, in the dashed outline the stage
  * gives anything it cannot vouch for, because drawing it like a proof would be
  * the picture claiming something nothing measured. */
 export function attributionStandingStyle(
@@ -373,7 +373,7 @@ function stateColors(state: SessionState): [bg: string, fg: string] {
 }
 
 /** Sidebar version of the on-canvas activity badge. Same color
- * vocabulary (red = sending, green = receiving, slate = idle); two
+ * vocabulary (red = sending, green = receiving, slate = idle). Two
  * dots side by side for "both" so the duplication itself signals
  * the dual state. */
 export function ActivityChip({ activity }: { activity: PeerActivity }) {

@@ -18,6 +18,8 @@ import {
 	RELAY_CONFIG_ABI_VERSION_OFF,
 	RELAY_CONFIG_REGISTER_URL_LEN_OFF,
 	RELAY_CONFIG_REGISTER_URL_OFF,
+	RELAY_CONFIG_RELAY_ALIAS_URL_LEN_OFF,
+	RELAY_CONFIG_RELAY_ALIAS_URL_OFF,
 	RELAY_CONFIG_RELAY_URL_LEN_OFF,
 	RELAY_CONFIG_RELAY_URL_OFF,
 	RELAY_CONFIG_SIZE,
@@ -43,6 +45,9 @@ const encoder = new TextEncoder();
 export interface RelayOptions {
 	/** WebSocket URL used for outbound relay legs. */
 	readonly relayUrl: string;
+	/** Redirect this exact advertised dial route to relayUrl. Both must reach
+	 * the same registry. Other peer hints retain their routes. */
+	readonly relayAliasUrl?: string;
 	/** Registration URL used by listeners; omit for a dial-only provider. */
 	readonly registerUrl?: string;
 	/** Immutable trust snapshot used by native WSS opens. */
@@ -69,6 +74,7 @@ function checkRelay(code: number): void {
 function encodeConfig(options: RelayOptions): { struct: Uint8Array; keepAlive: Uint8Array[] } {
 	const relay = encoder.encode(options.relayUrl);
 	const register = encoder.encode(options.registerUrl ?? "");
+	const alias = encoder.encode(options.relayAliasUrl ?? "");
 	const trust = options.trust ?? { kind: "system" };
 	const pem = trust.kind === "copied-pem" ? trust.pem : new Uint8Array(0);
 	const struct = new Uint8Array(RELAY_CONFIG_SIZE);
@@ -81,13 +87,14 @@ function encodeConfig(options: RelayOptions): { struct: Uint8Array; keepAlive: U
 	abiLayout.setUsize(dv, RELAY_CONFIG_STRUCT_SIZE_OFF, struct.byteLength);
 	put(RELAY_CONFIG_RELAY_URL_OFF, RELAY_CONFIG_RELAY_URL_LEN_OFF, relay);
 	put(RELAY_CONFIG_REGISTER_URL_OFF, RELAY_CONFIG_REGISTER_URL_LEN_OFF, register);
+	put(RELAY_CONFIG_RELAY_ALIAS_URL_OFF, RELAY_CONFIG_RELAY_ALIAS_URL_LEN_OFF, alias);
 	dv.setUint32(
 		RELAY_CONFIG_TRUST_OFF,
 		trust.kind === "system" ? RELAY_TRUST_SYSTEM : RELAY_TRUST_COPIED_PEM,
 		true,
 	);
 	put(RELAY_CONFIG_TRUST_PEM_OFF, RELAY_CONFIG_TRUST_PEM_LEN_OFF, pem);
-	return { struct, keepAlive: [relay, register, pem] };
+	return { struct, keepAlive: [relay, register, pem, alias] };
 }
 
 function openRuntime(options: RelayOptions): Ptr {

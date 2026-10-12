@@ -1,16 +1,16 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-gutter-labels-probe.ts — the row-label column down the left
+ * playwright-gutter-labels-probe.ts: the row-label column down the left
  * of the timeline, at the widths a reader can drag it to.
  *
  * Two things to look at in the shots. Every row is called what its own
  * span is called, so a session row reads as the pair it joins rather than
  * as sixty-four characters of Session ID. And no label crosses the
- * divider into the plot, at any width the drag handle allows — including
+ * divider into the plot, at any width the drag handle allows, including
  * the narrowest, which is where a name runs out of room first.
  *
  * The arithmetic behind that second one is held by
- * `src/ui/Timeline/gutter-paint.test.ts`; these are the shots that show
+ * `src/ui/Timeline/gutter-paint.test.ts`. These are the shots that show
  * what it produces, one close crop of the column per case.
  *
  * Usage: playwright-gutter-labels-probe.ts [out-dir] [url]

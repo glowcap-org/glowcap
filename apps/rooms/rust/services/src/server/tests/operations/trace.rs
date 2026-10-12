@@ -71,7 +71,7 @@ pub(super) struct Viewer {
 }
 
 impl Viewer {
-	/// Connect, subscribe, and answer once subscribed or with why not; the
+	/// Connect, subscribe, and answer once subscribed or with why not. The
 	/// answer is polled rather than blocked on, because the server serving
 	/// the viewer runs on the calling thread.
 	pub(super) async fn subscribe(sturdyref: &str) -> Viewer {

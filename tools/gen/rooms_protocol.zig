@@ -47,7 +47,7 @@ pub const Ty = enum {
     registration_id,
     /// A list whose rows a sibling table declares.
     list,
-    /// Any argument at all; a sibling reader owns its shape.
+    /// Any argument at all. A sibling reader owns its shape.
     any,
 
     /// The name each language's table carries, hyphenated the way the wire
@@ -98,7 +98,7 @@ pub const Field = struct {
 };
 
 /// Every core Rooms method or notification word shared by TypeScript and
-/// Rust. Enum names are the generated constant names in snake case; this
+/// Rust. Enum names are the generated constant names in snake case. This
 /// switch is the sole authority for their wire spellings.
 pub const Token = enum {
     directory,
@@ -188,6 +188,7 @@ pub const Token = enum {
     truncated,
     roster,
     join,
+    offline,
     seat,
 
     pub fn wire(self: Token) []const u8 {
@@ -279,13 +280,14 @@ pub const Token = enum {
             .truncated => "truncated",
             .roster => "roster",
             .join => "join",
+            .offline => "offline",
             .seat => "seat",
         };
     }
 };
 
 /// A method a client sends, and whether the partner answers it. A verb that
-/// answers is sent and awaited; one that does not is told.
+/// answers is sent and awaited. One that does not is told.
 pub const Verb = struct {
     name: []const u8,
     replies: bool,
@@ -478,18 +480,19 @@ pub const RoomTail = struct {
     rest: ?Ty = null,
     sender: Sender,
     text: TextRule,
-    /// Set on a presence tail; null on a tail that says nothing about membership.
+    /// Set on a presence tail, null on a tail that says nothing about membership.
     effect: ?Effect = null,
 };
 
 /// The `seat` presence is the bridge's, specified in
-/// `apps/rooms/lib/protocol_irc.ts`; every other tail is
+/// `apps/rooms/lib/protocol_irc.ts`. Every other tail is
 /// `apps/rooms/lib/protocol.ts`'s.
 pub const room_tails = [_]RoomTail{
     .{ .tag = Token.line.wire(), .trailing = .line_trailing, .rest = .any, .sender = .either, .text = .any },
     .{ .tag = Token.roster.wire(), .rest = .text, .sender = .room, .text = .any, .effect = .arrive },
     .{ .tag = Token.join.wire(), .trailing = .named_trailing, .sender = .room, .text = .any, .effect = .arrive },
     .{ .tag = Token.leave.wire(), .trailing = .named_trailing, .sender = .room, .text = .any, .effect = .depart },
+    .{ .tag = Token.offline.wire(), .rest = .text, .sender = .room, .text = .any, .effect = .depart },
     .{ .tag = Token.typing.wire(), .trailing = .typing_trailing, .sender = .room, .text = .empty, .effect = .stay },
     .{ .tag = Token.away.wire(), .trailing = .away_trailing, .sender = .room, .text = .any, .effect = .stay },
     .{ .tag = Token.seat.wire(), .trailing = .seat_trailing, .sender = .room, .text = .any, .effect = .stay },
@@ -514,7 +517,7 @@ pub const registration_id = struct {
         return !isDash(at) and at != version_at and at != variant_at;
     }
 
-    /// The same form as one regular expression over lowercase hex; the reader
+    /// The same form as one regular expression over lowercase hex. The reader
     /// applies its language's case-insensitive flag.
     pub fn writePattern(out: *std.ArrayList(u8), gpa: std.mem.Allocator) !void {
         try out.append(gpa, '^');

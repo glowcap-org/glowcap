@@ -33,7 +33,7 @@ impl<P: Tasks + Deadline> SignalingRegistration<P> {
 }
 impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 	/// The embedding chooses its own advertised transport from committed intent.
-	/// This private owner read grants no membership or signaling authority; those
+	/// This private owner read grants no membership or signaling authority. Those
 	/// operations still check the public observer and each saved initiating source.
 	pub async fn connection_choice(&self) -> Result<workspace::Connection> {
 		Ok(rooms_glowcap::client::workspace::Workspace::local(

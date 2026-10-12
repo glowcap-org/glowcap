@@ -2,7 +2,7 @@
 //!
 //! Budgets stay here so listen and dial share one construction without importing
 //! the command surface. `unhandled_failure` is the driver's observer for a
-//! failure whose last deterministic return is gone; it writes the process
+//! failure whose last deterministic return is gone. It writes the process
 //! context so a later close can still name the exact primary.
 
 const glowcap = @import("glowcap");
@@ -10,7 +10,7 @@ const Ctx = @import("../ctx.zig").Ctx;
 
 const driver = glowcap.driver;
 
-/// Product CapTP deadlines (ADR-0081). `.unbounded` parks a silent peer; a
+/// Product CapTP deadlines (ADR-0081). `.unbounded` parks a silent peer. A
 /// `.ms` of zero or less has already expired and times out immediately.
 pub const default_handshake_timeout_ms = driver.default_handshake_timeout_ms;
 pub const default_settle_timeout_ms: i32 = 30_000;

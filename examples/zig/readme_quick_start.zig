@@ -1,7 +1,7 @@
 //! The README's Quick Start snippet, runnable.
 //!
 //! The `client` function below is the exact code the README shows under
-//! Quick Start, so the snippet stays machine-checked; if either side changes,
+//! Quick Start, so the snippet stays machine-checked. If either side changes,
 //! change both in the same diff. The host half is the minimum the snippet
 //! needs to run: a greeter published by name that answers `greet` with a
 //! greeting, the same greeter chapter 01 hosts.

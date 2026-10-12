@@ -1,7 +1,7 @@
 // The IRC vocabulary shared by the channel bridge and native Rooms front.
 //
 // IRC is an edge protocol, never a CapTP netlayer. This module owns only its
-// bounded line grammar and casemapping; it knows nothing about sockets, rooms,
+// bounded line grammar and casemapping. It knows nothing about sockets, rooms,
 // capabilities, or reconnect policy. The 512-byte ceiling includes CRLF.
 
 export const IRC_LINE_BYTES = 512;
@@ -33,7 +33,7 @@ function unescapeTag(value: string): string {
 }
 
 /** Parse one IRC payload without its CRLF. Unknown commands and tags remain
- * data; consumers decide which subset they understand. */
+ * data. Consumers decide which subset they understand. */
 export function parseIrcLine(line: string): IrcMessage {
 	if (line.length === 0 || /[\0\r\n]/.test(line)) throw new Error("IRC line contains a forbidden byte");
 	if (encoder.encode(line).length + 2 > IRC_LINE_BYTES) throw new Error("IRC line exceeds 512 bytes");
@@ -86,7 +86,7 @@ export function parseIrcLine(line: string): IrcMessage {
 }
 
 /** Encode one IRC line, including CRLF. A prefix is accepted for the server
- * side of the shared vocabulary; bridge writes omit it. The final parameter
+ * side of the shared vocabulary. Bridge writes omit it. The final parameter
  * becomes trailing when its spelling requires it. */
 export function encodeIrcMessage(
 	command: string,

@@ -3,7 +3,7 @@
 //! This is the application-facing client half of the blocking HostRuntime
 //! facade. Session owns one claimed Host wire and, for one-call construction,
 //! one lease on the heap-stable runtime beneath it. Promise values borrow that
-//! Session authority; all blocking waits keep their listener stack alive until
+//! Session authority. All blocking waits keep their listener stack alive until
 //! the Host settles or breaks it.
 
 const std = @import("std");
@@ -26,7 +26,7 @@ const connect_mod = @import("connect.zig");
 
 /// An allocation-free eventual result scoped to the owning Session. Its core
 /// vow row is pending work from creation until settlement, including when the
-/// caller ignores the value; use `Session.tell` for fire-and-forget delivery.
+/// caller ignores the value. Use `Session.tell` for fire-and-forget delivery.
 /// Register `on` before stepping the runtime, matching `actors.Vow`'s one-shot
 /// listener contract.
 pub const Promise = struct {
@@ -53,7 +53,7 @@ pub const Promise = struct {
     }
 
     /// Release an unobserved promise handle and its remote answer. Copies of
-    /// this value are invalid after release; repeated release is harmless.
+    /// this value are invalid after release. Repeated release is harmless.
     pub fn release(self: Promise) !void {
         return self.owner.releasePromise(self);
     }
@@ -66,7 +66,7 @@ const SharedRuntime = @import("shared_runtime.zig").SharedRuntime;
 
 /// An application-facing session, the object a native Zig application holds:
 /// an owning handle for one session of a `driver.HostRuntime`. `connect` and
-/// `Server.accept` retain their heap-stable runtime; `adopt` transfers one
+/// `Server.accept` retain their heap-stable runtime. `adopt` transfers one
 /// caller-owned runtime wire into the same Session contract while borrowing
 /// the runtime itself. In every case `deinit` cancels and releases this
 /// session. A borrowed runtime must outlive its adopted Sessions.
@@ -106,7 +106,7 @@ pub const Session = struct {
 
     /// Transfer one wire from a caller-owned HostRuntime into an owning
     /// Session. The runtime remains borrowed and must outlive the returned
-    /// handle; the caller must not also call `releaseWire` for `hs`.
+    /// handle. The caller must not also call `releaseWire` for `hs`.
     pub fn adopt(runtime: *host_runtime.HostRuntime, hs: *driver_core.HostSession) Error!*Session {
         if (hs.host != runtime.core) return Error.SessionNotOwned;
         const session = try runtime.allocator.create(Session);
@@ -233,7 +233,7 @@ pub const Session = struct {
     }
 
     /// Close this session under one monotonic pending-work policy. Repeated
-    /// calls observe the same barrier; cancel may escalate an in-progress
+    /// calls observe the same barrier. Cancel may escalate an in-progress
     /// finish. Memory remains owned until `deinit`.
     pub fn close(self: *Session, pending: driver.PendingWork) !void {
         self.enterCall();
@@ -257,7 +257,7 @@ pub const Session = struct {
     }
 
     /// Chain fetch-then-send without blocking (see `Served.beginSendNamed`).
-    /// Args are owning-tier `Value`s; the pending machinery owns its own clone
+    /// Args are owning-tier `Value`s. The pending machinery owns its own clone
     /// of the lowered message, so the caller's slices are borrowed for this
     /// call only.
     pub fn beginSendNamed(self: *Session, pending: *driver.PendingSend, name: []const u8, verb: []const u8, args: []const Value, terminal: actors.Listener) !void {
@@ -293,7 +293,7 @@ pub const Session = struct {
     /// released.
     ///
     /// `HostError.HandshakeIncomplete` means the partner's half has not arrived
-    /// with a key yet; `HostError.PartnerUnverified` means this session does not
+    /// with a key yet. `HostError.PartnerUnverified` means this session does not
     /// verify its partner, so there is no proved identity to report.
     pub fn partnerIdentity(self: *Session) !driver_core.PartnerIdentity {
         self.enterCall();
@@ -303,10 +303,10 @@ pub const Session = struct {
 
     /// Fetch a partner's published capability by `name`, returning its opaque
     /// Host `Capability` (ADR-0096). The fulfilled reference is lifted while
-    /// its owning session is known, so handing it back to the partner — or to
-    /// a third party — routes to the right exporter without the application
+    /// its owning session is known, so handing it back to the partner, or to
+    /// a third party, routes to the right exporter without the application
     /// ever holding a wire position. An unpublished name returns
-    /// `Error.FetchBroken`; any other fulfill returns
+    /// `Error.FetchBroken`. Any other fulfill returns
     /// `Error.FetchNotACapability`.
     pub fn fetch(self: *Session, name: []const u8) !Capability {
         self.enterCall();
@@ -335,8 +335,8 @@ pub const Session = struct {
     /// Eventual-send to `target` and block until the reply settles,
     /// materializing both `Reply` arms into caller-owned `arena`. The node
     /// routes the capability to its exporter session, so a redeemed or
-    /// re-gifted capability is called the same way a directly fetched one is;
-    /// an argument foreign to the routed session is refused whole
+    /// re-gifted capability is called the same way a directly fetched one is.
+    /// An argument foreign to the routed session is refused whole
     /// (`ForeignArgument`). Returns `ConnectionClosed` if the partner leaves
     /// before the reply settles.
     pub fn call(self: *Session, target: Capability, verb: []const u8, args: []const Value, arena: std.mem.Allocator) !Reply {
@@ -365,7 +365,7 @@ pub const Session = struct {
     /// Listen on the promise `target` names, returning a Promise for its
     /// settlement (see `Served.listenTo`). A promise this partner handed us
     /// settles through a notification it delivers, so this is how a received
-    /// promise capability is waited on; `listenSettled` is the blocking form.
+    /// promise capability is waited on. `listenSettled` is the blocking form.
     /// A remote target routes through the node, so a re-gifted promise is
     /// listened on its exporter session. A give that arrives in the
     /// settlement is redeemed on the way through, exactly as one arriving in
@@ -425,7 +425,7 @@ pub const Session = struct {
 
     /// Lift an already-captured wire settlement on this session into a
     /// `Reply` (the REPL's cooperative queue captures first and renders
-    /// later; ordinary blocking verbs never need this).
+    /// later. Ordinary blocking verbs never need this).
     pub fn liftSettled(self: *Session, settled: Settled, arena: std.mem.Allocator) !Reply {
         self.enterCall();
         defer self.leaveCall();
@@ -443,8 +443,8 @@ pub const Session = struct {
     }
 
     /// Register `listener` on host vow `id` behind a settle flag and block
-    /// until it fires — the host-vow twin of `BlockingSession.awaitVow`. The
-    /// flag lives on this frame for the whole wait, so the listener's ctx
+    /// until it fires. It is the host-vow twin of `BlockingSession.awaitVow`. The
+    /// flag lives on this frame for the wait, so the listener's ctx
     /// outlives every fire. No pre-pump flush: `core.fetch` and the vow verbs
     /// pump their own send before returning the id.
     fn awaitVowId(self: *Session, id: u64, listener: actors.Listener) !void {
@@ -460,7 +460,7 @@ pub const Session = struct {
     /// The one blocking wait every stack-capture verb runs. On any pump
     /// failure the session's far vows break *before* the error unwinds, so a
     /// listener whose ctx is this frame's stack fires while the frame is
-    /// alive — a later break firing it into a dead frame is the memory bug,
+    /// alive. A later break firing it into a dead frame is the memory bug,
     /// not the timeout (the same contract `BlockingSession`'s waits hold).
     fn pumpWait(self: *Session, hs: *driver_core.HostSession, flag: *const bool) !void {
         self.attendAndPump(hs, flag) catch |err| {
@@ -517,8 +517,8 @@ pub const Session = struct {
 
     /// Enliven a complete sturdyref by Host-level select-or-dial (ADR-0098
     /// step 4): the host resolves the sturdyref's peer to the live dialed
-    /// session it names, or dials it, so the caller never picks the session —
-    /// the peer named in the sturdyref does. The settled capability arrives
+    /// session it names, or dials it, so the caller never picks the session.
+    /// The peer named in the sturdyref does. The settled capability arrives
     /// lifted, like every owning-tier reference.
     pub fn enliven(self: *Session, sturdy: model.SturdyRef) !Capability {
         self.enterCall();
@@ -536,7 +536,7 @@ pub const Session = struct {
     }
 
     /// Release one application retain on `cap`. The final release retires the
-    /// opaque identity — a later use fails closed — and, for a remote
+    /// opaque identity (a later use fails closed) and, for a remote
     /// capability, queues its exact wire GC release.
     pub fn release(self: *Session, cap: Capability) !void {
         self.enterCall();
@@ -586,7 +586,7 @@ pub const Session = struct {
         }
     }
 
-    /// The raw engine peer under this session — the explicit-ownership escape
+    /// The raw engine peer under this session, the explicit-ownership escape
     /// for a consumer that outgrows the surface (the same contract
     /// `BlockingSession.peer` carries on the borrowing tier).
     pub fn peer(self: *Session) *engine.Peer {

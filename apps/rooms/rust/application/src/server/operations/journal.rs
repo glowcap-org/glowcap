@@ -48,7 +48,7 @@ impl Journal {
 	pub fn is_empty(&self) -> bool {
 		self.entries.is_empty()
 	}
-	/// Forget everything; answers whether anything was there.
+	/// Forget everything. Answers whether anything was there.
 	pub fn clear(&mut self) -> bool {
 		if self.entries.is_empty() {
 			return false;

@@ -11,9 +11,9 @@ import { Keyframe } from "./temporal/keyframes.ts";
 export { Position };
 
 /**
- * Timeline layer — events at simulated-clock timestamps are the
- * primitive; the ECS world is the derived form (replay). Time is in
- * **simulated milliseconds** since the document's t=0; the
+ * Timeline layer, events at simulated-clock timestamps are the
+ * primitive. The ECS world is the derived form (replay). Time is in
+ * **simulated milliseconds** since the document's t=0. The
  * wall-clock relationship is owned by `Clock`.
  */
 
@@ -32,10 +32,10 @@ export type TimelineEvent = Observation;
  * Layout policy for the renderer.
  *
  *   per-topology  (default) force-directed layout per topology
- *                 change; peers lerp between keyframes.
+ *                 change. Peers lerp between keyframes.
  *   static-union  one layout over every peer + session that ever
- *                 exists; peers stay put for the whole scenario.
- *   authored      honor `peer-joined.position` verbatim; no force
+ *                 exists. Peers stay put for the whole scenario.
+ *   authored      honor `peer-joined.position` verbatim. No force
  *                 simulation.
  *
  * In the two force modes an authored `position` pins its peer at
@@ -47,7 +47,7 @@ export const LayoutMode = z.enum(["per-topology", "static-union", "authored"]);
 export type LayoutMode = z.infer<typeof LayoutMode>;
 
 /**
- * Per-category entity definitions — the IDENTITY half of the
+ * Per-category entity definitions, the IDENTITY half of the
  * entity-vs-event split. Lives independently of `events`:
  *
  *   - Observations carry TEMPORAL facts (peer arrived at t=12,
@@ -59,43 +59,43 @@ export type LayoutMode = z.infer<typeof LayoutMode>;
  *   - The `entities` map carries the STATIC identity (peer's
  *     profile / label, session's endpoints, message's payload).
  *     An entity present here WITHOUT a matching creation event
- *     in `events` is "eternal-start" — it exists before any
+ *     in `events` is "eternal-start", it exists before any
  *     captured activity, mirroring the existing "no end event"
  *     = eternal-end semantic for peers and sessions.
  *
- * The parser projects captured genesis facts into missing definitions;
- * runtime reads then have one path through `entities[cat][id]`.
+ * The parser projects captured genesis facts into missing definitions.
+ * Runtime reads then have one path through `entities[cat][id]`.
  */
 const PeerDefinition = z.object({
 	profile: PeerProfile,
 	/** The name the peer joined under. A `peer-updated` observation
-	 *  renames it from that moment on without touching this field —
+	 *  renames it from that moment on without touching this field,
 	 *  read the name at a given t through `peerLabelAt`. */
 	label: z.string().optional(),
 	/** The durable name this peer answers to, as against the name it
 	 *  is shown by. A live feed records the designator it filed the
-	 *  peer under; an author types one in build mode. It is what a
+	 *  peer under. An author types one in build mode. It is what a
 	 *  session end's claim matches, so a peer with none can never be
-	 *  what a claim names. It does not change while the peer lives — a
+	 *  what a claim names. It does not change while the peer lives, a
 	 *  peer that turns out to be someone else is that other peer, not a
-	 *  rename — so unlike `label` it is not a keyframe track. */
+	 *  rename, so unlike `label` it is not a keyframe track. */
 	designator: z.string().optional(),
 	/** Authored render-space position. Under `layoutMode: "authored"` it
-	 *  IS the peer's position; under the force modes it pins the peer
+	 *  IS the peer's position. Under the force modes it pins the peer
 	 *  there while its neighbors settle around it. */
 	position: Position.optional(),
 	/** Per-property keyframe tracks: `label`, the name the peer
 	 *  answers to, which a live feed restates after the join (a chat
 	 *  nick), and `profile`, the implementation it is known by. Read
-	 *  through `peerLabelAt(doc, id, t)` and `peerProfileAt`; before
+	 *  through `peerLabelAt(doc, id, t)` and `peerProfileAt`. Before
 	 *  the first keyframe the peer carries what it joined with, the
 	 *  same way a session falls back to `initialState`. */
 	keyframes: z.object({
 		label: z.array(Keyframe(z.string())).optional(),
 		profile: z.array(Keyframe(PeerProfile)).optional(),
 	}).optional(),
-	/** Stored timing — start + duration, each side explicit/implicit.
-	 *  Optional because a captured entity obtains its span from observations;
+	/** Stored timing, start + duration, each side explicit/implicit.
+	 *  Optional because a captured entity obtains its span from observations.
 	 *  the engine projects from observations on load
 	 *  so every entity has `timing` populated by the time any reader
 	 *  consults it. See `docs/temporal-model.md` and
@@ -132,11 +132,11 @@ const SessionDefinition = z.object({
 	/** See PeerDefinition.timing. */
 	timing: TimeSpanSchema.optional(),
 	/** Per-property keyframe tracks. `state` is the session's
-	 *  lifecycle within its span; `a` and `b` are which peer is on each
+	 *  lifecycle within its span, `a` and `b` are which peer is on each
 	 *  end AND what backed the end attaching to it, which changes at the
 	 *  moment something attributes an end that was loose. Each reads
 	 *  through `keyframeAt(track, t)` and falls back to the genesis value
-	 *  beside it — `initialState` (or "negotiating") for the state, and
+	 *  beside it, `initialState` (or "negotiating") for the state, and
 	 *  the `a` / `b` above for the endpoints, read as attachments through
 	 *  `endpointAttachment`. Read where an end sits and what put it there
 	 *  through `sessionEndpointAt` / `sessionEndpointPlaceAt`. See
@@ -154,12 +154,12 @@ const MessageDefinition = z.object({
 	from: z.string().min(1),
 	to: z.string().min(1),
 	label: z.string().optional(),
-	// The wire payload deliberately does NOT live here: the entities
+	// The wire payload does NOT live here: the entities
 	// map carries static identity, and a frame is the observation
 	// itself. The `message-sent` observation's `bytesB64` is its one
 	// home; the Inspector reads it there.
 	/** See PeerDefinition.timing. Messages REQUIRE duration to be
-	 *  explicit per the temporal model; flight time IS
+	 *  explicit per the temporal model. Flight time IS
 	 *  `timing.duration`. */
 	timing: TimeSpanSchema.optional(),
 });
@@ -173,7 +173,7 @@ const Entities = z.object({
 export type Entities = z.infer<typeof Entities>;
 
 /** Per-category row-management overrides for the Flash-grade
- * timeline. Identical structurally; kept as two distinct named
+ * timeline. Identical structurally. Kept as two distinct named
  * shapes (vs. one shared `PerCategoryEntityIds`) because the
  * meanings differ and call-sites read more clearly. */
 const RowOrder = z.object({
@@ -202,23 +202,23 @@ const RowBodyHidden = z.object({
 
 /** Four-way visibility mode used at every level of the
  *  visibility cascade (all → category → entity). `visible` is
- *  the default / pass-through; the three "hidden" modes each
+ *  the default / pass-through. The three "hidden" modes each
  *  drop a specific aspect of the entity. */
 const VisMode = z.enum(["visible", "label", "body", "both"]);
 export type VisMode = z.infer<typeof VisMode>;
 
 /** Master "all rows" visibility flag. Stored independently of
- *  per-category / per-entity flags; the render layer composes
+ *  per-category / per-entity flags. The render layer composes
  *  them: the FIRST non-`visible` flag in the chain
  *  `all → category → entity` wins. This means setting `all` to
  *  `label` hides labels everywhere regardless of what
- *  individual categories or entities are set to; cycling it
+ *  individual categories or entities are set to. Cycling it
  *  back to `visible` reveals whatever the categories / entities
  *  were independently configured for. Absent ⇒ `visible`. */
 const AllVisModeField = VisMode.optional();
 
 /** Per-category visibility flag. Same independence as
- *  `allVisMode` — setting `peers` to `body` hides every peer's
+ *  `allVisMode`, setting `peers` to `body` hides every peer's
  *  body regardless of per-entity flags, and cycling back to
  *  `visible` doesn't lose those per-entity settings. */
 const CategoryVisMode = z.object({
@@ -227,7 +227,7 @@ const CategoryVisMode = z.object({
 	messages: VisMode.optional(),
 }).optional();
 
-/** The camera position a document opens at. Finite numbers only; the range a
+/** The camera position a document opens at. Finite numbers only. The range a
  *  scale may take is `render/stage-view.ts`'s to say, and it clamps on read
  *  rather than refusing the parse, so a document written under different bounds
  *  still opens. */
@@ -240,7 +240,7 @@ const StageViewField = z.object({
 });
 
 /** Top-level document. `events` must be sorted by `t` and have
- * unique `id`s; both are enforced at parse time. */
+ * unique `id`s. Both are enforced at parse time. */
 export const TimelineDocument = z
 	.object({
 		"@context": z.unknown().optional(),
@@ -264,44 +264,44 @@ export const TimelineDocument = z
 		 *  that act is an edit like any other. `render/stage-view.ts` owns the
 		 *  bounds and clamps whatever is stored, because a document is an input. */
 		initialView: StageViewField.optional(),
-		/** PARSER INPUT ONLY — fixture-friendly top-level observation
+		/** PARSER INPUT ONLY, fixture-friendly top-level observation
 		 *  array. The `.transform` below projects it into
 		 *  `recording.sources[0]` and strips the field from the runtime
 		 *  shape. Readers must use `observationsOf(doc)` /
 		 *  `primaryObservations(doc)`. */
 		events: z.array(TimelineEvent).optional().default([]),
-		/** Recording layer — append-only observation streams grouped
+		/** Recording layer, append-only observation streams grouped
 		 *  by named emitter source. The runtime source-of-truth for
 		 *  observations after parse. See `docs/data-model.md` and
 		 *  `temporal/recording.ts`. */
 		recording: Recording.optional(),
 		/** Per-category row order overrides for the Flash-grade
 		 * timeline. Listed entity ids render first in the listed
-		 * order; unlisted entities fall after by first-event-t.
+		 * order. Unlisted entities fall after by first-event-t.
 		 * Absent ⇒ pure first-event-t ordering. Additive. */
 		rowOrder: RowOrder,
 		/** Per-entity stage-visibility, three-way: ids in `rowHidden`
-		 * are hidden on stage in BOTH body and label; ids in
-		 * `rowLabelHidden` keep the body but drop the label; ids in
+		 * are hidden on stage in BOTH body and label. Ids in
+		 * `rowLabelHidden` keep the body but drop the label. Ids in
 		 * `rowBodyHidden` keep the label but drop the body. An id is
 		 * in at most ONE of these three arrays at any time (the
-		 * engine enforces; on parse, the more aggressive state
+		 * engine enforces. On parse, the more aggressive state
 		 * wins when an id appears in multiple). Absent from all
 		 * three ⇒ fully visible. Parallels `StageVisibility` at
-		 * category granularity — same Adobe / Macromedia layer-
+		 * category granularity, same Adobe / Macromedia layer-
 		 * visibility idiom, scoped per entity with a "label vs body"
 		 * dimension since stage entities have both. */
 		rowHidden: RowHidden,
 		rowLabelHidden: RowLabelHidden,
 		rowBodyHidden: RowBodyHidden,
-		/** Master "all rows" visibility flag — independent of
-		 *  category / entity flags; render-time cascade lets it
+		/** Master "all rows" visibility flag, independent of
+		 *  category / entity flags. Render-time cascade lets it
 		 *  override on the way down. See `AllVisModeField`. */
 		allVisMode: AllVisModeField,
-		/** Per-category visibility flags — independent of per-
+		/** Per-category visibility flags, independent of per-
 		 *  entity flags. See `CategoryVisMode`. */
 		categoryVisMode: CategoryVisMode,
-		/** Identity-side of the entity model — see `Entities`.
+		/** Identity-side of the entity model, see `Entities`.
 		 *  Lets an id exist without a creation event (eternal-
 		 *  start), mirroring the existing eternal-end semantic. */
 		entities: Entities,
@@ -344,11 +344,11 @@ export const TimelineDocument = z
 	// post-parse, while leaving the wire format (event payloads
 	// still carry identity) unchanged for external consumers and
 	// the live-feed protocol. Pre-existing `entities` entries win
-	// over event-payload values — explicit definition trumps
+	// over event-payload values, explicit definition trumps
 	// implicit identity derived from observations.
 	.transform(({ events, ...rest }) => {
 		// 1) Derive entities from event payloads (existing identity
-		//    normalization — `doc.entities` is the post-parse source
+		//    normalization, `doc.entities` is the post-parse source
 		//    of truth for identity reads). Pre-existing entries win.
 		const peers: Record<string, PeerDefinition> = {
 			...(rest.entities?.peers ?? {}),
@@ -400,7 +400,7 @@ export const TimelineDocument = z
 
 		// 2) Project the flat input `events` into `recording.sources[0]`
 		//    when recording isn't already present. After this transform
-		//    the runtime doc has no `events` field — observations live
+		//    the runtime doc has no `events` field, observations live
 		//    only in the recording layer.
 		const recording = rest.recording ? rest.recording : events.length > 0
 			? {

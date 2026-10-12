@@ -10,16 +10,16 @@
 //!
 //! Only the second of those is V1.0's alone. The outbound half is the
 //! version-neutral resolver-export link in `resolver_export.zig`, because an
-//! `op:listen` notification settles a listener export by the same wire shape;
-//! what stays here is the V1.0-specific mint that pays the out-of-band
+//! `op:listen` notification settles a listener export by the same wire shape.
+//! What stays here is the V1.0-specific mint that pays the out-of-band
 //! wire-delta retain a synthesized resolver's mention needs.
 //!
-//! The links are authoritative session state, so they live on `Session`; this
+//! The links are authoritative session state, so they live on `Session`. This
 //! file owns the V1.0 operations over them. The fields
 //! (`v1_0_inbound_resolver_link`, a `BiMap` holding both directions, plus
 //! `next_virtual_inbound_answer`) stay on `Session`, and `Session` aliases each
 //! function below so the call sites read as ordinary methods. The engine's
-//! encode-side V1.0 hooks live separately in `engine/v1_0.zig`; this is only the
+//! encode-side V1.0 hooks live separately in `engine/v1_0.zig`. This is only the
 //! session bookkeeping they drive.
 
 const std = @import("std");
@@ -30,7 +30,7 @@ const Session = session.Session;
 
 /// A partner resolver link whose allocations and collision checks are complete
 /// but whose capability authority has not moved. The frame's shared
-/// introduced-import transaction takes the resolver retain; this value owns the
+/// introduced-import transaction takes the resolver retain. This value owns the
 /// answer/link half and commits it only after the queue or event destination is
 /// also secured, adopting that retain as the session's: the callback that
 /// settles the answer releases it beside itself, and no caller may spend it
@@ -82,7 +82,7 @@ pub fn mintOutboundResolver(self: *Session, answer: model.AnswerPosition) !model
 /// Record that the partner's inbound `answer` is resolved via their resolver
 /// import `resolver_import` (advertised in the deliver's `resolve_me_desc`).
 /// All-or-none: a failure on either map put rolls back everything already
-/// committed — the import retain and the forward entry — so no half-installed
+/// committed, the import retain and the forward entry, so no half-installed
 /// resolver row survives.
 pub fn installInboundResolver(self: *Session, answer: model.AnswerName, resolver_import: model.ImportPosition) !void {
     try self.imports.prepareRetain(
@@ -96,7 +96,7 @@ pub fn installInboundResolver(self: *Session, answer: model.AnswerName, resolver
 }
 
 /// Prepare a fresh answer-to-resolver link. `virtual_answer` is present only
-/// for the V1.0 resolver-only call shape; its answer row and cursor advance are
+/// for the V1.0 resolver-only call shape. Its answer row and cursor advance are
 /// part of the same eventual commit. Existing pairs are refused rather than
 /// evicted: either collision names authority already accepted from an earlier
 /// frame.

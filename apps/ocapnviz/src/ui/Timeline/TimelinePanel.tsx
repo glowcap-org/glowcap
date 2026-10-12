@@ -1,5 +1,5 @@
 /**
- * TimelinePanel — the bottom bar's canvas regions and the view they
+ * TimelinePanel, the bottom bar's canvas regions and the view they
  * share.
  *
  * Layout: the [`TimelineToolbar`] control row, then the [`Overview`]
@@ -9,8 +9,8 @@
  * Owns the [`TimelineView`] state via `useReducer` so scrub +
  * wheel updates don't round-trip through the App reducer. Selection
  * durable prefs (expanded lanes / categories, gutter width) persist
- * across sessions; the window resets to fit-all only when a
- * different document loads (by doc id — growth of the same live
+ * across sessions. The window resets to fit-all only when a
+ * different document loads (by doc id, growth of the same live
  * doc keeps the user's zoom).
  */
 
@@ -33,7 +33,7 @@ import { defaultView, MIN_WINDOW_MS, type TimelineView, zoomAround } from "./sta
 import { type TimelineLive, TimelineToolbar } from "./timeline-toolbar.tsx";
 
 /** React-`setState`-shaped view setter. The updater form is
- * required by wheel handlers — they fire faster than React
+ * required by wheel handlers. They fire faster than React
  * renders, so deltas need to stack on the latest state, not a
  * closure-captured snapshot. */
 export type SetView = (
@@ -83,16 +83,16 @@ export type TimelinePanelProps = {
 	onSeek: (t: number) => void;
 	onScrubStart: () => void;
 	onScrubEnd: () => void;
-	/** Current entity selection — drawn as a halo on matching
+	/** Current entity selection, drawn as a halo on matching
 	 * Scrubber spans / glyphs. */
 	selection: StageSelection;
-	/** Phase 1 — click an event in the Scrubber to select its
+	/** Click an event in the Scrubber to select its
 	 * parent entity. Optional: when undefined the Scrubber falls
 	 * through to scrub-on-click everywhere. The explicit `|
 	 * undefined` is required under `exactOptionalPropertyTypes`. */
 	onSelectEvent?: ((selection: StageSelection) => void) | undefined;
 	/** Sub-selection state machine (#16). Forwarded straight to the
-	 *  Scrubber — TimelinePanel doesn't otherwise care about glyph
+	 *  Scrubber, TimelinePanel doesn't otherwise care about glyph
 	 *  focus, but owning the prop here keeps App's wiring symmetric
 	 *  with `selection` / `onSelectEvent`. */
 	focusedEventId?: string | null;
@@ -101,11 +101,11 @@ export type TimelinePanelProps = {
 	 * a message) to retime via the engine's `move-event` intent. */
 	onMoveEvent?: ((move: MoveIntent) => void) | undefined;
 	onMoveEntitySpan?: ((move: MoveSpanIntent) => void) | undefined;
-	/** Engine transaction bracket; collapses a drag burst into one
+	/** Engine transaction bracket. Collapses a drag burst into one
 	 * undo step. */
 	beginEdit?: ((label: string) => void) | undefined;
 	endEdit?: (() => void) | undefined;
-	/** Flash-grade timeline — row-management dispatchers. Undefined
+	/** Flash-grade timeline, row-management dispatchers. Undefined
 	 * outside Build mode so the chevron / eyeballs / row-drag are
 	 * decorative (Play mode shows expanded rows but doesn't mutate
 	 * row order or visibility from the timeline). */
@@ -118,13 +118,13 @@ export type TimelinePanelProps = {
 	cycleCategoryVisibility?:
 		| ((category: "peers" | "sessions" | "messages") => void)
 		| undefined;
-	/** Master "all rows" cycle — same 4-state vocabulary as the
+	/** Master "all rows" cycle, same 4-state vocabulary as the
 	 * per-row / per-category eyeballs, applied across every entity
 	 * in every category. The eyeball lives in the Overview's
 	 * gutter next to its "overview" label so all the gutter
 	 * eyeballs (all → category → entity) stack into one control
 	 * column. Mode is read from `engine.allVisMode()` here and
-	 * forwarded to `Overview` — it already subscribes to engine
+	 * forwarded to `Overview`, it already subscribes to engine
 	 * version, so the glyph stays in lockstep with the doc. */
 	cycleAllVisibility?: (() => void) | undefined;
 	commitRowReorder?:
@@ -134,10 +134,10 @@ export type TimelinePanelProps = {
 		) => void)
 		| undefined;
 	/** Unified entity selection (selection-store §6). The Scrubber
-	 * highlights every event whose entityRef key is in this set;
-	 * rubber-band and click gestures write back via the callback below. */
+	 * highlights every event whose entityRef key is in this set.
+	 * Rubber-band and click gestures write back via the callback below. */
 	selectionSet: ReadonlySet<EntityRefKey>;
-	/** Selection gesture on a pill or the marquee — forwarded to the
+	/** Selection gesture on a pill or the marquee, forwarded to the
 	 * one select-mode interpreter (`selectionActionFor`). */
 	onEditSelection: (
 		entities: ReadonlySet<EntityRefKey>,
@@ -151,33 +151,33 @@ export type TimelinePanelProps = {
 	/** Report the minimum panel height needed to render the
 	 * current expansion state without dropping rows off the
 	 * bottom. App uses this to drive the "fit to content"
-	 * affordance — the pane is no longer auto-grown. */
+	 * affordance. The pane does not grow on its own. */
 	onIntrinsicHeightChange?: ((px: number) => void) | undefined;
-	/** Report the collapsed-fit panel height — chrome plus the
+	/** Report the collapsed-fit panel height, chrome plus the
 	 *  scrubber with every category collapsed. That is App's drag
 	 *  floor: expand a category and you can drag between this and
-	 *  the live intrinsic; you cannot drag below this. */
+	 *  the live intrinsic. You cannot drag below this. */
 	onMinHeightChange?: ((px: number) => void) | undefined;
 	/** Current state of the persistent "auto-size pane to content"
 	 * toggle. The panel renders a checkbox in the topbar bound to
-	 * this; toggling fires `onSetAutoSizeTimeline`. While true,
+	 * this. Toggling fires `onSetAutoSizeTimeline`. While true,
 	 * App's effect pins the pane height to the live intrinsic
 	 * (current expansion). Drag floors at the collapsed-fit height
 	 * from `onMinHeightChange` instead. */
 	autoSizeTimeline?: boolean | undefined;
 	onSetAutoSizeTimeline?: ((value: boolean) => void) | undefined;
-	/** Live mode flag — when true, the panel renders normally
+	/** Live mode flag, when true, the panel renders normally
 	 * (so the bottom bar doesn't pop in / out on mode switches)
 	 * but interaction is suppressed: control-row buttons are
 	 * disabled, the Scrubber's pointer handlers no-op, and a
 	 * "LIVE" badge in the control row makes the state legible.
 	 * The events lane + playhead still update from the live
-	 * feed so the user sees the feed advancing — it's just not
+	 * feed so the user sees the feed advancing, it's just not
 	 * theirs to steer. */
 	disabled?: boolean | undefined;
 	/** Live-mode bundle. Carries everything the control row needs
 	 * to render Live's Record / Stop verb and the connection
-	 * badge in one place. Provided iff `disabled` is true; when
+	 * badge in one place. Provided iff `disabled` is true, when
 	 * absent, the control row falls back to Play / Build's
 	 * scrubable playback buttons. */
 	live?: TimelineLive | undefined;
@@ -220,7 +220,7 @@ export function TimelinePanel(
 	// `useEngineVersion` would also wake on every playback frame's
 	// layout tick; `useDocVersion` stays quiet while the clock alone
 	// runs, and a mid-drag placement inside a transaction does not
-	// bump it either — the gesture's endTransaction is the edit.
+	// bump it either. The gesture's endTransaction is the edit.
 	useDocVersion(engine);
 	const doc = engine.doc;
 	const clock = useClockSnapshot(engine);
@@ -230,7 +230,7 @@ export function TimelinePanel(
 		() => {
 			// Persisted view overlays the doc-relative default. Window
 			// start/end aren't restored (they depend on doc duration);
-			// expanded sets + gutter width ARE — those are user choices
+			// expanded sets + gutter width ARE. Those are user choices
 			// that should survive a reload like the other UI prefs.
 			const base = defaultView(doc.duration);
 			const persisted = loadPersistedTimelineView();
@@ -250,8 +250,8 @@ export function TimelinePanel(
 		},
 	);
 
-	// Persist the durable UI bits of the view — expanded lanes /
-	// categories / gutter width — same idiom as `useLayoutSizes` and
+	// Persist the durable UI bits of the view, expanded lanes /
+	// categories / gutter width, same idiom as `useLayoutSizes` and
 	// `useStageVisibility`. Done in an effect (not in the reducer)
 	// so the persistence path stays out of the hot update loop.
 	useEffect(() => {
@@ -262,7 +262,7 @@ export function TimelinePanel(
 		});
 	}, [view.expandedLanes, view.expandedCategories, view.gutterWidth]);
 
-	// Dev / test introspection — the current timeline view sits on
+	// Dev / test introspection. The current timeline view sits on
 	// `__ocv.timelineView` so probes can verify gutter-resize and
 	// other view edits without re-implementing React internals.
 	useEffect(() => {
@@ -278,18 +278,18 @@ export function TimelinePanel(
 	// surfaces. A box rather than state: both surfaces write it on
 	// every pointermove, and the only readers are their own Pixi
 	// tickers, which read it once a frame. Nothing renders it, so as
-	// state it reconciled this whole panel at pointer-event rate —
+	// state it reconciled this whole panel at pointer-event rate,
 	// worst while paused, where the engine only notifies on change
 	// and hover was then the only thing re-rendering at all.
 	const hoverTRef = useRef<number | null>(null);
 
 	// Reset the doc-relative half of the view (the window) when a
-	// DIFFERENT document loads — a scenario switch, an opened file.
+	// DIFFERENT document loads, a scenario switch, an opened file.
 	// Identity is the doc's `id`, never the object reference: a live
 	// doc grows through a fresh object on every arriving event, and
 	// growth must not eject the user from their zoom. The durable
 	// user prefs (expanded lanes / categories, gutter width) always
-	// carry over — they belong to the user, not the document; only
+	// carry over, they belong to the user, not the document; only
 	// the window depends on the doc's duration.
 	const lastDocIdRef = useRef(doc.id);
 	useEffect(() => {
@@ -307,7 +307,7 @@ export function TimelinePanel(
 		}
 	}, [doc]);
 
-	// Measure the scrubber slot width — drives `pxPerMs`. Height is
+	// Measure the scrubber slot width, drives `pxPerMs`. Height is
 	// tracked by the Scrubber itself via `height: 100%`.
 	const scrubberSlotRef = useRef<HTMLDivElement | null>(null);
 	const [scrubberWidth, setScrubberWidth] = useState(0);
@@ -338,11 +338,11 @@ export function TimelinePanel(
 	const [scrubberIntrinsic, setScrubberIntrinsic] = useState(0);
 	const [scrubberCollapsed, setScrubberCollapsed] = useState(0);
 
-	// View bounds, single source of truth — wired to BOTH the
+	// View bounds, single source of truth, wired to BOTH the
 	// Overview and the Scrubber so wheel / drag / zoom on either
 	// surface honors the same window-shape rules. Live mode opens
-	// both ceilings up (1-week zoom-out floor, unbounded pan-right
-	// — the timeline has no end); Play / Build use the captured
+	// both ceilings up (1-week zoom-out floor, unbounded pan-right,
+	// the timeline has no end); Play / Build use the captured
 	// duration for both so wheeling either surface lands inside
 	// `[0, duration]` (Flash convention).
 	const viewMaxWidth = disabled ? MAX_LIVE_WINDOW_MS : clock.duration;
@@ -353,7 +353,7 @@ export function TimelinePanel(
 	// unmount so Live-mode (which hides this panel) lets the
 	// bottom pane return to the user's preferred size.
 	// Layout effect (not regular effect) so the App-side auto-size
-	// pin runs before paint — see the matching note in Scrubber on
+	// pin runs before paint, see the matching note in Scrubber on
 	// collapsing the expand/collapse paint chain into one frame.
 	useLayoutEffect(() => {
 		const total = controlRowHeight + OVERVIEW_HEIGHT + scrubberIntrinsic +
@@ -593,7 +593,7 @@ const panel = {
 	// grid row already enforces `BOTTOM_PANE_MIN`, and a panel-
 	// level floor LARGER than the grid row makes the panel
 	// overflow the bar (the ruler clips off-screen when the row
-	// count is small — the "phantom container pushing the ruler
+	// count is small. The "phantom container pushing the ruler
 	// down" symptom).
 	height: "100%",
 } satisfies React.CSSProperties;

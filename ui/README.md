@@ -19,7 +19,7 @@ does a different job on each surface (folder tabs on a code listing, a mode
 switch in settings), and one shared class would be wrong for one of them.
 Extract a shared control only when a third glowcap surface needs it. The
 wordmark lockup has already earned that: the Rooms rail and the site header
-show the same logotype. Shared token *names* still describe separate widgets;
+show the same logotype. Shared token *names* still describe separate widgets.
 `--accent-ink` means readable accent text on both surfaces.
 
 ## What belongs here
@@ -40,7 +40,7 @@ show the same logotype. Shared token *names* still describe separate widgets;
   type stays in rem. Those names are for application chrome.
 - **Mark lockup:** `mark.css` owns where the still mushroom sits in its box,
   the bloom it takes under the pointer, and the `.wordmark` drawing. A new
-  home takes those classes; it does not copy the numbers.
+  home takes those classes. It does not copy the numbers.
 - **Surface tokens:** what a color means on one surface only, such as a
   chat bubble or a syntax color. Define these in that surface from core
   tokens.
@@ -50,7 +50,7 @@ show the same logotype. Shared token *names* still describe separate widgets;
 Do not repeat a core value. Use `var(--accent)`, for example, rather than its
 hex value. `zig build source-check` catches repeated core colors, including
 equivalent `rgb()` and `rgba()` forms. The rooms avatar ramp is exempt because
-its ten fixed tints must support white initials; `page.css` documents that
+its ten fixed tints must support white initials. `page.css` documents that
 exception.
 
 ## How the files are shared
@@ -63,7 +63,7 @@ Both consumers use symlinks:
   `fonts/*` point here.
 
 Zine only installs assets referenced by a template. Each font therefore needs
-a `<link>` in `site/layouts/templates/base.shtml`; a `url()` inside
+a `<link>` in `site/layouts/templates/base.shtml`. A `url()` inside
 `tokens.css` is not enough. Without that link the browser silently synthesizes
 the missing face because the font uses `font-display: swap`. The same is true
 of `mark.css`: name it from the template or Zine will not ship it.
@@ -169,7 +169,7 @@ The picture is a fifth larger than the box it is given, because the shader's
 canvas is too. The four percentages on `.mark-piece` in `mark.css` keep a
 lockup from shifting when the shader replaces the still mark.
 
-The still mark's only motion is a bloom under the pointer; light and its
+The still mark's only motion is a bloom under the pointer. Light and its
 timing belong to the shader. The artwork's tones are measured from the render,
 not chosen, so they are literal values in the artwork with no theme variants.
 The mushroom is something seen at night, and its flesh and rim keep their

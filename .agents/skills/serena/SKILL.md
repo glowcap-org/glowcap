@@ -5,8 +5,7 @@ description: "Use first for Zig code-symbol work: mapping a file, finding a decl
 
 # Serena MCP — Zig glowcap operator notes
 
-Serena is the first-class tool for Zig symbols. Reach for it before text
-search:
+Serena is the first tool for Zig symbols, before text search:
 
 | Task | Tool |
 | --- | --- |
@@ -31,8 +30,8 @@ and [rooms-peer](../rooms-peer/SKILL.md).
 
 Check once whether the session has Serena. If it is absent, or a call still
 fails after one diagnostic attempt, continue with `rg`, bounded reads, and the
-owning checks, and say so once. Do not turn ordinary work into MCP repair unless
-missing symbol information blocks a safe edit or the user asked for the repair.
+owning checks, and say so once. Repair the MCP only when missing symbol
+information blocks a safe edit or the user asked for it.
 
 ## Project State
 
@@ -146,12 +145,12 @@ Read a symbol body directly when you already know its name and file:
 ## Memories
 
 Serena memories are per-clone runtime state under `.serena/memories/`, ignored
-by git, a fresh clone has none. Call `list_memories` to see what this clone
-actually holds before reading one; never assume a named memory exists. The
-committed rules and docs, not memories, are the durable guidance.
+by git, so a fresh clone has none. Call `list_memories` before reading one and
+never assume a named memory exists. The committed rules and docs are the
+durable guidance.
 
 ## Verification
 
 Use `get_diagnostics_for_file` for focused iteration. The
-[execution rule](../../rules/cli.md#gates) owns final checks; using Serena does
-not independently require another product-gate run.
+[execution rule](../../rules/cli.md#gates) owns final checks; Serena use adds
+no product-gate run.

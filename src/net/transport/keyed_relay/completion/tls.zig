@@ -4,8 +4,8 @@
 //! owns only completion mechanics: one platform send/receive at a time,
 //! direct plaintext production into the WebSocket input spill, and the exact
 //! point at which a logical WebSocket send is complete. It allocates one
-//! secure-only state object per WSS connection and no thread or payload queue;
-//! refused submissions use allocation-free intrusive retry links.
+//! secure-only state object per WSS connection and no thread or payload queue.
+//! Refused submissions use allocation-free intrusive retry links.
 
 const std = @import("std");
 
@@ -68,7 +68,7 @@ pub fn Machine(
         }
 
         /// Engine-open refusal has no client to retire. The dial transaction
-        /// owns the returned failure; this state only records that its
+        /// owns the returned failure. This state only records that its
         /// pre-reserved storage no longer carries a live engine.
         pub fn abandonPending(backend: *Backend, c: *RelayConn) void {
             const secure = backend.secure.get(c.id) orelse unreachable;
@@ -88,7 +88,7 @@ pub fn Machine(
 
         /// Retry only ciphertext sends the platform refused before admission.
         /// The secure-state links make this O(owed work), allocation-free, and
-        /// bounded per loop turn; the TLS engine keeps the exact output slice.
+        /// bounded per loop turn. The TLS engine keeps the exact output slice.
         pub fn retryPendingSends(backend: *Backend) void {
             const attempts = @min(backend.tls_send_retries.count, send_retry_batch);
             for (0..attempts) |_| {
@@ -100,7 +100,7 @@ pub fn Machine(
 
         /// Drive through a terminal outcome. Once TLS consumes plaintext or
         /// emits ciphertext, a later adapter refusal cannot be returned as if
-        /// the caller still owned an untouched transaction; it settles through
+        /// the caller still owned an untouched transaction. It settles through
         /// the already-reserved operation completion instead.
         pub fn drive(backend: *Backend, c: *RelayConn) void {
             driveInner(backend, c) catch |err| {
@@ -109,7 +109,7 @@ pub fn Machine(
             };
         }
 
-        fn driveInner(backend: *Backend, c: *RelayConn) anyerror!void {
+        fn driveInner(backend: *Backend, c: *RelayConn) !void {
             const secure = backend.secure.get(c.id) orelse return;
             var steps: usize = 0;
             while (steps < max_drive_steps) : (steps += 1) {
@@ -241,7 +241,7 @@ pub fn Machine(
             backend: *Backend,
             c: *RelayConn,
             bytes: []const u8,
-        ) anyerror!void {
+        ) !void {
             const secure = backend.secure.get(c.id) orelse return error.TlsStateMissing;
             const transform = secure.activeTransform();
             var remaining = bytes;
@@ -269,7 +269,7 @@ pub fn Machine(
             drive(backend, c);
         }
 
-        pub fn sent(backend: *Backend, c: *RelayConn, result: i32) anyerror!void {
+        pub fn sent(backend: *Backend, c: *RelayConn, result: i32) !void {
             const secure = backend.secure.get(c.id) orelse return error.TlsStateMissing;
             if (result <= 0) {
                 fail(backend, c, currentPhase(c, secure), error.TlsTransmitFailed);
@@ -357,7 +357,7 @@ pub fn Machine(
             backend: *Backend,
             c: *RelayConn,
             interest: engine.Interest,
-        ) anyerror!void {
+        ) !void {
             if (interest.read and !c.pending.get(.recv)) try Access.armPlatformRecv(backend, c);
         }
 

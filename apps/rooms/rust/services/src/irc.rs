@@ -1,5 +1,5 @@
 //! IRC transport ownership shared by network feeds and member identities.
-//! Application state stays in rooms_application::server::irc; this adapter
+//! Application state stays in rooms_application::server::irc. This adapter
 //! owns sockets, TLS, bounded writes, deadlines and cancellation.
 mod connection;
 pub mod feed;

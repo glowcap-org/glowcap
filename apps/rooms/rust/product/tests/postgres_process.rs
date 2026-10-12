@@ -2,6 +2,7 @@
 //! must name a disposable PostgreSQL database. TLS scenarios use the repository
 //! test CA, also supplied to the child through SSL_CERT_FILE.
 //! Each run creates its own schema and removes exactly that schema afterward.
+#![cfg(test)]
 use glowcap::{ConnectOptions, PendingWork, Runtime, RuntimeConfig, tcp};
 use rooms_glowcap::client::{
 	Client,

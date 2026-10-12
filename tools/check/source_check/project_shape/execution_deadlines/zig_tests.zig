@@ -16,7 +16,7 @@ const Kind = enum { unit_test, search };
 const Exemption = struct { name: []const u8, kind: Kind };
 
 /// The only assigned Zig test in this owner that does not terminate as a
-/// unit test. This list is intentionally tiny and exact. Ordinary
+/// unit test. This list is tiny and exact. Ordinary
 /// tests derive their inventory from the declarations and classifications.
 const exemptions = [_]Exemption{
     .{ .name = "fuzz_tests", .kind = .search },

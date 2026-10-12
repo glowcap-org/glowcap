@@ -19,7 +19,7 @@ pub const GLOWCAP_ONION_SERVICE_KEY_CAP: usize = net.onion.session.service_key_c
 ///
 /// Every pointer is borrowed only for construction and copied into the runtime.
 /// `socks` is required. An empty `control_endpoint` creates a dial-only runtime.
-/// An empty `service_key` asks Tor for a fresh service; an empty `forward` asks
+/// An empty `service_key` asks Tor for a fresh service. An empty `forward` asks
 /// glowcap to bind the local loopback endpoint Tor will forward to.
 pub const GlowcapOnionConfig = extern struct {
     socks: ?[*]const u8 = null,

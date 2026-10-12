@@ -30,13 +30,13 @@ pub fn Machine(
             leg: route.Leg,
             /// The designator a dial names, or the hex id a registration holds.
             query_value: []const u8,
-            /// The caller's connect seat; a registration leg has none.
+            /// The caller's connect seat. A registration leg has none.
             connect_ud: ?u64,
         };
 
         /// A row id is held by the admitted table, by the still-opening table,
-        /// and by the registration while it tracks a leg it started;
-        /// reservation must skip all three.
+        /// and by the registration while it tracks a leg it started.
+        /// Reservation must skip all three.
         const RowOccupancy = struct {
             backend: *const Backend,
 

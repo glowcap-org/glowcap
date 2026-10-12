@@ -9,7 +9,7 @@ Use the forwarded SSH agent. Do not mount private key files into the
 container.
 
 Agent tools authenticate and keep user-level harness state for the host user
-rather than a single checkout. The devcontainer binds their scoped host
+instead of a single checkout. The devcontainer binds their scoped host
 directories into every worktree:
 
 | Tool | Host path | Purpose |
@@ -24,13 +24,14 @@ directories into every worktree:
 | Agent resources | `~/.config/agents` | User-level resources for `.agents/` |
 | Serena | `~/.serena` | User-level configuration |
 
-Download caches use the same bind pattern so they are findable on either side
-of the container: host `~/.cache/glowcap` is container
-`/home/vscode/.cache/glowcap`. `tool/` is shared downloads and `cargo/` is
-`CARGO_HOME`. A `LAYOUT` file sits at the root of that directory. Zig's local
-objects and extracted packages use a per-worktree Docker volume so their
-atomic-file behavior comes from the Docker daemon under both native Linux and
-Docker Desktop. The [README](../README.md#persistent-paths) is the inventory.
+Download caches use the same bind pattern so they are findable on either side of
+the container: host `~/.cache/glowcap` is container
+`/home/vscode/.cache/glowcap`. `tool/` is shared downloads, `cargo/` is
+`CARGO_HOME`, and `installed/` holds the managed tools (the AI harnesses) the
+checkout's dispatcher maintains. A `LAYOUT` file sits at the root of that
+directory. Zig's local objects and extracted packages use a per-worktree Docker
+volume, so their atomic-file behavior comes from the Docker daemon. The
+[README](../README.md#persistent-paths) is the inventory.
 
 `initialize.sh` creates every host path before Docker starts. A login, user
 setting, or cache fill made on the host or in any glowcap worktree is therefore
@@ -38,39 +39,42 @@ available in every other worktree (the shared `tool/` and `cargo/` trees) and
 survives container replacement. A checkout can read and update these stores,
 so open only trusted code in these containers.
 
-The mounts target only the directories above. Mounting all of `~/.config`
-would expose unrelated host configuration and overlap the narrower mounts.
+A shared store carries the host's configuration as written. A setting that
+names a host-absolute path or an endpoint only the host can reach, such as a
+machine-provided harness's model gateway, does not resolve inside the
+container. Keep such a harness on the host.
+
+The mounts target only the directories above, because mounting all of
+`~/.config` would expose unrelated host configuration.
 `post-create.sh` checks access without changing ownership of host files.
 Serena's per-clone memories remain under the workspace's `.serena/` directory,
 which the workspace bind already carries.
 
-A bind mount only shares a login if the tool writes it inside the directory
-being bound, and two of these tools choose that directory from the
-environment. `devcontainer.json` therefore sets `CLAUDE_CONFIG_DIR` and the
-Cursor agent's `CURSOR_CONFIG_DIR` and `CURSOR_DATA_DIR` to the container-side
-mount targets. Claude Code needs this: left alone it keeps its credentials in
-`~/.claude` but its account and onboarding state in `~/.claude.json` beside it,
-and that loose file cannot be bind-mounted, so it lived in the container's
-writable layer and every rebuild opened on the login screen. Pointing the
-variable at the directory brings the file inside it. The Cursor agent CLI has a
-second split on Linux: settings go under `CURSOR_CONFIG_DIR`, while access and
-refresh tokens go to `~/.config/cursor/auth.json`, so that directory is a
-separate host bind. `test/env-sync.sh` holds each variable against its mount,
-and holds the Linux token directory in the same inventory, because that file
-does not follow `CURSOR_CONFIG_DIR`.
+A bind mount shares a login only if the tool writes it inside the bound
+directory, and two of these tools choose that directory from the environment.
+`devcontainer.json` therefore sets `CLAUDE_CONFIG_DIR` and the Cursor agent's
+`CURSOR_CONFIG_DIR` and `CURSOR_DATA_DIR` to the container-side mount targets.
+Claude Code keeps credentials in `~/.claude` but its account and onboarding
+state in the loose file `~/.claude.json`, which cannot be bind-mounted and
+would reset on every rebuild. Pointing the variable at the directory moves the
+file inside it. On Linux the Cursor agent CLI splits state too: settings go
+under `CURSOR_CONFIG_DIR`, while access and refresh tokens go to
+`~/.config/cursor/auth.json`, so that directory is a separate host bind.
+`test/env-sync.sh` holds each variable against its mount, and holds the Linux
+token directory in the same inventory.
 
-The first time a container opens after this, `initialize.sh` copies a host
-`~/.claude.json` into `~/.claude/` if the shared copy is not there yet, so an
-existing host login carries over. Afterwards the worktrees share that copy and
-a host Claude Code keeps its own. A Darwin host keeps Cursor tokens at
-`~/.cursor/auth.json`, and the Linux container reads `~/.config/cursor` instead,
-so `initialize.sh` copies that file the same way when the Linux store is empty.
+When a container first opens, `initialize.sh` copies a host `~/.claude.json`
+into `~/.claude/` if the shared copy is not there yet, so an existing host
+login carries over. After that the worktrees share that copy and a host Claude
+Code keeps its own. A Darwin host keeps Cursor tokens at
+`~/.cursor/auth.json`, and the Linux container reads `~/.config/cursor`, so
+`initialize.sh` copies that file the same way when the Linux store is empty.
 
 ## Common login problems
 
 If `gh auth status` works on the host but not in the container, the host may
 keep its token in a desktop keyring instead of `~/.config/gh/hosts.yml`. Run
-`gh auth login` once inside any glowcap container or provide `GH_TOKEN`; the
+`gh auth login` once inside any glowcap container or provide `GH_TOKEN`. The
 file-backed login is then shared by every worktree.
 
 Claude Code credentials live in `~/.claude/.credentials.json`, opencode uses

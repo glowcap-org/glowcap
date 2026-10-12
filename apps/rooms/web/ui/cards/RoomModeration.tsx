@@ -40,8 +40,8 @@ function membersToModerate(members: ReadonlyMap<string, Standing>, you: string):
 		.sort((a, b) => a.localeCompare(b));
 }
 
-/** Operations exposed by the live capabilities this session actually holds.
- * Member removal answers to a room moderator; unbridging answers to the IRC
+/** Operations exposed by the live capabilities this session holds.
+ * Member removal answers to a room moderator. Unbridging answers to the IRC
  * gateway for this directory. Neither authority stands in for the other. */
 export function RoomModeration(
 	{ conv, you, available, administeredBridge }: {

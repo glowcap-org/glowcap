@@ -1,5 +1,5 @@
 //! Sparse index edits stage changed mappings only. Store proposals and allocator
-//! counts establish the cost; owner scenarios establish resource semantics.
+//! counts establish the cost. Owner scenarios establish resource semantics.
 const std = @import("std");
 const f = @import("owner_fixture.zig");
 const storage = f.storage;

@@ -23,7 +23,7 @@ import {
 } from "../../../lib/text/page.ts";
 /** The shape a picture or a video will take, from what its sender measured.
  * Reserving it before the bytes arrive is what keeps a log of media from
- * shoving every line below it down the page as each one loads; without a
+ * shoving every line below it down the page as each one loads. Without a
  * declared shape the box falls back to one landscape block, which costs one
  * reflow rather than one per file. */
 type MediaLayout = "natural" | "tile-full" | "tile-half" | "tile-third";
@@ -41,7 +41,7 @@ function shapeOf(file: AttachmentView, layout: MediaLayout): { aspectRatio: stri
 }
 
 /** Lay image runs into complete gallery rows without changing attachment order.
- * Each run is balanced across rows of at most three images; the six-column
+ * Each run is balanced across rows of at most three images. The six-column
  * grid divides evenly into thirds, halves, or one full-width tile. A non-image
  * attachment ends the run because pairing images across it would make the
  * visual order lie. */
@@ -232,8 +232,8 @@ function AttachedMedia(
 	);
 }
 
-/** Sound on a line. There is nothing to open full-screen — a player is the
- * whole of what a listener wants — so this fetches on the press that starts
+/** Sound on a line. There is nothing to open full-screen, a player is the
+ * whole of what a listener wants, so this fetches on the press that starts
  * it and then plays in place. */
 function AttachedAudio(
 	{ file, id, convKey, mine }: { file: AttachmentView; id: number; convKey: string; mine: boolean },
@@ -265,7 +265,7 @@ function AttachedAudio(
 
 /** Everything else: a row naming the file, and one control.
  *
- * That control is Download, and it does the whole job in one press — fetch the
+ * That control is Download, and it does the whole job in one press, fetch the
  * bytes from the room, then hand them to the browser to save. Two presses, one
  * to fetch and one to save, is a seam from the implementation showing through:
  * the reader asked for the file, not for its transfer. */

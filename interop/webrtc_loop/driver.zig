@@ -5,7 +5,7 @@
 //! `net.completion_resident` over `webrtc.Backend` with `webrtc.ResidentPolicy`,
 //! publishing a greeter. N client
 //! threads each bring a DataChannel up as the offerer and drive a packet-fed
-//! Host session over WebRTC, calling the greeter and checking every reply —
+//! Host session over WebRTC, calling the greeter and checking every reply,
 //! so the one runtime thread is provably multiplexing N channels through the
 //! backend's readiness descriptor, not serving them serially.
 //!
@@ -13,12 +13,12 @@
 //! room-carried capability the rooms app ships in TypeScript: the hub answers
 //! each client offer by creating the answerer peer on the server's resident,
 //! authorizing the client's identity, and handing the peer to
-//! `Backend.adoptAnswerer` — the backend's one inbound entry, since WebRTC has
+//! `Backend.adoptAnswerer`: the backend's one inbound entry, since WebRTC has
 //! no accept substrate. Candidates trickle both ways through the backend's
 //! thread-safe `provideRemoteCandidate` and the authority's `sendCandidate`.
 //!
 //! Not part of the hermetic `zig build check` run set as a *runnable* (it links
-//! the Rust sidecar, needs cargo); the compile-only sibling rides `check`.
+//! the Rust sidecar, needs cargo). The compile-only sibling rides `check`.
 //! Run: `zig build webrtc-loop`.
 
 const std = @import("std");
@@ -130,7 +130,7 @@ const Hub = struct {
         if (destroy) self.allocator.destroy(route);
     }
 
-    /// The backend never dials in this scenario; a dial reaching the authority
+    /// The backend never dials in this scenario. A dial reaching the authority
     /// is a harness defect, not a fallback.
     fn sendOffer(ctx: *anyopaque, fd: i32, designator: []const u8, sdp: []const u8) anyerror!void {
         _ = ctx;
@@ -156,7 +156,7 @@ const Hub = struct {
 
     /// Answer a client's offer: create the server-side answerer, authorize the
     /// client identity the exchange is scoped to, adopt it into the backend,
-    /// and file the client for return candidates. Runs on the client's thread;
+    /// and file the client for return candidates. Runs on the client's thread,
     /// `adoptAnswerer` is the backend's thread-safe entry.
     fn offer(
         self: *Hub,
@@ -182,7 +182,7 @@ const Hub = struct {
     }
 
     /// Drop the return-candidate route once the client's channel is up (or its
-    /// bring-up failed); the client peer's storage dies with its thread.
+    /// bring-up failed). The client peer's storage dies with its thread.
     fn forget(self: *Hub, fd: i32) void {
         const route = blk: {
             self.mutex.lock();
@@ -197,7 +197,7 @@ const Hub = struct {
 };
 
 /// One client: own resident, offerer peer, hub-signaled bring-up, then a keyed
-/// OCapN session over the open channel — fetch the greeter and call it
+/// OCapN session over the open channel, fetch the greeter and call it
 /// `calls_per_conn` times.
 fn clientOnce(
     io: std.Io,

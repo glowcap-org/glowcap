@@ -75,8 +75,9 @@ pub fn nextStoreStamp(self: *Session) u64 {
 }
 
 /// Unwind an outbound answer installed for a send that never reached the wire.
-/// The monotonic position remains spent; partner-visible rows retire through
-/// answer GC instead.
+/// The monotonic position remains spent. Partner-visible rows retire through
+/// answer GC instead. Presence is certain because `installOutbound` in the
+/// same prepare/rollback pair created the row for this position.
 pub fn abandonOutbound(self: *Session, id: model.AnswerPosition) void {
     const entry = self.outbound_answers.getPtr(id) orelse unreachable;
     std.debug.assert(entry.status() == .pending and entry.count == 1);
@@ -116,6 +117,8 @@ pub fn abandonUnsharedInbound(self: *Session, id: model.AnswerPosition) void {
 }
 
 /// Named form of `abandonUnsharedInbound` for wire and virtual answers.
+/// Presence is certain because `prepareFreshInboundNamed` in the same
+/// prepare/rollback pair reserved the pending row for this name.
 pub fn abandonUnsharedInboundNamed(self: *Session, id: model.AnswerName) void {
     const entry = self.inbound_answers.getPtr(id) orelse unreachable;
     std.debug.assert(entry.status() == .pending and entry.count == 1);

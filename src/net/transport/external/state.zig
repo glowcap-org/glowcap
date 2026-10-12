@@ -1,6 +1,6 @@
 //! Row representation and target vocabulary for the foreign stream adapter.
 //!
-//! `completion.zig` owns every transition; this leaf holds only the shapes it
+//! `completion.zig` owns every transition. This leaf holds only the shapes it
 //! moves between: a connection row with its armed polls, the provider
 //! listener row, and the dial, listen, and address unions.
 
@@ -22,7 +22,7 @@ pub fn Types(comptime Platform: type, comptime Namespace: type) type {
             platform: Platform.ConnectTarget,
         };
 
-        /// The listener handle; connection rows start at one.
+        /// The listener handle. Connection rows start at one.
         pub const listen_fd: Platform.Fd = Namespace.fdFromComptimeId(0);
 
         pub const Op = enum(u3) { read_poll, write_poll, start_poll, cancel };
@@ -31,7 +31,7 @@ pub fn Types(comptime Platform: type, comptime Namespace: type) type {
         pub const Phase = union(enum) {
             connecting: *anyopaque,
             open: *anyopaque,
-            /// The dial failed; the loop still owns the handle until it closes.
+            /// The dial failed. The loop still owns the handle until it closes.
             failed,
         };
 

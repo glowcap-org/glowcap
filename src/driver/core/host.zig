@@ -2,23 +2,23 @@
 //! `driver_core` I/O ban. A `Host` owns one `engine.Node` (identity,
 //! live-session directory, routing, the redeem serve step) and mints byte-fed
 //! sessions (`HostSession`) whose peers are node-registered, so
-//! everything the node decides — where a capability route leads, which exporter a give
-//! withdraws from, when a served reply becomes a signed give — happens under
+//! everything the node decides (where a capability route leads, which exporter a give
+//! withdraws from, when a served reply becomes a signed give) happens under
 //! every session the host holds, with no socket in sight. The embedder owns
 //! the loop, the sockets, and the entropy: it feeds inbound packets with
 //! `feedTransportPacket`, or lower-level bytes with `feed` (a bare whole
 //! frame), `feedBytes` (outer-framed byte-stream chunks), or `serveEvent`
 //! (one already-polled event, the completion-loop hook), drains outbound
 //! packets with `HostSession.takeTransportOutbound`, and answers the host's
-//! action queue (`nextAction`) — dial requests, flush notices, close signals
-//! for a condemned session, gift-id entropy requests — with
+//! action queue (`nextAction`), meaning dial requests, flush notices, close signals
+//! for a condemned session, and gift-id entropy requests, with
 //! `exporterDialed` / `dialFailed` / `provideGiftId`. Settlements ride the
 //! same queue: a vow with no in-process listener settles as an owned
 //! `settled`/`failed` completion the embedder routes by vow id, so one drain
 //! hears every outcome. An in-process Zig consumer may instead register a
 //! borrowed one-shot listener with `vowOn`, which keeps that vow's settlement
 //! zero-copy and off the queue. `driver.HostRuntime` is one such embedder (its
-//! transport residents over this core, ADR-0193); the C ABI's
+//! transport residents over this core, ADR-0193). The C ABI's
 //! `libglowcap_host` is another (byte-fed from a binding-owned loop).
 //!
 //! One thread drives one host. The node tables, the CapTP session map, the vow
@@ -78,13 +78,13 @@ pub const session_seed_domain = "glowcap session-key v1";
 
 pub const PeerProvenance = enum { verified, dial_target, assertion_only };
 
-/// Enlivenment lives in `enliven.zig`; its vocabulary is named here because
+/// Enlivenment lives in `enliven.zig`. Its vocabulary is named here because
 /// this is the file every consumer of the host core reads first.
 pub const EnlivenPeerPolicy = enliven_mod.EnlivenPeerPolicy;
 pub const EnlivenStart = enliven_mod.EnlivenStart;
 
 /// The far reference `arg` names, or null when `arg` is not a plain far
-/// capability — a break, a promise, a near, or a non-reference value. The one
+/// capability: a break, a promise, a near, or a non-reference value. The one
 /// unwrap of the `reference → far` shape the foreign-proxy, enroll, and enliven
 /// paths each read off a fulfilled resolution.
 /// `pub` for the Host-core siblings, not for embedders. Host-core internal.
@@ -110,7 +110,7 @@ pub fn localActorId(ref: actors.Ref) actors.Error!u64 {
 
 pub const DialTarget = crossed_hellos.DialTarget;
 
-/// One identity, one node, many byte-fed CapTP sessions — the sans-io host
+/// One identity, one node, many byte-fed CapTP sessions: the sans-io host
 /// core. The node serve step decides, and this host executes each action
 /// either directly (settle and fail fire the recipient vat's listener through
 /// `Vat.settleFar`) or by queueing it for the embedder (dials and gift-id
@@ -124,11 +124,11 @@ pub const Host = struct {
     vat: actors.Vat,
     sessions: std.AutoHashMapUnmanaged(engine.PeerHandle, *HostSession) = .{},
     /// Aggregate pending-work count. Session close reads its own compact
-    /// counter; Host close reads this O(1) authority instead of rescanning live
+    /// counter. Host close reads this O(1) authority instead of rescanning live
     /// sessions or adapter-owned operation rows on every progress turn.
     pending_operations: usize = 0,
     /// Canonical application identities for capabilities lifted out of any
-    /// session. Wire positions remain owned by their session; this table keeps
+    /// session. Wire positions remain owned by their session. This table keeps
     /// the owning peer beside the target and rejects stale generations.
     capabilities: capability.Registry = .{},
     /// Inline handoff promises. Rows exist only while redemption is pending or
@@ -136,10 +136,10 @@ pub const Host = struct {
     capability_promises: std.AutoHashMapUnmanaged(capability.PromiseId, capability_promise_row.Row) = .empty,
     next_capability_promise: u64 = 1,
     /// Incarnation stamp for remote import rows first lifted into Host space.
-    /// Monotonic for the Host lifetime; zero is never issued.
+    /// Monotonic for the Host lifetime. Zero is never issued.
     next_import_incarnation: u64 = 1,
     /// Crossed-hellos tiebreak state (ADR-0030): `openDialedLocator` registers
-    /// the outbound before its hello moves; accepted CapTP sessions compare
+    /// the outbound before its hello moves. Accepted CapTP sessions compare
     /// inbound start-sessions against it.
     hellos: CrossedHellos = .{},
     /// Root from which `mintShell` derives each session's signing seed
@@ -155,10 +155,10 @@ pub const Host = struct {
     /// compare the selected shell's exact `indexed_partner_key` before use.
     partner_by_side: std.AutoHashMapUnmanaged([32]u8, engine.PeerHandle) = .{},
     /// A partner's **authenticated durable identity** → peer handle: the second
-    /// of the two peer directories, and deliberately not the same one
+    /// of the two peer directories, and not the same one
     /// (ADR-0097). `partner_by_side` names a session *incarnation* through the
     /// key that signed it, the identity a handoff certificate must resolve
-    /// against; this names the durable peer a locator designates, which is
+    /// against. This names the durable peer a locator designates, which is
     /// what "do I already have a session reaching P" must ask. They differ by
     /// construction: every session has a fresh signing key, while the
     /// durable peer key is stable across connections. Routing dial dedup
@@ -166,9 +166,9 @@ pub const Host = struct {
     ///
     /// Only an authenticated durable identity is indexed
     /// (`vocab.DurableProvenance`): an unproved claim as a dial-match key is
-    /// exactly the squatting hazard `liveSessionForDial` refuses.
+    /// the squatting hazard `liveSessionForDial` refuses.
     ///
-    /// Keyed by the durable key's own 32 bytes rather than its hex encoding,
+    /// Keyed by the durable key's 32 bytes rather than its hex encoding,
     /// so a row can be written from a borrowed hello view before apply, which
     /// is when duplicate collapse needs it, without retaining bytes the frame
     /// owns.
@@ -179,9 +179,9 @@ pub const Host = struct {
     /// shadowing another netlayer's dial.
     dialed_by_target: session_directory.DialTargetMap = .{},
     /// Runtime provider occupancy and complete session semantics. Built-in keys
-    /// borrow `model.transport.Known`'s static symbol; extension keys are
-    /// Host-owned copies. One row per symbol makes routing authority unique;
-    /// designation, dial planning, and sealed-channel composition all read the
+    /// borrow `model.transport.Known`'s static symbol. Extension keys are
+    /// Host-owned copies. One row per symbol makes routing authority unique.
+    /// Designation, dial planning, and sealed-channel composition all read the
     /// same value.
     transport_profiles: std.StringHashMapUnmanaged(model.transport.Metadata) = .empty,
     /// Host-wide bootstrap aliases. A fetch performs one keyed discovery lookup
@@ -190,29 +190,29 @@ pub const Host = struct {
     /// Lowering receipts held until the running turn's outcome (ADR-0194).
     turn_receipts: host_capability_lower.TurnReceipts = .{},
     publication_lookup: ?*const @import("publication_lookup.zig").Lookup = null,
-    /// The embedder-facing action FIFO; `nextAction` drains it.
+    /// The embedder-facing action FIFO. `nextAction` drains it.
     actions: engine.ActionFifo(HostAction) = .{},
-    /// The most recently popped action; its byte views stay valid until the
+    /// The most recently popped action. Its byte views stay valid until the
     /// next `nextAction`, which frees them.
     last_action: ?HostAction = null,
     /// A C convenience-pump arm refused before committing its effect. The
     /// borrowed action remains `last_action` and must be projected again before
-    /// any later FIFO row; keeping the retry here preserves action order and
+    /// any later FIFO row. Keeping the retry here preserves action order and
     /// payload ownership without a second queue representation.
     retry_last_action: bool = false,
     /// Rows in `vows` whose producer can still settle. Kept at the row
     /// lifecycle boundary so action reservation and close admission stay O(1)
     /// even when an embedder retains many completed public handles. `u32`
-    /// occupies the alignment gap before `trace_sink`; publication refuses at
+    /// occupies the alignment gap before `trace_sink`. Publication refuses at
     /// its bound instead of enlarging every Host.
     pending_vow_count: u32 = 0,
     /// The live trace tap (`trace.zig`), or null. Installed by the embedder
-    /// through `setTrace` / the C `glowcap_host_set_trace`; with none every
+    /// through `setTrace` / the C `glowcap_host_set_trace`. With none every
     /// emit site is one null check.
     trace_sink: ?trace.Sink = null,
 
     /// Host vow id to its heap row (the row's address is the settlement
-    /// listener's stable ctx; the map may rehash). In-process listeners consume
+    /// listener's stable ctx, though the map may rehash). In-process listeners consume
     /// their rows at settlement. Embedder-facing rows retain the answer position
     /// through settlement and retire on explicit release, preserving promise
     /// pipelining until the public handle itself dies.
@@ -220,26 +220,26 @@ pub const Host = struct {
     next_vow: u64 = 1,
     /// Host resolver id → its session-less vow row and the vat resolver it
     /// settles (ADR-0102). A row is consumed by the first settle attempt, so
-    /// the map holds exactly the live settle authorities; freed with the
+    /// the map holds exactly the live settle authorities. Freed with the
     /// host. Ids are host-scoped, from their own counter, and never reused.
     resolver_index: std.AutoHashMapUnmanaged(u64, ResolverIndexEntry) = .{},
     next_resolver: u64 = 1,
     /// Enlivens waiting on a dial this host staged (`enlivenSelectOrDial`,
     /// ADR-0098). Each row holds the vow id minted for the caller *before*
     /// any session exists, so the outcome reaches an embedder that only
-    /// drains actions; the sturdyref is owned here because it must outlive the
+    /// drains actions. The sturdyref is owned here because it must outlive the
     /// call that asked. The ticket index makes settlement proportional to the
-    /// callers sharing that dial; each group stores its first row inline.
+    /// callers sharing that dial. Each group stores its first row inline.
     pending_enlivens: enliven_mod.PendingEnlivenMap = .empty,
     enliven_groups: @import("enliven/group.zig").Map = .empty,
-    /// Total parked rows; the map's own count is ticket groups. Keeping this
+    /// Total parked rows. The map's own count is ticket groups. Keeping this
     /// scalar makes action reservation and close admission O(1).
     pending_enliven_count: usize = 0,
     /// Encode worklist: sessions with enqueued-but-unencoded outbound (a
     /// nested verb's send, a settle listener's reply). The top-level verb's
     /// unwind drives each one (`Served.driveFed`) and may then queue a
     /// `HostAction.flush` for the embedder. Distinct from the action FIFO by
-    /// design — `pending_flush` is encode work; `actions.flush` is the
+    /// design: `pending_flush` is encode work and `actions.flush` is the
     /// embedder write signal.
     pending_flush: engine.ActionFifo(engine.PeerHandle) = .{},
     /// At most one host-global continuation notice may be parked in `actions`.
@@ -251,20 +251,20 @@ pub const Host = struct {
     /// per-action resume pump stands down, so one unfulfillable refusal cannot
     /// re-feed the same drain pass forever: the pass runs out of actions and
     /// returns, so the embedder can reach the write, poll, or close that
-    /// actually moves the pressure. Reset at every drain-pass
-    /// entry and wherever the embedder takes outbound bytes; a refusal that
-    /// truly persists re-latches after one bounded retry per reset.
+    /// moves the pressure. Reset at every drain-pass
+    /// entry and wherever the embedder takes outbound bytes. A refusal that
+    /// persists re-latches after one bounded retry per reset.
     resume_pump_refused: bool = false,
     /// Next internal work class to inspect. Persisted across finite quanta so a
     /// continuously runnable session cannot starve Node effects or handoff
     /// notifications merely because every resumed slice restarted at lane 0.
     next_work_lane: WorkLane = .session,
     /// Application lifecycle above CapTP's own negotiating/open/closed state.
-    /// The core owns admission, quiescence, and close policy; adapters supply
+    /// The core owns admission, quiescence, and close policy. Adapters supply
     /// monotonic time and perform I/O effects.
     lifecycle: Lifecycle = .active,
     /// Finite session-close timing lives out of line so an open session pays no
-    /// deadline storage. Unbounded finish and cancel need no row; the session
+    /// deadline storage. Unbounded finish and cancel need no row. The session
     /// lifecycle carries those states directly.
     session_close_timing: std.AutoHashMapUnmanaged(engine.PeerHandle, SessionCloseTiming) = .{},
     /// Node actions whose recipient could not take another outbound frame,
@@ -276,11 +276,11 @@ pub const Host = struct {
     /// Out of line, so a session under no pressure pays nothing.
     parked_node_actions: std.AutoHashMapUnmanaged(engine.PeerHandle, std.ArrayListUnmanaged(engine.Node.Action)) = .{},
     /// Cached nearest finite session deadline. The timing map remains the
-    /// authority; this avoids an O(n) sweep on every adapter turn.
+    /// authority. This avoids an O(n) sweep on every adapter turn.
     next_session_close_deadline_ms: ?i64 = null,
     /// The reentrancy latch: true while a top-level verb is firing callbacks
-    /// or pumping. Nested verbs enqueue only — the enclosing verb's unwind
-    /// encodes and pumps — and the host-driving verbs refuse `ReenteredHost`.
+    /// or pumping. Nested verbs enqueue only, and the enclosing verb's unwind
+    /// encodes and pumps. The host-driving verbs refuse `ReenteredHost`.
     in_callback: bool = false,
     /// Owning thread, latched by public admission and released only at an
     /// explicit quiescent handoff. This is runtime contract state in every
@@ -410,8 +410,8 @@ pub const Host = struct {
 
     /// Emit one message fact on `session`, noting the open first so the
     /// dialing side's first outbound cannot precede its own session-open.
-    /// Both fact sites sit at the wire boundary — the inbound dispatch
-    /// seat and the outbound drain — so `frame` carries the wire bytes in
+    /// Both fact sites sit at the wire boundary (the inbound dispatch
+    /// seat and the outbound drain), so `frame` carries the wire bytes in
     /// both directions.
     pub const traceMessage = host_trace.traceMessage;
 
@@ -455,7 +455,7 @@ pub const Host = struct {
     const freeSessionShell = sessions_mod.freeSessionShell;
     const failOpen = sessions_mod.failOpen;
 
-    /// Host vows and resolver pairs: `vows.zig` owns their operations;
+    /// Host vows and resolver pairs: `vows.zig` owns their operations.
     /// `vows/settlement.zig` owns their terminal transition.
     const VowRow = vow_settlement.VowRow;
     const ResolverIndexEntry = vows_mod.ResolverIndexEntry;
@@ -578,7 +578,7 @@ pub const Host = struct {
     pub const checkOwnedSession = host_admission.checkOwnedSession;
     pub const sessionForPeer = host_admission.sessionForPeer;
     // `host/capabilities/identity.zig` owns Host capability observation; this
-    // direct-alias table is the deliberate Host API index. The Registry stays
+    // direct-alias table is the Host API index. The Registry stays
     // the independent data owner in `capability.zig`.
     pub const CapabilityLift = host_capability_identity.CapabilityLift;
     pub const liftCapabilityTracked = host_capability_identity.liftCapabilityTracked;
@@ -626,8 +626,8 @@ pub const Host = struct {
     pub const projectValues = host_capability_lift.projectValues;
     pub const ProjectedCompletion = @import("host/capabilities/completion.zig").ProjectedCompletion;
     pub const projectCompletion = @import("host/capabilities/completion.zig").projectCompletion;
-    /// Project a stable owned result with independent occurrence retains;
-    /// refusal rolls back those grants without changing the result owner.
+    /// Project a stable owned result with independent occurrence retains.
+    /// Refusal rolls back those grants without changing the result owner.
     pub const projectOwnedValue = @import("host/capabilities/completion.zig").projectOwnedValue;
     pub const liftValues = host_capability_lift.liftValues;
 

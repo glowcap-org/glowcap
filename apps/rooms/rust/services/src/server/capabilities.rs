@@ -72,23 +72,61 @@ impl CapabilityQuery {
 						.ok_or_else(|| {
 							Error::refused(format!("{} state is not a complete swiss number", capability.file))
 						})?;
-					Minted {
-						capability,
-						swiss: swiss.into(),
-					}
-					.line(if capability.id == "trace" {
-						self.trace_locator.as_ref().ok_or_else(|| {
-							Error::refused(
-								"set GLOWCAP_ROOMS_TRACE_LOCATOR to the timeline's advertised locator when reading its capability recipe",
-							)
-						})?
+					// The timeline's locator is chosen when the server starts
+					// (its port and any proxy endpoints), so this offline read
+					// can name it only when the operator supplies it. Without
+					// it the line says so, like an unminted one, and every
+					// other recipe still prints.
+					let locator = if capability.id == "trace" {
+						self.trace_locator.as_ref()
 					} else {
-						&self.locator
-					})?
+						Some(&self.locator)
+					};
+					match locator {
+						Some(locator) => Minted {
+							capability,
+							swiss: swiss.into(),
+						}
+						.line(locator)?,
+						None => format!(
+							"{} (minted; set GLOWCAP_ROOMS_TRACE_LOCATOR to the timeline's advertised locator to print it)",
+							capability.token
+						),
+					}
 				}
 			};
 			lines.push(line);
 		}
 		Ok(lines.join("\n"))
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn an_unknown_timeline_locator_names_its_remedy_and_keeps_every_other_recipe() {
+		let directory = std::env::temp_dir().join(format!("rooms-capability-read-{}", std::process::id()));
+		std::fs::create_dir_all(&directory).unwrap();
+		for capability in &BOOT_CAPABILITIES {
+			std::fs::write(directory.join(capability.file), "a".repeat(64)).unwrap();
+		}
+		let args = [format!("--capabilities={}", directory.display())];
+		let query = CapabilityQuery::parse(&args, |name| {
+			(name == "GLOWCAP_ROOMS_LOCATOR").then(|| "ocapn://directory.id".to_owned())
+		})
+		.unwrap()
+		.unwrap();
+		let printed = query.read().unwrap();
+		std::fs::remove_dir_all(&directory).unwrap();
+		for capability in &BOOT_CAPABILITIES {
+			let line = printed.lines().find(|line| line.starts_with(capability.token)).unwrap();
+			if capability.id == "trace" {
+				assert!(line.contains("set GLOWCAP_ROOMS_TRACE_LOCATOR"), "{line}");
+			} else {
+				assert!(line.contains("ocapn://directory.id"), "{line}");
+			}
+		}
 	}
 }

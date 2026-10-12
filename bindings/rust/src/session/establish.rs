@@ -1,5 +1,5 @@
 //! Session admission over embedder-owned channels. Native provider admission
-//! remains in the driver; this module owns channel transfer and handshake.
+//! remains in the driver. This module owns channel transfer and handshake.
 use super::*;
 use crate::host::HostShared;
 use crate::uri::OwnedLocator;
@@ -25,10 +25,10 @@ pub struct AcceptedTransport<'a> {
 
 impl Session {
 	/// Mint the dialing half over a byte channel the caller already realized
-	/// for `locator`. The locator travels whole; the host retains its own dial
+	/// for `locator`. The locator travels whole. The host retains its own dial
 	/// default for the transport, so no locator policy lives here. The
 	/// handshake is bounded by `handshake_timeout` ([`HANDSHAKE_TIMEOUT`] on
-	/// every dial the binding performs; `None` or a zero budget waits
+	/// every dial the binding performs. `None` or a zero budget waits
 	/// unbounded), and overrunning it fails with
 	/// [`ErrorKind::TimedOut`](crate::ErrorKind::TimedOut). Binding-internal.
 	#[cfg(any(test, feature = "async"))]
@@ -53,7 +53,7 @@ impl Session {
 	}
 
 	/// Admit a channel already opened for the complete locator. The core owns
-	/// framing and peer validation; `verified_channel_key` is a realizer's
+	/// framing and peer validation. `verified_channel_key` is a realizer's
 	/// authenticated proof, never an unchecked hint from the locator.
 	pub async fn dial_channel(
 		host: &Host,
@@ -67,6 +67,9 @@ impl Session {
 			guard_byte_fed(&host)?;
 			let owned = OwnedLocator::new(locator)?;
 			let mut ptr = core::ptr::null_mut();
+			// SAFETY: `host.raw()` is the `GlowcapHost` handle owned by `HostShared`, proven non-null by
+			// `guard_byte_fed` above; `owned.borrow_view()` is a view into `owned`, a local `OwnedLocator` that
+			// outlives the call, and `ptr` is a local out-parameter the callee fills with a host-owned session handle.
 			check_host(unsafe {
 				ffi::glowcap_host_session_open_dialed_locator(host.raw(), owned.borrow_view()?, &mut ptr)
 			})?;
@@ -102,6 +105,10 @@ impl Session {
 				ChannelDesignator::Key(value) => (sys::DESIGNATOR_SCHEME_KEY, value),
 			};
 			let mut ptr = core::ptr::null_mut();
+			// SAFETY: `host.raw()` is the `GlowcapHost` handle owned by `HostShared`, proven non-null by
+			// `guard_byte_fed` above; `transport.transport`, `designator`, and `transport.local_address` are borrowed
+			// `&str` or slices that outlive the call and are read only during it, and `ptr` is a local out-parameter
+			// the callee fills with a host-owned session handle.
 			check_host(unsafe {
 				ffi::glowcap_host_session_open_accepted(
 					host.raw(),
@@ -136,8 +143,8 @@ impl Session {
 	// rude partner costs one dial or one accept, never the caller.
 	//
 	// The one place both halves bound that handshake. A peer that opens the
-	// byte channel and then says nothing is the case no failure check can catch
-	// — nothing fails, the handshake simply waits — so unbounded it parks the
+	// byte channel and then says nothing is the case no failure check can catch,
+	// nothing fails, the handshake waits, so unbounded it parks the
 	// dialer forever, and on the accepting side every later connection behind
 	// that one client. `None` is the caller's explicit opt-in to waiting
 	// without a bound, and so is a zero budget: zero is how the C ABI and the
@@ -226,7 +233,7 @@ impl Session {
 	/// is accepted as if over `transport` at `server_designator` (a
 	/// `host:port` for `tcp`), the address the partner's hello names, and
 	/// `accepted_local_addr` is what the channel reports as its local end.
-	/// The keyed handshake is bounded by `handshake_timeout`; the session is
+	/// The keyed handshake is bounded by `handshake_timeout`. The session is
 	/// served once it completes, and closing the returned handle ends it.
 	#[cfg(feature = "async")]
 	pub async fn accept_over<S>(
@@ -256,7 +263,7 @@ impl Session {
 
 	/// Dial a partner over a byte channel the caller realized itself for
 	/// `locator`: the mirror of [`Session::accept_over`]. The session is one
-	/// of `host`'s; the handshake is bounded by `handshake_timeout`.
+	/// of `host`'s. The handshake is bounded by `handshake_timeout`.
 	#[cfg(feature = "async")]
 	pub async fn dial_over<S>(
 		host: &Host,

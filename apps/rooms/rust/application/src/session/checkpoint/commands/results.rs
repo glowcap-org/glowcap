@@ -1,5 +1,5 @@
 //! Durable plans and pure appliers for returned room authority. Obtaining the
-//! returned capabilities belongs to the runtime; decoding a plan grants none.
+//! returned capabilities belongs to the runtime. Decoding a plan grants none.
 use super::*;
 mod entry;
 use crate::room::policy::RoomPolicy;
@@ -190,7 +190,7 @@ fn prepare_managed(
 	})
 }
 impl Plan {
-	/// Owned plan and graph capacity; shared holders may charge this value
+	/// Owned plan and graph capacity. Shared holders may charge this value
 	/// conservatively for each admitted request without copying the graph.
 	pub fn retained_bytes(&self) -> usize {
 		use super::super::footprint::HeapBytes;

@@ -23,9 +23,9 @@ const asFarRef = host_mod.asFarRef;
 /// listener slot from mint (`fire`). Settlement records the outcome and ends
 /// the pending session operation, but an embedder-owned handle remains live
 /// until explicit release. Only a `peer_visible` answer is remotely
-/// addressable and owns an `op:gc-answer`; a listen notification owns a
+/// addressable and owns an `op:gc-answer`. A listen notification owns a
 /// `session_private` answer that can be awaited but never sent to or released
-/// on the wire. `inner` receives the resolution as a bounded borrow; without
+/// on the wire. `inner` receives the resolution as a bounded borrow. Without
 /// one, settlement queues an owned completion for the embedder.
 pub const VowRow = struct {
     host: *Host,
@@ -105,6 +105,8 @@ pub const PendingCancel = union(enum) {
         func: *const fn (*Host, vow_id: u64, owner: u64) void,
     };
 
+    /// Vow settlement's fallible half. Implementors are unknown at this
+    /// declaration, so `func` keeps an `anyerror` return set.
     pub const Fallible = struct {
         owner: u64,
         func: *const fn (*Host, vow_id: u64, owner: u64) anyerror!void,
@@ -137,7 +139,7 @@ pub fn claimPeerVisibleAnswer(row: *const VowRow, session: *HostSession) bool {
 }
 
 /// Settle a vow by id. A row already retired with its session has no recipient.
-/// Host-core internal; exposed only because sibling modules share the owner.
+/// Host-core internal. Exposed only because sibling modules share the owner.
 pub fn fireVow(self: *Host, vow_id: u64, resolution: actors.Resolution) void {
     const row = self.vows.get(vow_id) orelse return;
     settleRow(self, row, resolution);
@@ -161,7 +163,7 @@ pub fn retireAnswerInSession(row: *const VowRow, session: *HostSession) void {
 }
 
 /// The row's single terminal transition. An in-process listener consumes the
-/// row; an embedder row remains addressable until explicit release and queues
+/// row. An embedder row remains addressable until explicit release and queues
 /// its completion instead.
 fn settleRow(self: *Host, row: *VowRow, resolution: actors.Resolution) void {
     std.debug.assert(!row.settled);
@@ -249,8 +251,8 @@ pub fn settleObservedAnswer(self: *Host, row: *VowRow, session: *HostSession) vo
 }
 
 /// Enroll a fetched far capability before dispatch so an immediate re-gift
-/// routes to its exporter. Already-routed references pass through unchanged;
-/// an unenrollable capability breaks rather than surfacing half-routable.
+/// routes to its exporter. Already-routed references pass through unchanged.
+/// An unenrollable capability breaks rather than surfacing half-routable.
 fn enrollFetched(self: *Host, peer_handle: engine.PeerHandle, resolution: actors.Resolution) actors.Resolution {
     if (resolution == .fulfilled and resolution.fulfilled == .reference and
         resolution.fulfilled.reference == .routed) return resolution;

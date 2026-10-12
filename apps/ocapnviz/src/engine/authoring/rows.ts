@@ -23,7 +23,7 @@ export function reorderRow(
 		next.sessions !== undefined ||
 		next.messages !== undefined;
 	(ctx.doc as TimelineDocument).rowOrder = anyEntry ? next : undefined;
-	// Pure view-state — no clock seek needed (the renderer reads
+	// Pure view-state. No clock seek needed (the renderer reads
 	// `doc.rowOrder` directly each paint). But we DO need to
 	// notify React-side subscribers (`useEngineVersion`) so the
 	// Scrubber re-renders immediately; without this, the gutter

@@ -47,7 +47,7 @@ fn open() !Resident {
     });
 }
 
-/// `docs/ladder.md` records this row; weigh any growth there too. Stated
+/// `docs/ladder.md` records this row. Weigh any growth there too. Stated
 /// under runtime safety, where each staging list header carries std's
 /// one-word pointer-stability lock.
 const completion_resident_connection_state_bytes: usize = 152;

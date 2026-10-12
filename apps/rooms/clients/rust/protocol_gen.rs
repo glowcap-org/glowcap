@@ -433,6 +433,14 @@ pub const ROOM_TAILS: &[RoomTail] = &[
 		effect: Some(Effect::Depart),
 	},
 	RoomTail {
+		tag: "offline",
+		trailing: &[],
+		rest: Some(Ty::Text),
+		sender: Sender::Room,
+		text: TextRule::Any,
+		effect: Some(Effect::Depart),
+	},
+	RoomTail {
 		tag: "typing",
 		trailing: TYPING_TRAILING,
 		rest: None,

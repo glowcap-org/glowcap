@@ -84,7 +84,7 @@ pub fn init(
 }
 
 /// Join the provider's retryable owner barrier. A returned failure means the
-/// provider remains live and the caller still owns the right to retry; callers
+/// provider remains live and the caller still owns the right to retry. Callers
 /// must not clear or move its storage in that case.
 pub fn deinitAndReport(ctx: *Ctx, provider: *Provider) ?FailureChain {
     const failure = provider.deinit() orelse return null;

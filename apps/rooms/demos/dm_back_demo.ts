@@ -1,4 +1,4 @@
-// A member replies to a non-listening sender across a redeemed introduction —
+// A member replies to a non-listening sender across a redeemed introduction:
 // the bidirectional completion of the three-party handoff, over loopback TCP.
 //
 // This is the Chromium-free sibling of `test/proofs/dm_proof.ts`: it
@@ -78,7 +78,7 @@ async function main(): Promise<void> {
 	await bobDir.register("bob", bobLocator, { onMintInboxFor: bobOfferer.offer });
 
 	// Carol never listens. She registers to claim the name Bob's inbox is minted
-	// for — her keyed identity, not a dial address — then opens a direct line,
+	// for (her keyed identity, not a dial address) then opens a direct line,
 	// which redeems the introduction and hosts a reply inbox on that session.
 	const carolReplies: string[] = [];
 	const carolHost = roomsHost();

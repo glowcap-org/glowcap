@@ -119,8 +119,8 @@ class _ListenersMixin(DriverLoopMixinBase):
     def listener_restoration_state(self, listener: ListenerLike) -> bytes:
         """Copy opaque provider state used to restore a listener's local address.
 
-        The driver owns the provider state and exposes only its size/copy ABI;
-        this binding keeps the result as bytes and does not interpret transport
+        The driver owns the provider state and exposes only its size/copy ABI.
+        This binding keeps the result as bytes and does not interpret transport
         vocabulary. A provider that has no restoration state raises its driver
         error instead of manufacturing one from the public locator.
         """
@@ -174,7 +174,7 @@ class _ListenersMixin(DriverLoopMixinBase):
         """Commit one listener stop after preserving committed accepts.
 
         Provider teardown may remain asynchronous. In that case loop progress
-        retries the native barrier; :meth:`wait_listener_closed` observes its
+        retries the native barrier. :meth:`wait_listener_closed` observes its
         terminal result.
         """
         listener = self._listener_id(listener)
@@ -312,7 +312,7 @@ class _ListenersMixin(DriverLoopMixinBase):
                 self._native_session_release(ctypes.c_void_p(item))
 
     def completion(self, vow: int) -> "asyncio.Future[bool]":
-        """A future settled by the vow's COMPLETION event (True on SETTLE;
+        """A future settled by the vow's COMPLETION event (True on SETTLE.
         FAIL raises). Register before the next step."""
         aio = self._started_loop()
         future: asyncio.Future[bool] = aio.create_future()
@@ -324,8 +324,8 @@ class _ListenersMixin(DriverLoopMixinBase):
 
     async def accept_session(self, listener: ListenerLike):
         """Await the next accepted session, wrapped as the public
-        :class:`glowcap.Session` over the adopted wrapper Host — the
+        :class:`glowcap.Session` over the adopted wrapper Host: the
         accept-side twin of :meth:`connect_session`. The handshake already
-        ran inside the accepting step; the session arrives open."""
+        ran inside the accepting step. The session arrives open."""
         ptr = await self.accept(self._listener_id(listener))
         return self.adopt_session(ptr)

@@ -2,7 +2,8 @@
 //! no capability semantics: this translates the channel's roster and
 //! messages into the same public Rooms verbs every other room answers, and
 //! says what each member hears. The connection that carries a member is
-//! the adapter's; here a member is a connection id and an inbox.
+//! the adapter's. Here a member is a connection id and an inbox.
+mod invalid;
 mod outcome;
 use super::{
 	VIEWER_LIMIT,
@@ -15,7 +16,7 @@ use super::{
 use crate::{
 	directory::{OriginProof, PublicationKind, RoomInfo},
 	failure::FailureCode,
-	fields::{Nullable, SafeInteger, Text},
+	fields::{Nullable, Text},
 	room::{
 		inbox::{MAX_NICK, nick_refusal},
 		message::LineId,
@@ -29,6 +30,7 @@ use alloc::{
 	string::{String, ToString},
 	vec::Vec,
 };
+pub use invalid::Invalid;
 pub use outcome::{Effects, Refusal};
 
 /// The longest away reason, the native room's bound.
@@ -95,22 +97,22 @@ impl<C: Copy + Ord, R: Clone> Room<C, R> {
 		feed_nick: &str,
 		publication_id: &str,
 		origin: &str,
-	) -> Result<Self, String> {
+	) -> Result<Self, Invalid> {
 		if !valid_network(network) {
-			return Err("IRC network name uses letters, digits, dots, and hyphens".into());
+			return Err(Invalid::NetworkName);
 		}
 		if !valid_channel(channel) {
-			return Err("IRC bridge channel is malformed".into());
+			return Err(Invalid::Channel);
 		}
 		if publication_id.is_empty() || publication_id.len() > 128 {
-			return Err("IRC bridge publication identity is malformed".into());
+			return Err(Invalid::PublicationIdentity);
 		}
 		if origin.is_empty() || origin.len() > 256 {
-			return Err("IRC bridge origin is malformed".into());
+			return Err(Invalid::Origin);
 		}
 		let name = format!("{network}/{channel}");
 		if name.encode_utf16().count() > MAX_ROOM {
-			return Err(format!("the bridged room name may be at most {MAX_ROOM} characters"));
+			return Err(Invalid::RoomNameLength);
 		}
 		Ok(Self {
 			network: network.into(),
@@ -169,7 +171,7 @@ impl<C: Copy + Ord, R: Clone> Room<C, R> {
 			id: Text(self.publication_id.as_str().into()),
 			name: Text(self.name.as_str().into()),
 			kind: PublicationKind::Bridge,
-			count: Nullable::Value(SafeInteger::new(self.count() as u64).expect("a bounded count")),
+			count: Nullable::Value(crate::server::rooms::roster_count(self.count())),
 			origin: Text(self.origin.as_str().into()),
 			proof: OriginProof::Bridge,
 			offers: Nullable::Value(MembershipKind::Participant),
@@ -393,7 +395,7 @@ impl<C: Copy + Ord, R: Clone> Room<C, R> {
 		message: &Message,
 		seat_nick: &dyn Fn(&str) -> bool,
 		seat_view: &dyn Fn(C) -> Option<View>,
-	) -> Result<Effects<C, R>, String> {
+	) -> Result<Effects<C, R>, Refusal> {
 		let (own, actions) = self.relay.observe(message);
 		let mut effects = Effects {
 			relay: actions,
@@ -415,7 +417,7 @@ impl<C: Copy + Ord, R: Clone> Room<C, R> {
 		message: &Message,
 		seat_nick: &dyn Fn(&str) -> bool,
 		seat_view: &dyn Fn(C) -> Option<View>,
-	) -> Result<Effects<C, R>, String> {
+	) -> Result<Effects<C, R>, Refusal> {
 		let mut effects = Effects::default();
 		let ours = |value: Option<&str>| value.is_some_and(|v| fold(v) == fold(&self.channel));
 		if message.is("353") {
@@ -463,7 +465,7 @@ impl<C: Copy + Ord, R: Clone> Room<C, R> {
 				Some(action) => format!("/me {action}"),
 				None => raw.into(),
 			};
-			let line = self.reserve_line().map_err(|error| error.reason())?;
+			let line = self.reserve_line()?;
 			self.tell_all(
 				&mut effects,
 				Notice::Line {

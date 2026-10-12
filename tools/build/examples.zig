@@ -1,6 +1,6 @@
 //! The runnable examples: the numbered Zig CapTP chapters, the README
 //! quick-start, the library-mechanics walkthroughs, and the C examples over
-//! the per-archive headers — all built and run under `check`, so a public
+//! the per-archive headers, all built and run under `check`, so a public
 //! example cannot stop compiling quietly.
 
 const std = @import("std");

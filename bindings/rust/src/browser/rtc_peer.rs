@@ -26,7 +26,7 @@ pub enum RtcRole {
 }
 
 /// Unadmitted WebRTC resource ownership. Dropping it closes the peer and wakes
-/// its pending operations. `close` observes their retirement; `into_channel`
+/// its pending operations. `close` observes their retirement. `into_channel`
 /// transfers that barrier to a Channel, then its admitted Session. Methods run
 /// inside the Host's LocalSet. The Host owns admitted SDP transitions and ICE
 /// operations even when their observers are dropped. The application supplies
@@ -143,7 +143,7 @@ impl RtcPeer {
 	}
 
 	/// Candidates admitted before remote SDP wait in a bounded FIFO. A completed
-	/// observation means addIceCandidate settled; a dropped observer does not
+	/// observation means addIceCandidate settled. A dropped observer does not
 	/// discard the admitted operation or its resource accounting.
 	pub async fn add_remote_candidate(&self, text: &str) -> io::Result<()> {
 		let candidate = signal::candidate(text)?;
@@ -228,7 +228,7 @@ impl RtcPeer {
 			state.wake();
 		}
 		self.inner.pc.set_onicecandidate(None);
-		// Preparation is no longer an independent Host resource. Once this
+		// Preparation is not an independent Host resource. Once this
 		// returns, the Channel owner (then its admitted Session) chooses the
 		// physical close point after the Host has flushed its terminal frames.
 		self.inner.changed.notify_waiters();
@@ -262,8 +262,8 @@ impl RtcPeer {
 	}
 
 	/// Retire this peer after one of its operations returned `primary`. Suppress
-	/// the peer's stored failure only when it is that exact observed outcome;
-	/// preserve a distinct failure as the cleanup result.
+	/// the peer's stored failure only when it is that exact observed outcome.
+	/// Preserve a distinct failure as the cleanup result.
 	pub async fn retire_after_error(&mut self, primary: &io::Error) -> io::Result<()> {
 		let primary_is_peer_failure = self
 			.inner

@@ -1,8 +1,8 @@
 #lang racket/base
-;; glowcap backend with time-travel ON for every actor — the third bench series.
+;; glowcap backend with time-travel ON for every actor, the third bench series.
 ;; It is `backend-glowcap` in every respect but one: each accepted connection's
 ;; server vat retains a revisable behavior history (`listen #:time-travel? #t`),
-;; so the comparison isolates a single variable — the cost of leaving glowcap's
+;; so the comparison isolates a single variable, the cost of leaving glowcap's
 ;; snapshot feature on for all actors, the way Goblins always runs it. The client
 ;; path is unchanged, since time-travel is a local property of the vat that hosts
 ;; the actors, so the client procs are reused verbatim from `backend-glowcap`.

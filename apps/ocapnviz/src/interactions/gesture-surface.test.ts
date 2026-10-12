@@ -1,10 +1,10 @@
 /**
- * `watchGestureEnd` — the teardown every gesture surface shares.
+ * `watchGestureEnd`. The teardown every gesture surface shares.
  *
  * What these tests pin: the disposer a React effect returns
  * releases the lease, so a surface removed mid-drag cannot strand
- * the router's lock; the window watch ends a gesture on the paths
- * the surface's own element never sees; and each of those paths is
+ * the router's lock. The window watch ends a gesture on the paths
+ * the surface's own element never sees, and each of those paths is
  * reported as a release or a cancellation, which is the one thing
  * about them no surface downstream can work out for itself.
  *
@@ -127,7 +127,7 @@ Deno.test("unmount with no gesture in flight releases nothing", () => {
 	stage.claim(anElement(), 1);
 	// This surface holds nothing, so its teardown must not end the
 	// gesture someone else is driving, and must not tell its own
-	// surface a drag ended that never started — an idle resize handle
+	// surface a drag ended that never started. An idle resize handle
 	// leaving the tree would otherwise flush a delta nobody dragged.
 	assertEquals(lease.pointer(), null);
 	dispose();
@@ -199,7 +199,7 @@ Deno.test("capture loss and pointer cancel end the gesture", () => {
  * A surface downstream sees one call either way, and its own state looks the same
  * for both: a marquee interrupted at full stretch is `dragging` whether the reader
  * let go or the system took the pointer away. So a surface left to guess commits
- * the cancellations, and does it invisibly — there is no error, just a selection
+ * the cancellations, and does it invisibly. There is no error, just a selection
  * the reader did not ask for. `use-surface-pointer.ts` asks this AND
  * `hasSomethingToCommit` (`pointer-machine-test/commit.test.ts`), and needs both.
  *
@@ -212,7 +212,7 @@ Deno.test("each end says whether the reader let go", () => {
 	> = [
 		// The reader let go somewhere this surface could not see it.
 		["pointerup", { pointerId: 4 }, "finished"],
-		// The up went missing and this move is how we found out — the button is
+		// The up went missing and this move is how we found out. The button is
 		// already up, so the release has already happened.
 		["pointermove", { pointerId: 4, buttons: 0 }, "finished"],
 		// Alone, capture loss means the pointer is gone for good; behind a

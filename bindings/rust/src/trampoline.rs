@@ -1,23 +1,23 @@
 //! The behavior trampoline: the ONE native callback in the whole binding
-//! (plus its ctx-free sibling). Every hosted object — a
+//! (plus its ctx-free sibling). Every hosted object, a
 //! [`Session::spawn`](crate::Session::spawn) /
 //! [`publish`](crate::Session::publish) actor, a caretaker or attenuator
-//! proxy, a Host publication — shares a single process-lifetime
-//! `GlowcapHostBehavior` whose ctx is a [`Box<ActorCell>`] raw pointer;
+//! proxy, a Host publication, shares a single process-lifetime
+//! `GlowcapHostBehavior` whose ctx is a [`Box<ActorCell>`] raw pointer.
 //! `GlowcapHostCtxFree` re-boxes and drops it exactly once when the Host tears
 //! the retired object down, so there is no callback index and
-//! no leak. Settlements never cross the C boundary as callbacks; they ride the
+//! no leak. Settlements never cross the C boundary as callbacks. They ride the
 //! action queue (SETTLE/FAIL, `crate::host`).
 //!
 //! Reply discipline: the vat copies `out_reply`'s payload the instant the
 //! trampoline returns, so the marshalled reply and its owning value are
 //! retained in the module's one keep slot across the return (overwritten by
-//! the next reply — the previous one has long been copied). A panic must NEVER
+//! the next reply: the previous one has long been copied). A panic must NEVER
 //! cross the extern "C" frame (that is undefined behavior), so the body runs
-//! under `catch_unwind` and every failure — a panicking behavior, an
+//! under `catch_unwind` and every failure, a panicking behavior, an
 //! attenuator's `Attenuated`, a revoked caretaker's `Revoked`, an
-//! unknown-method error — crosses as `glowcap_host_turn_break` carrying the
-//! behavior's own words; a bare non-OK return would flatten them into a
+//! unknown-method error, crosses as `glowcap_host_turn_break` carrying the
+//! behavior's own words. A bare non-OK return would flatten them into a
 //! generic reason. A [`TurnOutcome::Forward`] maps onto
 //! `glowcap_host_turn_forward` (the caretaker/attenuator primitive): a target
 //! hosted by the same Host composes in process, a far target defers the
@@ -52,8 +52,8 @@ pub(crate) enum TurnOutcome {
 }
 
 /// The internal behavior shape the trampoline runs. The public
-/// [`Behavior`](crate::Behavior) (`Result<Argument, String>`) wraps into this;
-/// the caretaker/attenuator proxies mint forwarding outcomes directly.
+/// [`Behavior`](crate::Behavior) (`Result<Argument, String>`) wraps into this.
+/// The caretaker/attenuator proxies mint forwarding outcomes directly.
 pub(crate) type InternalBehavior = Box<dyn FnMut(&str, &[Argument]) -> TurnOutcome>;
 
 /// Wrap a public behavior into the internal outcome shape: `Ok` replies,
@@ -107,7 +107,7 @@ pub(crate) fn attenuate_proxy(shared: &Rc<SessionShared>, target: &Ref, verbs: &
 }
 
 /// One hosted object's behavior. Its identity and lifetime live
-/// on the registered Host; native turn metadata identifies the delivering Port.
+/// on the registered Host. Native turn metadata identifies the delivering Port.
 /// Owned by the Host row: `ctx = Box::into_raw`, freed exactly once by
 /// [`ctx_free`] when the Host tears the object down.
 pub(crate) struct ActorCell {
@@ -126,7 +126,7 @@ pub(crate) struct ActorCell {
 // What a hosted callback reads as the arriving deliver context. The byte-fed
 // pump brackets each feed with the arriving Session; a native loop step
 // (ADR-0112) delivers for any of its host's sessions at once, so it brackets
-// itself with the loop's adopted Host instead — the loop-tier sibling of the
+// itself with the loop's adopted Host instead: the loop-tier sibling of the
 // Session bracket, and it latches a turn to its Host (turn-time spawn)
 // when a behavior fires inside `glowcap_driver_step`.
 enum DeliverCtx {
@@ -184,6 +184,9 @@ fn turn_session(turn: *mut ffi::GlowcapHostTurn) -> crate::Result<Option<Rc<Sess
 		)
 	})?;
 	let mut ptr = core::ptr::null_mut();
+	// SAFETY: `turn` is the `GlowcapHostTurn` of the behavior callback running on this thread, from `CURRENT_TURN` or
+	// the trampoline's own argument, live until that callback returns; `ptr` is a local out-parameter the callee fills
+	// with a session handle owned by the Host, which `session_for_ptr` only looks up.
 	crate::host::check_host(unsafe { ffi::glowcap_host_turn_session(turn, &mut ptr) })?;
 	Ok(host.session_for_ptr(ptr))
 }
@@ -233,7 +236,7 @@ pub fn current_session() -> Result<Option<crate::Session>> {
 }
 
 /// Whether a native Host callback is running. Local and remote calls share
-/// the same turn latch; teardown and action pumping wait for its unwind.
+/// the same turn latch. Teardown and action pumping wait for its unwind.
 pub(crate) fn inside_turn() -> bool {
 	CURRENT_TURN.with(|t| t.get().is_some())
 }
@@ -270,6 +273,8 @@ thread_local! {
 // Break this turn's answer with the actor's own diagnostic and return the code
 // the trampoline hands back (OK: the break already settled the answer).
 fn turn_break(turn: *mut ffi::GlowcapHostTurn, message: &str) -> i32 {
+	// SAFETY: `turn` is the `GlowcapHostTurn` the host passed to the running behavior callback, live until the callback
+	// returns; `message` borrows the caller's `&str` for the call, and the callee copies it.
 	let rc = unsafe { ffi::glowcap_host_turn_break(turn, message.as_ptr(), message.len()) };
 	if rc == sys::OK { sys::OK } else { rc }
 }
@@ -293,6 +298,10 @@ fn settle_reply(turn: *mut ffi::GlowcapHostTurn, outcome: TurnOutcome, out_reply
 				Ok(built) => built,
 				Err(_) => return turn_break(turn, "forward arguments failed to marshal"),
 			};
+			// SAFETY: `turn` is the `GlowcapHostTurn` the host passed to the running behavior callback, live until the
+			// callback returns; `wire` is a local `GlowcapReference` from `target.to_sys()`, `verb` borrows the owned
+			// `verb` of the outcome, and `args_ptr` and `args_len` come from the local `arena`, which borrows `args`
+			// and outlives the call; `out_reply` is the reply slot the host passed to this callback.
 			let rc = unsafe {
 				ffi::glowcap_host_turn_forward(turn, &wire, verb.as_ptr(), verb.len(), args_ptr, args_len, out_reply)
 			};
@@ -311,6 +320,9 @@ fn settle_reply(turn: *mut ffi::GlowcapHostTurn, outcome: TurnOutcome, out_reply
 				Ok(c) => c,
 				Err(_) => return turn_break(turn, "reply failed to marshal"),
 			};
+			// SAFETY: `out_reply` is the reply slot the host passed to the running behavior callback, valid for one
+			// write of a `GlowcapArgument` until the callback returns; `c`'s child pointers borrow `value` and `arena`,
+			// which the keep slot below retains until the host has copied the reply.
 			unsafe { *out_reply = c };
 			LAST_REPLY_KEEP.with(|keep| *keep.borrow_mut() = Some((value, arena)));
 			sys::OK
@@ -333,7 +345,7 @@ unsafe fn trampoline_body(
 		return turn_break(turn, "no such hosted object");
 	}
 	// SAFETY: `ctx` is the `ActorCell` pointer registration handed the host,
-	// and `ctx_free` is the only thing that reclaims it — the host does not
+	// and `ctx_free` is the only thing that reclaims it: the host does not
 	// deliver to an object it has freed.
 	let cell = unsafe { &*(ctx as *const ActorCell) };
 	let Some(host) = cell.host.upgrade() else {
@@ -383,8 +395,8 @@ unsafe fn trampoline_body(
 }
 
 /// The one shared `GlowcapHostBehavior` in the process. A panic in the
-/// behavior (or anywhere in the body) is caught here — never unwound across
-/// the C frame — and settles the answer broken with the panic's own message.
+/// behavior (or anywhere in the body) is caught here, never unwound across
+/// the C frame, and settles the answer broken with the panic's own message.
 pub(crate) unsafe extern "C" fn trampoline(
 	ctx: *mut core::ffi::c_void,
 	turn: *mut ffi::GlowcapHostTurn,
@@ -412,7 +424,7 @@ pub(crate) unsafe extern "C" fn trampoline(
 
 /// The ctx-free sibling: re-box and drop the [`ActorCell`] the registration
 /// handed the host. Runs once when the native Vat reclaims the retired actor
-/// or the Host closes; it calls no `glowcap_host_*` function, and a
+/// or the Host closes. It calls no `glowcap_host_*` function, and a
 /// panicking drop is swallowed rather than unwound across the C frame.
 pub(crate) unsafe extern "C" fn ctx_free(ctx: *mut core::ffi::c_void) {
 	if ctx.is_null() {
@@ -446,12 +458,17 @@ fn drop_actor_cell(cell: Box<ActorCell>) -> Result<()> {
 		.map_err(|payload| Error::with_detail(sys::ERR_INTERNAL, crate::panic_message(payload.as_ref())))
 }
 
-/// Spawn a hosted object from INSIDE a turn — the turn-time form the host
-/// allows where the top-level spawn is refused. Returns its opaque Host id; on
+/// Spawn a hosted object from INSIDE a turn: the turn-time form the host
+/// allows where the top-level spawn is refused. Returns its opaque Host id. On
 /// a refusal that left ctx ours the cell is
 /// reclaimed.
 pub(crate) fn turn_spawn(turn: *mut ffi::GlowcapHostTurn, cell: *mut ActorCell) -> Result<u64> {
 	let mut reference = sys::GlowcapReference { id: 0 };
+	// SAFETY: `cell` is the fresh unregistered `ActorCell` its caller boxed, so nothing else holds it; the closure
+	// makes the one `glowcap_host_turn_spawn` call, and the host's single thread runs no other access to the cell
+	// during it. `turn` is the `GlowcapHostTurn` of the running behavior callback, live until it returns, `trampoline`
+	// and `ctx_free` are the binding's callbacks for an `ActorCell`, and `reference` is a local out-parameter the
+	// callee writes.
 	unsafe {
 		register_actor_cell(
 			cell,

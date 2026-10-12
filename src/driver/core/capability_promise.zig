@@ -1,5 +1,5 @@
 //! Host-owned capability promises used when a signed handoff give appears
-//! inline in a Passable value. The Node owns cross-session redemption; this
+//! inline in a Passable value. The Node owns cross-session redemption. This
 //! module owns the application identity that exists while redemption is
 //! pending and the eventual Host capability it resolves to. The row contract
 //! shared with Host storage lives in `capability_promise/row.zig`.
@@ -28,7 +28,7 @@ pub const rollbackProjection = promise_projection.rollback;
 
 /// Turn one inline signed give into an immediately usable Host identity and
 /// start the same Node redemption transaction returned handoffs use. The row
-/// is installed before the Node can queue a terminal action; every refusal
+/// is installed before the Node can queue a terminal action. Every refusal
 /// before that point rolls both authorities back.
 pub fn liftInlineGive(
     self: *Host,
@@ -312,7 +312,7 @@ fn breakPromiseImpl(
 }
 
 /// Mark a promise whose application identity was rolled back or finally
-/// released. Pending Node work keeps the row only as a terminal recipient; a
+/// released. Pending Node work keeps the row only as a terminal recipient. A
 /// fulfilled row releases the capability retain it owns immediately.
 pub fn abandon(self: *Host, id: capability.PromiseId) void {
     const row = self.capability_promises.getPtr(id) orelse return;
@@ -333,7 +333,7 @@ pub fn abandon(self: *Host, id: capability.PromiseId) void {
 }
 
 /// Admit one eventual send against a promise whose exporter session does not
-/// exist yet. The Host vow is public immediately; the owned values stay
+/// exist yet. The Host vow is public immediately. The owned values stay
 /// session-neutral until redemption selects the real route.
 pub fn queueSendValues(
     self: *Host,
@@ -346,8 +346,8 @@ pub fn queueSendValues(
 }
 
 /// Admit one fire-and-forget delivery against an unresolved handoff promise.
-/// There is deliberately no synthetic result: if the target later breaks,
-/// the send-only message has no protocol recipient, exactly like an ordinary
+/// There is no synthetic result: if the target later breaks,
+/// the send-only message has no protocol recipient, like an ordinary
 /// tell to a broken promise.
 pub fn queueTellValues(
     self: *Host,

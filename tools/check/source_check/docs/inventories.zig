@@ -10,7 +10,7 @@ const appendViolation = util.appendViolation;
 /// The netlayer resident roster is recited in prose across several inventory
 /// docs, and the count and list have drifted before: a page hardcoded "four"
 /// after a fifth resident landed, and one dropped a resident entirely. The
-/// transport symbols are declared once in `src/ocapn/model/transport.zig`; the
+/// transport symbols are declared once in `src/ocapn/model/transport.zig`. The
 /// residents are the subset that carry a `src/net/transport/<name>.zig` netlayer
 /// (all but `keyed_relay`, a resident-less browser rendezvous symbol, and
 /// `noise_relay`, realized as a sealing completion-backend adapter over the
@@ -42,8 +42,8 @@ pub fn checkResidentRoster(
         // The page whose stated job is "the edges of what ships today". A
         // transport that ships without its edge written down fails here.
         "docs/boundaries.md",
-        // The site inventory of every netlayer: choosing owns the roster now
-        // that the parent Transports page is the concept overview.
+        // The site inventory of every netlayer: choosing owns the roster
+        // because the parent Transports page is the concept overview.
         "site/content/transports/choosing.smd",
         "site/content/modules.smd",
         "site/content/relay.smd",
@@ -214,7 +214,7 @@ pub fn checkCommunityReviewCiMatrix(
         const cell = std.mem.trim(u8, line[cell_start..cell_end], " \t\r");
         // A cell that is neither is a violation, not a row to skip. Skipping
         // let any row opt out of the derivation by writing `Yes`, `partial`, or
-        // `yes*` — and because the skip also stepped over the row count, the
+        // `yes*`, and because the skip also stepped over the row count, the
         // empty-table backstop did not notice either.
         if (!std.mem.eql(u8, cell, "yes") and !std.mem.eql(u8, cell, "no")) {
             try appendViolation(gpa, violations, "{s}: evidence row `{s}` has CI cell `{s}`; the column is derived, so it must read exactly `yes` or `no`", .{ doc_path, evidence, cell });
@@ -224,13 +224,13 @@ pub fn checkCommunityReviewCiMatrix(
 
         // The gates this row stands for: the first `zig build X` its Evidence
         // mentions, or an inline annotation for a row that cannot say it in the
-        // cell — one whose step rides inside `check`, one that names a family
+        // cell: one whose step rides inside `check`, one that names a family
         // with a glob.
         //
         // A row that names its own step may only annotate `check`, which is the
         // one aggregate the sequence runs: that is the honest case of "my step
         // is real but rides inside another." Left free, the annotation was a
-        // standing opt-out — any row could point at some unrelated step that
+        // standing opt-out: any row could point at some unrelated step that
         // does run and mint itself a `yes`.
         //
         // What this still cannot know is whether an annotated step is really
@@ -301,7 +301,7 @@ pub fn collectBuildSteps(
         // build step never contains one, so anything past it is arguments. A
         // gate that passes an option (`zig build fuzz -Dfuzz-runs=25K`) is
         // still running that step, and a doc row saying CI runs `fuzz` is
-        // still true — without this the option becomes part of the name and
+        // still true: without this the option becomes part of the name and
         // every such row reads as stale.
         while (stop < haystack.len and
             haystack[stop] != '`' and

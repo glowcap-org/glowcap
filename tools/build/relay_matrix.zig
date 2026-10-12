@@ -73,7 +73,7 @@ const RelayRow = struct {
     /// Environment `{key, value}` pairs the harness merges into the relay
     /// subprocess (the idle proof sets a low `GLOWCAP_RELAY_IDLE_MS`).
     relay_env: []const [2][]const u8 = &.{},
-    /// A build step that must produce the relay program first (Rust's cargo build;
+    /// A build step that must produce the relay program first (Rust's cargo build,
     /// Deno and Python relays are scripts and need none).
     build_dep: ?*std.Build.Step = null,
     /// Point the relay's dynamic loader at `zig-out/lib`, where the iroh transport
@@ -130,8 +130,8 @@ pub fn register(
     iroh_abi_step: *std.Build.Step,
     rooms_services_install: *std.Build.Step,
 ) void {
-    // The cross-runtime relay matrix (ADR-0086). One shared harness per proof —
-    // TCP forwarding, the non-optional backpressure clause, and the iroh leg —
+    // The cross-runtime relay matrix (ADR-0086). One shared harness per proof,
+    // TCP forwarding, the non-optional backpressure clause, and the iroh leg,
     // runs against every runtime's relay: the Deno reference relay
     // (`bindings/ts/relay/serve.ts`), the Python relay
     // (`bindings/python/relay.py`, WebSocket server from the binding's locked

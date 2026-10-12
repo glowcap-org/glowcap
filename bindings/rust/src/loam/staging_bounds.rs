@@ -1,4 +1,4 @@
-//! Descriptive row allowances; shared Store staging still admits every write.
+//! Descriptive row allowances. Shared Store staging still admits every write.
 use super::check;
 use crate::{Result, sys::loam as ffi};
 
@@ -22,6 +22,8 @@ impl StagingBounds {
 			record_bytes: 0,
 		};
 		check(
+			// SAFETY: this query takes no handle; `raw` is a local `GlowcapLoamStagingBounds` out-parameter the callee
+			// writes, and the other arguments are integers passed by value.
 			unsafe { ffi::glowcap_loam_content_staging_size_bound(resource_path, u32::from(receipt), &mut raw) },
 			false,
 		)?;
@@ -36,6 +38,8 @@ impl StagingBounds {
 			record_bytes: 0,
 		};
 		check(
+			// SAFETY: this query takes no handle; `raw` is a local `GlowcapLoamStagingBounds` out-parameter the callee
+			// writes, and `saves` is an integer passed by value.
 			unsafe { ffi::glowcap_loam_reference_staging_size_bound(saves, &mut raw) },
 			false,
 		)?;

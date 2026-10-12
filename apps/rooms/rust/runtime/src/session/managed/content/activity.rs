@@ -1,4 +1,4 @@
-//! Viewer admission stays in Loam; activity actors retain and check the
+//! Viewer admission stays in Loam. Activity actors retain and check the
 //! original callback. No capability is recreated from a presentation token.
 use super::*;
 use glowcap::loam::{ReadInterface, ReadMethod};

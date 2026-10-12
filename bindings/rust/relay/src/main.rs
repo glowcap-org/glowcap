@@ -1,4 +1,4 @@
-//! A byte-transparent relay in Rust — the third-runtime reference for the
+//! A byte-transparent relay in Rust: the third-runtime reference for the
 //! ADR-0086 relay contract, proving the contract is language-neutral and not a
 //! TypeScript-and-Python shape with a doc wrapper.
 //!
@@ -14,7 +14,7 @@
 //! Teardown is pair-atomic: whichever leg ends first aborts the other.
 //!
 //! Two transports, dispatched by what the WebSocket names:
-//! - `?to=host:port`  a raw TCP socket (byte-level, kernel-backpressured; no
+//! - `?to=host:port`  a raw TCP socket (byte-level, kernel-backpressured, no
 //!   glowcap dependency, the default build).
 //! - `?locator=<ocapn-uri>`  an iroh byte channel dialed through the glowcap
 //!   Rust binding's `Netlayer::connect_owned`, only with `--features iroh`.
@@ -100,7 +100,7 @@ impl std::fmt::Display for RelayFailure {
 }
 
 /// The idle timeout, overridable by `GLOWCAP_RELAY_IDLE_MS` for the conformance
-/// idle-timeout proof; a production run leaves it unset and gets the default.
+/// idle-timeout proof. A production run leaves it unset and gets the default.
 fn idle_timeout() -> Duration {
 	std::env::var("GLOWCAP_RELAY_IDLE_MS")
 		.ok()
@@ -185,7 +185,7 @@ async fn handle(stream: TcpStream) {
 
 /// Close the socket with a code and a reason, so the peer learns which leg
 /// failed. The three sibling relays (Deno, Python, Racket) send `1008` for a
-/// missing or malformed target and `1011` for a dial that could not land;
+/// missing or malformed target and `1011` for a dial that could not land.
 /// ADR-0086 is one contract with four implementations, so this one says the
 /// same thing.
 async fn close_with(
@@ -202,8 +202,8 @@ async fn close_with(
 
 /// Pump bytes between the WebSocket and any byte channel, both directions, until
 /// either leg ends. Generic over the channel so the TCP socket and the iroh
-/// stream share one pump. Backpressure is the awaited write on each leg;
-/// teardown is pair-atomic.
+/// stream share one pump. Backpressure is the awaited write on each leg.
+/// Teardown is pair-atomic.
 async fn pump<C>(ws: WebSocketStream<TcpStream>, channel: C) -> Result<(), RelayFailure>
 where
 	C: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -280,7 +280,7 @@ where
 			// Named boundary copy: tokio-tungstenite's `Message::binary` owns its
 			// bytes, so the read chunk is copied once into an owned buffer before
 			// the async send. Bounded by `READ_CHUNK` and off glowcap's
-			// own wire path — the WebSocket-sink shape of memory.md's binding
+			// own wire path: the WebSocket-sink shape of memory.md's binding
 			// outbound flush copy.
 			if let Err(error) = ws_write.send(Message::binary(buf[..n].to_vec())).await {
 				failure = Some(RelayFailure::new(format!("writing WebSocket failed: {error}")));
@@ -392,7 +392,7 @@ async fn dial_iroh_and_pump(_ws: WebSocketStream<TcpStream>, _locator: &str) {
 fn percent_decode(s: &str) -> String {
 	// Decode from the bytes throughout. Slicing `s` here would panic when a
 	// `%` sits before a multi-byte character, because `i + 1 .. i + 3` can
-	// land inside a UTF-8 sequence — and this string is an inbound query
+	// land inside a UTF-8 sequence, and this string is an inbound query
 	// parameter, so that is reachable from inbound bytes.
 	fn hex(b: u8) -> Option<u8> {
 		match b {

@@ -1,6 +1,6 @@
 //! Every committed grant mutation returns one owned event. Failed mutations and
 //! unchanged requests return no event. Branch events describe the dependency
-//! root without enumerating children; delivery is not the enforcement mechanism.
+//! root without enumerating children. Delivery is not the enforcement mechanism.
 //! A suppressed policy event was injected and caught by this suite.
 
 const structural_policy = @import("grant_fixture.zig").structural_policy;

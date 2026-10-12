@@ -19,6 +19,9 @@ unsafe_op_in_unsafe_fn = "deny"
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }
+# Every unsafe block names the handle, owner, and pointer source it relies on.
+# `clippy.toml` lets one comment above a statement cover the blocks inside it.
+undocumented_unsafe_blocks = "deny"
 
 [lib]
 # The staticlib is named `glowcap_iroh_sidecar` so it emits

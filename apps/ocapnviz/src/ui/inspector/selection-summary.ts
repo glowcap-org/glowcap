@@ -1,12 +1,12 @@
 /**
  * What the Inspector can say about a selection of more than one thing.
  *
- * The panel paints; this module answers, and every number here is a
+ * The panel paints. This module answers, and every number here is a
  * claim that lands on screen. So each one is asked of the authority
- * that already owns it — the world for what is on stage, the
+ * that already owns it, the world for what is on stage, the
  * engine's effective range for when an entity runs, `sessionInfo`
  * for which peers a session is between, the observation stream for
- * what states a beginning — rather than re-derived by hand.
+ * what states a beginning, rather than re-derived by hand.
  *
  * Two rules hold the claims honest. A count says which set it
  * counted, and the words around it agree with that set: "4 of 17"
@@ -26,8 +26,8 @@ import { sessionInfo } from "./entity-info.ts";
 
 /** How each kind reads in a sentence, at one and at several.
  *
- *  A session end is spelled the way the panels talk about it — one end
- *  of a session — rather than by the stage id that names it. */
+ *  A session end is spelled the way the panels talk about it, one end
+ *  of a session, rather than by the stage id that names it. */
 const KIND_NOUNS: Record<EntityKind, readonly [one: string, many: string]> = {
 	peer: ["peer", "peers"],
 	session: ["session", "sessions"],
@@ -46,7 +46,7 @@ const KIND_ORDER: readonly EntityKind[] = [
 ];
 
 /** Kinds the document can delete on their own. An end is one of the
- *  two a session HAS, so deleting it would leave a session with one;
+ *  two a session HAS, so deleting it would leave a session with one.
  *  the session's own delete is what takes it. */
 export const DELETABLE_KINDS: ReadonlySet<EntityKind> = new Set<EntityKind>([
 	"peer",
@@ -60,7 +60,7 @@ export function kindNoun(kind: EntityKind, n: number): string {
 	return n === 1 ? one : many;
 }
 
-/** "3 peers", "1 session end" — a count with the noun that count takes. */
+/** "3 peers", "1 session end". A count with the noun that count takes. */
 export function countPhrase(kind: EntityKind, n: number): string {
 	return `${n} ${kindNoun(kind, n)}`;
 }
@@ -107,7 +107,7 @@ export function selectionPhrase(tallies: readonly KindTally[]): string {
 
 /** What a group delete would take, in words, or null when it would
  *  take nothing. Ends are left out because the delete leaves them
- *  alone — the phrase and the act count the same things, and a
+ *  alone. The phrase and the act count the same things, and a
  *  selection of ends alone is offered no delete at all rather than
  *  one that claims to take them. */
 export function deletionPhrase(
@@ -193,7 +193,7 @@ export type SelectionFacts = {
 	/** How many of the selected are on stage at the playhead. */
 	readonly onStage: number;
 	/** Of the selected sessions, how many run between two peers that
-	 *  are themselves selected — the difference between a selection
+	 *  are themselves selected. The difference between a selection
 	 *  that closes on itself and one that trails loose ends. Null when
 	 *  the selection holds no session or no peer, where the question
 	 *  does not arise. */
@@ -255,8 +255,8 @@ export function selectionFacts(
  *
  *  Only each selected entity's own genesis observation is listed. The
  *  engine's `translate` already carries everything scoped to that
- *  entity — a peer's departure and its updates, a session's close and
- *  every moment on its trajectory, a message's arrival — so naming
+ *  entity, a peer's departure and its updates, a session's close and
+ *  every moment on its trajectory, a message's arrival, so naming
  *  those here would be a second answer to a question the authoring
  *  layer has already answered, and the two would drift.
  *
@@ -265,7 +265,7 @@ export function selectionFacts(
  *  of it. */
 export type ShiftPlan = {
 	/** The genesis observations to translate, with the time each held
-	 *  when the plan was made — a shift is relative to that, so the
+	 *  when the plan was made. A shift is relative to that, so the
 	 *  plan is captured once per selection and not re-read mid-drag. */
 	readonly events: readonly { readonly id: string; readonly t: number }[];
 	/** Selected peers, sessions and messages that no observation says

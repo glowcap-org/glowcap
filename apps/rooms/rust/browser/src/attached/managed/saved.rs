@@ -1,5 +1,5 @@
 //! Save and release actual held use and control independently. One
-//! acquisition commits the exact occurrences and row together; missing
+//! acquisition commits the exact occurrences and row together. Missing
 //! custody stays absent.
 use super::*;
 
@@ -39,7 +39,7 @@ impl RoomsManagedWorkspace {
 		)
 	}
 	/// Release one row's saved management control. A row that also holds use
-	/// keeps it; a row left holding nothing leaves the intent. Answers `null`
+	/// keeps it. A row left holding nothing leaves the intent. Answers `null`
 	/// when the row holds no control, so a retry after a committed release
 	/// that lost its reply finds nothing left to do.
 	#[wasm_bindgen(js_name = prepareForgetControl)]

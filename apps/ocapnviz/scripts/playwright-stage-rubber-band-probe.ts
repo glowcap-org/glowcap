@@ -1,8 +1,8 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-stage-rubber-band-probe.ts — PR 4a verification.
+ * playwright-stage-rubber-band-probe.ts: stage rubber-band verification.
  *
- * The selection-store now lives at App level; Stage rubber-band
+ * The selection-store lives at App level, Stage rubber-band
  * commits route through it and feed back to the multi-peer halo
  * paint. This probe drags a rubber-band rect across the stage and
  * confirms the stage view changes (halos lit on enclosed peers).
@@ -62,7 +62,7 @@ console.log(`active mode radios: ${modeLabel}`);
 const outDir = "/tmp/ocv-stage-rubber-band";
 await Deno.mkdir(outDir, { recursive: true });
 
-// Stage region — above the timeline (which starts around y≈848)
+// Stage region, above the timeline (which starts around y≈848)
 // and below the top bar. The default fixture's peers sit in the
 // canvas center, so this clip captures the area where halos will
 // light up.
@@ -77,7 +77,7 @@ async function snap(name: string): Promise<Uint8Array> {
 }
 function fingerprint(buf: Uint8Array): string {
 	// Sample every Nth byte across the whole image for a more
-	// sensitive fingerprint than a small window — halos are subtle.
+	// sensitive fingerprint than a small window, halos are subtle.
 	let hash = 0;
 	const step = Math.max(1, Math.floor(buf.length / 4096));
 	for (let i = 0; i < buf.length; i += step) {
@@ -101,7 +101,7 @@ async function selectionSize(): Promise<number> {
 }
 
 // First scout peer screen positions via the engine debug, then
-// pick drag corners that genuinely enclose ≥2 peers. Falls back
+// pick drag corners that enclose ≥2 peers. Falls back
 // to a wide diagonal sweep if introspection is unavailable.
 const peerPositions = await page.evaluate(() => {
 	type Peer = { peer: { id: string }; position?: { x: number; y: number } };
@@ -188,7 +188,7 @@ for (const line of shiftLog.slice(-30)) console.log(`    ${line}`);
 // Shift+Option (alt) marquee: REMOVES captured entities from
 // the existing selection (Adobe convention). The big rectangle
 // covers every peer in the default fixture, so the store should
-// shrink below the current size — ideally to 0 if all enclosed.
+// shrink below the current size, ideally to 0 if all enclosed.
 await page.keyboard.down("Shift");
 await page.keyboard.down("Alt");
 await page.mouse.move(320, 120);

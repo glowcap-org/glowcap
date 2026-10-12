@@ -4,6 +4,8 @@ pub const symbols = [_]shared.symbols.Symbol{
     .{ .name = "glowcap_loam_call_disclose_reads_copying", .out_params = &.{5} },
     .{ .name = "glowcap_loam_read_scope_size_bound", .out_params = &.{7} },
     .{ .name = "glowcap_loam_call_source", .out_params = &.{1} },
+    .{ .name = "glowcap_loam_call_accounting_path", .out_params = &.{ 1, 3 } },
+    .{ .name = "glowcap_loam_call_refuse_copying" },
     .{ .name = "glowcap_loam_call_retain_prepared_reference", .out_params = &.{2} },
     .{ .name = "glowcap_loam_call_reserve_continuation_copying", .out_params = &.{ 3, 4 } },
     .{ .name = "glowcap_loam_continuation_reservation_source", .out_params = &.{1} },

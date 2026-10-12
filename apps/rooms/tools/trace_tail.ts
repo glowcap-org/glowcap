@@ -2,13 +2,13 @@
 // Tail a Rooms server's live trace as lines.
 //
 // `--trace` makes a server publish every OCapN session it and its members open,
-// and until now the only way to read that was ocapnviz in a browser. A picture
+// and ocapnviz in a browser is the other way to read that. A picture
 // is the right tool for topology and the wrong one for "what did this peer do
 // just now, in order", which is the question a terminal answers.
 //
 // It takes the sturdyref the server announces on stderr as
 // `ROOMS-TRACE-LISTENING`, because that one string carries both halves a viewer
-// needs — where the endpoint is, and the capability that admits a socket. There
+// needs, where the endpoint is, and the capability that admits a socket. There
 // is no second secret to find and nothing to assemble.
 //
 // The viewer contract itself lives in `lib/trace_view.ts`, shared with the

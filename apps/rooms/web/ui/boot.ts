@@ -58,7 +58,7 @@ function bootRoot(): HTMLElement | null {
  * whichever end of the wait got here first has the last word: a crash that hands
  * over early must not be followed back into a screen by the entry module
  * reporting, a moment later, that it finished running. A committed reload is
- * already past that decision; stamping `done` over `leaving` would take the
+ * already past that decision. Stamping `done` over `leaving` would take the
  * cover down and let a crash card flash on the way out. */
 function handedOver(): boolean {
 	const boot = bootRoot()?.dataset.boot;
@@ -111,6 +111,22 @@ function standAtFront(): void {
 export function finishCoveredReload(toFront = false): void {
 	if (toFront) standAtFront();
 	location.reload();
+}
+
+/** Unload a covered page whose move has already committed. The selection or
+ * setting landed, so the page must reload even when its session's teardown
+ * refuses: reporting that refusal as the move's failure would leave a stopped
+ * session behind the button, and every retry would meet "This workspace is
+ * closed". The pagehide handler in main.tsx retries the close as the page
+ * goes. */
+export async function finishCommittedMove(close: () => Promise<void>, toFront = false): Promise<void> {
+	try {
+		await close();
+	} catch {
+		// best-effort: the reload discards this page's handles, and pagehide
+		// retries the close on the way out.
+	}
+	finishCoveredReload(toFront);
 }
 
 /** Reload the running page, covering it first so the outgoing tree cannot flash. */
@@ -192,12 +208,12 @@ export function handOffNow(): void {
 	// which is the flash this whole arrangement is against.
 	//
 	// The timer is the floor under it. A transition that never *starts* fires no
-	// `transitionend` at all — a zero duration, an ancestor that is not rendered,
-	// a tab whose painting is throttled while it loads in the background — and
+	// `transitionend` at all (a zero duration, an ancestor that is not rendered,
+	// a tab whose painting is throttled while it loads in the background) and
 	// the screen covers the whole page, so the cost of the event not arriving is
 	// the application sitting behind a sheet nobody can dismiss. Whichever of the
 	// two lands first wins and cancels the other; the event stays the primary
-	// signal, because it is the one that knows when the fade is actually done.
+	// signal, because it is the one that knows when the fade is done.
 	const gone = (event?: TransitionEvent) => {
 		if (event !== undefined && event.target !== boot) return;
 		clearTimeout(floor);
@@ -223,7 +239,7 @@ function onceAssembled(fn: () => void): void {
 
 /** Hold the screen until the controller has answered and the mark has
  * assembled once, then hand over. An attached controller answers with
- * its complete initial snapshot; unlike local reconstruction, that snapshot
+ * its complete initial snapshot. Unlike local reconstruction, that snapshot
  * may correctly contain no directory whose attempt could settle the store.
  *
  * The entry module calls this last to move the page out of the opening state

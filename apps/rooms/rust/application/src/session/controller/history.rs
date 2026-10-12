@@ -1,5 +1,5 @@
 //! Fair, bounded history reconciliation. Invalidating an in-flight read makes
-//! its result stale and schedules one successor; failures retry on observation.
+//! its result stale and schedules one successor. Failures retry on observation.
 use crate::{
 	archive::{ConversationKind, change::Change},
 	session::checkpoint::Checkpoint,
@@ -67,7 +67,7 @@ pub struct History {
 	cursor: usize,
 }
 /// Consumed exactly once by finish. Adapters close the coordinator when its
-/// owner cancels all workers; no detached observer controls a read's lifetime.
+/// owner cancels all workers. No detached observer controls a read's lifetime.
 pub struct Read {
 	pub target: Rc<Target>,
 	version: u64,
@@ -189,7 +189,7 @@ impl History {
 		true
 	}
 	/// Cancel targets while admitted reads retire through finish. Their slots
-	/// still count toward the four-read bound until the effects actually end.
+	/// still count toward the four-read bound until the effects end.
 	pub fn clear(&mut self) {
 		self.rows.clear();
 	}

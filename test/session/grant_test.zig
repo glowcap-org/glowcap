@@ -54,7 +54,7 @@ test "a reserved export is unaddressable until its first marshal grants it (ADR-
     try std.testing.expectError(session.Error.InvalidReference, s.recordRecv(probe));
     try std.testing.expectError(session.Error.InvalidReference, s.recordRecvView(model.view.Body.fromOwned(&probe)));
 
-    // The capability's first marshal — a deliver argument naming it — is the
+    // The capability's first marshal, a deliver argument naming it, is the
     // grant; the identical inbound deliver is admitted afterwards.
     try s.recordSend(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(3) } },
@@ -137,7 +137,7 @@ test "a session that exhausts its export range refuses rather than naming a neig
     // The export allocator is monotonic and counts positions ever minted, not
     // live ones, so a long-lived session that mints and releases would walk
     // past the range its host gave it and start naming positions that belong to
-    // the next session along — the exact aliasing the ranges exist to prevent.
+    // the next session along, the exact aliasing the ranges exist to prevent.
     var s = session.Session.initWith(allocator, .{ .export_base = 1000, .export_span = 3 });
     defer s.deinit();
 
@@ -245,11 +245,11 @@ test "an export position from outside this session's range is refused at every d
     const allocator = std.testing.allocator;
     // A host gives each session a disjoint slice of the export numbers, so a
     // position outside this session's slice is a name in some other
-    // conversation. Three doors let one in from outside the allocator — an
-    // explicit grant, a reservation, and the first marshal of a sent resolve —
-    // and each used to mint a row for it. Above the range that also dragged
-    // the allocator past its own end, after which the session could export
-    // nothing at all.
+    // conversation. Three doors let one in from outside the allocator, an
+    // explicit grant, a reservation, and the first marshal of a sent resolve,
+    // and each must refuse to mint a row for it. Minting one above the range
+    // would drag the allocator past its end, after which the session could
+    // export nothing at all.
     var s = session.Session.initWith(allocator, .{ .export_base = 1000, .export_span = 100 });
     defer s.deinit();
 
@@ -258,7 +258,7 @@ test "an export position from outside this session's range is refused at every d
     try s.reserveExport(.from(1050));
     try s.retainSentExportRef(.{ .near = .{ .export_position = .from(1060) } });
 
-    // Above it — another session's numbers, and the half that kills this one.
+    // Above it, another session's numbers, and the half that kills this one.
     try std.testing.expectError(error.InvalidReference, s.registerExport(.from(1100)));
     try std.testing.expectError(error.InvalidReference, s.reserveExport(.from(5000)));
     try std.testing.expectError(

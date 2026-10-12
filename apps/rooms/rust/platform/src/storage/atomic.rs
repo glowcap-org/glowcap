@@ -44,7 +44,7 @@ pub fn replace<'a>(
 
 /// Replace a file in a directory this process does not hold a lease on, such
 /// as a readiness mirror outside the state directory. The directory is opened
-/// only to sync the rename; nothing else about it is claimed.
+/// only to sync the rename. Nothing else about it is claimed.
 pub fn replace_at<'a>(
 	directory: &Path,
 	name: &str,

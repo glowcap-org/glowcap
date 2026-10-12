@@ -2,11 +2,11 @@
 //
 // Deno and Bun each model a native pointer their own way (Deno an opaque
 // `PointerValue`, Bun a JavaScript number) while the seam above speaks only
-// `bigint`. Both adapters apply the identical plan — convert the
+// `bigint`. Both adapters apply the identical plan: convert the
 // pointer-typed parameters and result at each call, and leave a pointer-free
-// signature untouched — so the plan lives here once, parameterized by the
+// signature untouched. The plan lives here once, parameterized by the
 // adapter's own `toPtr`/`fromPtr` pair. Each adapter keeps only what is
-// genuinely runtime-specific: its FFI type map, its dlopen/callback
+// runtime-specific: its FFI type map, its dlopen/callback
 // constructors, its memory and socket primitives.
 
 import type { Ptr, SymbolDef, Symbols } from "../runtime.ts";
@@ -55,7 +55,7 @@ export function wrapSymbols<NP>(
 }
 
 /** Wrap a callback body so pointer arguments arrive as `bigint` and a pointer
- * result returns as the runtime's native pointer — the mirror image of
+ *  result returns as the runtime's native pointer. This is the mirror image of
  * `wrapSymbols`, for the JS function a native callback invokes. */
 export function wrapCallbackFn<NP>(
 	def: SymbolDef,

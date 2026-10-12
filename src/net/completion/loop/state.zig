@@ -1,7 +1,7 @@
 //! Completion-loop operation identity and inline connection state.
 //!
-//! The root Loop embeds this state directly. This module adds no owner object;
-//! it names the exact slot representation and the compact completion ticket
+//! The root Loop embeds this state directly. This module adds no owner object.
+//! It names the exact slot representation and the compact completion ticket
 //! shared by the loop's internal transaction owners.
 
 const std = @import("std");
@@ -12,7 +12,7 @@ const contract = @import("../contract.zig");
 const CloseReason = contract.CloseReason;
 
 /// Which kind of submitted operation a completion belongs to. Packed into the low
-/// bits of `user_data`; the rest is the connection slot index. `wake` and
+/// bits of `user_data`. The rest is the connection slot index. `wake` and
 /// `wake_cancel` have no connection: the out-of-band wake recv (ADR-0102) and
 /// its shutdown cancellation always carry slot 0 and are dispatched before
 /// any slot lookup.
@@ -44,23 +44,23 @@ pub const close_retry_ms: i32 = 50;
 /// Outbound queue capacity a drained `front` retains (ADR-0042). The iroh
 /// sidecar keeps the same bound for its own per-connection buffer, in Rust
 /// (`NB_STEADY_BYTES`), so the ladder's footprint budget cannot split between
-/// them; `source-check` holds the two numbers together.
+/// them. `source-check` holds the two numbers together.
 pub const steady_outbound_bytes: usize = frame_stream.steady_outbound_bytes;
 
 /// Per-connection slot bookkeeping ceiling (ADR-0045): the most a `Conn` may
-/// cost *beyond* the `engine.Peer` it embeds — the slot state, the outbound
+/// cost *beyond* the `engine.Peer` it embeds, the slot state, the outbound
 /// queue's two `ArrayList` headers, the spill header, the intrusive link, and
 /// the in-flight/context words. `Peer` is gated by its own `@sizeOf(Peer)`
-/// ceiling; this guards the wrapper the loop allocates `max_conns` of, which
+/// ceiling. This guards the wrapper the loop allocates `max_conns` of, which
 /// nothing capped before. Isolating the overhead keeps a `Peer` change within
 /// its own ceiling from tripping this, while a new `Conn` field always does.
-/// The number lives here and in docs/ladder.md step 2 together; move it only by
+/// The number lives here and in docs/ladder.md step 2 together. Move it only by
 /// weighing the bytes, never to route around the gate.
 ///
-/// The assertion below is an equality, not a ceiling, and that is deliberate.
+/// The assertion below is an equality, not a ceiling.
 /// As a ceiling it said only "this much or less", so the overhead once grew to
 /// the ceiling while both this comment and the ladder went on claiming a
-/// smaller measured figure with a word of headroom — a stale figure no build
+/// smaller measured figure with a word of headroom, a stale figure no build
 /// could catch, in the two places an agent goes to find out whether a new
 /// field is affordable. An equality
 /// makes the constant the measurement: any change to `Conn` fails the build and
@@ -88,7 +88,7 @@ pub const conn_slot_overhead_bytes: usize = 144;
 /// `onRecvFinish` after the buffer has been recycled, so every exit path
 /// recycles exactly once.
 pub const RecvVerdict = enum {
-    /// Bytes consumed; run events, outbound drive, and the next read arm.
+    /// Bytes consumed. Run events, outbound drive, and the next read arm.
     proceed,
     /// Close this connection after flushing what the engine projected
     /// (typically an `op:abort`).
@@ -112,16 +112,16 @@ pub fn Types(comptime Backend: type) type {
             /// have their close queued and wait for in-flight ops to retire
             /// before `teardown` reclaims them.
             state: enum { free, open, draining, closing } = .free,
-            /// The read seat — exactly one recv is armed per open connection,
+            /// The read seat, exactly one recv is armed per open connection,
             /// or the seat is explicitly idle/parked: `.idle` between a recv
             /// completion and its verdict, `.armed` while a recv is submitted,
             /// `.parked` under ADR-0042 backpressure (outbound past the
-            /// high-water mark; `onSend`'s drain resumes it), `.starved` when
-            /// the shared pool was empty (ADR-0054; a recycle resumes it).
+            /// high-water mark. `onSend`'s drain resumes it), `.starved` when
+            /// the shared pool was empty (ADR-0054. A recycle resumes it).
             read: enum { idle, armed, parked, starved } = .idle,
             /// Monotonic ms (since boot, not wall-clock) when this connection
             /// started waiting on the partner, or 0 when it is not waiting
-            /// (or is a fan-in victim, which the reaper deliberately exempts).
+            /// (or is a fan-in victim, which the reaper exempts).
             /// Only differences are meaningful.
             ///
             /// Which wait this is, and therefore which deadline bounds it,
@@ -130,7 +130,7 @@ pub fn Types(comptime Backend: type) type {
             /// the stamp was taken for, so a connection that was already
             /// waiting when its state changed starts the new clock instead of
             /// inheriting the old one's elapsed time. `.open` with a parked read
-            /// is a slow reader, bounded by `Options.park_kill_ms`; a
+            /// is a slow reader, bounded by `Options.park_kill_ms`. A
             /// `.draining` connection is waiting for its terminal bytes to be
             /// read, bounded by `Options.drain_kill_ms`. Condemnation
             /// restamps it, which is correct: the slow-reader question is moot
@@ -148,23 +148,23 @@ pub fn Types(comptime Backend: type) type {
             /// Edge-triggered so `over_mark_count` stays exact.
             over_mark: bool = false,
             /// Bumped every time this slot is reclaimed, so slot reuse is
-            /// observable — the state alone cannot show it, because a
+            /// observable, the state alone cannot show it, because a
             /// replacement occupant is `.open` too. No production path compares
-            /// it today; it is what `test/net/fuzz_test.zig` checks slot
+            /// it today. It is what `test/net/fuzz_test.zig` checks slot
             /// identity against, and it costs nothing, because the four bytes
             /// land in alignment padding `Conn` already carries.
             generation: u32 = 0,
-            /// True once the connection completed its connect or accept; false
+            /// True once the connection completed its connect or accept. False
             /// for a dialed connection that failed before opening. Reported to
             /// `Options.on_close` at teardown.
             opened: bool = false,
-            /// Why this connection is closing; set before `closeConn` for a
+            /// Why this connection is closing. Set before `closeConn` for a
             /// loop-initiated reclaim so `on_close` can name it (ADR-0082).
             close_reason: CloseReason = .ordinary,
             fd: Fd = undefined,
             peer: engine.Peer = undefined,
             /// Bounded overflow for a frame that does not complete within one
-            /// recv completion's borrowed pool buffer; inactive (and
+            /// recv completion's borrowed pool buffer. Inactive (and
             /// allocation-free) while whole frames arrive per completion. The
             /// scan that walks its frame rides on the `peer` above
             /// (`engine.Peer.stream_scan`), which documents why.
@@ -172,7 +172,7 @@ pub fn Types(comptime Backend: type) type {
             /// The frozen half of the outbound queue. A submitted write borrows
             /// `front.items[front_off..]` until the backend reports it complete,
             /// so nothing may append to (or otherwise resize) `front` while
-            /// `write_in_flight` — a realloc would free the storage the kernel
+            /// `write_in_flight`, a realloc would free the storage the kernel
             /// is still reading. Bytes queued meanwhile land in `back`.
             front: std.ArrayList(u8) = .empty,
             front_off: usize = 0,
@@ -203,7 +203,7 @@ pub fn Types(comptime Backend: type) type {
             /// reset leaves it there, and `.starved` and `.parked` are two
             /// values of one enum. Every departure unlinks before the state
             /// changes, so no successor rides from one list into another. This
-            /// is the invariant the whole scheme rests on; the heads below and
+            /// is the invariant the whole scheme rests on. The heads below and
             /// the link helpers point back here rather than restating it.
             ///
             /// Two `u32`s rather than one `usize`, which costs the same eight
@@ -211,8 +211,8 @@ pub fn Types(comptime Backend: type) type {
             /// linked list walks it, and the list this matters for is the parked
             /// one: it is longest in exactly the regime it exists for, a fan-in
             /// throttle holding every connection behind one slow reader. Every
-            /// `closeConn` walking it makes `closeAndDrain` quadratic — the
-            /// shape `teardown` deliberately refuses two hundred lines below.
+            /// `closeConn` walking it makes `closeAndDrain` quadratic, the
+            /// shape `teardown` refuses two hundred lines below.
             /// `max_conns` is checked against `maxInt(u32)` at construction.
             next_link: u32 = 0,
             prev_link: u32 = 0,

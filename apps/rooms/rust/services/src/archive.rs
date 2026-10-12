@@ -1,5 +1,5 @@
 //! Host archive composition. Shared execution owns capability admission and
-//! backend ordering; this adapter owns filesystem storage and the process front.
+//! backend ordering. This adapter owns filesystem storage and the process front.
 pub use rooms_runtime::archive::{
 	Backend, BlobAccess, CALLER_LIMIT, CAPTURE_BYTES, CAPTURE_LIMIT, Chunk, FACET_BYTES, REQUEST_BYTES, REQUEST_LIMIT,
 	Report, Source, UnavailableBlobs,

@@ -4,15 +4,17 @@
  * Capture the Rooms product images used by the website.
  *
  * Start the web peer with every operator capability and a state directory,
- * and the IRC front against its directory:
+ * its output captured to a file, and the IRC front against its directory:
  *
  *   GLOWCAP_ROOMS_STATE=/tmp/rooms-capture-state \
- *     zig build rooms-web -Dtransport=tcp -Dport=8080 -- --diagnostics --admin-listeners --operator --peering --irc
- *   zig build rooms-irc-front -- --directory=127.0.0.1:9099
+ *     zig build rooms-web -Dtransport=tcp -- 8080 9098 --diagnostics --admin-listeners --operator --peering --irc \
+ *     > /tmp/rooms-web-capture.log 2>&1
+ *   zig build rooms-irc-front -- --directory=127.0.0.1:9098 --port=6667
  *
  * then run:
  *
- *   deno run --allow-all site/scripts/capture-rooms.ts --state=/tmp/rooms-capture-state
+ *   deno run --allow-all site/scripts/capture-rooms.ts --state=/tmp/rooms-capture-state \
+ *     --server-log=/tmp/rooms-web-capture.log
  *
  * The capture drives isolated browser peers through the shipped page: a
  * person and the four-bot roster a rooms team runs at its default cap, one
@@ -23,7 +25,7 @@
  * room through the front, the person takes the operator capabilities into
  * Holdings and opens the directory pane, and finally shares the session so a
  * second browser can attach to it. No product state or screenshot markup is
- * mocked; only the lines are scripted. Every capture is written twice, as
+ * mocked. Only the lines are scripted. Every capture is written twice, as
  * `<name>-dark.webp` and `<name>-light.webp` as lossless WebP, so a page can
  * show the face that matches its own theme without banding the UI gradients.
  * The images land under `site/assets/`:
@@ -38,9 +40,10 @@
  *   rooms-session-attached-*.webp  a second browser attached to the first one's session
  *
  * Without `--state` the operations capture is skipped, and without a front
- * on the IRC port the IRC capture is skipped; each says so on stderr.
+ * on the IRC port the IRC capture is skipped. Each says so on stderr.
  */
 import { type BrowserContext, chromium, type Page } from "playwright";
+import { pinToLatest, plainRun, shot as capture } from "./capture.ts";
 
 const positional = Deno.args.filter((arg) => !arg.startsWith("--"));
 const flag = (name: string): string | undefined =>
@@ -48,7 +51,9 @@ const flag = (name: string): string | undefined =>
 const url = positional[0] ?? "http://127.0.0.1:8080/";
 const outDir = positional[1] ?? "site/assets";
 const stateDir = flag("state");
+const serverLog = flag("server-log");
 const ircPort = Number(flag("irc-port") ?? "6667");
+const shot = (page: Page, name: string, within?: string) => capture(page, outDir, name, within);
 
 /** A team room, named the way the rooms-team skill mints one. */
 const room = "team-guide-20260912";
@@ -56,51 +61,6 @@ const human = "mira";
 const lead = "agentic-lead";
 const members = ["wire-clarity", "fresh-eyes", "first-impression"];
 const ircNick = "ada";
-
-async function settle(page: Page, theme: "dark" | "light" = "dark"): Promise<void> {
-	await page.evaluate((t) => document.documentElement.setAttribute("data-theme", t), theme);
-	await page.evaluate(() =>
-		Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => {})))
-	);
-	// Presence pips and the composer's focus ring settle a frame after the last
-	// animation; one short pause keeps a capture from catching them mid-move.
-	await page.waitForTimeout(250);
-}
-
-/**
- * Write the viewport, or a clip around the union of the elements `within`
- * selects, with a margin of surrounding page so the crop still reads as a
- * window rather than a cut-out.
- */
-async function shot(page: Page, name: string, within?: string): Promise<void> {
-	let clip: { x: number; y: number; width: number; height: number } | undefined;
-	if (within) {
-		clip = await page.evaluate((selector) => {
-			const boxes = [...document.querySelectorAll(selector)].map((el) => el.getBoundingClientRect());
-			const margin = 36;
-			const left = Math.max(0, Math.min(...boxes.map((b) => b.left)) - margin);
-			const top = Math.max(0, Math.min(...boxes.map((b) => b.top)) - margin);
-			const viewport = document.documentElement;
-			const right = Math.min(viewport.clientWidth, Math.max(...boxes.map((b) => b.right)) + margin);
-			const bottom = Math.min(viewport.clientHeight, Math.max(...boxes.map((b) => b.bottom)) + margin);
-			return { x: left, y: top, width: right - left, height: bottom - top };
-		}, within);
-	}
-	// One capture per face. The site shows whichever matches its own theme.
-	for (const theme of ["dark", "light"] as const) {
-		await settle(page, theme);
-		await page.screenshot({
-			path: `${outDir}/${name}-${theme}.webp`,
-			type: "webp",
-			// Chromium's WebP encoder is lossless at 100. These captures mix fine
-			// UI text with broad gradients, so lossy quantization is conspicuous.
-			quality: 100,
-			fullPage: false,
-			clip,
-		});
-	}
-	await settle(page, "dark");
-}
 
 /** Open the page and land on the join card, choosing a browser-local session on first use. */
 async function open(page: Page, capture?: { session: string; join: string }): Promise<void> {
@@ -131,36 +91,12 @@ async function join(page: Page, nick: string): Promise<void> {
 	await page.waitForSelector("#line:not([disabled])", { timeout: 60_000 });
 }
 
-/**
- * A rendered line is rich text: a mention becomes a chip and an emphasis
- * marker disappears, so the bubble is found by a plain run of words from the
- * line rather than by the whole line.
- */
-function plainRun(text: string): string {
-	const runs = text.split(/@\S+|[*_`]/).map((run) => run.trim()).filter((run) => run.length > 12);
-	if (runs.length === 0) throw new Error(`no plain run to wait for in ${JSON.stringify(text)}`);
-	return runs.reduce((longest, run) => (run.length > longest.length ? run : longest));
-}
-
 /** Type a line and send it: Enter on a keyboard, the send button on a phone, where Enter breaks the line. */
 async function say(page: Page, text: string, phone = false): Promise<void> {
 	await page.fill("#line", text);
 	if (phone) await page.click("#sendBtn");
 	else await page.press("#line", "Enter");
 	await page.locator(".bubble", { hasText: plainRun(text) }).last().waitFor({ timeout: 30_000 });
-}
-
-/**
- * Resizing the window can leave the timeline scrolled short of its end, and
- * the page then offers a "latest messages" pill over the log. Scroll the log
- * to its end and let the pill retire before a capture.
- */
-async function pinToLatest(page: Page): Promise<void> {
-	await page.evaluate(() => {
-		const log = document.querySelector("#log");
-		if (log) log.scrollTo(0, log.scrollHeight);
-	});
-	await page.waitForTimeout(400);
 }
 
 /** The captured peer shows the line before the conversation moves on, so no capture catches a pending bubble. */
@@ -338,25 +274,21 @@ try {
 		await Deno.writeTextFile(`${outDir}/rooms-irc-transcript.txt`, irc.transcript.join("\n") + "\n");
 	}
 
-	// The operator capabilities: the swiss numbers the server minted go into
-	// Holdings, and the directory pane opens under /ops.
-	if (stateDir == null) {
-		console.error("capture-rooms: no --state=<dir>, skipping the rooms-operations captures");
+	// The operator capabilities: the complete `ROOMS-*` lines the server
+	// prints go into Holdings, the same lines the field tells a reader to
+	// enter, and the directory pane opens under /ops.
+	if (stateDir == null || serverLog == null) {
+		console.error(
+			"capture-rooms: the rooms-operations captures need --state=<dir> and --server-log=<path>",
+		);
 	} else {
-		const tokens: Array<[string, string]> = [
-			["ROOMS-ADMIN-LISTENERS", "admin-listeners"],
-			["ROOMS-DIAGNOSTICS", "diagnostics"],
-			["ROOMS-IRC", "irc"],
-			["ROOMS-OPERATOR", "operator"],
-			["ROOMS-PEERING", "peering"],
-		];
-		const lines: string[] = [];
-		for (const [token, file] of tokens) {
-			try {
-				lines.push(`${token} ${(await Deno.readTextFile(`${stateDir}/${file}`)).trim()}`);
-			} catch {
-				console.error(`capture-rooms: ${stateDir}/${file} is absent; ${token} stays out of Holdings`);
-			}
+		const lines = (await Deno.readTextFile(serverLog))
+			.split("\n")
+			.filter((line) => /^ROOMS-[A-Z-]+ ocapn:\/\/\S+$/.test(line.trim()));
+		if (lines.length === 0) {
+			throw new Error(
+				`capture-rooms: ${serverLog} prints no ROOMS-* capability lines; start the server with the operator flags and capture its output`,
+			);
 		}
 		await mira.click("#settingsBtn");
 		await mira.waitForSelector("#settingsTitle");

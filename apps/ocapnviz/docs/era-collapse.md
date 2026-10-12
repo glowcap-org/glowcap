@@ -64,13 +64,13 @@ convergences per recompute before and after.
 **3b. An era reuses the arrangement it already holds** when its problem is unchanged. This stops an append from
 re-annealing a timeline that was already solved. Sixty reconnects cost 4.7 s of solving without it and 194 ms with it.
 
-**4. The ease starts from where the picture actually was.** With the accumulated bodies gone, a reconnect still threw
+**4. The ease starts from where the picture was.** With the accumulated bodies gone, a reconnect still threw
 the room and pulled it back: 283.8 world units on the first frame after the flicker, then an ease home over the
-transition window. That is the whole of what "it re-animates into place every few seconds" was.
+transition window. That was the "re-animates into place every few seconds" symptom.
 
 `update` eased from the previous keyframe's arrangement, which is right whenever that era lasted a full window and wrong
 when it did not. An era replaced two milliseconds after it arrived was never approached, so starting there put every
-node somewhere it had never been, in one frame. Each era now carries the arrangement the picture actually held when it
+node somewhere it had never been, in one frame. Each era now carries the arrangement the picture held when it
 began, so an era that had two milliseconds contributes two milliseconds' worth. The excursion is under 6 units, a tenth
 of a node's own width.
 
@@ -87,7 +87,7 @@ No threshold decides anything, which matters because two were tried and measured
 
 - **One frame (16 ms).** Not a fixed number of simulated milliseconds: `tick` advances sim time by `wallDt * speed` and
   speed reaches 4×, so the same era is 16 ms at one speed and 67 at another.
-- **The transition window (600 ms).** Deletes eras a document legitimately states 100 ms apart; thirteen tests failed on
+- **The transition window (600 ms).** Deletes eras a document legitimately states 100 ms apart. Thirteen tests failed on
   the bundled fixtures.
 
 Every era still gets its keyframe, so a `seekTo` landing inside a short one finds the topology the document states
@@ -116,10 +116,10 @@ there, and the result stays a pure function of `t`.
 ## The recorded connection churn
 
 The input used for this investigation opened a room session every six seconds.
-That observation described the producer at the time; it is not a current Rooms
+That observation described the producer at the time. It is not a current Rooms
 defect or an external upstream dependency. `zig build rooms-web-trace-lifecycle`
 now observes two joined browser members for thirteen idle seconds and refuses
 any session opening, closing, or loss of observation, including transient
-replacements. That local proof passes; it does not establish the behavior of
+replacements. That local proof passes. It does not establish the behavior of
 every deployment. The layout must still handle recordings containing churn,
 whatever its producer or cause.

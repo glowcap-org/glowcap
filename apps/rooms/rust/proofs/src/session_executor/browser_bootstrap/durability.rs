@@ -42,7 +42,14 @@ pub async fn rooms_session_bootstrap_durability_contract(metadata: bool) {
 				let seed = prepared.seed();
 				let host = Host::from_seed_with_options(seed, rooms_glowcap::host_options()).unwrap();
 				let failure = prepared
-					.start(host.clone(), platform.clone(), limits, 128, |_, _| {})
+					.start(
+						host.clone(),
+						platform.clone(),
+						limits,
+						128,
+						rooms_application::admission::Settings::defaults(4096, 8),
+						|_, _| {},
+					)
 					.await
 					.err()
 					.expect("unsupported Store durability must refuse");
@@ -61,7 +68,14 @@ pub async fn rooms_session_bootstrap_durability_contract(metadata: bool) {
 			}
 			let host = Host::from_seed_with_options(prepared.seed(), rooms_glowcap::host_options()).unwrap();
 			let mut opened = prepared
-				.start(host.clone(), platform, limits, 128, |_, _| {})
+				.start(
+					host.clone(),
+					platform,
+					limits,
+					128,
+					rooms_application::admission::Settings::defaults(4096, 8),
+					|_, _| {},
+				)
 				.await
 				.unwrap();
 			let mut expected = Intent::empty();

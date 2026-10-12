@@ -1,7 +1,7 @@
 // Monotonic scope for member archive facets.
 //
-// Every dimension is exact-match. Null grants the whole dimension; narrowing
-// replaces null with a value and can never replace a value with another one.
+// Every dimension is exact-match. Null grants the whole dimension, and
+// narrowing replaces null with a value and never replaces a value with another.
 
 export type ArchiveConversationKind = "room" | "direct";
 

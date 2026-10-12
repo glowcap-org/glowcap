@@ -3,7 +3,7 @@
  *
  * `Scrubber.tsx` owns the React host, wheel zoom, and double-click fit.
  * Pointer press/move/release live in `use-scrubber-pointers.ts`. This hook
- * is the picture those two write into — it mounts the scene on the unified
+ * is the picture those two write into. It mounts the scene on the unified
  * canvas, bails a still frame, and asks `drawScrubberScene` for the rest.
  */
 
@@ -138,7 +138,7 @@ export function useScrubberScene(args: {
 			// during continuous resize; rounding y and height
 			// INDEPENDENTLY would let `round(y) + round(height)` flip
 			// between (e.g.) 701 and 702 even though `y + height` is
-			// a constant 701 — that's a visible 1px stutter on the
+			// a constant 701, that's a visible 1px stutter on the
 			// bottom-anchored ruler painted at `regionHeight - 22`.
 			// Computing the corner via `round(y + height) - round(y)`
 			// pins the bottom edge so the ruler position is stable

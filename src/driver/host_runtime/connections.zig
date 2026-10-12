@@ -32,7 +32,7 @@ pub fn bindWire(
 /// Begin a resident dial, await its completion while serving siblings, bind
 /// its channel-proved key, adopt the claimed connection, and write what the
 /// session already holds. The await drains core actions, so the session's
-/// flush can fire before its wire exists; a sealed dial's first handshake
+/// flush can fire before its wire exists. A sealed dial's first handshake
 /// message waits in its channel, where no later flush would find it.
 pub fn bindResidentWire(
     self: *HostRuntime,

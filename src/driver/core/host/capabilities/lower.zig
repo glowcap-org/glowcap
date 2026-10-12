@@ -77,7 +77,7 @@ const LoweredCapability = struct {
 };
 
 /// One value lowering that has not yet crossed its semantic commit point.
-/// Public only for Host-core sibling modules; adapters call the complete
+/// Public only for Host-core sibling modules. Adapters call the complete
 /// send/tell/vow operations instead of managing this transaction.
 pub const PreparedValues = struct {
     host: *Host,
@@ -151,11 +151,11 @@ fn commitTurnReceipts(ctx: *anyopaque, vat: *actors.Vat) void {
 }
 
 /// The Port has already retracted the failed turn's sends, which returned each
-/// projection they named to its baseline. Roll back the projections those
-/// sends minted that no surviving message names. Node staging withdraws its
-/// carriers, gifts and leases. A committed foreign enrollment stays as the
-/// Session import's canonical route memo, with no additional import retain;
-/// a reentrant surviving turn may already name it. Import retirement owns it.
+/// projection they named to its baseline. Roll back the projections those sends
+/// minted that no surviving message names. Node staging withdraws its carriers,
+/// gifts and leases. A committed foreign enrollment stays as the Session
+/// import's canonical route memo, with no additional import retain. A reentrant
+/// surviving turn may already name it. Import retirement owns it.
 fn abortTurnReceipts(ctx: *anyopaque, vat: *actors.Vat, reason: []const u8) void {
     _ = vat;
     _ = reason;
@@ -181,7 +181,7 @@ fn unshared(session: *HostSession, position: u64) bool {
 
 /// One extra Host retain accompanying a capability occurrence while an
 /// owning-tier message crosses into the engine. An inline-Passable batch marks
-/// it transferred; otherwise the caller rolls it back immediately after the
+/// it transferred. Otherwise the caller rolls it back immediately after the
 /// synchronous enqueue.
 pub const StagedCapabilityRetain = struct {
     ref: capability.Ref,
@@ -487,9 +487,12 @@ pub fn prepareCapability(self: *Host, session: *HostSession, ref: capability.Ref
 /// `session`: data arms are borrowed as they stand, and each `.capability`
 /// lowers through `lowerCapability`, so a local target projects on this
 /// session's Port and a cross-home capability becomes a routable Node
-/// reference. Spine containers are allocated in `arena`; leaf bytes stay
+/// reference. Spine containers are allocated in `arena`. Leaf bytes stay
 /// borrowed. A stale, foreign, or overdeep value fails the whole transaction
-/// closed and rolls back every projection it created.
+/// closed and rolls back every projection it created. The lowering walk keeps
+/// `anyerror`: `lowerValueInner` and `lowerValuesInner` are mutually recursive,
+/// which this toolchain refuses to resolve as inferred sets, and the walk's
+/// true set mirrors the capability machinery's inferred sets.
 pub fn lowerValue(
     self: *Host,
     session: *HostSession,
@@ -557,7 +560,7 @@ pub fn lowerValues(
 }
 
 /// Prepare a transactional owning-tier value lowering. Public only for
-/// Host-core siblings; `deinit` rolls back until `commit` is called.
+/// Host-core siblings. `deinit` rolls back until `commit` is called.
 pub fn prepareValues(
     self: *Host,
     session: *HostSession,

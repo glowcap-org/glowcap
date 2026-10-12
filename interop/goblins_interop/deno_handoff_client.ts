@@ -1,6 +1,6 @@
 import * as tcp from "@glowcap/tcp";
 // Live three-party handoff with the Deno binding as the recipient (Carol),
-// proving the binding redeems a `desc:handoff-give` transparently — the same
+// proving the binding redeems a `desc:handoff-give` transparently, the same
 // `connect`/`fetch`/`send` application surface the demos use, no bespoke handoff
 // choreography in the app.
 //
@@ -11,7 +11,7 @@ import * as tcp from "@glowcap/tcp";
 //   2. `send(introducer, "get-greeter")`. Alice hands back Bob's greeter as a
 //      three-party handoff give. The binding's machine redeems it: it dials Bob
 //      directly (keyed with the *same* identity Alice saw), withdraws the gift,
-//      and resolves the send to an ordinary capability — the app never sees the
+//      and resolves the send to an ordinary capability, the app never sees the
 //      give or the second connection.
 //   3. `send(greeter, "", ["glowcap-carol"])`. The bytes go straight to Bob;
 //      the reply must carry the name back, proving data integrity end to end.

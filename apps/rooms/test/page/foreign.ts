@@ -6,7 +6,7 @@
 // the other.
 
 import type { Page } from "playwright";
-import { fail, fillSettled, freePort, reachDirectoryOnCard } from "./harness.ts";
+import { fail, fillSettled, freePort, reachDirectoryOnCard, waitForPostedLine } from "./harness.ts";
 export async function run(
 	tab: Page,
 	httpPort: number,
@@ -26,7 +26,7 @@ export async function run(
 	await tab.fill("#newRoomInput", "elsewhere");
 	// The room being named is drawn as one of the rooms already named: a mark, a
 	// name, and under it the line saying where it will land. That line is a
-	// target of its own, so it is measured as one — a glyph and its words as a
+	// target of its own, so it is measured as one, a glyph and its words as a
 	// single piece in the middle of a rectangle the panel draws at rest. It is no
 	// longer two entries placed by the columns above.
 	const panel = await tab.evaluate(() => {
@@ -64,9 +64,9 @@ export async function run(
 			}
 		}
 	}
-	// Reached by keyboard on purpose. A pointer press and a key press take
-	// different paths into a button — Enter and Space raise a click with no
-	// mousedown before it — so a proof that only ever clicks cannot tell a
+	// Reached by keyboard. A pointer press and a key press take
+	// different paths into a button, Enter and Space raise a click with no
+	// mousedown before it, so a proof that only ever clicks cannot tell a
 	// control that works from one that is focusable, visibly focused, and dead.
 	await tab.focus("#newRoomElsewhere");
 	await tab.press("#newRoomElsewhere", "Enter");
@@ -84,7 +84,7 @@ export async function run(
 	}
 
 	// The addresses already in hand live on the locator field, behind the
-	// directory mark that opens them — not as a row between this question and
+	// directory mark that opens them, not as a row between this question and
 	// the next. Opening that mark has to put the list under the field it fills.
 	await tab.click("#joinLocator");
 	const placed = await tab.evaluate(() => {
@@ -113,7 +113,7 @@ export async function run(
 	await tab.click("#joinStop");
 	await tab.waitForFunction(
 		() =>
-			document.getElementById("joinStop") === null &&
+			document.getElementById("joinStop")?.style.visibility === "hidden" &&
 			(document.getElementById("joinBtn")?.textContent ?? "").trim() === "Connect",
 		undefined,
 		{ timeout: 10_000 },
@@ -148,14 +148,14 @@ export async function run(
 	await tab.click("#joinStop");
 	await tab.waitForFunction(
 		() =>
-			document.getElementById("joinStop") === null &&
+			document.getElementById("joinStop")?.style.visibility === "hidden" &&
 			(document.getElementById("joinBtn")?.textContent ?? "").trim() === "Connect",
 		undefined,
 		{ timeout: 10_000 },
 	).catch(() => fail("stopping the retried connect left the card waiting"));
 
 	// A typo first. An address nobody has ever reached is most likely wrong, so
-	// the page must let it go rather than keep a row for it and dial it forever —
+	// the page must let it go rather than keep a row for it and dial it forever,
 	// and it must leave what was typed in the field, because correcting an
 	// address is an edit and not a retype.
 	const typo = `127.0.0.1:${freePort()}`;
@@ -192,10 +192,10 @@ export async function run(
 	if (named !== 0) fail("an address that never answered was kept as a server in the rail");
 
 	// Then text that is not an address at all, which is the other half of the same
-	// mistake and the half that used to take the page down. The one above points
-	// nowhere and is refused by the dial; this one cannot be parsed, and the parse
-	// threw where nothing was catching — so a person who mistyped badly enough got
-	// the error screen instead of a correction, losing the room they were in.
+	// mistake and the half that can take the page down. The one above points
+	// nowhere and is refused by the dial. This one cannot be parsed, and a parse
+	// that throws where nothing catches it gives a person who mistyped badly
+	// enough the error screen instead of a correction, losing the room they were in.
 	// Checked as a crash rather than as a message: the interface has to still be
 	// there afterwards.
 	await tab.fill("#locator", "not a locator at all");
@@ -216,9 +216,9 @@ export async function run(
 		fail(`what was typed was not left to correct; the field holds ${JSON.stringify(survived.kept)}`);
 	}
 
-	// Under a different name on purpose. A directory grants the name, and grants
+	// Under a different name. A directory grants the name, and grants
 	// it for itself alone, so being alice on one and bo on another is ordinary
-	// rather than exotic — and it is the state in which anything claiming a single
+	// rather than exotic, and it is the state in which anything claiming a single
 	// name for every room a reader is in has to be wrong about some of them.
 	await fillSettled(tab, "#locator", foreignLocator);
 	await fillSettled(tab, "#nick", "bo");
@@ -229,10 +229,10 @@ export async function run(
 	// reports the card rather than only the disappointment. A bare "did not
 	// join" says nothing about whether the fields still held what was typed,
 	// whether the join was refused with a reason, or whether it is still
-	// waiting — and those three point at three different layers. That report is
+	// waiting, and those three point at three different layers. That report is
 	// what eventually named the cause: a card holding the previous address
 	// beside a freshly filled name, which is why the two fills above wait for
-	// their fields to agree. Both halves stay — one stopped that flake, the
+	// their fields to agree. Both halves stay, one stopped that flake, the
 	// other is how the next one gets diagnosed.
 	await tab.waitForSelector("#line:not([disabled])", { timeout: 60_000 })
 		.catch(async () => {
@@ -251,7 +251,7 @@ export async function run(
 	// directory's grant. Across directories that granted two names it may not
 	// claim one covers both: it says the home directory's grant, wears that
 	// directory's own mark so the name is visibly one directory's, counts the
-	// others in words, and carries the whole list on its title — while the
+	// others in words, and carries the whole list on its title, while the
 	// state row under it says how this reader stands. Saying the foreign name
 	// for everything would be the kind of wrong that reads as right: a real
 	// name, on a real directory, and not the one the home rooms know this
@@ -292,14 +292,22 @@ export async function run(
 	}
 	await tab.fill("#line", "hello across servers");
 	await tab.press("#line", "Enter");
-	await tab.waitForSelector('.bubble:has-text("hello across servers")', { timeout: 30_000 })
-		.catch(() => fail("the foreign room did not echo over its own capability"));
+	await tab.waitForSelector(
+		'.bubble:not(.sending):not(.failed):not(.unconfirmed):has-text("hello across servers")',
+		{ timeout: 30_000 },
+	).catch(async () => {
+		const state = await tab.evaluate(() => {
+			const line = document.querySelector<HTMLTextAreaElement>("#line");
+			return { draft: line?.value, disabled: line?.disabled, page: document.body.innerText.slice(0, 4000) };
+		});
+		fail("the foreign room did not confirm its post: " + JSON.stringify(state));
+	});
+	await waitForPostedLine(tab, "hello across servers");
 	// Settings is about *this* directory, and stays about it while a room on
-	// another one is being read. It used to answer with whichever directory the
-	// conversation on screen was on, so the same heading meant two different
-	// things depending on where you had been — checked from the foreign room for
-	// exactly that reason, because that is the state in which the two answers
-	// differ.
+	// another one is being read. It must not answer with whichever directory the
+	// conversation on screen is on, or the same heading would mean two different
+	// things depending on where you had been. It is checked from the foreign room
+	// because that is the state in which the two answers differ.
 	await tab.click("#settingsBtn");
 	await tab.waitForSelector("#settingsTitle");
 	// The dialog reopens on whichever panel was last selected, so name the

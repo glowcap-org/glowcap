@@ -137,7 +137,8 @@ test "planAccept iroh: signs the node id and publishes the endpoint's direct add
     // A key designator says who this peer is, not where. A third party handed
     // this locator in a handoff has never spoken to the peer and still has to
     // dial it, so an accept publishes the addresses it knows. This is the arm
-    // that used to drop them, leaving a give nobody could dial without a relay.
+    // that must not drop them, which would leave a give nobody could dial
+    // without a relay.
     const plan = planAccept(.key, key_designator, "127.0.0.1:7000,[::1]:7001");
     try std.testing.expectEqualStrings(key_designator, plan.designator);
     try std.testing.expectEqualStrings("127.0.0.1:7000,[::1]:7001", plan.direct_addresses_hint);
@@ -198,8 +199,8 @@ test "planAccept webrtc: signs the server key, and its netlayer offers no addres
     // Empty because a `webrtc` peer is reached through a signaling exchange and
     // has no dialable address to give (ADR-0089), and its resident reports
     // exactly that. The planner does not filter by transport: it publishes whatever
-    // the netlayer — or, on the byte-fed path, the embedder that owns the
-    // transport — said this side is reachable at. Which hints a locator carries
+    // the netlayer, or, on the byte-fed path, the embedder that owns the
+    // transport, said this side is reachable at. Which hints a locator carries
     // is the netlayer's business, so a second table here could only drift from
     // the vtable that produces the value.
     const plan = planAccept(.key, key_designator, "");

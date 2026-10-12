@@ -76,7 +76,7 @@ Deno.test("a room nick is a name for an end, never a name that identifies it", (
 	// So the end stays loose, and this is the design working rather than a gap
 	// in it. Attributing on the address would merge every session that ever
 	// claimed it; attributing on the nick would merge whoever wears it next.
-	// Nothing here concludes Goblins either — glowcap speaks the v1.0 floor over
+	// Nothing here concludes Goblins either, glowcap speaks the v1.0 floor over
 	// Syrup as readily as a vat does, so the profile the far side runs is not
 	// something this observation can reach.
 	const convert = makeBaseEventConverter();
@@ -149,7 +149,7 @@ Deno.test("a verified name IS an identity across sessions", () => {
 	const first = open("s1", 0);
 	const second = open("s2", 1_000_000);
 	expectKind(first[1], "peer-joined");
-	// Second session: no new peer-joined for bob — same identity.
+	// Second session: no new peer-joined for bob, same identity.
 	assertEquals(second.length, 1);
 	const session = expectKind(second[0], "session-opened");
 	assertEquals(session.b.peer, "ed25519:bobkey");
@@ -196,7 +196,7 @@ Deno.test("replay is state, not events: topology applies, messages stay out", ()
 	// enter its capture.
 	//
 	// The batch is one picture, so the topology lands when the endpoint
-	// says the batch has ended rather than record by record — that is
+	// says the batch has ended rather than record by record. That is
 	// what lets a wire reported by both its ends be drawn once, already
 	// knowing both.
 	const convert = makeBaseEventConverter();
@@ -296,7 +296,7 @@ Deno.test("replay completion retains observations still in the snapshot", () => 
 Deno.test("session-meta folds into the partner's label, identity untouched", () => {
 	// The annotation pipeline's viewer edge: the producing app states
 	// which member a session carries, and the converter turns it into
-	// a peer-updated on the session's PARTNER — a claim about naming,
+	// a peer-updated on the session's PARTNER. A claim about naming,
 	// never identity (the stage id does not change).
 	const convert = makeBaseEventConverter();
 	openSession(convert, "s1", "127.0.0.1:0", 0);

@@ -1,3 +1,5 @@
+import { LOCAL_LIMITS } from "./local_gestures.ts";
+import { archiveDropFull, archiveReadFull } from "../../../../lib/text/archive.ts";
 import { managedSessionText as managedText, sharedHistoryLabel } from "../../../../lib/text/managed_session.ts";
 // Incoming choices select session archive custody. Displayed files retain the
 // exact reader through offer dismissal and later workspace selection changes.
@@ -13,6 +15,7 @@ import { reconcileSharedArchive } from "../shared_archive_projection.ts";
 import type { ArchiveRecord } from "../../../../lib/archive/protocol.ts";
 import { MAX_ARCHIVE_READ, MAX_ARCHIVE_RECORDS } from "../../../../lib/archive/limits.ts";
 import { refusalText } from "../../../../lib/text/failure.ts";
+import { revisionReadKey } from "./reads.ts";
 
 function offerIdentity(row: ReceivedArchive): string {
 	return JSON.stringify([
@@ -165,7 +168,11 @@ export function managedArchiveReading(
 	return {
 		shareArchiveHistory: (key, peer, records = "line") => share(key, peer, records, false),
 		offerDurableArchive: (key, peer, records = "line") => share(key, peer, records, true),
-		listIssuedArchiveShares: () => session.workspace.issuedArchiveShares(),
+		listIssuedArchiveShares: () =>
+			session.reads.run(
+				revisionReadKey("issuedShares", session.current?.intent.archive, session.current?.revision),
+				() => session.workspace.issuedArchiveShares(),
+			),
 		revokeIssuedArchiveShare: async (id) => {
 			try {
 				await session.actions.run("revokeIssuedArchiveShare", [id]);
@@ -177,14 +184,35 @@ export function managedArchiveReading(
 		readArchiveShare: (id) => {
 			const existing = running.get(id);
 			if (existing != null) return existing;
+			if (running.size >= LOCAL_LIMITS.reads) {
+				return Promise.resolve(archiveReadFull);
+			}
 			const task = read(id).finally(() => running.delete(id));
 			running.set(id, task);
 			return task;
 		},
 		dropArchiveShare: (id) => {
-			void drop(id).catch((error) =>
-				store.noteTrouble(page.projection, managedText.archiveOffer, refusalText(error))
-			);
+			if (running.has(id)) return;
+			if (running.size >= LOCAL_LIMITS.reads) {
+				store.patchArchiveShare(page.projection, id, {
+					status: "unavailable",
+					error: archiveDropFull,
+				});
+				return;
+			}
+			const selected = session.current?.intent.archiveShares?.find((row) => row.id === id);
+			if (selected == null) return;
+			const identity = offerIdentity(selected);
+			store.patchArchiveShare(page.projection, id, { status: "dropping", error: "" });
+			const task = drop(id, identity).then(() => "", (error: unknown) => {
+				const why = refusalText(error);
+				const current = session.current?.intent.archiveShares?.find((row) => row.id === id);
+				if (current != null && offerIdentity(current) === identity) {
+					store.patchArchiveShare(page.projection, id, { status: "unavailable", error: why });
+				}
+				return why;
+			}).finally(() => running.delete(id));
+			running.set(id, task);
 		},
 	};
 }

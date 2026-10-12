@@ -1,15 +1,11 @@
 // The panel at the top of every conversation, and the line that says what the
 // address above a conversation actually reaches.
 //
-// A person reads this more than anything else in the product, and it was the
-// furthest from how anybody talks: "Your live view begins with this arrival",
-// "The room did not provide earlier messages", "The directory introduced the
-// person who held this name when the conversation opened, then stepped out".
-//
-// Three questions get answered here and nothing else belongs: how far back the
-// messages go, who can get in, and who can read what you type.
+// A person reads this more than anything else in the product. It answers three
+// questions: how far back the messages go, who can get in, and who can read
+// what you type.
 
-/** The directory view, which is a command surface rather than a chat. */
+/** The directory view, which takes commands instead of chat. */
 export const conversationDirectory =
 	"Rooms you join show up in the list. Commands you type here run on this server and their results stay in this view.";
 
@@ -31,8 +27,8 @@ export function conversationBeginning(earlier: EarlierHistory): string {
 	}
 }
 
-/** Who can get in. The two kinds of room say opposite things, so showing the
- * open sentence over a private room is the worst mistake available here. */
+/** Who can get in. Private and open rooms say opposite things, so the open
+ * sentence must never show over a private room. */
 export const conversationPrivateRoom =
 	"This room is private. It's not listed and typing the name won't get you in. Everyone here was sent a link, and /invite makes another to pass on.";
 
@@ -40,12 +36,9 @@ export const conversationPublicRoom = "Anyone who knows the name can join. Your 
 
 export const conversationJoiningRoom = "Joining this room. Its access policy and messages will appear when you arrive.";
 
-/** A direct conversation.
- *
- * "Not through the server" would be the obvious thing to say and it is not
- * true of both settings: browser to browser skips it, and the relay setting
- * carries the bytes through it encrypted. What holds either way is that the
- * server does not read them, so that is what this says. */
+/** A direct conversation. "Not through the server" is false for the relay
+ * setting, which carries the bytes through it encrypted. Both settings keep
+ * the server from reading them, so that is what this says. */
 export const conversationLiveDirect =
 	"The server never reads these. They go straight to the other person, or encrypted through the server's relay. The conversation follows the person, not the name.";
 
@@ -63,7 +56,7 @@ export const directPeerUnavailable =
 export const directNoRegistration = "This conversation has no directory registration to reconnect to.";
 export const directDirectoryUnavailable = "The directory for this conversation is no longer held.";
 
-/** What the address above a conversation reaches, which is not always the
+/** What the address above a conversation reaches. It is not always the
  * conversation. */
 export const reachDirect = "Set up through the server above. The conversation has no address of its own.";
 
@@ -76,8 +69,7 @@ export function reachPublicRoom(room: string): string {
 	return `${room} is a name on this server, so the address above is the server's. Anyone who can reach the server can join by that name.`;
 }
 
-/** The spinner over earlier messages, which is a label rather than a
- * sentence but still something a screen reader reads out. */
+/** The spinner label over earlier messages, which a screen reader reads out. */
 export const conversationLoadingEarlier = "Loading earlier messages";
 
 /** Time suffixes beside message timestamps. */
@@ -128,10 +120,9 @@ export const factLineLimit = "Line limit";
 export function factUpToBytes(bytes: number): string {
 	return `Up to ${bytes} bytes`;
 }
-/** What a message can carry here, shown only when something ordinary is
- * missing: an ordinary room carries everything and says nothing about it.
- * Files are what this membership holds; previews and typing are what the
- * room said it keeps. */
+/** What a message can carry here. It shows only when something ordinary is
+ * missing, since an ordinary room carries everything. Files depend on this
+ * membership. Previews and typing depend on what the room said it keeps. */
 export const factCarries = "Messages here";
 export function factCarriesSaid(files: boolean, previews: boolean, typing: boolean): string {
 	const without: string[] = [];
@@ -175,8 +166,8 @@ export function titleAboutDm(nick: string): string {
 	return `About the direct message with ${nick}`;
 }
 
-/** The rail's rows: what each one says aloud, and what a filtered list
- * says about what it is holding back. */
+/** The sidebar's rows: what each one says aloud, and what a filtered list
+ * says it is holding back. */
 export const nothingMatches = "Nothing here matches the filter.";
 export function heldBack(hidden: number): string {
 	return hidden === 1 ? "1 more, hidden by the filter" : `${hidden} more, hidden by the filter`;
@@ -187,6 +178,9 @@ export function rowDirectoryPhase(phase: string): string {
 export const rowJoining = ", joining";
 export const rowNotJoined = ", not joined";
 export const rowJoiningStatus = "joining";
+export function rowStopJoining(name: string): string {
+	return `Stop joining ${name}`;
+}
 export const rowRetryStatus = "retry";
 export function rowBridged(badge: string, from: string): string {
 	return `, a bridged ${badge} channel via ${from}`;
@@ -225,9 +219,9 @@ export const cannotSendDmClosed = "This direct conversation is closed.";
 export const cannotSendRegistrationEnded =
 	"This nickname registration ended. Start a new conversation with its current holder.";
 export const cannotSendObserver = "You are here as an observer. An invitation to take part is what lets you post.";
-/** An observer seat on a bridged room: the bridge runs one way, so the seat
- * it hands out cannot post. Said in the bridge's terms rather than the
- * observer's, because no invitation would change it. */
+/** An observer seat on a bridged room. The bridge runs one way, so the seat
+ * cannot post. It speaks in the bridge's terms because no invitation would
+ * change that. */
 export function cannotSendBridgeReadOnly(badge: string): string {
 	return `This room is read-only. What's said on ${badge} shows here, and nothing typed here goes back.`;
 }
@@ -292,6 +286,15 @@ export function rosterMessageDirectly(name: string): string {
 }
 export const rosterJoinARoom = "Join a room to see who is here.";
 export const rosterWaiting = "Waiting for the room roster.";
+// "Here" is the word this app uses for presence, on the topbar and under a
+// name in the sidebar. "Seen" would read as a read receipt. When everybody
+// known is here there is no second number to give.
+export function rosterHere(online: number): string {
+	return `${online} here`;
+}
+export function rosterHereOf(online: number, known: number): string {
+	return `${online} of ${known} here`;
+}
 
 /** Where you are, on the foot and on a member's row. */
 export function standingLabel(about: string, said: string): string {
@@ -351,7 +354,7 @@ export function memberOf(room: string): string {
 export const memberYourNames = "Your names";
 export const memberNoNameYet = "No directory has granted you one yet";
 export const memberGrantedBy = "Granted by";
-export const memberNoDirectoryNamed = "No directory has named this reading";
+export const memberNoDirectoryNamed = "No directory has granted this name";
 export const memberDirectMessages = "Direct messages";
 export const memberYouAre = "You are";
 export const memberPresence = "Presence";

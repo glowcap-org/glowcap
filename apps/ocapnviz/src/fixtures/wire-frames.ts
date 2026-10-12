@@ -152,7 +152,7 @@ export const allWireFrames: readonly WireFrame[] = Object.values(wireFrames);
  * The fields a `message-sent` event needs to carry `frame`: the
  * bytes, the codec that produced them, and a provenance record
  * naming the file they were read from. `agent` is the fixture's own
- * attribution, which the event carries either way; a payload only
+ * attribution, which the event carries either way. A payload only
  * adds where its bytes came from.
  */
 export function payloadOf(frame: WireFrame, agent: string) {

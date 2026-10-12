@@ -1,7 +1,7 @@
 // The IRC gateway scene of the Operations proof, end to end at the UI.
 //
 // Its toggle takes the capability, the pane retains a zero-channel connection,
-// then leases a channel from it (a dead endpoint is fine — joining registers
+// then leases a channel from it (a dead endpoint is fine, joining registers
 // the room and the connection retries behind it). The bridged room stands in the rail's namespace with an IRC
 // badge, the room card carries the bridge's facts and the reader's own IRC
 // identity form, the held gateway exposes the room-level unbridge, and
@@ -258,7 +258,7 @@ export async function runIrcScene(tab: Page, ircSwiss: string): Promise<void> {
 	await tab.fill("#gatewayConnection-nick", "proofbot");
 	await tab.fill("#gatewayConnection-realname", "Rooms proof bridge bot; admin: fixture-admin");
 	// This time leave TLS on. A checked TLS box has to reach the gateway, or a
-	// registered account is refused and its per-member login never appears — the
+	// registered account is refused and its per-member login never appears, the
 	// exact break a reader hit with the box selected.
 	await tab.click("#gatewayConnectionAct-open");
 	await connection.waitFor({ timeout: 10_000 });

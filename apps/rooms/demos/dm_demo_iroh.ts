@@ -1,6 +1,6 @@
 // Rooms direct-message-by-introduction over iroh (three-party handoff), the
-// `Direct` posture. This orchestrator starts the native Rust rooms-server;
-// the gift names Bob's node id and its direct addresses. Sibling of
+// `Direct` posture. This orchestrator starts the native Rust rooms-server.
+// The gift names Bob's node id and its direct addresses. Sibling of
 // `dm_demo.ts` over encrypted QUIC. Run by `zig build demo-rooms-dm-iroh`.
 
 import { startServer } from "../test/support/native_server.ts";

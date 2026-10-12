@@ -8,6 +8,10 @@ fn direct_openings_cannot_inherit_or_consume_sibling_offers() {
 	registered(&mut dir, 2, "Bob", "b-inbox");
 	dir.offer_inbox(1, "Bob", id(2).as_str(), "first", "first-inbox")
 		.unwrap();
+	assert!(dir.introduction_ready(2, "Alice", id(1).as_str(), "first"));
+	assert!(!dir.introduction_ready(2, "Alice", id(1).as_str(), "second"));
+	assert!(!dir.introduction_ready(2, "Alice", id(9).as_str(), "first"));
+	assert!(!dir.introduction_ready(1, "Alice", id(1).as_str(), "first"));
 	assert!(
 		matches!(dir.introduce(2, "Alice", id(1).as_str(), "second").unwrap(), Introduction::Pending(Tell { notice: Notice::MintInboxFor { opening, .. }, .. }) if opening == "second")
 	);
@@ -17,6 +21,7 @@ fn direct_openings_cannot_inherit_or_consume_sibling_offers() {
 		dir.introduce(2, "Alice", id(1).as_str(), "first"),
 		Ok(Introduction::Inbox("first-inbox"))
 	);
+	assert!(!dir.introduction_ready(2, "Alice", id(1).as_str(), "first"));
 	assert_eq!(
 		dir.introduce(2, "Alice", id(1).as_str(), "second"),
 		Ok(Introduction::Inbox("second-inbox"))

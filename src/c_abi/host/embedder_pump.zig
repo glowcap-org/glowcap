@@ -2,8 +2,8 @@
 //!
 //! Authority for the one-loop drain over `glowcap_host_next_action`: Zig tests
 //! and `glowcap_host_pump_drain` call this instead of hand-rolling the switch.
-//! The pull-queue remains the normative C contract — these helpers *use*
-//! `glowcap_host_next_action`; they do not replace it with a callback-vtable
+//! The pull-queue remains the normative C contract. These helpers *use*
+//! `glowcap_host_next_action`. They do not replace it with a callback-vtable
 //! primary seam. The kind inventory is locked to `driver_core.HostAction` at
 //! comptime so a new Zig arm fails here until the C drain is updated.
 //!
@@ -29,15 +29,15 @@ comptime {
 /// Each `exec` arm returns `bool`: `true` when the arm counts as progress for a
 /// quiescence pump (gift-id answered, dial parked, settle routed). A FLUSH /
 /// CLOSE that only notices "write when ready" may return `false` when a sibling
-/// shuttle already polls outbound — matching the one-loop rule without
+/// shuttle already polls outbound, matching the one-loop rule without
 /// spinning on empty flush notices.
 ///
 /// `exec` must provide:
 /// - `flush(host, action) !bool`
 /// - `close(host, action) !bool`
 /// - `needGiftId(host, action) !bool`
-/// - `complete(host, action) !bool` — owns SETTLE / FAIL
-/// - `dial(host, action) !bool` — DIAL and CANCEL_DIAL effects
+/// - `complete(host, action) !bool`: owns SETTLE / FAIL
+/// - `dial(host, action) !bool`: DIAL and CANCEL_DIAL effects
 ///
 pub const DrainResult = struct {
     acted: bool = false,
@@ -46,7 +46,7 @@ pub const DrainResult = struct {
 
 /// Returns whether any arm reported progress and whether the finite Host
 /// scheduler requested a new embedder turn. A yield is consumed but ends this
-/// call; asking the core for another slice here would defeat the scheduler
+/// call. Asking the core for another slice here would defeat the scheduler
 /// boundary the action represents.
 pub fn drainHost(comptime Driver: type, comptime Codes: type, host: ?*Driver.GlowcapHost, exec: anytype) !DrainResult {
     var acted = false;

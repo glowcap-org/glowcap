@@ -1,6 +1,6 @@
 /**
  * Custom hooks for App-level concerns. Each owns a slice of UI
- * state that isn't part of the reducer — typically because the
+ * state that isn't part of the reducer, typically because the
  * state is too high-frequency (theme toggle, layout drag) or
  * crosses concerns the reducer shouldn't (keyboard listeners,
  * `<html data-theme>` mirror).
@@ -40,7 +40,7 @@ import {
 import { forgetStoredValue, loadStoredValue, persistStoredValue } from "./storage.ts";
 
 /** Pane sizes, persisted to localStorage. `set` accepts a partial
- * or an updater function; values are clamped to their min/max. */
+ * or an updater function. Values are clamped to their min/max. */
 export function useLayoutSizes(): [
 	LayoutSizes,
 	(updater: Partial<LayoutSizes> | ((s: LayoutSizes) => LayoutSizes)) => void,
@@ -90,7 +90,7 @@ export function useLayoutSizes(): [
 }
 
 /** Per-layer Stage visibility, persisted. `toggle` flips one
- * layer; `reset` restores all-on. */
+ * layer, `reset` restores all-on. */
 export function useStageVisibility(): [
 	StageVisibility,
 	(layer: keyof StageVisibility) => void,
@@ -176,7 +176,7 @@ export function useKeyboardInput(
 	// lifetime instead of re-running every render. The bindings and
 	// context are fresh literals at the call site each render, so
 	// depending on them would tear down and re-add the global
-	// listeners on every state change — measurable during play, where
+	// listeners on every state change, measurable during play, where
 	// the engine notifies subscribers each tick and that propagates a
 	// re-render up here.
 	const ctxRef = useRef(ctx);
@@ -291,20 +291,20 @@ export function useAppStatePersistence(state: AppState): void {
 }
 
 /**
- * Buffer engine — the in-memory document that backs both Play
- * (replay) and Build (edit). Single source-of-truth; the active
+ * Buffer engine, the in-memory document that backs both Play
+ * (replay) and Build (edit). Single source-of-truth. The active
  * mode just changes which verbs the UI exposes against it.
  *
  * App resolves which document is the source (edited fork → opened
- * file → live recording → fixture) and passes it as `sourceDoc`;
- * the Source panel displays the same resolution, so the picker
+ * file → live recording → fixture) and passes it as `sourceDoc`.
+ * The Source panel displays the same resolution, so the picker
  * can never disagree with what the engine plays.
  *
  * The source is forked into a working copy, so editing never
- * touches it; the fork keeps its own layout mode, and an authored
+ * touches it. The fork keeps its own layout mode, and an authored
  * peer position acts as a pin within it.
  *
- * Returns `null` until the first source is resolvable — typical
+ * Returns `null` until the first source is resolvable, typical
  * cold start has a fixture, so this is rarely null in practice.
  */
 export function useBufferEngine(input: {
@@ -347,11 +347,11 @@ export type BufferSourceTracker = {
 	 * Whether `nextSource` means a new buffer, recording it as seen
 	 * either way.
 	 *
-	 * Only a genuinely different document does. Two things that look
+	 * Only a different document does. Two things that look
 	 * like one are not:
 	 *
 	 * Switching Play and Build is not a new document. It changes which
-	 * verbs the UI offers, and the buffer under them is the same one —
+	 * verbs the UI offers, and the buffer under them is the same one,
 	 * rebuilding for it threw away the edit history, so a round trip
 	 * through Play silently emptied Undo. Every author action is one
 	 * undo step, and looking at your own work is not an action.
@@ -384,7 +384,7 @@ export function bufferSourceTracker(): BufferSourceTracker {
  * socket: entering Live mode dials, and `connected` says only that a
  * feed is there to record if the reader wants one. Recording is the
  * reader's own act, and it is what mounts an `Engine` folding arriving
- * events into a document — the capture. Connected is not recording,
+ * events into a document. The capture. Connected is not recording,
  * and a reader can watch the dot go green, drive the sim, and never
  * record at all.
  *
@@ -399,7 +399,7 @@ export function bufferSourceTracker(): BufferSourceTracker {
  * mention them.
  *
  * Passing `sturdyref = ""` dials nothing (the hook stays unconditionally
- * called for React rules-of-hooks; the body early-returns).
+ * called for React rules-of-hooks. The body early-returns).
  */
 export function useLiveConnection(input: {
 	sturdyref: string;
@@ -460,8 +460,8 @@ export function useLiveConnection(input: {
 			setObserved(false);
 		};
 		// Deps: the sturdyref, because a different capability is a different feed, and
-		// `recording`, because starting and stopping a capture each re-dial
-		// — see the replay contract above. Nothing else may re-dial: every
+		// `recording`, because starting and stopping a capture each re-dial,
+		// see the replay contract above. Nothing else may re-dial: every
 		// one of them throws a running capture away.
 	}, [sturdyref, recording]);
 

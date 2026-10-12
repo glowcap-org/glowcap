@@ -5,7 +5,7 @@
 //! carried, its session public key, its location designator, and the verbatim
 //! `<ocapn-peer ...>` location bytes a gifter later embeds in a
 //! `desc:handoff-give` (ADR-0009). Those are authoritative session state, so the
-//! fields live on `Session`; this file owns the operations over them and
+//! fields live on `Session`. This file owns the operations over them and
 //! `Session` aliases each function as a method. Flipping `negotiating` to `open`
 //! also installs the fixed bootstrap export, the one fallible step, so a failed
 //! registration leaves the session untouched.
@@ -26,7 +26,7 @@ pub fn handshakeComplete(self: *const Session) bool {
 /// Whether an inbound `op:start-session` would be the partner's handshake
 /// half, rather than a duplicate or a hello arriving on an already-open or
 /// closed session. `validateStartSession` refuses those two cases with their
-/// own typed errors and is the authority that stops them; this reads the same
+/// own typed errors and is the authority that stops them. This reads the same
 /// two fields as a plain question, for the engine's pre-open checks. They ask
 /// it because signature verification and the durable-claim demand are
 /// expensive and stateful, and neither belongs to a frame the session will
@@ -62,10 +62,10 @@ pub fn partnerSessionKey(self: *const Session) ?[]const u8 {
 
 /// Whether this partner is known to be glowcap by any signal: the dial- or
 /// mirror-minted knowledge (`Session.partner_known_glowcap`, ADR-0118), or a
-/// hello that stated a non-baseline preference on any transport — only
+/// hello that stated a non-baseline preference on any transport, only
 /// glowcap stamps the `glowcap/*` hints. The give path reads this for the
 /// recipient: a known-glowcap recipient keeps the exporter's profile-hinted
-/// location and can upgrade its redeem session; anyone else gets the
+/// location and can upgrade its redeem session. Anyone else gets the
 /// dialable bare form.
 pub fn partnerKnownGlowcap(self: *const Session) bool {
     return self.partner_known_glowcap or
@@ -73,9 +73,9 @@ pub fn partnerKnownGlowcap(self: *const Session) bool {
 }
 
 /// Whether this side's configured preference asks for a non-baseline CapTP
-/// version or codec — ADR-0118's one opt-in, read where behavior would
+/// version or codec, ADR-0118's one opt-in, read where behavior would
 /// otherwise change for a peer that never asked for an upgrade (the onion
-/// accept's deferred hello). Features are deliberately not part of the
+/// accept's deferred hello). Features are not part of the
 /// test: every peer offers the full ignorable feature set by default, so
 /// features alone opt nothing in.
 pub fn statesUpgradedProfile(self: *const Session) bool {
@@ -103,7 +103,7 @@ pub fn partnerDesignator(self: *const Session) ?[]const u8 {
 
 /// The partner's verbatim `<ocapn-peer ...>` location-record bytes from its
 /// `op:start-session`, or null when the handshake half has not arrived with raw
-/// bytes (the decode path captures them; an owned-message apply path does not).
+/// bytes (the decode path captures them, an owned-message apply path does not).
 /// A gifter embeds these as a `desc:handoff-give`'s exporter-location so a peer
 /// comparing locations matches byte-for-byte (ADR-0009).
 pub fn partnerLocatorRaw(self: *const Session) ?[]const u8 {

@@ -1,8 +1,8 @@
 # Collecting unreachable records
 
 Collection deletes the records no root reaches through strong edges, including
-cycles that only hold each other up. It runs as ordinary write batches that
-you schedule, so it never pauses the program and its work list never has to
+cycles that only hold each other up. It runs as ordinary write batches that you
+schedule, so it does not pause the program and its work list does not have to
 fit in memory. This guide is part of the [Loam guide](../loam.md).
 
 ## Running a cycle
@@ -12,7 +12,7 @@ commit it like any other write: `beginWrite`, the backend's commit, and
 `completeWrite`. Read `store.metadata.collection.phase` and keep going in
 later batches until it is `idle`. An unknown outcome uses the same
 [recovery steps](store.md#when-a-writes-outcome-is-unknown) as a content
-write. You choose when batches run; Loam decides what to trace and delete.
+write.
 
 ```mermaid
 flowchart LR
@@ -28,9 +28,9 @@ flowchart LR
 
 The collector keeps everything reachable along strong edges from:
 
-- durable roots;
-- live local custody (below);
-- pending reads;
+- durable roots
+- live local custody (below)
+- pending reads
 - pinned record versions. A pinned historical version also keeps the strong
   edges it had.
 
@@ -46,8 +46,8 @@ after collection even when it is asleep and not a root.
 
 ## Changes during a cycle
 
-A cycle spans many batches, and the program keeps running between them. Loam
-keeps that safe as follows:
+A cycle spans many batches, and the program keeps running between them. These rules
+keep that safe:
 
 - The first preparation captures live custody once for the whole cycle.
 - Between batches, the Store reserves journal space before it publishes a new
@@ -63,8 +63,7 @@ keeps that safe as follows:
 - The sweep finishes outstanding tracing work before deleting another
   candidate.
 
-A reopen discards an incomplete cycle and starts again from fresh roots. It
-never resumes an old sweep blindly.
+A reopen discards an incomplete cycle and starts again from fresh roots.
 
 ## Bounds
 
@@ -74,13 +73,13 @@ lacks room, the first preparation or the new custody is refused before it
 takes effect.
 
 Each tracing batch borrows all pending marking obligations. Only a confirmed
-collection receipt acknowledges them; an abort or uncertain outcome keeps
+collection receipt acknowledges them. An abort or uncertain outcome keeps
 them. Unchanged custody is copied, fingerprinted and seeded once per cycle,
 not once per batch. Root shading has its own bound, so the record and phase
 work limit does not bound every batch's work, and each traced record can add
 up to the configured edge limit. New custody during the final phase needs no
 marking because deletion is over. A cycle after a completed one starts
-directly with roots; after an interrupted one, it clears old tracing rows in
+directly with roots. After an interrupted one, it clears old tracing rows in
 separate batches first.
 [ADR-0189](../decisions/adr/ADR-0189-loam-collection-custody-admission.md)
 owns this admission contract, and the
@@ -101,8 +100,8 @@ list the deleted identities. Old leases stay historical either way.
 
 Reclamation updates the object count and encoded record bytes atomically.
 Those totals exclude backend indexes, tracing metadata and mapped-page
-overhead. Reclaiming records does not shrink the database file;
-[offline compaction](lmdb.md#shrinking-the-file) does. Budget collection
+overhead. Reclaiming records does not shrink the database file.
+[Offline compaction](lmdb.md#shrinking-the-file) does. Budget collection
 before storage runs out.
 
 ## Evidence

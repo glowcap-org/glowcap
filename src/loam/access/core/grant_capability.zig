@@ -1,5 +1,5 @@
 //! Owner-minted references carry access to one grant. The trusted ledger creates
-//! them; holders call them without another credential or a grant selector.
+//! them. Holders call them without another credential or a grant selector.
 //! Host actors retain these references through the durable attachment.
 
 const std = @import("std");
@@ -42,7 +42,7 @@ const ControlState = struct {
 };
 
 /// Possession conveys use and the grant's permitted delegation. Retain when
-/// sharing an owned reference; each owned reference must be released once.
+/// sharing an owned reference. Each owned reference must be released once.
 /// The ledger stays at a stable address until all references are released.
 /// Calls are serialized with that ledger by the embedding application.
 pub const GrantUse = opaque {
@@ -57,7 +57,7 @@ pub const GrantUse = opaque {
     }
 
     /// The application supplies operation requirements and committed facts.
-    /// Success covers this synchronous check; it is not a reusable admission
+    /// Success covers this synchronous check. It is not a reusable admission
     /// for a later content effect. Every invocation must check current state.
     pub fn require(self: *const GrantUse, target: identity.ResourceId, requirement: Policy.Requirement) Ledger.Error!void {
         const binding = &self.state().binding;

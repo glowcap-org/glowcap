@@ -1,4 +1,4 @@
-// The person chip. Initials on a stable tint today; a custom picture will fill
+// The person chip. Initials on a stable tint today. A custom picture will fill
 // the same box, so every place that names a person already has one owner for it.
 
 import { hueOf, initials } from "./member_identity.ts";
@@ -22,11 +22,11 @@ export function Avatar(
 
 /** The person chip wearing their presence: the pip sits over the chip's
  * corner, so one element answers who this is and whether they are here. The
- * pip keeps the roster's vocabulary — filled when online, hollow when
+ * pip keeps the roster's vocabulary, filled when online, hollow when
  * offline, and away by weight rather than by shape, because away is a way of
  * being here. Contexts set `--presence-ring` to the flat tone of the surface
- * behind the chip — a colour, never a gradient, because the ring is a
- * box-shadow — so the pip reads as punched out of it. */
+ * behind the chip (a colour, never a gradient, because the ring is a
+ * box-shadow) so the pip reads as punched out of it. */
 export function PresenceAvatar(
 	{ name, state, reason, className }: {
 		name: string;

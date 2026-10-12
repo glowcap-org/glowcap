@@ -329,8 +329,8 @@ Deno.test("a conversation keeps its scrollback bounded, and says what left", () 
 });
 
 Deno.test("an ignored line does not count at the reader, and their own always does", () => {
-	// One rule, three consumers — the log's draw filter, the unread count, and
-	// the notification gates — and the half that once failed silently: a reader
+	// One rule, three consumers, the log's draw filter, the unread count, and
+	// the notification gates, and the half that once failed silently: a reader
 	// whose own current name sits on their ignore list. Ignoring is about not
 	// hearing somebody else, so their own lines stay heard however the list
 	// reads; a stranger's under an ignored name is silent everywhere at once,
@@ -392,7 +392,7 @@ Deno.test("forgetting a conversation hands its lines back, while it can still be
 	// It fires before the row goes, and that ordering is load-bearing. The side
 	// that listens finds the session by asking the store which directory the
 	// conversation was on, so a conversation deleted first is one whose lines
-	// can no longer be given back.
+	// cannot be given back.
 	const room = store.ensureRoom(projection, dirId("test-dir"), "forget-release");
 	let released: readonly unknown[] = [];
 	let foundWhileReleasing = false;

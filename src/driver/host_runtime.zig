@@ -2,8 +2,8 @@
 //! the sans-io `driver_core.Host`, the native sibling of the byte-fed pump
 //! every binding runs on its own event loop.
 //!
-//! `driver.HostRuntime` owns the composition — the core Host, one transport
-//! wire per live session, and the pump — and `session.zig`'s owning
+//! `driver.HostRuntime` owns the composition: the core Host, one transport
+//! wire per live session, and the pump. `session.zig`'s owning
 //! `Session`/`Server` are views over it. Every blocking wait runs one loop:
 //! drain the core's action queue (write flushes, answer redeem dials, draw
 //! gift-id entropy), wait for any live wire to become readable under the
@@ -62,26 +62,26 @@ const Contract = runtime_contract.Vocabulary(
 
 /// The owning face over one `driver_core.Host`: the core, the netlayer slice
 /// it dials through, and one wire per live session. One thread drives one
-/// `HostRuntime` and its core `Host`; every blocking verb on a view pumps through
+/// `HostRuntime` and its core `Host`. Every blocking verb on a view pumps through
 /// here.
 pub const HostRuntime = struct {
     allocator: std.mem.Allocator,
     io: std.Io,
     /// The sans-io host, behind one stable pointer. `init` allocates it and
-    /// `deinit` frees it, so this face stays the owner; the pointer shape is
+    /// `deinit` frees it, so this face stays the owner. The pointer shape is
     /// what lets an embedding owner hold the core elsewhere (ADR-0112).
     core: *driver_core.Host,
     /// One provider registry for dial and listen dispatch. Entries carry the
     /// Host-owned canonical symbol and a multiplexed-resident index. Concrete provider contexts remain borrowed
-    /// and must outlive the HostRuntime; selection itself has no second authority.
+    /// and must outlive the HostRuntime. Selection itself has no second authority.
     providers: std.ArrayListUnmanaged(Provider) = .empty,
     /// Installed provider packages and their configuration/lifetime owner.
-    /// Package overlap and idempotency are Runtime composition policy; an ABI
+    /// Package overlap and idempotency are Runtime composition policy. An ABI
     /// adapter supplies only the opaque comparison and release effects.
     provider_packages: std.ArrayListUnmanaged(InstalledProviderPackage) = .empty,
     /// Canonical transport profiles with a listener pending or active. Keys
     /// borrow the provider registry, which outlives this map. The Runtime owns
-    /// occupancy; adapter listener ids are only handles onto that authority.
+    /// occupancy. Adapter listener ids are only handles onto that authority.
     listener_profiles: std.StringHashMapUnmanaged(void) = .{},
     /// Activated listeners owned by this Runtime, keyed by the observer tag
     /// their accepted sessions report. Keeping the transport handles here
@@ -106,10 +106,10 @@ pub const HostRuntime = struct {
     /// Listener admission is sealed while claimed sessions retain this
     /// Runtime. Distinct from Host finish: sessions remain fully active.
     retiring: bool = false,
-    /// Callback-time retirement seals admission immediately; listener I/O and
+    /// Callback-time retirement seals admission immediately. Listener I/O and
     /// pending setup cancellation wait for the enclosing step to unwind.
     retirement_effects_pending: bool = false,
-    /// A callback-time close has already sealed core admission; listener and
+    /// A callback-time close has already sealed core admission. Listener and
     /// transport effects run when the enclosing driver step regains control.
     close_effects_pending: bool = false,
     /// Session wrappers dropped from inside a behavior callback transfer their
@@ -120,8 +120,8 @@ pub const HostRuntime = struct {
     draining_session_releases: bool = false,
     /// Runtime observers run inside the pump, after core callbacks have
     /// unwound but before the pump may stop borrowing its current rows. An
-    /// owning Session may transfer cleanup through `deferSessionRelease`;
-    /// every direct Runtime reentry remains refused until the observer returns.
+    /// owning Session may transfer cleanup through `deferSessionRelease`.
+    /// Every direct Runtime reentry remains refused until the observer returns.
     observer_callback_depth: usize = 0,
     /// A failure crossed a Runtime callback or post-commit boundary that could
     /// not return it directly. Detection may happen in an ABI adapter or in
@@ -133,7 +133,7 @@ pub const HostRuntime = struct {
     /// its `ctx` and vtable must outlive registration.
     residents: std.ArrayListUnmanaged(RegisteredResident) = .empty,
     /// Active profile listeners routed by the multiplexed runtime's accept-event
-    /// subject. The runtime owns readiness; each row owns one profile's
+    /// subject. The runtime owns readiness. Each row owns one profile's
     /// listener handle and observation independently.
     resident_listeners: std.AutoHashMapUnmanaged(ResidentListenerKey, ResidentListener) = .empty,
     /// Live resident connections routed by drained ready records.
@@ -148,7 +148,7 @@ pub const HostRuntime = struct {
     /// Resident dials awaiting `ev_connect`, keyed by runtime and its
     /// host-minted request id.
     pending_resident_dials: std.AutoHashMapUnmanaged(ResidentRequestKey, *ResidentDialWait) = .{},
-    /// Scratch a resident's ready records drain into; batch-sized, so a drain
+    /// Scratch a resident's ready records drain into. Batch-sized, so a drain
     /// pass allocates nothing.
     event_scratch: [resident_event_batch]net.multiplexed_resident.ReadyEvent = undefined,
     /// Scratch for the readiness wait: one poll row per resident readiness
@@ -161,17 +161,17 @@ pub const HostRuntime = struct {
     /// whether or not a ready set mirrors them.
     listener_fds: std.ArrayListUnmanaged(i32) = .empty,
     /// The off-turn settle mailbox (ADR-0102 stage 4), minted on first
-    /// request; its wake fd rides every readiness wait beside the wires.
+    /// request. Its wake fd rides every readiness wait beside the wires.
     mailbox: ?*settle_mailbox.SettleMailbox = null,
     /// Which resident the next readiness wait polls first. A poll reports the
     /// first ready row, so a fixed order lets one always-ready resident
-    /// starve its siblings; starting one position later per wait bounds a
+    /// starve its siblings. Starting one position later per wait bounds a
     /// resident's turn by the resident count instead of by its traffic.
     wait_cursor: usize = 0,
     /// The nearest carrier-close deadline any wire holds, and how many hold
     /// one. Both sibling tiers cache this rather than walk every slot before
     /// each wait (`completion/loop/connections/deadlines.zig`,
-    /// `driver/core/host/close.zig`); an open wire holds no deadline, so the
+    /// `driver/core/host/close.zig`). An open wire holds no deadline, so the
     /// common wait pays one comparison. A cleared deadline may leave the
     /// cache early, and the one walk that finds nothing due re-derives it.
     nearest_carrier_close_ms: ?i64 = null,
@@ -180,8 +180,8 @@ pub const HostRuntime = struct {
     /// `Options.drive` and never changed. The blocking native face waits
     /// through `net.waitAnyReadable` and observes vows in-process through
     /// captures. The stepped face (ADR-0112) carries the aggregate readiness
-    /// set an embedder parks on and the two recipients it publishes through;
-    /// every site that services one face names the other's arm as empty, so
+    /// set an embedder parks on and the two recipients it publishes through.
+    /// Every site that services one face names the other's arm as empty, so
     /// the code says which half is unreachable natively.
     drive: Drive,
     /// Session opens advancing across pump iterations instead of blocking one
@@ -201,13 +201,13 @@ pub const HostRuntime = struct {
     /// embedding owner's core (`initWithCore`), whose owner frees it.
     owns_core: bool = true,
     /// Nesting of native-face calls on the current driver thread. The outer
-    /// call owns the unsynchronized core for its whole operation; returning
+    /// call owns the unsynchronized core for its whole operation. Returning
     /// from it is the explicit quiescent boundary where another joined thread
     /// may take over. Compiled out with the debug thread-affinity checks.
     driver_depth: usize = 0,
 
     /// The public options and result vocabulary live in one I/O-free contract
-    /// leaf; aliases keep HostRuntime as the supported namespace.
+    /// leaf. Aliases keep HostRuntime as the supported namespace.
     pub const Options = Contract.Options;
     pub const FailureObserver = Contract.FailureObserver;
     pub const AdoptionOptions = Contract.AdoptionOptions;
@@ -219,7 +219,7 @@ pub const HostRuntime = struct {
     pub const Wire = wire_state.Wire;
     pub const unattended_parked_cap_bytes = wire_state.unattended_parked_cap_bytes;
 
-    /// The construction-time choice behind `drive`; see `Options.drive`.
+    /// The construction-time choice behind `drive`. See `Options.drive`.
     pub const DriveOptions = lifecycle.DriveOptions;
     pub const SteppedOptions = lifecycle.SteppedOptions;
 
@@ -430,6 +430,7 @@ pub const HostRuntime = struct {
     const releaseWireOwned = runtime_sessions.releaseWireOwned;
     pub const claimSessionHandle = runtime_sessions.claimSessionHandle;
     pub const claimReferenceExporter = runtime_sessions.claimReferenceExporter;
+    pub const claimExporterSession = runtime_sessions.claimExporterSession;
     pub const sessionEventIsLive = runtime_sessions.sessionEventIsLive;
 
     const writeOutbound = runtime_actions.writeOutbound;
@@ -460,7 +461,7 @@ pub const HostRuntime = struct {
 
 /// Package-private friend index for `host_runtime/*` owner modules.
 ///
-/// The supported surface is `HostRuntime`; this namespace lets sibling files
+/// The supported surface is `HostRuntime`. This namespace lets sibling files
 /// compose private lifecycle phases without making those phases methods that
 /// callers can select independently. Entries are direct aliases, never a
 /// second implementation or a forwarding call layer.

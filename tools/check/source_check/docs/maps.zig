@@ -8,7 +8,7 @@ const util = @import("../util.zig");
 
 const appendViolation = util.appendViolation;
 
-/// Source families the modules map leaves out on purpose. The oracle is the
+/// Source families the modules map leaves out. The oracle is the
 /// test reference corpus, not a module an application imports.
 const unmapped_families = [_][]const u8{"oracle"};
 

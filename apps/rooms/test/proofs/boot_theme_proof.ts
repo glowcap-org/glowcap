@@ -8,7 +8,7 @@ import { spawnWeb } from "../support/web_front.ts";
 // means every cold load in a dark workspace flashes the light palette.
 //
 // That is the whole failure mode, and it is silent. Nothing throws, nothing
-// logs, the page simply arrives the wrong colour for a moment. It stood that
+// logs, the page arrives the wrong colour for a moment. It stood that
 // way here behind a schema-version range that could never match, so this proof
 // exists to watch the guess actually happen rather than to watch the code that
 // intends it.

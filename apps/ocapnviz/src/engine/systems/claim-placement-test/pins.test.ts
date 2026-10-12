@@ -54,8 +54,8 @@ layoutTest("the claim sits on the arc its own edge is drawn along", () => {
 	// The regression pair put the claim on a visibly separate arc: the claim
 	// bulged because the edge was built between the far end and the CLAIM's
 	// position, which is a different chord and so a different arc. Both are
-	// built from one curve now — the one a full session to the claimed peer
-	// would take — so the drawn line ends exactly where the claim stands.
+	// built from one curve now, the one a full session to the claimed peer
+	// would take, so the drawn line ends exactly where the claim stands.
 	const doc = docOf([
 		joined("carol"),
 		joined("alice", ALICE_DESIGNATOR),
@@ -117,7 +117,7 @@ layoutTest(
 	() => {
 		// One fact, two authorities, and they disagreed the moment a session
 		// closed. The world draws a session for as long as its effective range
-		// holds — a closed one is drawn faded, not removed — while the layout used
+		// holds, a closed one is drawn faded, not removed, while the layout used
 		// to drop it from the era the moment a `session-closed` observation went
 		// by. The pair's bundle then had two lanes on screen and one in the solve,
 		// so the claim was placed on the straight lane of a one-lane bundle and the
@@ -190,7 +190,7 @@ layoutTest(
 
 layoutTest("a pinned claim keeps its edge, and the lane lets go", () => {
 	// Dragging a claim pins it, and the layout hands a pinned claim its pin
-	// rather than the lean — so the lane it was riding no longer passes
+	// rather than the lean. So the lane it was riding no longer passes
 	// through it. The edge stops being that lane's prefix and becomes an
 	// ordinary edge to where the author put it, because the one thing that
 	// must stay true is that the line reaches the node.

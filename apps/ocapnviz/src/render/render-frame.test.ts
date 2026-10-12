@@ -5,7 +5,7 @@
  * The world is reconciled or rebuilt every tick, but a Pixi display object
  * is created once and destroyed once, so a sprite whose creation and whose
  * destruction answer to two different questions is a picture that keeps
- * something the world no longer holds — the same shape as a reconciler
+ * something the world no longer holds. The same shape as a reconciler
  * adding on one test and removing on another, wearing a GPU resource.
  *
  * Validated by breaking the code it covers: marking a session live before
@@ -100,7 +100,7 @@ function scene() {
 /**
  * A session whose `b` end changes hands, to a peer that then departs.
  *
- * The end was occupied throughout, so the session runs on; but from t=300 it
+ * The end was occupied throughout, so the session runs on. But from t=300 it
  * names `bob`, and `bob` is gone. There is no line to draw between a node and
  * nobody, and the frame has to stop drawing one.
  */
@@ -155,7 +155,7 @@ Deno.test("an edge with nowhere to be drawn leaves no sprite behind", () => {
 		"the session was drawn while both its ends were on stage",
 	);
 
-	// Same session, still alive, but its `b` end now names a peer that left.
+	// Same session, still alive, but its `b` end names a peer that left.
 	engine.seekTo(500);
 	assertEquals(
 		[...engine.queries.sessions].map((e) => e.session.id),
@@ -199,7 +199,7 @@ Deno.test("sprites follow the world through a session opening and closing", () =
 	stage.dispose();
 });
 
-/** A peer, a loose end, the wire between them, and a message in flight — one of
+/** A peer, a loose end, the wire between them, and a message in flight, one of
  *  every stage entity that wears a selection mark. */
 function oneOfEach(): TimelineDocument {
 	return {
@@ -240,9 +240,9 @@ function oneOfEach(): TimelineDocument {
 
 Deno.test("a zoom repaints every selection mark", () => {
 	// The compensation is inert without this. A stage's world geometry does not
-	// change when the camera zooms — a peer sits where it sits, a curve keeps its
-	// control points — so every other input to a sprite's repaint gate is
-	// unchanged, and a mark whose geometry now depends on the zoom would keep the
+	// change when the camera zooms (a peer sits where it sits, a curve keeps its
+	// control points), so every other input to a sprite's repaint gate is
+	// unchanged, and a mark whose geometry depends on the zoom would keep the
 	// world units it was given at the old one. The mark would go on scaling with
 	// the camera, which is the whole defect, with the arithmetic to fix it already
 	// in place and never re-run.
@@ -279,7 +279,7 @@ Deno.test("a zoom repaints every selection mark", () => {
 			// Grew, and that is the whole assertion: a mark that was not repainted is
 			// EXACTLY the size it was, so any change separates the two cases. Not a
 			// ratio, because these bounds also contain the body the mark rings, and
-			// the body is a world thing that does not scale — a peer's ring grows by
+			// the body is a world thing that does not scale. A peer's ring grows by
 			// less than half again while a message's grows nearly fivefold, and
 			// pinning either number here would be pinning the body's size.
 			assert(
@@ -296,9 +296,9 @@ Deno.test("a zoom repaints every selection mark", () => {
 });
 
 Deno.test("a mark that goes away is cleared, and an absent one is not repainted", () => {
-	// The repaint gate reads the camera, so an unmarked stage used to clear an
-	// empty Graphics per sprite on every frame of every zoom to draw nothing into
-	// it. The gate now asks whether there is a mark — but it has to ask about the
+	// The repaint gate reads the camera, so clearing an empty
+	// Graphics per sprite on every frame of every zoom would draw nothing into
+	// it. The gate asks whether there is a mark, and it has to ask about the
 	// PREVIOUS frame too, or the frame that takes a mark away is skipped and the
 	// ring stays on screen after the selection is gone. That second half is what
 	// this covers, because it is the one a cheaper guard gets wrong.

@@ -32,7 +32,7 @@ pub fn loadRoomsCss(
 /// The source with its comments removed.
 ///
 /// A ban that fires on prose is a ban people learn to write around, and these
-/// modules explain themselves at length — the store's own header names
+/// modules explain themselves at length, the store's own header names
 /// `document.hidden` to say which module reads it. Strings are stepped over so a
 /// quoted `//` does not start a comment. It errs toward keeping too little
 /// rather than too much: an over-strip makes a ban miss, which is a check that

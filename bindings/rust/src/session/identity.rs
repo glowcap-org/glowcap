@@ -51,8 +51,8 @@ pub enum DurableProvenance {
 impl DurableProvenance {
 	/// One ABI provenance value in its spoken form.
 	///
-	/// Two surfaces report the same provenance fact about the same partner —
-	/// this identity query and the live trace's session-open — so the mapping
+	/// Two surfaces report the same provenance fact about the same partner,
+	/// this identity query and the live trace's session-open, so the mapping
 	/// lives here once rather than being spelled at each of them.
 	pub(crate) fn from_abi(raw: u32) -> Result<Self> {
 		match raw {
@@ -69,7 +69,7 @@ impl DurableProvenance {
 impl PartnerIdentity {
 	/// Whether the durable identity this partner advertised was
 	/// cryptographically authenticated by the realized channel. This is the
-	/// predicate to ask when an operation requires a proved durable peer; it
+	/// predicate to ask when an operation requires a proved durable peer. It
 	/// stays correct once each session draws a fresh signing key.
 	pub fn durable_identity_authenticated(&self) -> bool {
 		self.provenance != DurableProvenance::Unauthenticated
@@ -89,7 +89,7 @@ impl Session {
 	/// its own location record, and the engine verifies that signature before
 	/// the session opens. So a success here always means the signature was
 	/// checked. The signed span binds the whole locator claim to the fresh
-	/// [`session_key`](PartnerIdentity::session_key); it does not prove control
+	/// [`session_key`](PartnerIdentity::session_key). It does not prove control
 	/// of the durable [`designator`](PartnerIdentity::designator). Read
 	/// [`provenance`](PartnerIdentity::provenance) before relying on a durable
 	/// identity.
@@ -112,9 +112,15 @@ impl Session {
 			locator_record_len: 0,
 			provenance: sys::DURABLE_PROVENANCE_UNAUTHENTICATED,
 		};
+		// SAFETY: `self.shared.ptr` is this session's `GlowcapHostSession` handle, owned by the Host and nulled only
+		// when the session is released, and `guard_open` above proved it live; `out` is a local
+		// `GlowcapPartnerIdentity` the callee fills.
 		check_host(unsafe { ffi::glowcap_host_session_partner_identity(self.shared.ptr.get(), &mut out) })?;
 		// Session-owned views, valid only until the session is released, so
 		// every field is copied before it leaves this call.
+		// SAFETY: after the OK return `check_host` verified, the callee has filled `out` with views into the session's
+		// retained identity, valid until the session is released; `self.shared` is not released while `&self` is
+		// borrowed, and `owned_from_view` copies each view before the block ends.
 		let (session_key, designator, locator_record) = unsafe {
 			(
 				crate::owned_from_view(out.session_key, out.session_key_len),
@@ -137,9 +143,9 @@ impl Session {
 	/// glowcap does not open your sockets, so it cannot see what opening them
 	/// established. An iroh connection completes only with the holder of the
 	/// node id you dialed or accepted, and that is a stronger fact than
-	/// anything a partner can claim about itself — but only you hold it. Pass
+	/// anything a partner can claim about itself, but only you hold it. Pass
 	/// the node id here and [`partner_identity`](Session::partner_identity)
-	/// reports `AuthenticatedTransport`; withhold it and the same session
+	/// reports `AuthenticatedTransport`. Withhold it and the same session
 	/// reports `Unauthenticated`.
 	///
 	/// `designator` is that identity as a locator writes it, which is exactly
@@ -152,6 +158,8 @@ impl Session {
 	/// twice is the same statement made twice and succeeds.
 	pub fn bind_verified_channel_key(&self, designator: &str) -> Result<()> {
 		self.shared.guard_open()?;
+		// SAFETY: `self.shared.ptr` is this session's live `GlowcapHostSession` handle (`guard_open` above);
+		// `designator` is a `&str` borrowed for the call, which the callee reads only during it.
 		check_host(unsafe {
 			ffi::glowcap_host_session_bind_verified_channel_key(
 				self.shared.ptr.get(),

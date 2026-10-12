@@ -1,10 +1,10 @@
 /**
- * Selection store — implements § 6 of the interaction model.
+ * Selection store, implements § 6 of the interaction model.
  *
  * Pure reducer over the entity selection and its Inspector-follow anchor.
  *
- * Vocabulary note: a selection is the selection. There is no "multi"
- * — a selection of size 1 is still the selection. Actions are
+ * Vocabulary note: a selection is the selection. There is no "multi",
+ * a selection of size 1 is still the selection. Actions are
  * `set-selection`, `add-to-selection`, and `remove-from-selection`.
  * Property edits, group delete, group drag, and group nudge all operate on
  * this set.
@@ -55,7 +55,7 @@ export function selectionReducer(
 ): SelectionState {
 	switch (action.kind) {
 		case "set-selection":
-			// Always return a NEW Set (I4 — paint bail relies on identity).
+			// Always return a NEW Set (I4, paint bail relies on identity).
 			// Anchor follows the LAST entity added (Adobe convention:
 			// single-click on something makes it the Inspector focus).
 			return {
@@ -147,7 +147,7 @@ function lastOrNull(
 
 /** First item of an iterable (or null when empty). Used to re-seat
  *  the anchor when the previous anchor was removed from the
- *  selection — pick any surviving member so range-extend still has
+ *  selection, pick any surviving member so range-extend still has
  *  a pivot. */
 function firstOrNull(
 	entities: ReadonlySet<EntityRefKey>,
@@ -165,8 +165,8 @@ function firstOrNull(
  *
  *  The question is asked of `doc.entities`, which is where a document's
  *  identities live, and not of the observation stream. An entity can be
- *  declared with no observation at all — that is what every peer an
- *  author adds in Build looks like — so a walk over the stream would
+ *  declared with no observation at all. That is what every peer an
+ *  author adds in Build looks like, so a walk over the stream would
  *  report a live peer as gone and take the selection with it.
  *
  *  A session end has no identity of its own: it is one end of one

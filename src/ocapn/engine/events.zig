@@ -42,7 +42,7 @@ pub const DecodeError = codec.dispatch.Error || model.view.ProjectError;
 /// An application-visible event.
 ///
 /// The event owns the originating wire frame in the session's negotiated codec.
-/// Typed access is a borrowed projection over that frame (`view`); owned
+/// Typed access is a borrowed projection over that frame (`view`). Owned
 /// materialization (`decodeOwned`) happens only when the caller asks.
 pub const AnswerOverride = union(enum) {
     none,
@@ -59,8 +59,8 @@ pub const AnswerOverride = union(enum) {
 /// The row the engine queues per admitted inbound message: the frame and the
 /// off-wire facts apply recorded, and nothing decoded. A queue retains a few
 /// rows at rest, so this row is charged to the warmed session's footprint and
-/// a decoded body (a 336-byte view) would be a withdrawal from it per row;
-/// the body is decoded once when the row is surfaced by `Peer.pollEvent`.
+/// a decoded body (a 336-byte view) would be a withdrawal from it per row.
+/// The body is decoded once when the row is surfaced by `Peer.pollEvent`.
 pub const queued_event_struct_budget_bytes = 176;
 
 pub const Queued = struct {
@@ -77,7 +77,7 @@ pub const Queued = struct {
     /// Surface the row: decode its frame once, for every reader that drains
     /// it. The frame was decoded from these exact bytes at admission (or
     /// encoded by this peer for a local delivery), so the decode cannot fail
-    /// here; a failure would be an engine invariant broken, not peer input.
+    /// here. A failure would be an engine invariant broken, not peer input.
     pub fn surface(self: Queued) Event {
         const body = codec.dispatch.decodeBodyForProfile(self.codec, self.captp_version, self.frame.view()) catch
             unreachable;
@@ -111,7 +111,7 @@ pub const Event = struct {
     frame: foundation.Frame,
     body: model.view.Body,
     tag: EventKind,
-    /// The codec that carried `frame` — the session's negotiated `model.CodecId`.
+    /// The codec that carried `frame`, the session's negotiated `model.CodecId`.
     codec: model.CodecId,
     /// The CapTP profile that admitted `frame`. Event projection must use the
     /// same profile as dispatch or a valid next frame can be reinterpreted as
@@ -134,17 +134,17 @@ pub const Event = struct {
     /// validate walk introduced in this deliver's application arguments,
     /// excluding an answer-owned V1.0 resolver descriptor (threaded through
     /// `session.validateInboundDeliverView`), captured while that record was
-    /// still alive — its own backing arena resets before this event is ever
+    /// still alive, its own backing arena resets before this event is ever
     /// polled. Null for every non-deliver kind, and for a deliver that
     /// introduced no far reference (the common case: no allocation then).
     /// `driver.core.gc` reads this instead of re-walking the deliver's args
-    /// when set. A deliver surfaced by any other path — today, only a
-    /// drained pipelined call redirected to a local export
-    /// (`engine.pipeline.deliverDrainedCallLocally`) — leaves this null, and
+    /// when set. A deliver surfaced by any other path (today only a
+    /// drained pipelined call redirected to a local export:
+    /// `engine.pipeline.deliverDrainedCallLocally`) leaves this null, and
     /// `gc` falls back to its own walk.
     introduced_far_imports: ?[]model.ImportPosition = null,
     /// Additional local answers sharing this resolve's one next-profile wire
-    /// callback. The originating frame remains single-owner; consumers project
+    /// callback. The originating frame remains single-owner. Consumers project
     /// the same borrowed resolution once per answer.
     resolve_aliases: std.ArrayListUnmanaged(model.AnswerPosition) = .empty,
 
@@ -157,7 +157,7 @@ pub const Event = struct {
     }
 
     /// Additional local answers this resolve settles. The primary is available
-    /// from `view().resolve.answer`; this slice carries the rest.
+    /// from `view().resolve.answer`. This slice carries the rest.
     pub fn resolveAliases(self: *const Event) []const model.AnswerPosition {
         return self.resolve_aliases.items;
     }
@@ -184,7 +184,7 @@ pub const Event = struct {
     }
 
     /// The semantic answer an inbound deliver settles. A wire answer remains
-    /// wire-shaped; a V1.0 resolver-only deliver carries its session-local
+    /// wire-shaped. A V1.0 resolver-only deliver carries its session-local
     /// virtual identity here without manufacturing a wire position in `view`.
     pub fn deliverAnswerName(self: *const Event) ?model.AnswerName {
         if (self.tag != .deliver) return null;

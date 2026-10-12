@@ -6,7 +6,7 @@
 //! notifications, the tails a room line carries after its display text, and the
 //! subscribe answer. This module is the Rust reading of those shapes, one value
 //! at a time, so `room.rs` holds sessions and lines rather than argument
-//! positions. Every check here is this language's own; what it checks against is
+//! positions. Every check here is this language's own. What it checks against is
 //! the table.
 
 use glowcap::Argument;

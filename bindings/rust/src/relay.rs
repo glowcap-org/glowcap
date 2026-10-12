@@ -2,7 +2,7 @@
 //!
 //! One crate-private `Runtime` owns the archive runtime and installs one
 //! provider package that advertises both `keyed-relay` and `noise-relay`. The
-//! generic driver and Host select the profile; this module only owns
+//! generic driver and Host select the profile. This module only owns
 //! configuration and the archive lifetime, and [`provider`] is the one public
 //! way to compose it.
 
@@ -23,6 +23,7 @@ error_slot!(
 fn require_archive() -> Result<()> {
 	crate::require_archive_fingerprint(
 		"relay",
+		// SAFETY: `glowcap_relay_archive_fingerprint` takes no arguments and returns a scalar.
 		unsafe { ffi::glowcap_relay_archive_fingerprint() },
 		crate::abi_constants::RELAY_ARCHIVE_FINGERPRINT,
 	)
@@ -58,7 +59,7 @@ pub mod keyed {
 	}
 
 	/// Register the identity-addressed cleartext relay profile and accept
-	/// sessions. See [`super::noise::listen`]; only the channel differs, and
+	/// sessions. See [`super::noise::listen`]. Only the channel differs, and
 	/// the relay path is not sealed.
 	pub async fn listen(
 		relay_url: &str,
@@ -79,7 +80,7 @@ pub mod noise {
 
 	/// Register this listener's durable key at the relay and accept
 	/// Noise_XK-sealed sessions. The native relay provider holds the
-	/// registration socket; the driver owns admission, handshakes, and
+	/// registration socket. The driver owns admission, handshakes, and
 	/// session lifetime. The driver's provider registry holds one relay
 	/// configuration per loop: a second listen naming the same routes rides
 	/// the installed provider, and one naming different routes is refused.
@@ -103,7 +104,7 @@ pub struct ListenOptions<'a> {
 
 /// A registered relay listener, the relay sibling of [`crate::tcp::Server`].
 /// The native driver loop owns the registration socket, admission, and every
-/// accepted session; this type is only the public listener view.
+/// accepted session. This type is only the public listener view.
 pub struct Server {
 	listener: crate::server::LoopListener,
 }
@@ -135,7 +136,7 @@ impl Server {
 	}
 
 	/// Select this listener's locator as the shared Host's advertised
-	/// location; see [`crate::tcp::Server::select`].
+	/// location. See [`crate::tcp::Server::select`].
 	pub fn select(&self) -> crate::Result<()> {
 		self.listener.select()
 	}
@@ -157,6 +158,7 @@ async fn listen_relay_profile(
 		relay_url,
 		register_url: Some(register_url),
 		trust: options.trust,
+		relay_alias_url: None,
 	};
 	// The provider registers as the listener opens, so a completed open is
 	// the commit point: the relay answered and holds this peer's sockets. The
@@ -188,10 +190,13 @@ pub struct Config<'a> {
 	/// The relay WebSocket URL used for outbound keyed/noise legs.
 	pub relay_url: &'a str,
 	/// The registration URL used when listening. `None` makes this provider
-	/// dial-only; the driver still advertises both profiles.
+	/// dial-only. The driver still advertises both profiles.
 	pub register_url: Option<&'a str>,
 	/// Trust used when any validated route selects WSS.
 	pub trust: Trust<'a>,
+	/// Redirect this exact advertised dial route to `relay_url`. Both routes
+	/// must reach the same registry. Other peers retain their advertised route.
+	pub relay_alias_url: Option<&'a str>,
 }
 
 impl<'a> Config<'a> {
@@ -200,6 +205,7 @@ impl<'a> Config<'a> {
 			relay_url,
 			register_url: None,
 			trust: Trust::System,
+			relay_alias_url: None,
 		}
 	}
 
@@ -208,8 +214,14 @@ impl<'a> Config<'a> {
 		self
 	}
 
+	pub const fn with_relay_alias(mut self, alias: &'a str) -> Self {
+		self.relay_alias_url = Some(alias);
+		self
+	}
+
 	fn to_c(self) -> ffi::GlowcapRelayConfig {
 		let register = self.register_url.unwrap_or("");
+		let alias = self.relay_alias_url.unwrap_or("");
 		let (trust, trust_pem, trust_pem_len) = match self.trust {
 			Trust::System => (ffi::GLOWCAP_RELAY_TRUST_SYSTEM, core::ptr::null(), 0),
 			Trust::CopiedPem(pem) => (ffi::GLOWCAP_RELAY_TRUST_COPIED_PEM, pem.as_ptr(), pem.len()),
@@ -224,6 +236,8 @@ impl<'a> Config<'a> {
 			trust,
 			trust_pem,
 			trust_pem_len,
+			relay_alias_url: alias.as_ptr(),
+			relay_alias_url_len: alias.len(),
 		}
 	}
 }
@@ -242,12 +256,20 @@ impl Runtime {
 		require_archive()?;
 		let c = config.to_c();
 		let mut raw = core::ptr::null_mut();
+		// SAFETY: `c` is the local `GlowcapRelayConfig` from `config.to_c()`, whose URL and PEM views borrow `config`'s
+		// strings for the whole call, and the callee copies the configuration; `raw` is a local out-parameter the
+		// callee fills with the new runtime handle.
 		check_relay(unsafe { ffi::glowcap_relay_runtime_new(&c, &mut raw) })?;
 		Ok(Self { raw })
 	}
 
 	pub(crate) fn transport_provider(&self) -> Result<crate::driver_loop::ProviderPackage<'_>> {
+		// SAFETY: `GlowcapTransportProvider` is a plain C struct of integers and null pointers; all-zero is a valid
+		// value, and `glowcap_relay_transport_provider` fills it before it is read.
 		let mut package = unsafe { core::mem::zeroed() };
+		// SAFETY: `self.raw` is this `Runtime`'s handle from `glowcap_relay_runtime_new`, released only by `close` or
+		// `Drop`; `package` is a local out-parameter the callee fills, and the returned `ProviderPackage` borrows
+		// `self` so the handle outlives it.
 		check_relay(unsafe { ffi::glowcap_relay_transport_provider(self.raw, &mut package) })?;
 		Ok(crate::driver_loop::ProviderPackage {
 			package,
@@ -256,22 +278,26 @@ impl Runtime {
 	}
 
 	/// Consume the constructor lease and report the native teardown barrier.
-	/// After provider installation this normally releases only that lease; the
+	/// After provider installation this normally releases only that lease. The
 	/// driver reports final asynchronous teardown when it closes.
 	pub(crate) fn close(mut self) -> Result<()> {
 		let raw = core::mem::replace(&mut self.raw, core::ptr::null_mut());
+		// SAFETY: `raw` is this `Runtime`'s handle from `glowcap_relay_runtime_new`, taken out of `self` above so
+		// `Drop` will not release it again; the three null and zero diagnostic arguments omit the error capture.
 		check_relay(unsafe { ffi::glowcap_relay_runtime_release(raw, core::ptr::null_mut(), 0, core::ptr::null_mut()) })
 	}
 }
 
 impl Drop for Runtime {
 	fn drop(&mut self) {
-		if !self.raw.is_null() {
-			if let Err(error) = check_relay(unsafe {
+		if !self.raw.is_null()
+			// SAFETY: `self.raw` is this `Runtime`'s non-null handle (checked above) from `glowcap_relay_runtime_new`;
+			// `Drop` runs once and `close` has nulled the field when it released first, and the three null and zero
+			// diagnostic arguments omit the error capture.
+			&& let Err(error) = check_relay(unsafe {
 				ffi::glowcap_relay_runtime_release(self.raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
 			}) {
-				crate::record_runtime_failure(crate::FailureLayer::Transport, "relay-runtime-drop-release", error);
-			}
+			crate::record_runtime_failure(crate::FailureLayer::Transport, "relay-runtime-drop-release", error);
 		}
 	}
 }
@@ -296,6 +322,7 @@ fn install_provider(lp: &crate::driver_loop::LoopShared, config: Config<'_>) -> 
 pub fn provider(config: Config<'_>) -> crate::driver_loop::Provider {
 	let relay_url = config.relay_url.to_owned();
 	let register_url = config.register_url.map(str::to_owned);
+	let relay_alias_url = config.relay_alias_url.map(str::to_owned);
 	let trust_pem = match config.trust {
 		Trust::System => None,
 		Trust::CopiedPem(pem) => Some(pem.to_vec()),
@@ -303,6 +330,7 @@ pub fn provider(config: Config<'_>) -> crate::driver_loop::Provider {
 	crate::driver_loop::Provider::new(move |lp| {
 		let relay_url = relay_url.clone();
 		let register_url = register_url.clone();
+		let relay_alias_url = relay_alias_url.clone();
 		let trust_pem = trust_pem.clone();
 		async move {
 			install_provider(
@@ -311,6 +339,7 @@ pub fn provider(config: Config<'_>) -> crate::driver_loop::Provider {
 					relay_url: &relay_url,
 					register_url: register_url.as_deref(),
 					trust: trust_pem.as_deref().map_or(Trust::System, Trust::CopiedPem),
+					relay_alias_url: relay_alias_url.as_deref(),
 				},
 			)
 		}

@@ -24,20 +24,19 @@ ready records over stable connection ids, and nonblocking per-connection
 reads and writes. Running a Loop inside HostRuntime would give a stream wire
 two lifecycle owners, and every fix to admission or close would have two homes.
 
-A completion backend already has the resident shape. Its operations complete
-on one descriptor, connections are rows it names, and its receives land in a
-shared pool. This engages one authority per fact (one owner per wire) and the
-rule that every wire-path allocation is forbidden, named or measured.
+A completion backend already has the resident shape. Its operations complete on
+one descriptor, connections are rows it names, and its receives land in a shared
+pool.
 
 ## Decision
 
 `net.completion_resident.Resident(Backend, Policy)` adapts a completion
 backend to `MultiplexedResident`, and HostRuntime registers it like any other
-resident. Stream wires become resident wires; HostRuntime gains no link kind.
+resident. Stream wires become resident wires. HostRuntime gains no link kind.
 
 - **Readiness.** The backend's `readinessFd` is the resident's descriptor.
   Each backend states that it reports every completion `poll` would return
-  once `flush` has handed queued submissions to the kernel; io_uring's flush
+  once `flush` has handed queued submissions to the kernel. io_uring's flush
   submits, epoll and kqueue register as they go. The resident ends each verb
   with a nonblocking poll, because an adapter can complete into its own ready
   queue where no descriptor reports it, and a wake channel armed as a
@@ -64,7 +63,7 @@ resident. Stream wires become resident wires; HostRuntime gains no link kind.
   locators. Each adapter supplies a policy over its inner one
   (`inproc_completion.ResidentPolicy`, `relay.ResidentPolicy`,
   `external_completion.ResidentPolicy`), and `tcp.CompletionPolicy` is the
-  base; it refuses a listen host other than the interface the backend binds,
+  base. It refuses a listen host other than the interface the backend binds,
   rather than rebinding.
 - **Sealing stays with the Host.** HostRuntime's byte-fed Host seals every
   `noise-tcp` and `noise-relay` session on both halves (ADR-0107), so a
@@ -100,7 +99,7 @@ resident. Stream wires become resident wires; HostRuntime gains no link kind.
   it, and a backend that keeps its own report (`takeConnFailure`, a foreign
   provider's `conn_take_failure`) is the exact authority at claim time.
 - **Listens may finish later.** A backend that opens a listener whose setup
-  finishes later declares `listenerPending` and `submitListenReady`; the
+  finishes later declares `listenerPending` and `submitListenReady`. The
   resident returns the listen pending, emits `ev_listen` when setup ends, and
   claims the listener through the contract's `completion.finish`. The
   external adapter does this for provider listeners, so C stream tables run
@@ -111,7 +110,7 @@ resident. Stream wires become resident wires; HostRuntime gains no link kind.
   resident's package release joins the physical operation.
 - **Teardown is explicit.** `closeAndDrain` closes what the runtime left open
   and retires every owed operation within a deadline, fallible and
-  retryable like `completion.Loop.closeAndDrain`; `deinit` requires it.
+  retryable like `completion.Loop.closeAndDrain`. `deinit` requires it.
 - **Platform backends serve many listeners.** The io_uring backend keeps one
   row per listener (`net/completion/uring_listeners.zig`), as epoll and
   kqueue already did.
@@ -161,11 +160,11 @@ internal adapter.
   relay, `inproc` over onion, and foreign providers outermost, with the
   policies nested the same way, so one resident serves every first-party
   stream symbol. Relay sits lowest because it dials the platform's socket
-  addresses; the adapters above it pass `submitPoll` through for the
+  addresses. The adapters above it pass `submitPoll` through for the
   provider adapter. An unconfigured arm refuses its own symbols.
 - `webrtc.ResidentPolicy` hosts `webrtc.Backend` the same way. The backend
   presents one readiness descriptor, a `net.readiness.ReadySet` over its
-  signaling wake, the sidecar's readiness and the resident's wake poll; its
+  signaling wake, the sidecar's readiness and the resident's wake poll. Its
   listener publishes the Host's key with no hints, since a dialer reaches
   it through its own signaling. `zig build webrtc-loop` serves its
   DataChannels from one HostRuntime thread this way.

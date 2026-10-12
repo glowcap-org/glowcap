@@ -62,7 +62,7 @@ impl Intent {
 }
 
 /// Complete portable ingress. Every selected occurrence must come from an
-/// explicit recipe; existing local custody cannot fill holes in an export.
+/// explicit recipe. Existing local custody cannot fill holes in an export.
 pub struct ConfigurationImport {
 	pub intent: Intent,
 	pub imports: alloc::vec::Vec<ImportRecipe>,

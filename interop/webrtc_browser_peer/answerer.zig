@@ -1,7 +1,7 @@
-//! The native answerer for the WebRTC browser-peer proof (ADR-0089, phase 6).
+//! The native answerer for the WebRTC browser-peer proof (ADR-0089).
 //!
 //! A real headless Chromium is the offerer (`@glowcap/webrtc`'s `RtcPeer` over
-//! `RTCPeerConnection`, driving a keyed session inside the wasm Host); this
+//! `RTCPeerConnection`, driving a keyed session inside the wasm Host). This
 //! process is the answerer over the native sidecar (`glowcap_webrtc_sidecar_*`),
 //! serving a Greeter behind the keyed handshake. The harness ferries the
 //! signaling between the two out of band over this process's stdio, one JSON
@@ -18,9 +18,9 @@
 //!
 //! Once the DataChannel opens, the keyed handshake, bootstrap fetch, and
 //! deliver/resolve run exactly as `webrtc-interop` proves them between two
-//! native peers; here the far peer is a browser. A concurrent reader applies the
+//! native peers. Here the far peer is a browser. A concurrent reader applies the
 //! browser's offer and candidates while this thread produces the answer, drains
-//! its own candidates, and then serves; only this thread writes stdout. The
+//! its own candidates, and then serves. Only this thread writes stdout. The
 //! answerer signs a fixed key so the harness hands the browser its designator to
 //! pin.
 //!
@@ -56,7 +56,7 @@ const Greeter = struct {
 };
 
 /// Whether the browser's offer has been set as the remote description. The
-/// reader flips it after `setRemoteOffer`; the main thread then produces and
+/// reader flips it after `setRemoteOffer`. The main thread then produces and
 /// writes the answer, so the two never call the sidecar's description setters at
 /// once and only the main thread writes stdout.
 var offer_seen = std.atomic.Value(bool).init(false);

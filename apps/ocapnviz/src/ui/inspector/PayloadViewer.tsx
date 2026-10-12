@@ -1,8 +1,8 @@
 /**
- * Raw payload viewer — the Inspector pane for a message's wire
+ * Raw payload viewer, the Inspector pane for a message's wire
  * frame. The pipeline hands bytes through untouched (the producer
- * caps, the converter passes, the observation is the one home);
- * this is the one place they become text, in whichever lens the
+ * caps, the converter passes, the observation is the one home).
+ * This is the one place they become text, in whichever lens the
  * reader picks: a hex dump, UTF-8, or the raw base64.
  *
  * The hex lens spaces its rows by the codec that produced the frame,
@@ -13,7 +13,7 @@
  * is Syrup whatever the session goes on to speak (ADR-0103).
  *
  * Display-only. Decoding failures render as replacement characters
- * rather than errors — a binary frame viewed as UTF-8 is the
+ * rather than errors, a binary frame viewed as UTF-8 is the
  * reader's experiment, not a fault.
  *
  * A message whose recording carried no frame gets a sentence saying
@@ -28,7 +28,7 @@ import { loadStoredValue, persistStoredValue } from "../../state/storage.ts";
 import { c, FONT, RADIUS, segmentCellClass, SIZE, SPACE } from "../tokens.ts";
 
 // Lenses answer questions a reader can actually have about an OCapN
-// frame. UTF-16 is deliberately absent: Syrup and Cap'n Proto text
+// frame. UTF-16 is absent: Syrup and Cap'n Proto text
 // are UTF-8 by spec, so a UTF-16 lens could only render convincing
 // garbage. A producer that ever carries UTF-16 payloads earns the
 // entry back with one line here and one switch arm.
@@ -78,7 +78,7 @@ const noteStyle = {
 	fontFamily: FONT.sans,
 } satisfies React.CSSProperties;
 
-/** Null on malformed input — feed lines are outside this app's
+/** Null on malformed input, feed lines are outside this app's
  *  control, and a bad payload should read as a fact about the
  *  payload, never crash the Inspector. */
 function decodeBase64(b64: string): Uint8Array | null {
@@ -139,7 +139,7 @@ export function derivationNote(
 /**
  * How the hex lens spaces a row, decided from the codec that
  * produced the frame. Cap'n Proto is a sequence of 64-bit words, so
- * its dump groups by eight and every word boundary is visible;
+ * its dump groups by eight and every word boundary is visible,
  * Syrup is a byte grammar with no such unit, so it keeps the plain
  * run. Nothing is hidden either way, only the spacing moves, and
  * that is why the app decides it instead of adding a fourth lens
@@ -175,7 +175,7 @@ export function PayloadViewer(
 		/** The frame (or its producer-capped head), base64. Undefined
 		 *  when the recording carried no bytes for this message. */
 		bytesB64?: string | undefined;
-		/** The frame's true length; larger than the carried bytes when
+		/** The frame's true length. Larger than the carried bytes when
 		 *  the producer truncated. */
 		byteLen?: number | undefined;
 		/** The codec that produced the frame. It shapes the hex lens

@@ -6,7 +6,7 @@
 // it, so focus and the sliding thumb cannot drift apart.
 //
 // Walking with the arrows moves focus onto the tab it lands on, so a keyboard
-// reader hears where they are; clicking one leaves focus
+// reader hears where they are. Clicking one leaves focus
 // where the pointer put it. That distinction lives here rather than in each
 // caller, because it belongs to the pattern rather than to either screen.
 

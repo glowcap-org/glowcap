@@ -1,5 +1,5 @@
 #lang racket/base
-;; goblins-iroh-host.rkt — a Goblins vat reachable over iroh's encrypted QUIC.
+;; goblins-iroh-host.rkt: a Goblins vat reachable over iroh's encrypted QUIC.
 ;;
 ;; The vat runs its own CapTP, unchanged. Only the netlayer differs: instead of
 ;; `tcp-netlayer.rkt`'s cleartext socket it binds an iroh endpoint through

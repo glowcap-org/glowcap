@@ -1,5 +1,5 @@
 //! Scope and policy are independent restrictions on the same access path.
-//! Public terms borrow a selection; retained grant terms own a bounded copy.
+//! Public terms borrow a selection. Retained grant terms own a bounded copy.
 
 const std = @import("std");
 const Scope = @import("scope.zig").Scope;

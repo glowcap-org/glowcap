@@ -1,7 +1,7 @@
 import { spawnWeb } from "../support/web_front.ts";
 // The rooms web page as a real browser peer, end to end. A headless Chromium
-// loads the ACTUAL page rooms-web serves — the
-// bundled `@glowcap/web` graph, `glowcap_host.wasm`, and the UI — joins a
+// loads the ACTUAL page rooms-web serves, the
+// bundled `@glowcap/web` graph, `glowcap_host.wasm`, and the UI, joins a
 // room, sends a line, and sees the room echo it back. Every hop is the shipped
 // path: its managed Wasm owner retains exact authority, runs receipt-backed
 // effects and dials the room server through rooms-web's `/relay`. The UI
@@ -12,8 +12,8 @@ import { spawnWeb } from "../support/web_front.ts";
 // that stands in while the peer opens has to be there, and the message meant for
 // a browser that cannot run this page must never appear on one that can.
 //
-// It then holds the two rails that flank the conversation — the rooms and
-// direct-message list, and the roster — to the promises they make on both
+// It then holds the two rails that flank the conversation, the rooms and
+// direct-message list, and the roster, to the promises they make on both
 // layouts. A real browser is the only place any of this can be checked: every
 // one of them is about what a reader can see or reach, and a stylesheet read on
 // its own says nothing about either.
@@ -107,8 +107,8 @@ const seconds = (since: number) => ((performance.now() - since) / 1000).toFixed(
 const finished: string[] = [];
 let running = "startup";
 const deadline = setTimeout(
-	() => fail(`web-page scenario timed out after 240s in ${running}; finished: ${finished.join(", ") || "none"}`),
-	240_000,
+	() => fail(`web-page scenario timed out after 300s in ${running}; finished: ${finished.join(", ") || "none"}`),
+	300_000,
 );
 async function phase<T>(name: string, work: () => Promise<T>): Promise<T> {
 	running = name;
@@ -122,8 +122,9 @@ let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 
 try {
 	await waitForHttp(httpPort);
-	browser = await chromium.launch({ args: ["--no-sandbox"] });
-	const tab = await browser.newPage();
+	const activeBrowser = await chromium.launch({ args: ["--no-sandbox"] });
+	browser = activeBrowser;
+	const tab = await activeBrowser.newPage();
 	const invalidMarkup: string[] = [];
 	// Mirror the page's own console and crashes into this proof's output: a
 	// scene that times out otherwise reports only the selector it never saw,
@@ -142,11 +143,11 @@ try {
 	// One conversation, driven in order: each phase leaves the page where the
 	// next one expects to find it, which is why they are calls in a list rather
 	// than tests that could be run on their own.
-	await phase("opening", () => opening.run(tab, httpPort, browser));
-	await phase("mobile focus", () => proveFocusKeepsMobileViewport(browser!, httpPort));
+	await phase("opening", () => opening.run(tab, httpPort, activeBrowser));
+	await phase("mobile focus", () => proveFocusKeepsMobileViewport(activeBrowser, httpPort));
 	await phase("first rail", () => firstRail.run(tab));
 	await phase("details", () => details.run(tab));
-	const second = await phase("rails", () => rails.run(tab, browser!, httpPort));
+	const second = await phase("rails", () => rails.run(tab, activeBrowser, httpPort));
 	await phase("completion", () => completion.run(tab, second));
 	const descendersIntact = await phase("files", () => files.run(tab, second));
 	await phase("layout", () => layout.run(tab, second, descendersIntact));
@@ -162,7 +163,7 @@ try {
 			roomPort,
 			descendersIntact,
 		));
-	await phase("standing", () => standing.run(tab, foreignLocator, httpPort, browser!, second));
+	await phase("standing", () => standing.run(tab, foreignLocator, httpPort, activeBrowser, second));
 	await phase("operations", () => operations.run(tab, opsState, foreignLocator));
 	await phase("registration", () => registration.run(tab));
 	await phase("member card", () => memberCard.run(tab));

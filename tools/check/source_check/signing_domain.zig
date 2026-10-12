@@ -11,7 +11,7 @@
 //! conversation instead of quietly widening what the key vouches for.
 //!
 //! Three rules, each a spelling scan with the same limits as every other scan
-//! in this driver (an alias can evade a grep; the header of each rule names
+//! in this driver (an alias can evade a grep. The header of each rule names
 //! the spelling it holds):
 //!
 //! 1. Every `crypto.sign(` site in `src/` sits in a registered file with the
@@ -28,7 +28,7 @@
 //! Validated against injected defects on 2026-08-09: a sixth `crypto.sign(`
 //! in an unregistered file, a count drift in a registered file, a bare
 //! `.secretKey()` outside the seam, and a `publicKeyFromEd25519(` call outside
-//! `foundation/crypto.zig` were each injected and each failed the build; the
+//! `foundation/crypto.zig` were each injected and each failed the build. The
 //! healthy tree passes.
 
 const std = @import("std");
@@ -77,7 +77,7 @@ const signing_files = [_]SigningFile{
 };
 
 /// Files that may read a secret key as signing material without the
-/// `.publicKey()` projection. Node owns session-signing derivation; the Host
+/// `.publicKey()` projection. Node owns session-signing derivation. The Host
 /// session constructor borrows the durable key only to build the sealed
 /// channel's registered identity proof.
 const secret_seam_files = [_][]const u8{
@@ -89,7 +89,7 @@ const secret_seam_files = [_][]const u8{
 const bridge_home = "foundation/crypto.zig";
 
 /// Files that may call the conversion wrappers. `foundation/crypto.zig`
-/// declares them; `foundation.sealed` constructs the Noise channel from the
+/// declares them, `foundation.sealed` constructs the Noise channel from the
 /// local and named remote keys, while `foundation.sealed_identity` verifies
 /// the remote mapping bound into the signed proof. Runtime tiers compose that
 /// pair without receiving conversion authority.

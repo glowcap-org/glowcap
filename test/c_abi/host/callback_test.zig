@@ -241,7 +241,7 @@ test "libglowcap_host: pump callback refusal preserves the exact action for retr
 
 /// A behavior that defers its answer onto a resolver vow (ADR-0102): it
 /// atomically defers the turn, proves the in-turn settle refuses, and
-/// parks the resolver id for the test body — the stand-in for a worker that
+/// parks the resolver id for the test body, the stand-in for a worker that
 /// completes off-turn.
 const DeferCtx = struct {
     host: ?*cd.GlowcapHost = null,

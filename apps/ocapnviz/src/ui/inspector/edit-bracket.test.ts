@@ -9,9 +9,9 @@
  * the panel with the caret still in the field, and leaving Build takes
  * the editor out from under a field that is still mounted.
  *
- * Each case here drives the bracket the way `useEditBracket` does —
+ * Each case here drives the bracket the way `useEditBracket` does,
  * the editor arrives through a function the bracket asks, because in
- * the app it is a prop that changes — and calls `end` where React's
+ * the app it is a prop that changes, and calls `end` where React's
  * effect cleanup calls it.
  */
 

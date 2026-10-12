@@ -79,5 +79,6 @@ impl Destination {
 			return Ok(());
 		}
 		rooms_application::session::checkpoint::gestures::private_name_available(snapshot, &self.directory, &self.name)
+			.map_err(String::from)
 	}
 }

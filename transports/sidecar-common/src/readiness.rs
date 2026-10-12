@@ -5,8 +5,8 @@ use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex};
 
 /// One endpoint's readiness channel: the self-pipe the loop polls plus the
-/// authoritative queue of pending records. Wake bytes are coalescing hints;
-/// records, not byte counts, carry state.
+/// authoritative queue of pending records. Wake bytes are coalescing hints.
+/// Records, not byte counts, carry state.
 ///
 /// `E` is the sidecar's own `#[repr(C)]` record, built from `(subject, events)`
 /// only as `drain` writes it out, so each C ABI keeps its own layout type over

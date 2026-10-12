@@ -1,25 +1,25 @@
-//! The CapTP [`Host`] — multi-session CapTP product over the byte-fed host archive
+//! The CapTP [`Host`]: multi-session CapTP product over the byte-fed host archive
 //! (`libglowcap_host`, ADR-0072). It owns `engine.Node` (the sans-io handoff
 //! router). Goblins' `mycapn` is two roles: product maps to Host, router tables map to
-//! `engine.Node` — never a single-type equation (ADR-0079). The `GlowcapHost`
+//! `engine.Node`: never a single-type equation (ADR-0079). The `GlowcapHost`
 //! owns every decision: the retained identity, session directory,
 //! routing, transparent three-party redemption, and the gifter half's
 //! origination. This package owns only what the embedder contract leaves to the
 //! binding: `host.rs` is the shared state aggregate, `public.rs` is the Host
 //! surface, `vows.rs` owns binding-side observation, `progress.rs` owns the
 //! action-drain schedule, and `lifecycle.rs` owns terminal retirement. Action
-//! decode + execute (`pop` / `run`) live in `action.rs`; the pump lives in
-//! `pump.rs`; the dial executor lives in `dial.rs`. [`Session`] lives in
+//! decode + execute (`pop` / `run`) live in `action.rs`. The pump lives in
+//! `pump.rs`. The dial executor lives in `dial.rs`. [`Session`] lives in
 //! `session.rs`.
 //!
 //! Threading model: everything runs on one Tokio `LocalSet`. Native callers
-//! drive it with a current-thread runtime; browser callers use their executor.
+//! drive it with a current-thread runtime. Browser callers use their executor.
 //! Tasks yield only at `.await` and no `glowcap_host_*` call contains one, so
 //! a verb-plus-register-plus-kick sequence is naturally atomic with no lock
 //! and no progress semaphore. The one discipline rule that replaces a lock: no
 //! `RefCell` borrow is held across an FFI call that can fire the behavior
 //! trampoline (`glowcap_host_session_feed_bytes`, `glowcap_host_dialed`,
-//! `glowcap_host_provide_gift_id`) — take, drop,
+//! `glowcap_host_provide_gift_id`): take, drop,
 //! call.
 
 use crate::execution::monotonic_ms;
@@ -52,21 +52,23 @@ pub(crate) use lifecycle::OwnedTaskRegistration;
 mod loop_teardown;
 mod progress;
 mod public;
+mod publication;
 mod send;
 mod vows;
 
 use lifecycle::CloseBarrierState;
 use vows::VowTable;
 
-pub use public::{Host, HostOptions, ListenerIdentity, Resolver, SessionLimitOptions};
+pub use public::{Host, HostOptions, ListenerIdentity, SessionLimitOptions};
+pub use publication::Resolver;
 pub use send::HostPromise;
 
-/// Every connection's maximum admissible frame; mirrors
+/// Every connection's maximum admissible frame. Mirrors
 /// `GLOWCAP_DEFAULT_FRAME_CAP`.
 const HOST_FRAME_CAP: usize = sys::DEFAULT_FRAME_CAP;
 
 /// Cap on stored outcomes whose vow is never awaited, so the store cannot grow
-/// without bound; the oldest un-awaited outcome is evicted at the cap.
+/// without bound. The oldest un-awaited outcome is evicted at the cap.
 const MAX_UNOBSERVED_OUTCOMES: usize = crate::abi_constants::BINDING_UNOBSERVED_OUTCOME_CAP;
 
 pub(crate) fn close_result(code: i32) -> Result<()> {
@@ -131,7 +133,7 @@ pub(crate) struct HostShared {
 	applications: application::States,
 	raw: Cell<*mut ffi::GlowcapHost>,
 	/// Binding-local close barrier coordination. Native Host lifecycle remains
-	/// authoritative; `Failed` retains the raw handle for diagnosis and a final
+	/// authoritative. `Failed` retains the raw handle for diagnosis and a final
 	/// Drop attempt rather than pretending release succeeded.
 	close_barrier: Cell<CloseBarrierState>,
 	/// Exact first failure behind `CloseBarrierState::Failed`. The state remains
@@ -149,7 +151,7 @@ pub(crate) struct HostShared {
 	pub(crate) release_on_drop: Cell<bool>,
 	// Host-owned async tasks whose futures may still hold native Session state.
 	// Cancellation is only a request; the count falls from each future's RAII
-	// registration when its complete state has actually been dropped.
+	// registration when its complete state has been dropped.
 	owned_tasks: Cell<usize>,
 	release_notify: Notify,
 	// The host-activity signal the event-driven close waits park on. Every
@@ -180,7 +182,7 @@ pub(crate) struct HostShared {
 	// Session-local retirement failures belong to shutdown, not the next
 	// unrelated verb. The Host retains them through its owned-task barrier.
 	retirement_failure: RefCell<Option<Error>>,
-	/// The 32-byte Ed25519 identity seed this host was minted with — retained
+	/// The 32-byte Ed25519 identity seed this host was minted with: retained
 	/// so a keyed-tcp listener can derive its public designator without a
 	/// second identity (ADR-0075).
 	seed: [u8; 32],
@@ -213,6 +215,8 @@ impl HostShared {
 	) -> Result<Rc<HostShared>> {
 		crate::require_archive_fingerprint(
 			"host",
+			// SAFETY: `glowcap_host_archive_fingerprint` takes no arguments and returns an integer, touching no Rust
+			// memory.
 			unsafe { ffi::glowcap_host_archive_fingerprint() },
 			crate::sys::HOST_ARCHIVE_FINGERPRINT,
 		)?;
@@ -220,7 +224,7 @@ impl HostShared {
 		// this binding's entropy boundary, because the library draws none
 		// (ADR-0097). The root is fresh per process, so every CapTP session
 		// signs with its own key and a restart cannot recreate a prior
-		// session's handoff names; the durable half stays exactly the caller's
+		// session's handoff names; the durable half is the caller's
 		// seed, since a keyed locator's designator derives from it.
 		let mut seed_with_root = [0u8; 64];
 		seed_with_root[..32].copy_from_slice(&seed);
@@ -233,6 +237,8 @@ impl HostShared {
 		// Compute every fallible wrapper-side value before native Host
 		// construction, so `?` cannot leak a raw Host during setup.
 		let mut designator = [0u8; 64];
+		// SAFETY: `seed` is a borrowed `[u8; 32]` and `designator` a local `[u8; 64]`, both live for the call; the
+		// callee reads `seed.len()` bytes and writes at most `designator.len()`.
 		check_host(unsafe {
 			ffi::glowcap_host_designator_from_seed(seed.as_ptr(), seed.len(), designator.as_mut_ptr(), designator.len())
 		})?;
@@ -241,6 +247,8 @@ impl HostShared {
 			None => Rc::new(ContextInner::new()?),
 		};
 		let mut raw: *mut ffi::GlowcapHost = core::ptr::null_mut();
+		// SAFETY: `context.raw` is the live handle of the `ContextInner` held by `context`, which outlives the Host;
+		// `seed_with_root` is a live slice for the call; `raw` is an out-parameter the callee fills.
 		check_host(unsafe {
 			ffi::glowcap_host_new_in(
 				context.raw,
@@ -256,7 +264,11 @@ impl HostShared {
 			)
 		})?;
 		let mut diagnostic_id = 0;
+		// SAFETY: `raw` is the handle `glowcap_host_new_in` just filled, not yet owned by a `HostShared`;
+		// `diagnostic_id` is an out-parameter the callee writes.
 		if let Err(error) = check_host(unsafe { ffi::glowcap_host_diagnostic_id(raw, &mut diagnostic_id) }) {
+			// SAFETY: `raw` is the handle from `glowcap_host_new_in`; setup failed before any `HostShared` took it, so
+			// this is its one release.
 			let cleanup_rc = unsafe { ffi::glowcap_host_release(raw) };
 			let cleanup = check_host(cleanup_rc);
 			if !crate::lifecycle::release_consumed(cleanup_rc) {
@@ -313,11 +325,14 @@ impl HostShared {
 		driver_loop: Rc<crate::driver_loop::LoopShared>,
 	) -> Result<Rc<HostShared>> {
 		let mut designator = [0u8; 64];
+		// SAFETY: as `new` above, for `seed` and `designator`.
 		check_host(unsafe {
 			ffi::glowcap_host_designator_from_seed(seed.as_ptr(), seed.len(), designator.as_mut_ptr(), designator.len())
 		})?;
 		let context = driver_loop.retained_context();
 		let mut diagnostic_id = 0;
+		// SAFETY: `raw` is the Host handle the driver loop minted and still owns; `diagnostic_id` is an out-parameter
+		// the callee writes.
 		check_host(unsafe { ffi::glowcap_host_diagnostic_id(raw, &mut diagnostic_id) })?;
 		if let Some(context) = context.as_ref() {
 			crate::trace::attach_host(
@@ -410,7 +425,7 @@ impl HostShared {
 	}
 
 	/// Establish this Host's one native runtime owner before its first network
-	/// operation. Existing loop-backed Hosts reuse their loop; a byte-fed Host
+	/// operation. Existing loop-backed Hosts reuse their loop. A byte-fed Host
 	/// transfers transactionally through the C ABI.
 	#[cfg(not(target_arch = "wasm32"))]
 	pub(crate) fn ensure_driver_loop(
@@ -445,6 +460,8 @@ impl HostShared {
 		if let Some(lp) = self.driver_loop() {
 			return lp.native_session_release(session);
 		}
+		// SAFETY: `session` is a byte-fed session handle this Host minted and its owner hands over for its one release,
+		// which runs before the Host's own.
 		check_host(unsafe { ffi::glowcap_host_session_release(session) })
 	}
 
@@ -493,11 +510,15 @@ impl HostShared {
 	pub(crate) fn set_advertised_locator(&self, locator: &Locator) -> Result<()> {
 		self.guard_handle()?;
 		let owned = OwnedLocator::new(locator)?;
+		// SAFETY: `self.raw.get()` is non-null (`guard_handle` above), this `HostShared`'s handle from
+		// `glowcap_host_new_in`; `owned.borrow_view()?` borrows `owned`, live to the end of the statement, and the
+		// callee deep-copies it.
 		check_host(unsafe { ffi::glowcap_host_set_advertised_locator(self.raw.get(), owned.borrow_view()?) })
 	}
 
 	pub(crate) fn remove_advertised_locator(&self, transport: &str) -> Result<()> {
 		self.guard_handle()?;
+		// SAFETY: as `set_advertised_locator` above for the handle; `transport` is a borrowed `str` live for the call.
 		check_host(unsafe {
 			ffi::glowcap_host_remove_advertised_locator(self.raw.get(), transport.as_ptr(), transport.len())
 		})
@@ -516,12 +537,14 @@ impl HostShared {
 			max_retained_sent_answer_bytes: usize::try_from(options.max_retained_sent_answer_bytes)
 				.expect("u32 always fits usize on supported targets"),
 		};
+		// SAFETY: as `set_advertised_locator` above for the handle; `raw` is a local `GlowcapSessionLimitOptions`
+		// borrowed for the call.
 		check_host(unsafe { ffi::glowcap_host_set_session_limits(self.raw.get(), &raw) })
 	}
 
 	// ── Session registry ────────────────────────────────────────────────────
 
-	/// Track a live CapTP session shell by its GlowcapHostSession address; the
+	/// Track a live CapTP session shell by its GlowcapHostSession address. The
 	/// `SessionShared` constructor calls it.
 	pub(crate) fn register_session(&self, key: usize, session: Rc<SessionShared>) {
 		self.sessions.borrow_mut().insert(key, session);
@@ -533,8 +556,8 @@ impl HostShared {
 	}
 
 	/// Resolve the Host-owned session address carried by a callback turn to the
-	/// existing public wrapper. A loop-internal redeem leg may have no wrapper;
-	/// callers preserve their Host-only turn context in that case.
+	/// existing public wrapper. A loop-internal redeem leg may have no wrapper.
+	/// Callers preserve their Host-only turn context in that case.
 	pub(crate) fn session_for_ptr(&self, ptr: *mut ffi::GlowcapHostSession) -> Option<Rc<SessionShared>> {
 		self.sessions.borrow().get(&(ptr as usize)).cloned()
 	}
@@ -545,6 +568,8 @@ impl HostShared {
 			return Ok(lp.claim_reference_exporter(wire)?.unwrap_or(core::ptr::null_mut()));
 		}
 		let mut out = core::ptr::null_mut();
+		// SAFETY: `self.raw.get()` is this `HostShared`'s handle, non-null by the callers' `guard_handle`; `wire` is
+		// borrowed for the call and `out` is an out-parameter the callee fills with a Host-owned session.
 		check_host(unsafe { ffi::glowcap_host_reference_exporter(self.raw.get(), wire, &mut out) })?;
 		Ok(out)
 	}
@@ -583,6 +608,10 @@ impl HostShared {
 		// the same one), the way the byte-fed drain's redeem registers its own.
 		#[cfg(not(target_arch = "wasm32"))]
 		if let Some(lp) = self.driver_loop() {
+			// Loam callbacks supply borrowed exporter metadata. Claim the native
+			// handle before installing its one Host-owned shell; otherwise loop
+			// teardown could outlive the binding's release authority.
+			lp.claim_exporter_session(out)?;
 			let shared = SessionShared::new_loop(out, Rc::clone(self), lp);
 			shared.retain_by_host();
 			shared.spawn_serve();

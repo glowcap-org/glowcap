@@ -1,7 +1,6 @@
 //! Sturdyref enlivenment for the byte-fed host core: turning a complete
 //! sturdyref (ADR-0098) into a live capability, and the select-or-dial form
-//! (ADR-0098 step 4) that stages a dial first when no session to the peer is
-//! open yet.
+//! (ADR-0098) that stages a dial first when no session to the peer is open yet.
 //!
 //! Host owns parked rows, vows, and dial actions. Enlivenment selects its
 //! completion recipient before admission: ordinary APIs queue public outcomes,
@@ -62,19 +61,19 @@ pub const PendingEnlivenOutcome = union(enum) {
 
 pub const matchSturdyrefPeer = identity.matchSturdyrefPeer;
 
-/// Enliven the complete sturdyref (ADR-0098), minting
-/// a host vow for the live reference. A dedup-cache hit settles the vow
-/// before this returns — its completion is already on the action queue —
-/// and a fresh enliven rides bootstrap-fetch, the host recording the
-/// enlivenment itself when the resolution arrives, before the outcome is
-/// dispatched. Top-level: refused from inside a callback.
+/// Enliven the complete sturdyref (ADR-0098), minting a host vow for the live
+/// reference. A dedup-cache hit settles the vow before this returns, with its
+/// completion already on the action queue. A fresh enliven rides
+/// bootstrap-fetch, the host recording the enlivenment itself when the
+/// resolution arrives, before the outcome is dispatched. Top-level: refused
+/// from inside a callback.
 pub fn enliven(self: *Host, session: *HostSession, sturdyref: model.SturdyRef) !u64 {
     return (try enlivenWithPolicy(self, session, sturdyref, .checked)).vow_id;
 }
 
 /// Parse and enliven a session-scoped canonical persistent sturdyref URI.
 /// Durable authority is application data rather than a rendering of the live
-/// session's negotiated profile; adapters pass bytes and choose no parser.
+/// session's negotiated profile. Adapters pass bytes and choose no parser.
 pub fn enlivenSessionUri(self: *Host, session: *HostSession, uri: []const u8) !u64 {
     try self.refuseReentry();
     try self.admitApplicationOperation();
@@ -84,25 +83,23 @@ pub fn enlivenSessionUri(self: *Host, session: *HostSession, uri: []const u8) !u
     return self.enliven(session, sturdyref);
 }
 
-/// Select-or-dial enlivenment for a byte-fed embedder (ADR-0098 step 4):
-/// enliven `sturdyref` over a live dialed session to its peer, or stage a
-/// dial through the ordinary `dial` action and finish when the embedder
-/// reports it (`exporterDialed` / `dialFailed`), reusing the node's one
-/// pending-dial ticket space so the embedder's dial arm never learns a
-/// second namespace.
+/// Select-or-dial enlivenment for a byte-fed embedder (ADR-0098): enliven
+/// `sturdyref` over a live dialed session to its peer, or stage a dial through
+/// the ordinary `dial` action and finish when the embedder reports it
+/// (`exporterDialed` / `dialFailed`), reusing the node's one pending-dial
+/// ticket space so the embedder's dial arm never learns a second namespace.
 ///
-/// The returned vow id is minted before any session may exist, so a
-/// parked outcome always arrives as that id's `settled` / `failed`
-/// action; `vowOn` refuses a parked id (`NoSuchVow`) exactly as it
-/// refuses an already-settled one. Peer policy is `.checked` — the
-/// accepted-address escape hatch stays on the session-scoped
-/// `enlivenWithPolicy`, native-only by construction.
+/// The returned vow id is minted before any session may exist, so a parked
+/// outcome always arrives as that id's `settled` / `failed` action. `vowOn`
+/// refuses a parked id (`NoSuchVow`) as it refuses an already-settled one. Peer
+/// policy is `.checked`. The accepted-address escape hatch stays on the
+/// session-scoped `enlivenWithPolicy`.
 pub fn enlivenSelectOrDial(self: *Host, sturdyref: model.SturdyRef) !u64 {
     return selectOrDial(self, sturdyref, .action, .application);
 }
 
 /// An owned observation of checked enlivenment. Its result never enters the
-/// embedder's action FIFO. The caller's allocator owns this operation; destroy
+/// embedder's action FIFO. The caller's allocator owns this operation. Destroy
 /// it before Host destruction. Cancellation detaches observation synchronously.
 pub fn enlivenCapability(self: *Host, allocator: std.mem.Allocator, sturdyref: model.SturdyRef) !*Enliven {
     return enlivenAdmitted(self, allocator, sturdyref, .application);
@@ -206,7 +203,7 @@ fn selectOrDial(self: *Host, sturdyref: model.SturdyRef, recipient: Recipient, a
 
 /// Parse and select-or-dial a canonical persistent sturdyref URI. Durable
 /// authority is application data rather than a rendering of a session or Host
-/// preference; alternate wire spellings use `enlivenUriForVersion` explicitly.
+/// preference. Alternate wire spellings use `enlivenUriForVersion` explicitly.
 pub fn enlivenUri(self: *Host, uri: []const u8) !u64 {
     try self.refuseReentry();
     try self.admitApplicationOperation();
@@ -217,7 +214,7 @@ pub fn enlivenUri(self: *Host, uri: []const u8) !u64 {
 
 /// Parse and select-or-dial a sturdyref URI under an explicit CapTP profile.
 /// This is for authority received on a session whose settled profile may differ
-/// from the Host preference; route selection still belongs to this Host.
+/// from the Host preference. Route selection still belongs to this Host.
 pub fn enlivenUriForVersion(
     self: *Host,
     captp_version: model.CaptpVersion,
@@ -238,7 +235,7 @@ pub fn freeParkedEnliven(self: *Host, parked: PendingEnliven) void {
 }
 
 /// Settle a parked enliven's vow broken. The message must be host-owned by the
-/// action contract; a failed retain uses the action layer's static allocation
+/// action contract. A failed retain uses the action layer's static allocation
 /// diagnostic rather than losing either the settle or its reason category.
 pub fn failParkedEnliven(
     self: *Host,
@@ -382,7 +379,7 @@ pub fn deinitParkedEnlivens(self: *Host) void {
 
 /// Low-level accepted-TCP escape hatch. The result reports whether a durable
 /// identity was authenticated, the locator was selected as this side's dial
-/// target, or the locator remains only a partner assertion; no caller can
+/// target, or the locator remains only a partner assertion. No caller can
 /// silently collapse those cases.
 pub fn enlivenWithPolicy(
     self: *Host,

@@ -138,7 +138,7 @@ pub fn run(ctx: *Ctx) !u8 {
             if (ctx.activeSession()) |s| try captp_q.advanceSession(s, &store, 0);
         }
 
-        // CapTP busy: socket wake (`stepReadable(frame_ms)`). Flash-only: no sleep —
+        // CapTP busy: socket wake (`stepReadable(frame_ms)`). Flash-only: no sleep,
         // paint the rail tip then clear (animation only when waiting is real).
         var burst_n: usize = 0;
         if (captp_q.busy()) {
@@ -613,7 +613,7 @@ fn render(
             });
             panes.drawPromptDock(pw, ctx, progress, text_input, frame, prompt_focused);
             if (lab.prompt_e) |pe| {
-                // Full outer frame (incl. border) — click chrome still focuses the dock.
+                // Full outer frame (incl. border): click chrome still focuses the dock.
                 lab.rect.set(pe, .{ .x = 0, .y = prompt_frame_y, .w = repl_w, .h = g.prompt_h });
             }
         }

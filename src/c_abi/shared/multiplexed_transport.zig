@@ -13,7 +13,7 @@
 //!
 //! Every function is called from the one thread that steps the loop, and
 //! `ctx` must outlive its registration.
-//! Handle-producing callbacks transfer outputs only on `GLOWCAP_OK`; on any
+//! Handle-producing callbacks transfer outputs only on `GLOWCAP_OK`. On any
 //! error the provider retains and cleans partial work and leaves output slots
 //! untouched. Finish callbacks consume the announced operation on every return.
 
@@ -82,7 +82,7 @@ pub const GlowcapMultiplexedFinishConnectFn = *const fn (
 
 /// Claim one externally established provider connection by its stable,
 /// provider-scoped subject. Success transfers one connection ownership edge
-/// to the driver; `conn_close` retires that edge.
+/// to the driver. `conn_close` retires that edge.
 pub const GlowcapMultiplexedClaimExternalFn = *const fn (
     ctx: ?*anyopaque,
     subject: u64,
@@ -91,17 +91,17 @@ pub const GlowcapMultiplexedClaimExternalFn = *const fn (
 ) callconv(.c) i32;
 
 /// Begin accepting one provider profile through the runtime. `route_id` is minted
-/// by the driver and must be the subject of this listener's accept events;
+/// by the driver and must be the subject of this listener's accept events.
 /// `transport` is the selected package entry, not a second dispatch guess. A nonempty
 /// `requested_designator` is the identity or address the caller expects this
-/// provider to own; empty asks the provider to publish its canonical
+/// provider to own. Empty asks the provider to publish its canonical
 /// designator. `identity_designator` is the durable key of the Host the
 /// listener serves, which a key-designated profile publishes, exactly as the
 /// stream listen receives it. Immediate completion writes `GLOWCAP_LISTEN_READY` and the
 /// provider-owned listener handle. Externally paced setup writes
 /// `GLOWCAP_LISTEN_PENDING`, then emits a listen event carrying `route_id`.
 /// PENDING is legal only when the table supplies both `finish_listen` and
-/// `cancel_listen`; an immediate-only provider must return READY.
+/// `cancel_listen`. An immediate-only provider must return READY.
 pub const GlowcapMultiplexedListenFn = *const fn (
     ctx: ?*anyopaque,
     route_id: u64,
@@ -125,7 +125,7 @@ pub const GlowcapMultiplexedFinishListenFn = *const fn (
 
 /// Claim one accepted connection from `listener_ctx` into `out_conn`.
 /// `GLOWCAP_ERR_WOULD_BLOCK`
-/// means the coalesced accept queue has drained; other failures use the normal
+/// means the coalesced accept queue has drained. Other failures use the normal
 /// `GLOWCAP_ERR_*` vocabulary.
 pub const GlowcapMultiplexedFinishAcceptFn = *const fn (
     listener_ctx: ?*anyopaque,
@@ -133,7 +133,7 @@ pub const GlowcapMultiplexedFinishAcceptFn = *const fn (
     out_failure: ?*transport_provider.GlowcapProviderFailure,
 ) callconv(.c) i32;
 
-/// Stop accepting. Idempotent; the runtime and dial side stay alive. An
+/// Stop accepting. Idempotent. The runtime and dial side stay alive. An
 /// asynchronously retiring provider returns GLOWCAP_ERR_WOULD_BLOCK with an
 /// empty failure, emits EV_LISTEN for the route after joining, then returns
 /// the claim-once terminal outcome when called again.
@@ -144,7 +144,7 @@ pub const GlowcapMultiplexedStopListenFn = *const fn (
 
 /// One subject id (a dial's request id, or a connection id) and no result:
 /// the shape `cancel_connect` and `conn_close` share. One typedef because
-/// the two signatures are identical; each field's contract is on the field.
+/// the two signatures are identical. Each field's contract is on the field.
 pub const GlowcapMultiplexedSubjectFn = *const fn (
     ctx: ?*anyopaque,
     subject: u64,
@@ -178,7 +178,7 @@ pub const GlowcapMultiplexedTryWriteFn = *const fn (
 
 /// Write the channel-authenticated remote durable key (32 bytes) into
 /// `out_key` and return exactly 1 when this transport proves one (iroh's remote
-/// node id); return exactly 0 on a transport whose channel proves nothing. Any
+/// node id). Return exactly 0 on a transport whose channel proves nothing. Any
 /// other status is a provider contract violation and fails the driver loop.
 pub const GlowcapMultiplexedConnRemoteKeyFn = *const fn (
     ctx: ?*anyopaque,
@@ -211,7 +211,7 @@ pub const GlowcapMultiplexedTransport = extern struct {
     cancel_connect: ?GlowcapMultiplexedSubjectFn,
     listen: ?GlowcapMultiplexedListenFn,
     /// Consume one PENDING route on every return. Present exactly with
-    /// `cancel_listen`; absent for an immediate-only listener.
+    /// `cancel_listen`. Absent for an immediate-only listener.
     finish_listen: ?GlowcapMultiplexedFinishListenFn,
     /// Abandon one PENDING route before finish. Present exactly with
     /// `finish_listen` and idempotent after the route has already failed. It

@@ -35,7 +35,7 @@ pub const prerelease_prose: []const Ban = prerelease_rows: {
 /// Forward-looking status claims inside Zig comments rot silently: the
 /// compiler never reads a comment, and the surface ships without anyone
 /// revisiting the sentence. Scope is every first-party `src/**.zig`. Each
-/// needle is an exact phrase that shipped as a stale claim and was corrected;
+/// needle is an exact phrase that shipped as a stale claim and was corrected,
 /// add the next stale phrase's exact wording when a new instance appears.
 pub const zig_status_claims: []const Ban = status_rows: {
     const phrases = [_][]const u8{ "remains planned", "when hosting is implemented" };
@@ -143,8 +143,8 @@ pub const inbound_vocabulary: []const Ban = inbound_rows: {
 };
 
 /// Diagram wire vocabulary: an op's target ("to ...") is a `desc:export` or
-/// `desc:answer` — the spec's to-desc grammar. The import-side descriptors
-/// introduce references; they are never a delivery target. The wrong spelling
+/// `desc:answer`: the spec's to-desc grammar. The import-side descriptors
+/// introduce references. They are never a delivery target. The wrong spelling
 /// reads plausibly and survived review once, so the gate holds it.
 pub const diagram_wire_vocabulary: []const Ban = &.{
     .{
@@ -166,7 +166,7 @@ pub const diagram_wire_vocabulary: []const Ban = &.{
 };
 
 /// The Rooms Settings radio for native-initiated DMs is **Through the room
-/// relay**. The old label survived a rename in CLI and skill prose; a closed
+/// relay**. A stale label survived a rename in CLI and skill prose, so a closed
 /// file list would let the next page revive it.
 pub const rooms_settings_label: []const Ban = label_rows: {
     const scopes = [_]Where{

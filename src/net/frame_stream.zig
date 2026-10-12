@@ -16,7 +16,7 @@
 //! The frame operations themselves are free functions over a type-erased reader
 //! and writer (`readFrameFrom` / `writeFrameTo`), so we test them with
 //! `Reader.fixed` and `Writer.fixed` across both codecs without a socket.
-//! `FrameStream` is just the thin socket-backed binding on top.
+//! `FrameStream` is the thin socket-backed binding on top.
 
 const std = @import("std");
 
@@ -43,8 +43,8 @@ pub fn shutdownStream(stream: *const Stream, io: std.Io) std.Io.net.ShutdownErro
 
 /// The per-connection outbound-queue capacity a drained queue retains (ADR-0042).
 /// Capacity past this is burst from a slow-reader episode and frees on drain, so
-/// one episode never pins its high-water bytes for the connection's life;
-/// capacity at or under it is steady reply traffic and stays, so the steady state
+/// one episode never pins its high-water bytes for the connection's life.
+/// Capacity at or under it is steady reply traffic and stays, so the steady state
 /// never reallocates. One `completion.Loop` honors it for every backend it is
 /// instantiated over, so there is no second Zig spelling to drift from. The
 /// mirror that can drift is across languages: the iroh sidecar keeps its own
@@ -82,7 +82,7 @@ pub fn appendFrameBytes(
 }
 
 /// Write one bare codec frame in byte-stream form. The prefix uses stack
-/// storage; the codec frame remains borrowed and is not copied into a wrapper.
+/// storage. The codec frame remains borrowed and is not copied into a wrapper.
 pub fn writeFrameBytes(w: *std.Io.Writer, bytes: []const u8) std.Io.Writer.Error!usize {
     var prefix_buf: [foundation.stream_framing.prefix_buffer_bytes]u8 = undefined;
     const prefix = foundation.stream_framing.renderPrefix(&prefix_buf, bytes.len);
@@ -92,7 +92,7 @@ pub fn writeFrameBytes(w: *std.Io.Writer, bytes: []const u8) std.Io.Writer.Error
 }
 
 /// Append every encoded outbound frame `peer` holds onto `list`, freeing each
-/// frame as its bytes are copied — the one take-outbound drain shape both
+/// frame as its bytes are copied, the one take-outbound drain shape both
 /// readiness loops ride. It lives here beside `steady_outbound_bytes` because
 /// the bound and the drain it bounds belong together.
 /// On an append failure the current frame is still freed and the remaining
@@ -125,10 +125,10 @@ pub fn reclaimBurst(list: *std.ArrayList(u8), allocator: std.mem.Allocator, boun
 
 /// Outcome of reading one frame off the stream. A malformed / oversize frame is
 /// a transport-fatal condition here (there is no session to project an abort
-/// onto — that is the host peer's job once the frame is fed in); the concrete
+/// onto, that is the host peer's job once the frame is fed in). The concrete
 /// `ReadFailed` cause is preserved on the stream reader.
 pub const FrameError = error{
-    /// Clean EOF on a frame boundary — the peer closed gracefully.
+    /// Clean EOF on a frame boundary, the peer closed gracefully.
     Closed,
     /// EOF arrived mid-frame.
     TruncatedFrame,
@@ -148,14 +148,14 @@ const FillError = error{ TruncatedFrame, FrameTooLarge, ConnectionLost };
 pub const Fill = enum { filled, closed };
 
 /// One blocking read into `r`, deciding only the conditions the codec does not:
-/// a full buffer that still holds no frame cannot fit one (`FrameTooLarge`); a
-/// clean EOF on a frame boundary is `.closed`; an EOF with bytes still buffered
-/// is a mid-frame truncation; a read fault is `ConnectionLost`. The codec
-/// verdict over `r.buffered()` is the caller's; this owns only the byte-supply
+/// a full buffer that still holds no frame cannot fit one (`FrameTooLarge`). A
+/// clean EOF on a frame boundary is `.closed`. An EOF with bytes still buffered
+/// is a mid-frame truncation. A read fault is `ConnectionLost`. The codec
+/// verdict over `r.buffered()` is the caller's. This owns only the byte-supply
 /// edge, so frame-boundary truth lives in one parser and stream-edge truth lives
 /// in one function.
 ///
-/// The full-buffer refusal is the spill-less floor; `fillThroughSpill` turns
+/// The full-buffer refusal is the spill-less floor. `fillThroughSpill` turns
 /// that same condition into a bounded owned accumulation instead, and is what
 /// the frame readers drive.
 fn fillStep(r: *std.Io.Reader) FillError!Fill {
@@ -177,11 +177,11 @@ fn fillStep(r: *std.Io.Reader) FillError!Fill {
 /// prefixes and the spill costs nothing. When one admissible frame outgrows the
 /// buffer, its bytes move here so the prefix stays contiguous while the buffer
 /// keeps reading. That is rare, so the readers here drain with
-/// `spill_retain_bytes` and the burst is returned outright; steady
+/// `spill_retain_bytes` and the burst is returned outright. Steady
 /// per-connection memory is the read buffer again, not `max_frame_bytes`.
 ///
 /// The spill path costs one extra bounded copy per oversize frame (read buffer
-/// into spill); the fast path stays a zero-copy borrow. That copy is a named
+/// into spill). The fast path stays a zero-copy borrow. That copy is a named
 /// design event (ADR-0041).
 pub const Spill = foundation.Spill;
 
@@ -203,7 +203,7 @@ pub fn absorbFrom(spill: *Spill, allocator: std.mem.Allocator, r: *std.Io.Reader
 
 /// Get more inbound bytes for the one parser, spilling instead of refusing when
 /// the read buffer is the only limit: with the spill inactive and the buffer not
-/// full this is one `fillStep`; a full buffer (or an already-active spill)
+/// full this is one `fillStep`. A full buffer (or an already-active spill)
 /// moves the buffered bytes into the spill so the in-flight frame's prefix stays
 /// contiguous while the buffer keeps reading. A clean EOF while a frame is
 /// accumulating in the spill is a mid-frame truncation, not a graceful close.
@@ -288,7 +288,7 @@ pub fn readFrameFrom(
 }
 
 /// Apply one outer-framed byte-stream message to `peer`. The outer length owns
-/// the stream boundary; `recvBorrowed` validates the complete bounded body as
+/// the stream boundary. `recvBorrowed` validates the complete bounded body as
 /// exactly one codec frame and preserves the engine's one-parse apply path.
 pub fn recvOuterPrefix(peer: *engine.Peer, bytes: []const u8) !engine.Peer.RecvStream {
     const outer = switch (outerPrefix(bytes, peer.limits().max_frame_bytes)) {
@@ -313,7 +313,7 @@ pub fn recvOuterPrefix(peer: *engine.Peer, bytes: []const u8) !engine.Peer.RecvS
 
 /// The verdict of draining whole frames from one received chunk.
 const DrainVerdict = enum {
-    /// Every whole frame applied; any partial tail is now in the spill.
+    /// Every whole frame applied. Any partial tail is now in the spill.
     ok,
     /// The stream is unrecoverable. When the codec refused the frame, the
     /// peer has already queued an `op:abort` to flush before the connection
@@ -321,21 +321,21 @@ const DrainVerdict = enum {
     /// through `recvStreamPrefix`, which projects the same typed abort a
     /// decoder refusal does.
     fail,
-    /// A spill allocation failed; close the connection.
+    /// A spill allocation failed. Close the connection.
     close,
 };
 
 /// Apply every whole frame in `chunk` to `peer`, carrying a partial frame tail
 /// into `spill` so the next chunk continues it. This is the one inbound drain
-/// both readiness loops run — the TCP completion loop over recycled pool buffers
-/// and the iroh loop over sidecar `try_read` chunks — so the frame-boundary,
+/// both readiness loops run, the TCP completion loop over recycled pool buffers
+/// and the iroh loop over sidecar `try_read` chunks, so the frame-boundary,
 /// cap-mirror, and spill handling live in a single place and cannot drift.
 ///
 /// A frame already accumulating in the spill absorbs `chunk` and stays the decode
-/// prefix; otherwise whole frames apply straight from the borrowed `chunk` and
+/// prefix. Otherwise whole frames apply straight from the borrowed `chunk` and
 /// only a trailing partial frame copies into the spill (the one bounded copy a
 /// frame split across chunk boundaries pays, ADR-0054). The cap is read from the
-/// peer's own `max_frame_bytes` — the same authority the codec scans against — so
+/// peer's own `max_frame_bytes`, the same authority the codec scans against, so
 /// neither loop can pass a divergent cap.
 pub fn drainWholeFrames(
     peer: *engine.Peer,
@@ -388,9 +388,9 @@ pub const FrameStream = struct {
     /// Cap on an accepted frame. Independent of the read buffer size: an
     /// admissible frame larger than the read buffer accumulates in the spill.
     max_frame_bytes: usize,
-    /// Allocates the spill; the read/write buffers stay caller-owned.
+    /// Allocates the spill. The read/write buffers stay caller-owned.
     allocator: std.mem.Allocator,
-    /// Bounded overflow for frames larger than the read buffer; inactive (and
+    /// Bounded overflow for frames larger than the read buffer. Inactive (and
     /// allocation-free) while frames fit the buffer.
     spill: Spill = .{},
     /// How far the codec has got framing the partial frame at the front of the
@@ -431,7 +431,7 @@ pub const FrameStream = struct {
     }
 
     /// Block for one whole frame as an owned `Frame` (allocated, like the spill,
-    /// from the stream's own allocator); `Closed` on graceful EOF.
+    /// from the stream's own allocator). `Closed` on graceful EOF.
     pub fn readFrame(self: *FrameStream) FrameError!foundation.Frame {
         return readFrameFrom(&self.reader.interface, self.allocator, self.codec_id, self.max_frame_bytes, &self.spill, &self.scan);
     }

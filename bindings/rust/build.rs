@@ -226,7 +226,7 @@ fn env_truthy(name: &str) -> bool {
 }
 
 /// Cold-cache network gate: when `releases_published` is true, fetch unless
-/// `GLOWCAP_SKIP_DOWNLOAD`; when false, fetch only if `GLOWCAP_DOWNLOAD`.
+/// `GLOWCAP_SKIP_DOWNLOAD`. When false, fetch only if `GLOWCAP_DOWNLOAD`.
 fn want_release_fetch(contract: &Contract) -> bool {
 	if contract.releases_published {
 		!env_truthy("GLOWCAP_SKIP_DOWNLOAD")
@@ -268,7 +268,7 @@ fn macro_u32(text: &str, name: &str) -> Option<u32> {
 fn host_target_triple() -> String {
 	// CARGO_CFG_TARGET_ARCH/OS already match zig build release-pack names
 	// (x86_64, aarch64, macos, linux, windows). Other ports normalize host
-	// aliases — see tools/c-abi/c-abi-host-aliases.json.
+	// aliases: see tools/c-abi/c-abi-host-aliases.json.
 	let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| "unknown".into());
 	let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "unknown".into());
 	format!("{arch}-{os}")
@@ -478,7 +478,7 @@ fn fetch_into_cache(contract: &Contract, version: &str, target: &str, cache_lib:
 }
 
 /// List members, reject traversal/links under extract_prefix, then extract.
-/// Refuse/link and extract failures hard-fail; tar list failure returns Err
+/// Refuse/link and extract failures hard-fail. tar list failure returns Err
 /// (tooling soft-fail at the caller).
 fn safe_extract_prefix(tarball: &Path, stage: &Path, prefix: &str) -> Result<(), String> {
 	// One environment for both tar calls below. `TAR_OPTIONS` would otherwise

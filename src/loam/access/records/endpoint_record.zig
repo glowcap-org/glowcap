@@ -13,7 +13,7 @@ pub const EndpointRecord = struct {
     descriptor: loam.ObjectId,
     content: ?Binding = null,
     /// Exact durable content authority administered by a control. This field
-    /// never makes the endpoint usable; role admission remains in its descriptor.
+    /// never makes the endpoint usable. Role admission remains in its descriptor.
     administration: ?Binding = null,
     publication: ?loam.ObjectId = null,
     derivations: Window = .{},

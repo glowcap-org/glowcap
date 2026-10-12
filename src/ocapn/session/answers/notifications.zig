@@ -1,5 +1,5 @@
 //! Stable answer-notification ownership across `op:gc-answers` and position
-//! reuse. The answer table owns pipelining; this module owns the independently
+//! reuse. The answer table owns pipelining. This module owns the independently
 //! accepted resolver/listener obligation and its one stored resolution.
 
 const std = @import("std");
@@ -72,7 +72,7 @@ fn prepareDetachedCapacity(self: *Session, additional: u32) !void {
 }
 
 /// Preflight every allocation a GC batch can need before decrementing one
-/// answer. Attaching an empty payload is ownership-neutral; the authoritative
+/// answer. Attaching an empty payload is ownership-neutral. The authoritative
 /// counts, links, and rows remain unchanged if a later allocation refuses.
 pub fn prepareGc(self: *Session, positions: []const u64) !void {
     const scratch = self.recv_scratch.allocator();
@@ -130,7 +130,7 @@ pub fn prepareGc(self: *Session, positions: []const u64) !void {
 }
 
 /// Commit the final decrement of one inbound answer after `prepareGc`.
-/// Future pipelining dies now; calls, projections, and notifications already
+/// Future pipelining dies now. Calls, projections, and notifications already
 /// accepted for this incarnation move to the detached row-id store without
 /// allocation. The wire name becomes immediately reusable without cancelling
 /// work that crossed the receive transaction before the release.
@@ -249,7 +249,7 @@ fn noticeComplete(payload_in: *const answers.AnswerPayload) bool {
 }
 
 /// Remove a completed detached registry owner. Queued carriers retain the same
-/// box, so this never invalidates a borrowed resolution; the final carrier
+/// box, so this never invalidates a borrowed resolution. The final carrier
 /// releases the exact stored charge.
 pub fn retireDetached(self: *Session, target: answers.AnswerTarget, answer_payload: *answers.AnswerPayload) void {
     if (!noticeComplete(answer_payload)) return;
@@ -267,7 +267,7 @@ pub fn retireDetached(self: *Session, target: answers.AnswerTarget, answer_paylo
 
 /// Resolver-only V1.0 answers have no wire name the partner can GC. Once their
 /// one callback and local consequences are committed, remove the exact virtual
-/// row; queued listener carriers retain the stable payload independently.
+/// row. Queued listener carriers retain the stable payload independently.
 pub fn retireVirtual(self: *Session, target: answers.AnswerTarget) void {
     if (target.name != .virtual) return;
     if (self.isLocalPromiseAnswer(target.name)) return;

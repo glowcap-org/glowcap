@@ -1,18 +1,18 @@
 /**
- * `ToolDraftStore` — the two-reader contract the tool bar's draft
+ * `ToolDraftStore`, the two-reader contract the tool bar's draft
  * values live under.
  *
  * The bar paints them every keystroke. The canvas click handlers
  * read them once, at the click that commits an authored peer,
  * session, or message. Those handlers are long-lived closures, so
  * the store must answer "what is in the field right now" rather
- * than "what was in the field when this closure was built" — the
+ * than "what was in the field when this closure was built", the
  * difference is a session authored with the codec the user had
  * selected a moment ago, committed with no error shown.
  *
  * What these tests do not pin: that the canvas click handlers
  * read through the store rather than through a captured copy. Deno
- * has no DOM, so nothing here renders the app; the reading is one
+ * has no DOM, so nothing here renders the app. The reading is one
  * `toolDrafts.read()` per handler in `use-stage-build-gestures.ts`.
  */
 

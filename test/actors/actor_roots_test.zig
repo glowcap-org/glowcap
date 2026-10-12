@@ -65,7 +65,7 @@ test "releasing the spawn root reclaims an idle actor at the outermost-turn boun
     try std.testing.expect(vat.hasActor(id));
 
     // Releasing the spawn root removes the row at once, but the box parks
-    // until the next outermost turn begins — the borrowed reply's lifetime.
+    // until the next outermost turn begins, the borrowed reply's lifetime.
     vat.releaseActor(id);
     try std.testing.expect(!vat.hasActor(id));
     try std.testing.expect(!freed);

@@ -35,7 +35,7 @@ pub const GlowcapLocatorView = extern struct {
 };
 
 /// Consume one callback-scoped locator view. A producer calls the sink before
-/// returning; the sink must copy anything it keeps.
+/// returning. The sink must copy anything it keeps.
 pub const GlowcapLocatorSinkFn = *const fn (
     sink_ctx: ?*anyopaque,
     locator: ?*const GlowcapLocatorView,

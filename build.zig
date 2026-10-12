@@ -2,7 +2,7 @@
 //!
 //! `layer_table` is the import graph `arch-check` verifies. `archive_table`
 //! names the composable C ABI archives. Helpers below those tables own the
-//! repeated build shapes; `build()` registers the steps by section. `source-check`
+//! repeated build shapes, `build()` registers the steps by section. `source-check`
 //! keeps the documented step inventory in sync with `check`, so membership is a
 //! checked fact rather than a comment convention.
 
@@ -39,16 +39,16 @@ const addRootedSystemCommand = build_common.addRootedSystemCommand;
 
 /// C ABI version (keep in lockstep with `GLOWCAP_VERSION_*` in
 /// `include/glowcap_ocapn.h` and `src/c_abi/ocapn/mod.zig`, and with `.version`
-/// in `build.zig.zon` — the source gate holds the zon triple to this one). Each
+/// in `build.zig.zon`, the source gate holds the zon triple to this one). Each
 /// archive's dynamic library soname tracks `major`.
 const abi_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };
 
 /// The layer DAG, the one authoritative statement of the architecture
-/// (ADR-0040; ADR-0048 for the sibling-codec modules below the codec layer).
+/// (ADR-0040, ADR-0048 for the sibling-codec modules below the codec layer).
 /// Every build graph is generated from this table, and `tools/check/arch_check.zig`
 /// verifies it against the source tree: a granted edge no file imports fails
 /// the gate, so the table carries the edges the code uses, never a wider
-/// silent allowance. Rows are in dependency order; the sans-io core graph is
+/// silent allowance. Rows are in dependency order. The sans-io core graph is
 /// the table prefix ending at `actors`, and the final `glowcap` row is
 /// `src/root.zig`, the curated public namespace over the layers.
 pub const layer_table = [_]arch_check.LayerSpec{
@@ -104,7 +104,7 @@ pub const layer_table = [_]arch_check.LayerSpec{
 /// drives the per-archive header install loop below and a comptime check that
 /// each row's `layer` names a real `layer_table` row. The archives themselves
 /// are built at their use sites, where each needs its own root module and link
-/// handling; a consumer's link-alongside set is the real link line each C
+/// handling. A consumer's link-alongside set is the real link line each C
 /// example spells. Each transport embeds its private lower layers as local
 /// symbols.
 const ArchiveSpec = struct {
@@ -142,12 +142,12 @@ const shared_header_table = [_][]const u8{
 };
 
 comptime {
-    // Hold `archive_table` honest against `layer_table`: every archive's root
+    // Check `archive_table` against `layer_table`: every archive's root
     // layer must name a real row, so a typo or a removed layer fails the build.
     for (archive_table) |arch| _ = layerIndex(arch.layer);
 }
 
-/// Index of `name` in `layer_table`; edges may only point at earlier rows.
+/// Index of `name` in `layer_table`, edges may only point at earlier rows.
 pub fn layerIndex(comptime name: []const u8) usize {
     inline for (layer_table, 0..) |spec, i| {
         if (comptime std.mem.eql(u8, spec.name, name)) return i;
@@ -159,7 +159,7 @@ pub fn layerIndex(comptime name: []const u8) usize {
 /// against the earlier rows. Every module is position-independent so each
 /// static archive (`libglowcap_ocapn.a`, the transport archives) links cleanly
 /// into a PIE consumer (the Rust C ABI dogfood links a static archive into a
-/// position-independent test binary;
+/// position-independent test binary,
 /// without this, the archive's R_X86_64_32S relocations are rejected at link
 /// time). The shared library requires PIC regardless, so both artifacts share
 /// one PIC graph.
@@ -296,13 +296,13 @@ pub fn build(b: *std.Build) void {
 
     // The static lib of each archive, kept so the C examples can link the
     // composed set the consumer would. `libglowcap_ocapn` roots on the `c_abi`
-    // (ocapn) layer module directly — the same module the ocapn header generator
-    // reflects over — so it exports exactly the sans-io ocapn family and nothing
+    // (ocapn) layer module directly, the same module the ocapn header generator
+    // reflects over, so it exports exactly the sans-io ocapn family and nothing
     // the `glowcap` root module would otherwise drag in.
     const ocapn_archive = installArchive(b, "glowcap_ocapn", host_mods[layerIndex("c_abi")], abi_version);
     const ocapn_static = ocapn_archive.static;
     const tcp_archive = installArchive(b, "glowcap_net_transport_tcp", tcp_abi_mod, abi_version);
-    const relay_archive = installArchive(b, "glowcap_net_transport_relay", relay_abi_mod, abi_version);
+    const relay_archive = mbedtls_build.installArchive(b, target, relay_abi_mod, abi_version);
     mbedtls_build.addArchiveChecks(b, target, optimize, native_relay.secure_check, relay_archive.static, relay_archive.dynamic);
     const inproc_archive = installArchive(b, "glowcap_net_transport_inproc", inproc_abi_mod, abi_version);
     const onion_archive = installArchive(b, "glowcap_net_transport_onion", onion_abi_mod, abi_version);
@@ -378,14 +378,19 @@ pub fn build(b: *std.Build) void {
     // preview) registers as one subject from tools/build/site.zig; the
     // language-check handles come back for the `bindings` aggregate.
 
-    // ── Browser proofs: one preflight for all of them ────────────────────────
-    // Every step that drives a real headless Chromium depends on this. The
-    // devcontainer ships the browser in its image, so an absent one means the
-    // image predates that or the build is running somewhere else, and Playwright's
-    // own error names a remedy this project does not use. The script says which
-    // version to install and where the version is written; every browser step
-    // borrows that one answer rather than restating it in a header comment.
-    const browser_preflight = execution.addSystemCommand(b, .build_tool, &.{ "bash", "tools/check/playwright-preflight.sh" });
+    // ── Browser proofs: one prepare step for all of them ─────────────────────
+    // Every step that drives a real headless Chromium depends on this. In the
+    // devcontainer the script prepares the checkout's exact pinned browsers
+    // through the managed-tool lifecycle (tools.sh ensure playwright); a warm
+    // run is a structural readiness check. On a host build it checks the local
+    // Playwright environment instead. Preparation owns its own bounded
+    // deadline, sized from the measured cold download (the shared cache makes
+    // it a once-per-machine cost): a failed preparation is a setup failure,
+    // never a skipped test or a longer scenario deadline.
+    const browser_preflight = execution.addSystemCommand(b, .build_tool, &.{
+        "python3", "tools/run-with-timeout.py",           "--kill-after", "2s", "600s",
+        "bash",    "tools/check/playwright-preflight.sh",
+    });
     browser_preflight.setCwd(b.path("."));
     browser_preflight.has_side_effects = true;
 

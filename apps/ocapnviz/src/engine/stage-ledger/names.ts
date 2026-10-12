@@ -5,7 +5,7 @@
  * a nick is never an identity, and a profile is stated rather than deduced.
  * This class owns the pending-name table (claims that arrived before their
  * session opened) and the one rule for when a label or profile change is
- * an event. The ledger still owns who is on which wire; naming looks that
+ * an event. The ledger still owns who is on which wire. Naming looks that
  * up, then writes the peer row.
  */
 
@@ -16,7 +16,7 @@ import { type LivePeer, type LiveWire, sideOf } from "./types.ts";
 /** How many names claimed for sessions that have not opened the
  * ledger holds at once. A producer states a session's partner name
  * around the time the session opens, so a handful are ever in
- * flight; the bound is what keeps a producer that names sessions it
+ * flight. The bound is what keeps a producer that names sessions it
  * never opens from growing this map for the feed's life. Oldest
  * claim out first. */
 const MAX_PENDING_NAMES = 64;
@@ -25,7 +25,7 @@ export class LedgerNames {
 	/** Names claimed for sessions the ledger has not seen open yet,
 	 * by scoped session id. A producer that replays its state to a
 	 * connecting viewer can state the name before the open, and the
-	 * peer that name belongs to does not exist until the open — so
+	 * peer that name belongs to does not exist until the open, so
 	 * the claim waits here and lands as the peer joins. */
 	#pending = new Map<string, string | null>();
 
@@ -48,10 +48,10 @@ export class LedgerNames {
 	 * withdraw the claim with `null`.
 	 *
 	 * Emits a rename only when the shown name actually changes. A
-	 * producer states the name at every moment it knows it — the rooms
+	 * producer states the name at every moment it knows it, the rooms
 	 * server annotates a session when a member subscribes to a room AND
 	 * again when it registers for direct messages, both with the same
-	 * nick — and restating a name is not a rename. Withdrawing reveals
+	 * nick, and restating a name is not a rename. Withdrawing reveals
 	 * the name underneath rather than freezing the last claim, which is
 	 * how a member leaving a room stops being called by the nick that
 	 * membership gave it.
@@ -131,13 +131,13 @@ export class LedgerNames {
 	 *   publishes the very same records, so a record ARRIVING says that
 	 *   something is reporting and nothing whatever about what that something
 	 *   is. A producer that states nothing leaves its own end unknown, and
-	 *   that holds for glowcap's own producers too — to be named here, you
+	 *   that holds for glowcap's own producers too, to be named here, you
 	 *   have to speak.
 	 * - **The far end of a `next` session.** `glowcap-next` is a
 	 *   glowcap-private CapTP profile (ADR-0003), so a session that
 	 *   negotiated it has a glowcap host at each end. This is the one fact
 	 *   the viewer reads without being told it. The converse proves nothing
-	 *   and is deliberately not read: two glowcap peers meeting on the OCapN
+	 *   and is not read: two glowcap peers meeting on the OCapN
 	 *   v1.0 interop floor speak `v1_0`, exactly as a Goblins vat does, so a
 	 *   `v1_0` session leaves its far end where it was.
 	 *
@@ -151,8 +151,8 @@ export class LedgerNames {
 	 * already shown is not a change, and a peer nobody could speak for stays
 	 * unknown rather than being told so. Learning that a peer runs something
 	 * ELSE is not a case this can reach, because what a peer runs does not
-	 * change while it lives — a different implementation is a different
-	 * peer — so a caller offering one is a caller with a bug, and taking it
+	 * change while it lives, a different implementation is a different
+	 * peer, so a caller offering one is a caller with a bug, and taking it
 	 * would report a wire fact nothing observed. */
 	learnProfile(
 		live: LivePeer,

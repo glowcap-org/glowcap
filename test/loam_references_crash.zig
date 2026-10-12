@@ -1,5 +1,5 @@
 //! SIGKILL around a checked foreign field and payload's ordinary transaction.
-//! Fresh processes reopen both vats; no live session or export position persists.
+//! Fresh processes reopen both vats. No live session or export position persists.
 const std = @import("std");
 const f = @import("loam/access/reference_fixture.zig");
 const h = f.h;

@@ -19,7 +19,7 @@ pub const Error = error{
     ForeignHandlerRefused,
     /// An adapter queue copy tried to drive or change its own admission.
     ReenteredAdmission,
-    /// Teardown owns the Vat; execution and publication have ended.
+    /// Teardown owns the Vat. Execution and publication have ended.
     VatReleased,
     /// An export position is already authoritative for another actor.
     AlreadyPublished,
@@ -54,7 +54,7 @@ pub const Error = error{
 } || std.mem.Allocator.Error;
 
 /// Cancellation is allocation-free and refuses only an absent or active
-/// ingress; queued ownership was reserved at admission.
+/// ingress. Queued ownership was reserved at admission.
 pub const IngressCancellationError = error{
     VatReleased,
     ReenteredAdmission,

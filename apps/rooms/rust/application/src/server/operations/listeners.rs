@@ -2,7 +2,7 @@
 //! server can realize, described in the owning package's own words, with
 //! the options an `up` takes, the live listener in each seat, and the
 //! refusals a seat gives before any socket is touched. The adapter brings
-//! a listener up and down; this decides whether it may.
+//! a listener up and down. This decides whether it may.
 use super::document::{ListenerIntent, OptionValue};
 use crate::{
 	failure::FailureCode,
@@ -222,7 +222,9 @@ impl Ask {
 					transport.name()
 				)));
 			}
-			let value = pair.at(1).expect("a pair has two elements");
+			let Some(value) = pair.at(1) else {
+				return Err(Refusal::plain("an up option is a [name, value] pair"));
+			};
 			if name == "port" {
 				let port = value
 					.integer()

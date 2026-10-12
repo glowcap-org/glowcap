@@ -93,9 +93,9 @@ test "a silent connector cannot park a staged-accept server: a healthy dial open
     }
     const elapsed_ms = net.clock.nowMs(io) - started_ms;
 
-    // The healthy conversation completed promptly — well inside the silent
+    // The healthy conversation completed promptly, well inside the silent
     // connector's handshake budget, which a blocking accept would have spent
-    // parked — and only the healthy accept opened.
+    // parked, and only the healthy accept opened.
     try std.testing.expectEqual(fetch_vow, sink.settled.load(.acquire));
     try std.testing.expect(fetch_vow != 0);
     try std.testing.expect(elapsed_ms < 3_000);

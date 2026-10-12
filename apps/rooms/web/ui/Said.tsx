@@ -3,7 +3,7 @@
 //
 // Toasts leave. These stay with the field, the bell, the meter, or the button
 // they describe, on a line of their own. Over a form control, because the
-// reader has to act on it before the answer will be taken; under a bell, a
+// reader has to act on it before the answer will be taken. Under a bell, a
 // meter, or an act, which have no answer to correct. A refusal arriving over a
 // field moves the field down as it lands. That is the price of keeping it out
 // from behind a phone's keyboard. Refusal is danger ink, a standing
@@ -23,7 +23,7 @@
 // place, which is the thing this paragraph is about.
 //
 // A short one is the whole of it. A long one is held to two lines here and
-// the rest opens on a card — but only when the two lines actually cut it. The
+// the rest opens on a card, but only when the two lines cut it. The
 // clamp is measured rather than guessed from length: a locator that happens
 // to fit is shown whole, and a Show that opened a card saying nothing more
 // than the line already did was a control with nothing behind it.
@@ -41,8 +41,8 @@ import { toastShow } from "../../lib/text/controls.ts";
 export type SaidKind = "failure" | "warning" | "success";
 
 /** Whether the clamped text is being cut, measured on the element itself and
- * again whenever its content or box width changes. A node with no layout — the card it
- * sits on is closed under another layer — says nothing, so the answer it gave
+ * again whenever its content or box width changes. A node with no layout, the card it
+ * sits on is closed under another layer, says nothing, so the answer it gave
  * while visible stands: flipping to "not cut" there would swap the Show
  * button for plain text and lose the focus a closing layer returns to it. */
 function useClamped(content: ReactNode): { ref: (node: HTMLElement | null) => void; clamped: boolean } {

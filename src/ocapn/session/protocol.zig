@@ -6,7 +6,7 @@
 //! here so a codec representation cannot acquire different authority rules.
 //!
 //! Every function operates in place. This boundary adds no allocation, copy,
-//! or second argument walk; the borrowed path keeps the introduced-import
+//! or second argument walk. The borrowed path keeps the introduced-import
 //! record produced by validation and hands that same record to apply.
 
 const std = @import("std");
@@ -102,7 +102,7 @@ pub fn retractPreparedListen(self: *Session, message: model.Message) void {
 /// The commit half of the engine's prepare/commit pairs records through
 /// here, and nowhere else does. A prepare, in the same turn, created or
 /// proved-held every position its message names, reserved its queue seat,
-/// and left the session open — so admission is a turn-atomic assertion,
+/// and left the session open, so admission is a turn-atomic assertion,
 /// validation is the prepare's own construction, and `applySend` below is
 /// infallible for the kinds a prepare builds: a listen's wire-delta retain
 /// increments rows the prepare established (a found row's `getOrPut` takes
@@ -111,7 +111,7 @@ pub fn retractPreparedListen(self: *Session, message: model.Message) void {
 /// carrier's mint proved live. Every arm then only forgets. `recordSend`'s
 /// checks exist because its callers carry no such proof: its GC
 /// re-verification may spill fold scratch to the heap, and a commit that has
-/// spent its reservations has no honest answer to that arm.
+/// spent its reservations has no valid answer to that arm.
 pub fn recordPreparedSend(self: *Session, message: model.Message) void {
     std.debug.assert(self.state == .open);
     switch (message) {
@@ -125,7 +125,7 @@ pub fn recordPreparedSend(self: *Session, message: model.Message) void {
 /// Record the session's own outbound `op:gc-exports`: the release paired with
 /// a listener fire or a V1.0 resolver callback, and the shortening closure a
 /// caller's release carries. Every entry spends a retain the session adopted
-/// (`adoptImportRetain`) for exactly this message, so it cannot fail where
+/// (`adoptImportRetain`) for this message, so it cannot fail where
 /// `recordSend` validates: a caller's release is bounded by
 /// `importReleasable`, and these retains sit outside that bound.
 pub fn recordSessionImportRelease(self: *Session, gc_export: model.GcExport) void {
@@ -223,7 +223,7 @@ pub fn validateInboundDeliverView(
 
 /// Reserve every table row the validated deliver may add. The matching apply
 /// then performs only bounded lookups, refcount increments, and
-/// `putAssumeCapacity`; allocator refusal cannot split answer installation from
+/// `putAssumeCapacity`. Allocator refusal cannot split answer installation from
 /// introduced-import retention after the engine has accepted the frame.
 pub fn prepareValidatedInboundDeliverView(
     self: *Session,
@@ -252,7 +252,7 @@ fn prepareValidatedInboundDeliver(
 }
 
 /// Reserve and overflow-check the import batch produced by one validation
-/// walk. Every mention remains ordered in `introduced.mentions`; this preflight
+/// walk. Every mention remains ordered in `introduced.mentions`. This preflight
 /// only proves that replaying those increments at commit cannot fail.
 pub fn prepareIntroducedImports(
     self: *Session,

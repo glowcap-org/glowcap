@@ -138,7 +138,7 @@ engineTest("a timeline will not be shorter than the last thing on it", () => {
 engineTest("where a document opens is an edit like any other", () => {
 	// The rule the whole shape answers to: the document changes when a reader
 	// changes it, and every change is a step they can walk back. Looking around is
-	// not one, which is why nothing here is called from the camera — the Opens-at
+	// not one, which is why nothing here is called from the camera, the Opens-at
 	// row's button is, and it opens a transaction the way every other row does.
 	const e = docEngine();
 	assertEquals(e.doc.initialView, undefined);
@@ -224,7 +224,7 @@ engineTest("stamping is not itself an edit", () => {
 
 engineTest("a stamp does not make an empty edit look like a change", () => {
 	// The case the stamp-in-snapshot version broke: focus a field, type nothing,
-	// leave. Nothing a reader typed changed, so no history entry — even though a
+	// leave. Nothing a reader typed changed, so no history entry, even though a
 	// stamp had landed since the snapshot was taken.
 	const e = docEngine();
 	e.setDocumentTitle("Held");

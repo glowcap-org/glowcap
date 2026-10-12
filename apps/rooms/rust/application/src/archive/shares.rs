@@ -1,5 +1,5 @@
 //! Immutable durable share identity and revocation. The adapter supplies the
-//! atomic write; this ledger publishes changes only after acknowledgement.
+//! atomic write. This ledger publishes changes only after acknowledgement.
 use super::Filter;
 pub mod protocol;
 use crate::{
@@ -53,9 +53,13 @@ impl Share {
 		self.revoked
 	}
 	/// JSON tuple order and UTF-16 escaping preserve the existing HMAC material.
-	/// Labels do not enter identity; scope does. Root entropy belongs to the host.
+	/// Labels do not enter identity. Scope does. Root entropy belongs to the host.
 	pub fn entropy(&self, root: &[u8; 16]) -> [u8; 16] {
 		let f = &self.filter;
+		#[expect(
+			clippy::expect_used,
+			reason = "a tuple of strings and integers has no failing serialization arm"
+		)]
 		let row = serde_json::to_vec(&(
 			&f.source,
 			&f.generation,
@@ -66,6 +70,10 @@ impl Share {
 			&f.digest,
 		))
 		.expect("validated archive scope serializes");
+		#[expect(
+			clippy::expect_used,
+			reason = "HMAC accepts a key of any length; new_from_slice refuses only fixed-key MACs"
+		)]
 		let mut mac = Hmac::<Sha256>::new_from_slice(root).expect("HMAC accepts a 16-byte key");
 		mac.update(b"glowcap Rooms archive share\0");
 		mac.update(self.id.as_bytes());

@@ -5,7 +5,7 @@
 // need a browser and neither needs a second one, so this module owns the
 // launch and hands back the two verbs.
 //
-// Three details are load-bearing and each was paid for once already. Chromium
+// Three details are essential and each was paid for once already. Chromium
 // needs the unsafe-WebGPU and SwiftShader flags to have a GPU adapter at all
 // with no device present. The page has to reach its own modules over http,
 // because a module graph loaded from `file://` is refused as cross-origin. And
@@ -92,7 +92,7 @@ export class Capture {
 	}
 
 	/** Draw the named frames in the named theme and read them back. `size` is
-	 * the pixel width the mark's 24-unit box is drawn at; the frame itself
+	 * the pixel width the mark's 24-unit box is drawn at. The frame itself
 	 * comes out larger, because the shader's view keeps air around the
 	 * mushroom for its light. */
 	async frames(theme: "dark" | "light", names: string[], size: number): Promise<{ view: View; frames: Frame[] }> {

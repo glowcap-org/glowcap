@@ -2,14 +2,14 @@
 # The register half of the rendezvous, natively (ADR-0088).
 #
 # The sibling rows prove the *dialing* half: a consumer cold-dials a peer that
-# registered at a relay. This proves the other side — a native glowcap CLI is
+# registered at a relay. This proves the other side: a native glowcap CLI is
 # the peer that registers. It binds no listening socket at all; it holds an
 # inbound socket at the relay under its key designator, prints the
 # `keyed-relay` locator that names it, and answers a partner that arrives
 # through the bridge. That is the shape a process behind a NAT needs, and
 # until this row existed the CLI could dial a rendezvous but never join one.
 #
-# Self-contained on purpose: this row owns three processes whose lifetimes
+# Self-contained: this row owns three processes whose lifetimes
 # interlock (relay, registrant, client), where the sibling rows' harness
 # supplies a registrant of its own.
 set -euo pipefail
@@ -64,7 +64,7 @@ case "$locator" in
 *) fail "registrant printed a non-rendezvous locator: $locator" ;;
 esac
 
-# The client has a deliberately dead deployment fallback. It can cold-dial
+# The client has a dead deployment fallback. It can cold-dial
 # only if the locator's route advice is authoritative.
 out=$(GLOWCAP_STATE="$client_state" GLOWCAP_RENDEZVOUS="ws://127.0.0.1:1/relay" \
 	./zig-out/bin/glowcap --json ocapn call "$locator" greeter greet registered 2>&1) || true

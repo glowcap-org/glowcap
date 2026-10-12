@@ -184,7 +184,7 @@ Deno.test("a held key's auto-repeat is not a second press", () => {
 	// Trust this for what it says and no more. It was written for a bug whose
 	// root was elsewhere: a guard that re-derived a held key's meaning from a
 	// live fact instead of latching it at the press. Injecting that defect back
-	// in and running this test passes, because refusing the repeat hides it —
+	// in and running this test passes, because refusing the repeat hides it,
 	// the re-derivation only shows on a press the repeat guard does not cover.
 	// `keyboard-input.test.ts` holds the latch itself, and that is the test
 	// that distinguishes the two designs.

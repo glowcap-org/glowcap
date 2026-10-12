@@ -4,13 +4,13 @@
 // The freestanding wasm32 Host (`zig build wasm-driver`, ADR-0070) declares a
 // two synchronous imports: behavior dispatch and hosted-actor retirement. The
 // module is otherwise self-contained: it draws no entropy, owns no I/O, and
-// carries no other host callback. Another import creeping in — an accidental
-// libc dependency, a new unfulfilled seam, or a rename of either one — changes the
+// carries no other host callback. Another import creeping in, an accidental
+// libc dependency, a new unfulfilled seam, or a rename of either one, changes the
 // contract the adapter's import object must satisfy, so it must fail the build
 // rather than surface as an instantiation error in a browser.
 //
 // This reads the import section statically (`WebAssembly.Module.imports`), so it
-// needs no import object and never instantiates — the import being unsatisfied
+// needs no import object and never instantiates, the import being unsatisfied
 // is exactly the state under test.
 
 const wasmPath = new URL("../../zig-out/wasm/glowcap_host.wasm", import.meta.url);

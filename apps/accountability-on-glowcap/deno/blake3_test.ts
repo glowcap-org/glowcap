@@ -3,8 +3,8 @@
 // This digest has one job: produce the same bytes the Zig host computes with
 // `std.crypto.hash.Blake3`, because an AID that does not match on both sides
 // makes every identity in this application disagree. The cross-language demo
-// proves that agreement by construction — the host re-derives the caller's AID
-// and refuses a mismatch — but the demo is not on the ordinary gate, so this
+// proves that agreement by construction, the host re-derives the caller's AID
+// and refuses a mismatch, but the demo is not on the ordinary gate, so this
 // pins the primitive directly against vectors generated from that same Zig
 // implementation, the empty-input one matching Blake3's universally published
 // value.

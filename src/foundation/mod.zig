@@ -4,7 +4,7 @@
 //! `id` for the `PeerId` and `SessionId`, `crypto` for the Ed25519 and
 //! SHA-256 work the handshake and handoff signatures need, `noise` for the
 //! Noise_XK state machine ADR-0107 names, and `sealed` for the sealed byte
-//! channel composed over it — down here because both stream tiers run one and
+//! channel composed over it, down here because both stream tiers run one and
 //! neither imports the other, the same argument that homes `spill`.
 //! `stream_framing` is the outer length-prefix syntax a byte stream wraps
 //! around each frame, and `failure_chain` is the plain first-and-consequence

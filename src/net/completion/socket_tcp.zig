@@ -35,7 +35,7 @@ pub fn ip4FromTarget(target: std.Io.net.IpAddress) error{AddressFamilyUnsupporte
 }
 
 /// Platform `sockaddr_in` for bind/connect. Darwin's leading `len` byte is
-/// absent on Linux — keep both layouts named, never papered over.
+/// absent on Linux, keep both layouts named, never papered over.
 pub fn SockaddrIn(comptime os: Os) type {
     return switch (os) {
         .darwin => extern struct {
@@ -66,7 +66,7 @@ pub fn loopbackIp4(port: u16) Ip4 {
 }
 
 /// Open an outbound IPv4 TCP socket. Darwin sets `O_NONBLOCK` (kqueue readiness)
-/// and `SO_NOSIGPIPE` (no process-global signal on a torn-down peer); Linux
+/// and `SO_NOSIGPIPE` (no process-global signal on a torn-down peer). Linux
 /// stays blocking by default because io_uring owns async connect and send SQEs
 /// do not raise SIGPIPE into the process. The epoll backend marks its socket
 /// nonblocking after this shared constructor returns.
@@ -109,7 +109,7 @@ pub const BoundListener = struct { fd: i32, port: u16 };
 /// left sockets in TIME_WAIT only when the old and the new listener both set
 /// the option, so every blocking-tier listener sets it unconditionally. A
 /// predecessor without it parks the port for the full TIME_WAIT minute, which
-/// is how a stateful server restarted onto its pinned port used to fail
+/// is how a stateful server restarted onto its pinned port fails
 /// under load. The fd stays blocking on both platforms: the blocking tier
 /// wants `accept(2)` to park its caller.
 pub fn openListenerReuseAddr(comptime os: Os, ip4: Ip4, backlog: u31) !BoundListener {
@@ -123,7 +123,7 @@ pub fn openListenerReuseAddr(comptime os: Os, ip4: Ip4, backlog: u31) !BoundList
 }
 
 /// The local IPv4 address of a bound socket, resolving a `bind(0)` port draw.
-/// `addr` already occupies network-order bytes in memory; `@bitCast` preserves
+/// `addr` already occupies network-order bytes in memory. `@bitCast` preserves
 /// those bytes on either host endian rather than interpreting the integer.
 pub fn boundIp4(comptime os: Os, fd: i32) !Ip4 {
     var out: SockaddrIn(os) = undefined;
@@ -165,7 +165,7 @@ pub fn setNonblocking(fd: i32) bool {
 
 /// Suppress SIGPIPE for Darwin sockets the kqueue backend writes. `SO.NOSIGPIPE`
 /// is a BSD socket option that no other platform declares, so the setsockopt is
-/// comptime-scoped to Darwin; Linux suppresses SIGPIPE at send time with
+/// comptime-scoped to Darwin. Linux suppresses SIGPIPE at send time with
 /// `MSG_NOSIGNAL` and needs nothing here, and the generic blocking TCP resident
 /// still owns its own stream policy. This is `pub` and reached by the public
 /// api-surface walk, so the option name must never be analyzed off Darwin.
@@ -178,8 +178,8 @@ pub fn setNoSigpipe(fd: i32) bool {
 
 /// Disable Nagle on a loop connection, dialed or accepted, matching the
 /// blocking TCP resident's unconditional stream policy. CapTP frames are
-/// small and the protocol does its own batching, so coalescing buys nothing;
-/// with Nagle on, a reply written while an earlier reply is still unacked
+/// small and the protocol does its own batching, so coalescing buys nothing.
+/// With Nagle on, a reply written while an earlier reply is still unacked
 /// waits out the peer's delayed-ACK timer, which turns a pipelined
 /// conversation into one ~40ms round per unit on loopback.
 pub fn setNodelay(comptime os: Os, fd: i32) bool {
@@ -206,8 +206,8 @@ pub fn setNodelay(comptime os: Os, fd: i32) bool {
 pub const SendError = error{ WouldBlock, SendFailed };
 pub const ReceiveError = error{ WouldBlock, ReceiveFailed };
 
-/// Receive one nonblocking prefix. A zero count is the peer's transport EOF;
-/// transient pressure remains distinct from terminal failure.
+/// Receive one nonblocking prefix. A zero count is the peer's transport EOF.
+/// Transient pressure remains distinct from terminal failure.
 pub fn receiveNonblocking(fd: i32, bytes: []u8) ReceiveError!usize {
     while (true) {
         if (builtin.os.tag == .linux) {
@@ -230,7 +230,7 @@ pub fn receiveNonblocking(fd: i32, bytes: []u8) ReceiveError!usize {
 }
 
 /// Send one nonblocking prefix without allowing a torn-down socket to raise
-/// SIGPIPE. Platform syscall details stay in the socket layer; transport
+/// SIGPIPE. Platform syscall details stay in the socket layer. Transport
 /// residents see only progress, transient pressure, or terminal failure.
 pub fn sendNonblocking(fd: i32, bytes: []const u8) SendError!usize {
     while (true) {
@@ -344,7 +344,7 @@ fn closeFd(comptime os: Os, fd: i32) void {
 /// The typed setup-fault set both OS siblings speak: the actionable errno axis
 /// plus the per-operation fallback. The Linux path once collapsed every
 /// unrecognized fault to one `SyscallFailed`, losing which syscall failed while
-/// the kqueue sibling already named each; `checkLinux` now takes the operation's
+/// the kqueue sibling already named each. `checkLinux` takes the operation's
 /// fallback so both name the operation (ADR-0081, contract 1).
 const CheckError = error{
     AddressInUse,
@@ -360,7 +360,7 @@ fn checkLinux(rc: usize, comptime fallback: CheckError) CheckError!void {
         .SUCCESS => {},
         // Name the actionable bind/listen faults so openListener's caller can
         // tell "my prior socket is in TIME_WAIT / a squatter holds the port"
-        // (retry on another port) from a fatal misconfig (fail hard) — the
+        // (retry on another port) from a fatal misconfig (fail hard), the
         // decision a keyed-tcp restart and a reconnecting client must make
         // (ADR-0081). Everything else names the operation that failed.
         .ADDRINUSE => error.AddressInUse,

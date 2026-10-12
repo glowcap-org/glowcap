@@ -123,7 +123,7 @@ pub const Owners = struct {
     /// Python: an `import` clause spanning lines.
     importing: bool = false,
 
-    /// Deeper nesting than this stops tracking rather than growing; a
+    /// Deeper nesting than this stops tracking rather than growing. A
     /// twelve-deep wrapper is not a shape either binding writes.
     const max_depth = 12;
 

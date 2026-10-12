@@ -1,8 +1,8 @@
 //! Owning-tier actor reclamation (ADR-0101): releasing the last application
 //! handle of a spawned capability reclaims its actor while the session stays
-//! open — before Host teardown — and the `Hosting` adapter forwards the
+//! open, before Host teardown, and the `Hosting` adapter forwards the
 //! behavior's state deinit so the reclaim is observable. The Vat-tier root
-//! mechanics live in `test/actors/actor_roots_test.zig`; the alias, gift, and
+//! mechanics live in `test/actors/actor_roots_test.zig`. The alias, gift, and
 //! session-closure roots in `test/driver/core_host/`.
 
 const std = @import("std");

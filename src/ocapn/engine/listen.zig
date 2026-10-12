@@ -29,12 +29,12 @@ const Peer = engine.Peer;
 /// own inbound handler does
 /// (`pipeline.fireLiveObjectExportListener`).
 ///
-/// Named cost: three POD rows in tables the session already owns — the listener
+/// Named cost: three POD rows in tables the session already owns, the listener
 /// export, the outbound answer, and the resolver link binding them. Outbound
-/// answers carry no cap because the session mints them itself; the bound is the
+/// answers carry no cap because the session mints them itself. The bound is the
 /// application's own outstanding listens, the same bound an unanswered call
 /// has. The rows are dropped when the answer is released (`op:gc-answers`) and
-/// otherwise at session teardown; a failed send rolls all three back. The send
+/// otherwise at session teardown. A failed send rolls all three back. The send
 /// itself adds no per-message heap: the listen's two references are
 /// position-only and move through `send`.
 pub fn listenOnFar(peer: *Peer, target: model.Reference) !model.AnswerPosition {
@@ -84,7 +84,7 @@ pub fn listenOnFar(peer: *Peer, target: model.Reference) !model.AnswerPosition {
 /// remote promise. Its resolver is private session maintenance: callbacks are
 /// consumed by inbound dispatch and never mint an application answer.
 /// Production installs the listener through `inbound_shortening`'s prepare and
-/// commit pair inside the dispatch transaction; this direct form is reached
+/// commit pair inside the dispatch transaction. This direct form is reached
 /// only by tests that stage the listener before driving a scenario.
 pub fn ensureShorteningListener(peer: *Peer, source: model.ImportPosition) !void {
     if (peer.session_state.captp_version != .next) return;

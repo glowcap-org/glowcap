@@ -6,7 +6,7 @@ use rooms_application::{
 	failure::FailureCode,
 	server::irc::{
 		gateway::{self, projection},
-		model::{BridgeIntent, NetworkChoice, channel_key},
+		model::{BridgeEntropy, BridgeIntent, NetworkChoice, channel_key},
 		registration,
 	},
 };
@@ -34,6 +34,7 @@ pub(in crate::server) fn behavior(shared: Shared) -> impl FnMut(&str, &[Argument
 				projection::describe(&*shared.borrow().irc.core.borrow())?
 					.encode()
 					.map(Argument::from)
+					.map_err(String::from)
 			}
 			gateway::OPEN_CONNECTION => {
 				let choice = projection::connection_choice(&one(args, verb)?)?;
@@ -222,7 +223,10 @@ pub(super) async fn join(
 			.as_str()
 			.into(),
 	};
-	let entropy = [draw()?, draw()?];
+	let entropy = BridgeEntropy {
+		room: draw()?,
+		steward: draw()?,
+	};
 	let core = shared.borrow().irc.core.clone();
 	let name = {
 		let state = shared.borrow();
@@ -245,9 +249,7 @@ pub(super) async fn join(
 		.change(
 			|current| {
 				let mut next = current.clone();
-				let mut draws = entropy.into_iter();
-				next.remember_irc_bridge(intent, || draws.next().expect("two bridge authority draws"))
-					.map_err(|e| e.to_string())?;
+				next.remember_irc_bridge(intent, entropy).map_err(|e| e.to_string())?;
 				Ok(next)
 			},
 			|document| {
@@ -335,7 +337,7 @@ fn retire(shared: &Shared, key: &str) -> Result<(), String> {
 	if let Some(publication) = state.irc.publications.remove(key) {
 		publication.active.set(false);
 		publication.invitations.borrow_mut().clear();
-		let ended = format!("{}: This IRC bridge was parted.", FailureCode::RoomRetired.wire());
+		let ended = FailureCode::RoomRetired.line("This IRC bridge was parted.");
 		let seated: Vec<_> = publication.seats.borrow().keys().copied().collect();
 		for connection in seated {
 			members::retire(&mut state, &publication, connection, Some(&ended));

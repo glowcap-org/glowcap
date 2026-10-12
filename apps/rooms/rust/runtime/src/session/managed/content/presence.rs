@@ -108,7 +108,7 @@ pub(super) fn references(input: Invocation<'_>, record: &MetadataRecord) -> Resu
 }
 /// The shared read scope copies three bounded source arguments and one method
 /// declaration, retaining the exact source and target until facade retirement.
-/// Its existing continuation count/byte budget owns this cost; a raw upstream
+/// Its existing continuation count/byte budget owns this cost. A raw upstream
 /// sender would let typing survive source revocation and selection replacement.
 pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argument> {
 	let record = records::metadata(input)?;

@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-# Install the pinned Playwright Chromium and its apt packages into the image.
+# Install the system libraries the pinned Playwright's Chromium needs, as the
+# image's one browser-related job. The browsers themselves are not image
+# content: the managed-tool lifecycle (.devcontainer/tools/lib/playwright.sh)
+# downloads the exact pinned requirement into the shared cache on first
+# browser use, and the image-owned libraries are what those downloads launch
+# against. `--with-deps` lets the pinned Playwright name its own apt packages,
+# so the library set derives from the version rather than a copied list that
+# would drift the next time the pin moves.
 set -euo pipefail
 
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -13,8 +20,6 @@ tmp="$(mktemp -d -t glowcap-playwright-install-XXXXXX)"
 trap 'rm -rf "${tmp}"' EXIT
 
 export DEBIAN_FRONTEND=noninteractive
-export PLAYWRIGHT_BROWSERS_PATH
-mkdir -p "${PLAYWRIGHT_BROWSERS_PATH}"
 
 # npx caches the downloaded package under npm_config_cache, which points at a
 # runtime host bind. Writing there during the image build would leave a
@@ -22,11 +27,8 @@ mkdir -p "${PLAYWRIGHT_BROWSERS_PATH}"
 # scratch dir instead.
 export npm_config_cache="${tmp}/npm"
 
-# `--with-deps` lets the pinned Playwright name its own apt packages, so the
-# system libraries are derived from the version rather than copied into a list
-# here that would drift the next time the pin moves. It is an apt operation, and
-# apt operations belong to the image, never to a running container.
-npx --yes "playwright@${PLAYWRIGHT_VERSION}" install --with-deps chromium
-
-# Root installs the browsers; every proof runs as vscode.
-chmod -R a+rX "${PLAYWRIGHT_BROWSERS_PATH}"
+# `--with-deps` runs the apt operation the runtime driver must never run. No
+# browsers land here: without PLAYWRIGHT_BROWSERS_PATH the install would
+# fetch them into ~/.cache/ms-playwright, so only the dependency operation is
+# spelled.
+npx --yes "playwright@${PLAYWRIGHT_VERSION}" install-deps chromium

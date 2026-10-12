@@ -1,4 +1,4 @@
-//! Pure row-family projections; Store admission remains the staging authority.
+//! Pure row-family projections. Store admission remains the staging authority.
 const std = @import("std");
 const common = @import("common.zig");
 

@@ -74,8 +74,8 @@ pub const NodeServices = struct {
 
     /// Bind a concrete node implementation to the erased link stored by a
     /// Peer. The implementation table is typed on the exact context pointer,
-    /// so the compiler proves every callback accepts the context supplied here;
-    /// only this adapter performs the internal erasure.
+    /// so the compiler proves every callback accepts the context supplied here.
+    /// Only this adapter performs the internal erasure.
     pub fn bind(
         ctx: anytype,
         peer_handle: PeerHandle,
@@ -195,19 +195,19 @@ pub const NodeServices = struct {
 
     /// Transfer an owned semantic payload into Node staging when one of its
     /// Passable values needs cross-session projection. `true` means the Node
-    /// adopted the complete payload; `false` leaves it with the caller.
+    /// adopted the complete payload. `false` leaves it with the caller.
     pub fn stageOutbound(self: NodeServices, outbound: *passable.Outbound) OutboundStagingError!bool {
         return self.vtable.stage_outbound(self.ctx, self.peer_handle, outbound);
     }
 
     /// A retracted provisional window removed the row of a carrier the Node
-    /// is still staging (ADR-0194); the Node fails that batch.
+    /// is still staging (ADR-0194). The Node fails that batch.
     pub fn stagedWithdrawn(self: NodeServices, batch: passable.BatchId) void {
         self.vtable.staged_withdrawn(self.ctx, self.peer_handle, batch);
     }
 
     /// The Peer's provisional window closed (ADR-0194), after the Peer kept
-    /// or retracted its own rows; the Node keeps or withdraws what the
+    /// or retracted its own rows. The Node keeps or withdraws what the
     /// window's sends committed beyond them.
     pub fn provisionalClosed(self: NodeServices, retract: bool) void {
         self.vtable.provisional_closed(self.ctx, self.peer_handle, retract);

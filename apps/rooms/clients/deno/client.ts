@@ -3,7 +3,7 @@
 // It connects to the directory, enters the named room (opening it if it does not
 // exist yet), publishes a local `inbox` actor, and hands the room a capability to
 // that inbox when it subscribes. The room answers with a membership seat, and
-// from then on the room calls the client back — the client never polls. It waits
+// from then on the room calls the client back: the client never polls. It waits
 // until everyone it expects is in the room, posts one line on its seat, and
 // collects each expected member's line as the room pushes it back.
 //
@@ -15,14 +15,14 @@
 // The last argument is the roster: a comma-separated list of the member nicks to
 // expect (default: just you). The client posts only once every roster member is
 // present, so an all-to-all broadcast is deterministic no matter what order the
-// members connect in — it learns who is present from the structured presence the
+// members connect in. It learns who is present from the structured presence the
 // room attaches to each membership line (the roster on arrival and each join). It
 // exits 0 once it has seen a line from every roster member, and 1 on timeout. Members
 // outside the roster (people already chatting in an attached room, say) are
 // printed but never counted, so a busy room cannot fake or break the assertion.
 //
 // This is the same application as the Python, Racket, Rust, and Zig clients, on
-// one OCapN wire; the room cannot tell which language a member is written in.
+// one OCapN wire. The room cannot tell which language a member is written in.
 
 import type { Ref } from "@glowcap/runtime";
 import { Directory, readPresence } from "../../lib/room/client.ts";
@@ -121,6 +121,9 @@ export async function runClient(
 					break;
 				case "leave":
 					present.delete(presence.name);
+					break;
+				case "offline":
+					for (const name of presence.names) present.delete(name);
 					break;
 				case "away": // stepped away, or back: still a member
 				case "typing": // ephemeral, never a membership change

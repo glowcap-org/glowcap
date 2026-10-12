@@ -1,7 +1,7 @@
 #lang racket
 ;; Live interop proof for the Racket binding: a peer built on `libglowcap`'s C
 ;; ABI holds a *keyed* OCapN conversation with a real Spritely Goblins vat over
-;; TCP — driven through the *same* `connect`/`enliven`/`send` application surface
+;; TCP, driven through the *same* `connect`/`enliven`/`send` application surface
 ;; the cross-language demos use, so what is proven against a real Goblins vat is
 ;; the application API itself, not a bespoke handshake script.
 ;;

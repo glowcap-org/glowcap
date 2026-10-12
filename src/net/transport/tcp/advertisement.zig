@@ -49,7 +49,7 @@ pub fn locator(
 
 /// Admit `candidate` as a replacement publication for a `profile` listener
 /// serving `identity`. Address-designated TCP may publish a different
-/// reachable address (for example after NAT discovery); key-designated
+/// reachable address (for example after NAT discovery). Key-designated
 /// profiles keep the listener's durable identity and require a dialable
 /// address hint.
 pub fn validate(

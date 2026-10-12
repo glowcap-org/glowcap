@@ -1,20 +1,21 @@
 //! Wire-delta GC emission for stateless capability hosts (ADR-0008).
 //!
 //! A host that does not retain imports introduced by an inbound deliver should
-//! release them immediately via `op:gc-exports`. Likewise, once an outbound answer
-//! is resolved the host may GC the answer position via `op:gc-answers`. This is
-//! adapter policy, the session tables own the counts; these helpers only enqueue
-//! the wire messages after a surfaced event has been handled.
+//! release them immediately via `op:gc-exports`. Likewise, once an outbound
+//! answer is resolved the host may GC the answer position via `op:gc-answers`.
+//! This is adapter policy, the session tables own the counts. These helpers
+//! only enqueue the wire messages after a surfaced event has been handled.
 //!
 //! One exception to "the vat did not retain it, so nobody did": an event the
 //! before-serve hook *claimed* never reaches the vat, and the node may have
 //! retained something from it. A proxy home-listener fire that settles to a
-//! capability is the live case — Host projection transfers a retain into the
+//! capability is the live case: Host projection transfers a retain into the
 //! Node's inline-Passable batch owner, which deposits it after the embedder
-//! answers `need_gift_id`. Releasing the claimed observation on the way out of that
-//! same turn would gc the gift from under its own deposit. `Served.serveEvent`
-//! therefore emits stateless GC only after events that actually reached the vat;
-//! a hook-claimed event keeps its observations under the hook owner's policy.
+//! answers `need_gift_id`. Releasing the claimed observation on the way out of
+//! that same turn would gc the gift from under its own deposit.
+//! `Served.serveEvent` therefore emits stateless GC only after events that
+//! reached the vat. A hook-claimed event keeps its observations under the hook
+//! owner's policy.
 
 const std = @import("std");
 const engine = @import("engine");
@@ -68,18 +69,17 @@ const GcExportBatch = struct {
 };
 
 /// After an inbound deliver is dispatched, emit `op:gc-exports` for every `far`
-/// reference its application arguments introduced that this stateless host
-/// does not retain. A V1.0 resolver descriptor belongs to the answer until its
-/// callback and is released beside that callback, not by event GC. When the event carries
-/// `introduced_far_imports` — the session's own validate walk
-/// (`session.validate.IntroducedImports`), threaded here by
-/// `engine.inbound.dispatchDecodedOwnedFrame` instead of thrown away — that
-/// record is reused directly rather than re-walked. Absent (a deliver
-/// surfaced by a path other than the engine's own inbound dispatch, today
-/// only a drained pipelined call redirected locally), this falls back to the
-/// args walk below, which recurses through lists, sets, tagged values, and
-/// structs — the same shape the session's import-install walk takes — so a
-/// nested introduction's refcount is released exactly like a top-level one
+/// reference its application arguments introduced that this stateless host does
+/// not retain. A V1.0 resolver descriptor belongs to the answer until its
+/// callback and is released beside that callback, not by event GC. When the
+/// event carries `introduced_far_imports` (the session's own validate walk,
+/// `session.validate.IntroducedImports`, threaded here by
+/// `engine.inbound.dispatchDecodedOwnedFrame`), that record is reused instead
+/// of re-walked. Absent (a deliver surfaced by a path other than the engine's
+/// own inbound dispatch, such as a drained pipelined call redirected locally),
+/// this falls back to the args walk below, which recurses through lists, sets,
+/// tagged values, and structs (the same shape the session's import-install walk
+/// takes), so a nested introduction's refcount is released like a top-level one
 /// and the wire-delta accounting balances either way.
 fn emitExportsForDeliver(peer: *engine.Peer, event: *engine.Event) !void {
     const body = try event.view();
@@ -102,8 +102,11 @@ fn emitExportsForDeliver(peer: *engine.Peer, event: *engine.Event) !void {
 
 /// One pass over a borrowed argument list, feeding every introduced `far` into
 /// the batch. An iterator decode error propagates rather than silently ending
-/// the walk; depth past the session's already-validated nesting limit remains
-/// a defensive stop.
+/// the walk. Depth past the session's already-validated nesting limit remains a
+/// defensive stop. The three walkers keep `anyerror`: they are mutually
+/// recursive, which this toolchain refuses to resolve as inferred sets, and
+/// their true set mirrors `Peer.sendCopying`'s inferred set, whose members have
+/// no nameable authority here.
 fn addIntroducedFarsInArgs(batch: *GcExportBatch, args: model.view.Args, depth: usize, max_depth: usize) anyerror!void {
     if (depth > max_depth) return;
     var it = args.iterator();
@@ -119,8 +122,8 @@ fn addIntroducedFars(batch: *GcExportBatch, arg: model.view.Argument, depth: usi
         .list, .set => |items| try addIntroducedFarsInArgs(batch, items, depth + 1, max_depth),
         .tagged => |tagged| try addIntroducedFarsInArgs(batch, tagged.value, depth + 1, max_depth),
         .@"struct" => |entries| try addIntroducedFarsInStruct(batch, entries, depth + 1, max_depth),
-        // Exhaustive on purpose, mirroring the session's install walk: a new
-        // Argument arm must decide here whether it can carry a reference.
+        // Exhaustive, mirroring the session's install walk: a new Argument arm
+        // must decide here whether it can carry a reference.
         .bytes, .symbol, .string, .keyword, .integer, .big_integer, .boolean, .float64, .void, .@"error", .handoff => {},
     }
 }

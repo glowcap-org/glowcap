@@ -236,8 +236,8 @@ test "inproc netlayer: unbounded waitAcceptable parks until a dial arrives" {
 
 /// One racing dial: either it wins (a connection comes back, whose pipes the
 /// close has already EOF'd, so it is torn down immediately) or the close wins
-/// and the dial fails closed with `ConnectionLost`. Anything else — in
-/// particular touching the listener after `close` freed it — is the race this
+/// and the dial fails closed with `ConnectionLost`. Anything else, in
+/// particular touching the listener after `close` freed it, is the race this
 /// test exists to catch.
 fn dialAgainstClose(network: *inproc.Network, allocator: std.mem.Allocator) anyerror!void {
     var peer = engine.Peer.initNegotiating(allocator);

@@ -1,12 +1,19 @@
 // Presentation fixtures exercise managed intent and activity without a Host.
-import type { ConversationIntent, WorkspaceSnapshot } from "../../../web/ui/session/managed/model.ts";
+import type {
+	ConversationIntent,
+	DirectIntent,
+	RoomIntent,
+	WorkspaceSnapshot,
+} from "../../../web/ui/session/managed/model.ts";
 import type { ManagedRoomsSession } from "../../../web/ui/session/managed/session.ts";
+import type { ManagedOperation } from "../../../web/ui/session/managed/operation.ts";
+import type { ManagedNavigation } from "../../../web/ui/session/managed/navigation.ts";
 import { ManagedProjection } from "../../../web/ui/session/managed/projection.ts";
 import { presentationFiles } from "../../../web/ui/session/managed/files.ts";
 import { RoomsPage } from "../../../web/ui/page.ts";
 import * as store from "../../../web/ui/store.ts";
 
-export function room(): ConversationIntent {
+export function room(): RoomIntent {
 	return {
 		kind: "room",
 		id: "conversation",
@@ -19,7 +26,7 @@ export function room(): ConversationIntent {
 		draft: "unfinished",
 	};
 }
-export function direct(): ConversationIntent {
+export function direct(): DirectIntent {
 	return {
 		kind: "direct",
 		id: "conversation",
@@ -31,7 +38,7 @@ export function direct(): ConversationIntent {
 	};
 }
 
-export function fixture(conversation = room()) {
+export function fixture(conversation: ConversationIntent = room()) {
 	const page = new RoomsPage();
 	const current: WorkspaceSnapshot = {
 		revision: "1",
@@ -60,14 +67,29 @@ export function fixture(conversation = room()) {
 	};
 	let staged: string | undefined;
 	const pending: string[] = [];
+	const operations: ManagedOperation[] = [];
 	const acquisitions: string[] = [];
+	const cancelledAcquisitions: string[] = [];
+	const cancelledEffects: string[] = [];
+	const navigation: { readonly selected: string | undefined; choice: ManagedNavigation["choice"] } = {
+		choice: undefined,
+		get selected() {
+			return this.choice?.id;
+		},
+	};
 	const session = {
 		current,
 		access: { status: "active" },
 		pending,
+		pendingOperations: operations,
 		recoverable: pending,
-		actions: { pending: acquisitions, recoverable: acquisitions },
-		navigation: { selected: undefined },
+		effects: {
+			standing: (_name: string, _target: string | null, accepted: string | null) => accepted,
+			cancelledConversations: cancelledEffects,
+		},
+		actions: { pending: acquisitions, recoverable: acquisitions, cancelledConversations: cancelledAcquisitions },
+		openings: { destination: null },
+		navigation,
 		drafts: {
 			stage: (_id: string, text: string) => {
 				staged = text;
@@ -97,7 +119,11 @@ export function fixture(conversation = room()) {
 	return {
 		page,
 		pending,
+		operations,
 		acquisitions,
+		cancelledAcquisitions,
+		cancelledEffects,
+		navigation,
 		current,
 		projection,
 		apply,

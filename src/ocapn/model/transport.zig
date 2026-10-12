@@ -3,8 +3,8 @@
 //! These are locator vocabulary, not I/O: every netlayer resident and the
 //! sans-io driver (`driver_core.vocab`) must use the same bytes. Residents
 //! derive `transport_name` and locator posture from `Known.metadata`. Keeping
-//! those facts here — under `model`, which both `net` and `driver_core` may
-//! import — prevents parallel registries across the I/O ban.
+//! those facts here, under `model`, which both `net` and `driver_core` may
+//! import, prevents parallel registries across the I/O ban.
 
 const std = @import("std");
 
@@ -23,7 +23,7 @@ pub const AddressSource = enum { none, designator, direct_addresses_hint };
 pub const DialShape = enum { unsupported, host_port, peer_id, signaling, rendezvous, route_bundle };
 
 /// How a transport presents CapTP frames to the host once the channel exists.
-/// Byte streams need ADR-0110's outer Syrup byte-string envelope; transports
+/// Byte streams need ADR-0110's outer Syrup byte-string envelope. Transports
 /// that preserve message boundaries carry one bare codec frame per message.
 pub const WireFraming = enum { byte_stream, message };
 
@@ -117,7 +117,7 @@ pub fn validateSymbol(symbol: []const u8) SymbolError!void {
 
 /// Expand the portable provider claim into this model's complete metadata.
 /// Provider ABIs need only carry the locator-level facts every implementation
-/// shares; first-party dial planning remains canonical here and extensions
+/// shares. First-party dial planning remains canonical here and extensions
 /// retain the conservative defaults they declared.
 pub fn metadataFromClaim(
     symbol: []const u8,
@@ -155,12 +155,12 @@ pub const tcp = Known.tcp.metadata().symbol;
 ///
 /// The designator stays an address even though a version 3 service id encodes an
 /// Ed25519 public key. Tor's rendezvous handshake proves the far end holds that
-/// key, but what the key names is the rendezvous service; the CapTP peer is
+/// key, but what the key names is the rendezvous service. The CapTP peer is
 /// whoever holds the local endpoint the service forwards to. ADR-0108 derives
 /// this, and the pinned Goblins dials and is dialed on the same reading.
 pub const onion = Known.onion.metadata().symbol;
 
-/// Keyed TCP: designator is the partner Ed25519 key; socket address rides the
+/// Keyed TCP: designator is the partner Ed25519 key. Socket address rides the
 /// `direct-addresses` hint (ADR-0075).
 pub const keyed_tcp = Known.keyed_tcp.metadata().symbol;
 
@@ -171,9 +171,9 @@ pub const inproc = Known.inproc.metadata().symbol;
 pub const iroh = Known.iroh.metadata().symbol;
 
 /// Relay rendezvous: designator is the peer's Ed25519 key, and there is no
-/// dialable address — the peer holds an inbound socket at a relay under this
+/// dialable address, the peer holds an inbound socket at a relay under this
 /// key, and a dialer is bridged onto it (ADR-0088 cold-dial rendezvous). The
-/// byte channel is the relay leg; the keyed handshake runs end to end. Used to
+/// byte channel is the relay leg. The keyed handshake runs end to end. Used to
 /// reach a peer that opens no listening socket, such as a browser.
 pub const keyed_relay = Known.keyed_relay.metadata().symbol;
 
@@ -184,14 +184,14 @@ pub const webrtc = Known.webrtc.metadata().symbol;
 
 /// Noise-sealed TCP (ADR-0107): `tcp` sockets carrying the sealed byte
 /// channel. The designator is the responder's durable Ed25519 key and the
-/// socket address rides the `direct-addresses` hint, exactly as `keyed-tcp`;
-/// what differs is the wire, where the two CapTP peers complete a Noise_XK
+/// socket address rides the `direct-addresses` hint, as `keyed-tcp`.
+/// What differs is the wire, where the two CapTP peers complete a Noise_XK
 /// handshake before any CapTP byte moves.
 pub const noise_tcp = Known.noise_tcp.metadata().symbol;
 
 /// Noise-sealed relay rendezvous (ADR-0107): the same sealed channel over a
 /// relay's WebSocket pipe, so the relay forwards ciphertext. The designator
-/// is the registered responder's Ed25519 key, exactly as `keyed-relay`; the
+/// is the registered responder's Ed25519 key, as `keyed-relay`. The
 /// relay transport owns the same registered byte-pipe realization, while the
 /// Host selected by this symbol owns the sealed channel.
 /// The completion-loop tier composes the same channel at its backend byte seam
@@ -224,8 +224,8 @@ pub const hint_via = "via";
 /// `CodecId` declares, in decimal, and the optional feature set as a
 /// comma-separated list of `FeatureSet` field names.
 ///
-/// They ride the locator a hello signs — the sender's own `acceptable_location`
-/// — beside `direct-addresses`, so a peer states its profile the same way it
+/// They ride the locator a hello signs, the sender's own `acceptable_location`
+/// beside `direct-addresses`, so a peer states its profile the same way it
 /// states its addresses, and both ends do it symmetrically. On the locator a
 /// dialer was handed they are read once, as knowledge rather than as a
 /// preference: their presence on an onion address marks the acceptor as

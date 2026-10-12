@@ -139,7 +139,7 @@
 ;; thread. Each session owns its own reader, so this thread serving the accepted
 ;; side and the main thread pumping the dialed side never contend.
 (define server (listen "127.0.0.1" 0))
-;; A closed listener no longer has a locator to read, so name it while it lives.
+;; A closed listener has no locator to read, so name it while it lives.
 (define own-uri (server-uri server))
 (define published (make-semaphore 0))
 (define serving

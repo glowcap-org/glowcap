@@ -1,7 +1,7 @@
 /**
  * Undo / redo tooltip labels for every `BuilderIntent`. Extracted
  * from `engine.ts` because the mapping is presentation, not engine
- * mechanics — it grows whenever the UI wants a more specific verb
+ * mechanics. It grows whenever the UI wants a more specific verb
  * ("Rename peer" vs "Edit peer") without touching engine semantics.
  *
  * Pure function over the intent payload. Tests live alongside.
@@ -10,7 +10,7 @@
 import type { BuilderIntent } from "./intents.ts";
 import { PEER_TRAJECTORY, SESSION_TRAJECTORY } from "./trajectory.ts";
 
-/** Forward-direction label for an intent — drives the "Undo X" /
+/** Forward-direction label for an intent, drives the "Undo X" /
  * "Redo X" tooltips. `update-peer` narrows by patch shape so the
  * label reflects the actual edit ("Rename peer" etc.).
  *

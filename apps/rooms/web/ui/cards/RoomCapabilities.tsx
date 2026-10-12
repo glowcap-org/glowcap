@@ -2,7 +2,7 @@
 //
 // The application-wide Operations page supplied the useful shape, not this
 // layout: possession is a visible fact, taking a capability is an explicit
-// act, and only operations backed by a capability actually held are offered.
+// act, and only operations backed by a capability held are offered.
 // A local room moderator can remove members. An IRC gateway holder can retire
 // one exact bridge it administers. The tab shows only the powers this session
 // actually holds, without treating the broader gateway as room stewardship.
@@ -540,7 +540,7 @@ export function RoomCapabilities(
 										/>
 									)
 									: (
-										<div className="actions" data-stack-narrow>
+										<div className="actions">
 											<Button
 												id="convcardStewardDropAsk"
 												variant="quiet"

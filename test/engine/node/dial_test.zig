@@ -25,8 +25,8 @@ const openKeyedSessionWithCounterpart = harness.openKeyedSessionWithCounterpart;
 
 // ── The serve step: the sans-io redeem state machine ─────────────────────────
 //
-// These prove the *decisions* the serve step owns — interception, the exporter
-// cache, dial dedup, pending withdraws, route settlement, fail-closed arms —
+// These prove the *decisions* the serve step owns, interception, the exporter
+// cache, dial dedup, pending withdraws, route settlement, fail-closed arms,
 // as data in and actions out, with no socket. The live proof that the same
 // step drives a real three-party redeem is `zig build goblins-handoff`.
 

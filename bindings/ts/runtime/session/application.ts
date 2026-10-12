@@ -115,7 +115,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 	 * Returns the proxy capability to hand a partner and a `revoke` lever;
 	 * every call through the proxy forwards to `target` until `revoke()`,
 	 * after which each breaks with `Revoked`. `target` may be a capability
-	 * imported over the wire — the proxy forwards transparently — so this
+	 * imported over the wire (the proxy forwards transparently), so this
 	 * hands out a revocable view of authority you do not own locally. */
 	caretaker(target: Ref): { proxy: Ref; revoke: () => void } {
 		return caretakerProxy((behavior) => this.spawn(behavior), target);
@@ -156,7 +156,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 	 * durable `(peer, swissnum)` to life as a live `Ref`. `sturdyref` uses the
 	 * canonical persistent URI form, independent of this live session's CapTP
 	 * profile. The host verifies it against this session before
-	 * consulting its dedup cache — a
+	 * consulting its dedup cache. A
 	 * repeat enliven of the same swissnum on this session short-circuits with
 	 * no wire traffic (its completion is queued before the minting call
 	 * returns). The session must already be open to the sturdyref's peer;
@@ -186,7 +186,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 	 * capability; rejects with `VowBroken` on a partner break).
 	 *
 	 * `target` is a capability `Ref` *or* a `RemotePromise` from an earlier
-	 * send: passing the latter pipelines (ADR-0007) — the call is addressed at
+	 * send: passing the latter pipelines (ADR-0007). The call is addressed at
 	 * the answer that send will resolve, so a dependent chain costs one round
 	 * trip instead of one per link. `args` may contain `Ref`s. A `Ref` this
 	 * session spawned runs in process; a partner's rides the wire, and a
@@ -203,7 +203,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 	): RemotePromise {
 		// A send that cannot be issued comes back as a failed handle, not a
 		// throw. `send` must return synchronously so a caller can pipeline at
-		// the answer before it settles (ADR-0050), so it cannot be `async` —
+		// the answer before it settles (ADR-0050), so it cannot be `async`,
 		// but a promise-returning method whose failure arrives synchronously is
 		// a trap: the obvious `session.send(…).catch(…)` never sees it, and a
 		// caller who cleared a dead route in that handler kept using it.
@@ -233,13 +233,13 @@ export abstract class SessionApplication extends SessionLifecycle {
 	 * the binding redeems it by dialing the exporter, and the reply resolves to a
 	 * capability that routes over a fresh direct session. The byte connection is
 	 * otherwise internal. This returns the session as `via`, so a caller can host
-	 * objects in the same session as the redeemed capability — the one
+	 * objects in the same session as the redeemed capability. It is the one
 	 * place a reply capability handed back to the exporter is valid, since an
 	 * OCapN near export names a position in one specific session. `via`
 	 * is resolved from the reply's own route (the token carries which exporter
 	 * session it lives in), so it is correct with several redeems in flight at
-	 * once and it finds an exporter a prior redeem already dialed — a cache hit
-	 * that opens no new session. `via` is null when the reply is not a
+	 * once and it finds an exporter a prior redeem already dialed (a cache hit
+	 * that opens no new session). `via` is null when the reply is not a
 	 * redeemed-handoff capability (an ordinary far reply) or its exporter
 	 * session is already gone.
 	 *
@@ -282,7 +282,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 	/** Record the complete exporter locator the gifter embeds when *this*
 	 * session is the exporter side of a
 	 * handoff this host originates. Needed when the partner's signed location
-	 * is not dialable on its own — an iroh partner signs only its node id, so a
+	 * is not dialable on its own (an iroh partner signs only its node id), so a
 	 * gifter that learned the exporter's `direct-addresses` out of band sets
 	 * the full locator here. Unset, origination falls back to the partner's
 	 * signed location. */
@@ -355,7 +355,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 	 * glowcap does not open your sockets, so it cannot see what opening them
 	 * established. An iroh connection completes only with the holder of the
 	 * node id you dialed or accepted, and that is a stronger fact than anything
-	 * a partner can claim about itself — but only you hold it. Pass the node id
+	 * a partner can claim about itself, but only you hold it. Pass the node id
 	 * here and {@link partnerIdentity} reports `authenticated-transport`;
 	 * withhold it and the same session reports `unauthenticated`.
 	 *

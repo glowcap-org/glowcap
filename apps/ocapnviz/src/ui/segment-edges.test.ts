@@ -5,15 +5,15 @@
  * state a neighbour can be in. Every segmented control comes through
  * `segmentCellClass`, so this holds for the mode switch, the timeline's lane
  * toggles, the payload viewer's view modes, the Reference's section picker, and
- * the stage's zoom controls at once — the last of which never has a chosen cell
+ * the stage's zoom controls at once, the last of which never has a chosen cell
  * and is here for the row rather than the mark.
  *
  * Why it is worth a test rather than a comment: the defect was invisible to
  * every other check. Cells drop their right border so two neighbours share one
  * line, and the chosen cell's right edge was therefore drawn by the cell after
- * it. That is fine until the neighbour is disabled — `:disabled` fades a control
+ * it. That is fine until the neighbour is disabled, `:disabled` fades a control
  * to 40% and fades every part of it, including a border it was drawing on
- * somebody else's behalf — and then the chosen cell reads as cut open on one
+ * somebody else's behalf, and then the chosen cell reads as cut open on one
  * side. Nothing about it is a stacking-order problem, so the block that exists
  * for paint order could not have fixed it: the pale line is not painted over the
  * mark, it IS the mark, drawn by a faded element.
@@ -35,7 +35,7 @@ const CSS = await Deno.readTextFile(
  *
  * Exactly, and that word is load-bearing. `.ocv-input.is-segment` is both a rule
  * of its own and the second line of another rule's selector list, so searching
- * for the text finds whichever comes first in the file — which is how the first
+ * for the text finds whichever comes first in the file, which is how the first
  * version of this read the shared rule's body and reported the field's own border
  * missing when it was there. Comparing the whole list tells the two apart.
  *
@@ -92,8 +92,8 @@ Deno.test("the cell after a chosen one contributes no edge", () => {
 Deno.test("a field in a row draws its own right edge", () => {
 	// The same ownership question at the other control family, and the answer has
 	// to be the other way round. `.ocv-input:focus` lights the borders a field
-	// OWNS, so a field that shared the button's way — dropping the right border and
-	// letting the next cell draw it — lit three edges accent and left the fourth
+	// OWNS, so a field that shared the button's way, dropping the right border and
+	// letting the next cell draw it, lit three edges accent and left the fourth
 	// grey. An accent box open on one side reads as a missing border.
 	const body = ruleBody(".ocv-input.is-segment");
 	assert(

@@ -48,7 +48,7 @@ fn serveBufferedRegistration(
     try ws_relay.serveUpgrade(&replacement);
     replacement_ready.store(true, .release);
     const stop = ws_relay.readClientFrame(&replacement, &response_buf) catch |err| switch (err) {
-        // Listener cancellation is deliberately abortive: no application byte
+        // Listener cancellation is abortive: no application byte
         // channel was admitted from this registration, so EOF is its normal
         // carrier barrier.
         error.EndOfStream => return,

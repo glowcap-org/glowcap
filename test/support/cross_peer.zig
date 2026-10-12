@@ -7,7 +7,7 @@
 //! lives in test support. The engine keeps the seams these helpers drive:
 //! `engine.cross_peer.SignatureVerifier` and each session's
 //! `engine.bootstrap.gifts.GiftRegistry`. Each helper takes a `*Peer` per
-//! participating session; the compiler's exclusive mutable borrows already
+//! participating session. The compiler's exclusive mutable borrows already
 //! guarantee no two of them alias, so there is no shared state to guard.
 
 const std = @import("std");
@@ -47,7 +47,7 @@ fn startSessionWithKey(key: []const u8) model.Message {
 
 /// Build an open test Peer whose session owns both endpoint keys. Handoff
 /// admission needs the local key to decide whether a give is addressed to this
-/// recipient; an open production session always learned both keys during its
+/// recipient. An open production session always learned both keys during its
 /// handshake, so a keyless Peer is not a valid handoff recipient fixture.
 pub fn openPeerWithSessionKeys(
     allocator: std.mem.Allocator,
@@ -91,7 +91,7 @@ fn alwaysAccept(_: ?*anyopaque, _: []const u8, _: []const u8) bool {
 
 /// A verifier that accepts every signature. **Test / trusted-substrate only.**
 /// Production hosts verify handoff certificates with `foundation.crypto` on the
-/// engine router path; this helper must never be wired as a network default.
+/// engine router path. This helper must never be wired as a network default.
 pub fn testOnlyAcceptingVerifier() SignatureVerifier {
     return .{ .context = null, .verify_fn = alwaysAccept };
 }
@@ -160,10 +160,10 @@ fn expectedReceiver(exporter: *Peer) !?engine.handoff_names.ExpectedReceiver {
 /// verifier, each over its *canonical signed bytes* (ADR-0009): the gifter's
 /// signature over the embedded `desc:handoff-give` record, and the recipient's
 /// signature over the `desc:handoff-receive` record. The signed domain is the
-/// whole envelope, not the gift-id field alone; verifying a single field would
+/// whole envelope, not the gift-id field alone. Verifying a single field would
 /// accept a signature lifted from any other envelope carrying that gift-id. A
 /// production verifier routes each payload to the right key (the gifter's
-/// session key for the give, the recipient key for the receive); the test seam
+/// session key for the give, the recipient key for the receive). The test seam
 /// (`testOnlyAcceptingVerifier`) is key-agnostic.
 pub fn withdrawGift(
     recipient: *Peer,

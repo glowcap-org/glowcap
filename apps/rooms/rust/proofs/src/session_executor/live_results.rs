@@ -1,6 +1,7 @@
 //! Live posted-line custody survives interrupted private settlement and expires
 //! at actual lifetime restart, including a target with a durable local recipe.
 use super::*;
+mod acquisition;
 const SEAT: Schema = Schema {
 	id: 0x534c495645303031,
 	version: 1,
@@ -30,7 +31,7 @@ impl Content for Seat {
 			} else {
 				loam::ReferenceRequest::Save { reference, uri: None }
 			}]
-		} else if input.verb == "post" {
+		} else if input.verb == rooms_application::room::correlation::POST {
 			vec![loam::ReferenceRequest::Restore(0)]
 		} else {
 			Vec::new()
@@ -51,8 +52,12 @@ impl Content for Seat {
 			call.append_reference(&Ref::try_from(&input.args[0]).unwrap())?;
 			return Ok(Argument::Void);
 		}
-		assert_eq!(input.verb, "post");
-		assert_eq!(input.args, [Argument::String("hello".into())]);
+		assert_eq!(input.verb, rooms_application::room::correlation::POST);
+		assert_eq!(input.args.len(), 3);
+		assert_eq!(&input.args[..2], ["hello".into(), "[]".into()]);
+		assert!(rooms_application::room::correlation::valid(
+			input.args[2].as_str().unwrap()
+		));
 		self.calls.set(self.calls.get() + 1);
 		Ok(Argument::List(vec![23.into(), call.disclose(0, false)?]))
 	}
@@ -72,7 +77,7 @@ fn registration(calls: Rc<Cell<usize>>, edits: Rc<Cell<usize>>, live_line: bool)
 				retry: Retry::ReadOnly,
 			},
 			Method {
-				verb: "post".into(),
+				verb: rooms_application::room::correlation::POST.into(),
 				retry: Retry::ReadOnly,
 			},
 			Method {
@@ -150,19 +155,10 @@ async fn run_case(external: bool) {
 				});
 				let mut schemas = managed::schemas();
 				schemas.push(SEAT);
-				let mut limits = crate::session_storage::limits_for(
-					16,
-					8,
-					loam::ValueBounds {
-						values: 32,
-						capabilities: 8,
-						bytes: 4096,
-						..Default::default()
-					},
-				);
-				limits.pending_bytes = limits.call_bytes * limits.max_operations;
-				limits.ingress_bytes = limits.pending_bytes;
-				limits.max_leases *= limits.max_operations;
+				// Source admission, dependent result checks and live-recipe reads
+				// overlap on IndexedDB. Use the production profile's bounded
+				// managed windows, as the direct-result journey does.
+				let limits = managed::production_limits().unwrap();
 				let mut store = database.open(true, &schemas, limits).await;
 				let policy = rooms_glowcap::policy::descriptor().unwrap();
 				let resource = environment::create(
@@ -175,6 +171,7 @@ async fn run_case(external: bool) {
 				)
 				.await;
 				let seat_resource = environment::create(&store, &policy, SEAT, b"seat", 1).await;
+				let replacement_resource = environment::create(&store, &policy, SEAT, b"seat", 4).await;
 				let line_resource = environment::create(&store, &policy, SEAT, b"line", 2).await;
 				let host = Host::from_seed([117; 32]).unwrap();
 				let platform = Platform::default();
@@ -292,7 +289,7 @@ async fn run_case(external: bool) {
 							role: custody::Role::DirectoryAccess,
 							key: key(),
 						},
-						seat,
+						seat.clone(),
 						None,
 					)
 					.await
@@ -307,7 +304,10 @@ async fn run_case(external: bool) {
 				let terms = policy
 					.value_for_kind(
 						session::KIND,
-						&session::SUPPORTED.iter().map(|p| p.key()).collect::<Vec<_>>(),
+						&[
+							rooms_application::content::permissions::Permission::ObserveWorkspace.key(),
+							rooms_application::content::permissions::Permission::InteractWorkspace.key(),
+						],
 						&[],
 					)
 					.unwrap();
@@ -373,6 +373,23 @@ async fn run_case(external: bool) {
 				.await
 				.unwrap();
 				let (data, actual) = disclosed(&host, &source, &canonical).await;
+				let reader = host
+					.send(&source, "effect-reader", &["posted".into(), canonical.clone().into()])
+					.await
+					.unwrap();
+				assert_eq!(
+					host.send(
+						&Ref::try_from(&reader).unwrap(),
+						"read",
+						&["posted".into(), source.clone().into()]
+					)
+					.await
+					.unwrap()
+					.as_str(),
+					Some("committed")
+				);
+				let (replacement, _) = environment::restore(&attachment, replacement_resource).await;
+				acquisition::run(&host, &owner, &root, &source, &canonical, seat, replacement).await;
 				assert_ne!(actual, line, "public result is the saved dependent facet");
 				assert_eq!(
 					disclosed(&host, &source, &canonical).await.1,

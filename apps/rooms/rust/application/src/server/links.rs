@@ -85,6 +85,10 @@ fn durable(name: &str) -> DurableName {
 }
 
 fn positive(value: u64) -> SafeInteger<true> {
+	#[expect(
+		clippy::expect_used,
+		reason = "generations start at one and advance by one per change, far inside the 2^53 bound"
+	)]
 	SafeInteger::new(value).expect("generations stay within the safe range")
 }
 
@@ -313,6 +317,10 @@ impl Authority {
 	}
 
 	fn entropy_for(&self, message: &str) -> [u8; ENTROPY_BYTES] {
+		#[expect(
+			clippy::expect_used,
+			reason = "HMAC accepts a key of any length; new_from_slice refuses only fixed-key MACs"
+		)]
 		let mut mac = Hmac::<Sha256>::new_from_slice(&self.secret).expect("HMAC accepts a 32-byte key");
 		mac.update(message.as_bytes());
 		let digest = mac.finalize().into_bytes();

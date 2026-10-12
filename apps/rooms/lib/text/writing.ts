@@ -1,35 +1,33 @@
 // What a reader can write in a message, said where they write it.
 //
-// The parser is the shared Rust application and it is the one authority on
-// what a line means. Nothing here restates its grammar in prose. Each example
-// below is real source that Help renders through that parser and shows beside
-// the source itself, so the screen that says "this is what you can write" is
-// showing the reader the truth by construction, and a change to the grammar
-// changes the help with it rather than stranding a description of the old one.
+// The shared Rust application's parser is the authority on what a line means,
+// and nothing here restates its grammar in prose. Help renders each example
+// below through that parser and shows the result beside the source, so a
+// grammar change changes the help with it.
 //
-// The examples are few and ordinary on purpose. The complete grammar is
-// CommonMark's with GitHub's additions and is linked; this is the page for
-// somebody who wants bold and a list and did not know they could have either.
+// The examples are few and ordinary. The complete grammar is CommonMark's with
+// GitHub's additions and is linked. This page is for somebody who wants bold
+// and a list and did not know they could have either.
 
 import type { LinkedText } from "./help.ts";
 
-/** The lead links the word itself to a reference a first-time writer can use,
- * and the closing sentence names the exact grammar for a reader who wants it
- * precisely: CommonMark, with the additions GitHub made to it. */
+/** The lead links the word to a reference a first-time writer can use. The
+ * closing sentence names the grammar for a reader who wants it precisely:
+ * CommonMark, with GitHub's additions. */
 export const writingLead: LinkedText = [
 	"Messages take ",
 	{ text: "Markdown", href: "https://commonmark.org/help/" },
 	". Type it the way you would anywhere else, and this is what it becomes.",
 ];
 
-/** One thing a reader can write: what it does, and the exact source that
- * does it. Help renders the source through the real parser beside the source. */
+/** One thing a reader can write: what it does, and the source that does it.
+ * Help renders the source through the real parser beside the source. */
 export interface WritingExample {
 	readonly what: string;
 	readonly source: string;
 }
 
-/** The two columns every example is read across. */
+/** The two columns each example is read across. */
 export const writingTypeColumn = "You type";
 export const writingSeeColumn = "Everyone sees";
 
@@ -56,8 +54,7 @@ export const writingMore: LinkedText = [
 ];
 
 /** One key or chord, and what it does. `mod` stands for the command key on
- * Apple hardware and Ctrl everywhere else; the component substitutes, so these
- * words do not have to know what machine they are on. */
+ * Apple hardware and Ctrl everywhere else. The component substitutes it. */
 export interface WritingShortcut {
 	readonly what: string;
 	readonly keys: readonly string[];
@@ -76,9 +73,8 @@ export const writingShortcuts: readonly WritingShortcut[] = [
 	{ what: "The last thing you sent, to edit it", keys: ["Up"] },
 ];
 
-/** The line under an empty, focused field. The keys a first keystroke needs,
- * and one way to the rest; a list of every syntax there was furniture nobody
- * read and half of it ran off the end of the row. */
+/** The line under an empty, focused field: the keys a first keystroke needs,
+ * and one way to the rest. */
 export interface ComposerHintItem {
 	readonly key: string;
 	readonly does: string;
@@ -98,7 +94,6 @@ export const composerHintDirectory: readonly ComposerHintItem[] = [
 /** The way from the hint to the writing help. */
 export const composerHintFormatting = "Formatting";
 
-/** What `/help` adds after the command list. Plain words rather than a syntax
- * demonstration, because this line is itself rendered as a message and bold
- * markers here would show as bold instead of as something to type. */
+/** What `/help` adds after the command list. It uses plain words, since the
+ * line renders as a message and bold markers would show as bold. */
 export const helpCommandFormatting = "Messages take Markdown. The Writing tab of Help shows what you can write.";

@@ -212,6 +212,7 @@ def loop_sigs(
         "glowcap_driver_wake": ([P], i32),
         "glowcap_driver_next_event": ([P, ctypes.POINTER(_DriverEvent)], i32),
         "glowcap_driver_claim_reference_exporter": ([P, ctypes.POINTER(_Reference), ctypes.POINTER(P)], i32),
+        "glowcap_driver_claim_exporter_session": ([P, P], i32),
         "glowcap_driver_session_close": ([P, P, ctypes.POINTER(_CloseOptions)], i32),
         "glowcap_driver_session_lifecycle_state": ([P, P, u32_p], i32),
         "glowcap_driver_session_serve": ([P, P], i32),

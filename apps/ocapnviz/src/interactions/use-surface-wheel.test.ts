@@ -56,7 +56,7 @@ Deno.test("linear: zero deltas → near-identity zoom (factor≈1)", () => {
 // ─────────────────────── spatial policy (Stage) ───────────────────────
 //
 // Spatial = "zoom on vertical scroll, that's it". No auto-pan from
-// wheel or trackpad — pan requires Spacebar / Hand tool. This is
+// wheel or trackpad, pan requires Spacebar / Hand tool. This is
 // the predictable contract for a workspace canvas where the user's
 // "what is the wheel for?" expectation should be one answer.
 

@@ -3,7 +3,7 @@
 //! glowcap's whole reason to exist is that the session state machine is
 //! codec-neutral: a `Deliver` means the same thing whether Syrup or Cap'n Proto
 //! carried it. The scenario traces in `test/oracle/scenario_trace_test.zig` show
-//! that for two whole conversations; this proves it for each message arm in the
+//! that for two whole conversations. This proves it for each message arm in the
 //! shared passable set, the arms both codecs carry the same way: deliver,
 //! resolve, gc-export, gc-answer, abort, listen, get, index, and untag.
 //!
@@ -25,8 +25,8 @@
 //!
 //! The corpus is the *shared* passable set, what both codecs carry the same way,
 //! including an `error` argument (Syrup encodes it via `writeError`, Cap'n Proto
-//! via its error arm). A few shapes are deliberately codec-dialect-specific and
-//! excluded: a `handoff` *argument* (Cap'n Proto carries it inline; Syrup carries
+//! via its error arm). A few shapes are codec-dialect-specific and
+//! excluded: a `handoff` *argument* (Cap'n Proto carries it inline. Syrup carries
 //! handoffs through their own signed-envelope flow), a `sturdy` *deliver target*
 //! (you enliven a sturdyref, you don't deliver to one), and the promise/object
 //! *kind* of a `far` reference. OCapN's `desc:export` is kind-less by design (the
@@ -226,10 +226,10 @@ test "resolve / gc / abort / listen / get / index arms are codec-equivalent" {
 }
 
 /// Encode a well-formed two-key struct through `codec_id`, patch the second
-/// key's bytes to repeat the first — the duplicate-key frame an untrusted peer
-/// would send — and assert the codec refuses it on the live decode path
+/// key's bytes to repeat the first, the duplicate-key frame an untrusted peer
+/// would send, and assert the codec refuses it on the live decode path
 /// (`decodeBody` + `toOwned`), per ADR-0046's key rule. Syrup refuses while
-/// slicing the dict during body projection; Cap'n Proto refuses when the lazy
+/// slicing the dict during body projection. Cap'n Proto refuses when the lazy
 /// struct backing is built. Either way the refusal is typed and lands before
 /// an owned message exists.
 fn expectDuplicateKeyStructRefused(codec_id: model.CodecId) !void {
@@ -269,8 +269,8 @@ test "a duplicate-key Struct is refused identically through either codec" {
 
 test "i64 boundary integers round-trip and stay codec-equivalent (regression: minInt magnitude is 2^63)" {
     // minInt(i64) is written by Syrup as the unsigned magnitude 9223372036854775808
-    // (2^63) plus a `-` sign; parsing that magnitude as i64 overflowed, so Syrup
-    // used to reject a frame it had just encoded. Both codecs must now carry the
+    // (2^63) plus a `-` sign. Parsing that magnitude as i64 overflows, so the
+    // decoder must not reject a frame it just encoded. Both codecs carry the
     // full i64 range and agree on it.
     try expectCodecEquivalent(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(1) },

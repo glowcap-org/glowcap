@@ -41,12 +41,22 @@ surface meets this rule; unfinished voice is unfinished work.
   Let a chart carry any ordering, and link an external project at its first
   apt mention.
 
+## Narrative
+
+A page says what is true and what to do. Cut how something came to be,
+progress told as prose, an argument for a choice whose reason is already
+given, a fact said twice, and sentences about the page itself. Status belongs
+to `docs/shipped.md`, a plan, or an ADR, and history belongs to git. Keep a
+story only when the reader needs it to understand, such as a worked example.
+If a sentence might be narrative, cut it and reread: keep it only if the page
+no longer makes sense without it.
+
 ## Sentences
 
 - Full sentences with a subject and verb, one idea each. Code spans are nouns
   the sentence uses, never replacements for it. Put the reason in words before
   citing an ADR.
-- Say each idea once; keep small topics small.
+- Keep small topics small.
 - Say what a thing is. One contrast where the distinction is load-bearing,
   never a passage built from denials.
 - No self-praise ("honest", "elegant", "boring on purpose"). State the fact.
@@ -55,10 +65,15 @@ surface meets this rule; unfinished voice is unfinished work.
 - No connective arrows outside a diagram, no telegraphic fragments, no bare
   citation dumps, no `⇒`/`iff`/`s.t.`, and no square brackets around a code
   span without a link target (rustdoc syntax, kept only in `bindings/rust`).
-- The em-dash is occasional: a matched pair for an aside with its own commas,
-  or one turn a comma cannot carry. If a comma, period, colon, or parentheses
-  would do, use that. Agent prose is held to this too, because agents copy
-  scaffolding style into reader-facing copy.
+- Human prose uses no em dashes and no semicolons, on reader and contributor
+  pages alike. Split the thought into two sentences, or use a comma, colon, or
+  parentheses. Both read as generated text on a page a person meant to write.
+  Agent prose keeps the em dash rare too, because agents copy scaffolding
+  style into reader-facing copy.
+- Write it the way a person explains something to a capable friend. Prefer
+  the everyday word ("so" over "therefore", "to" over "in order to", "use"
+  over "utilize"). Keep a technical term when the reader needs it, and say
+  what it means the first time.
 
 `source-check` enforces the mechanical tells (`checkHumanDocVoice`,
 `banHabitualEmDash`, `banHabitualJustification`, `checkProseSentenceLength`).
@@ -67,9 +82,17 @@ Fix the prose; never weaken the check. Retire a row in
 
 ## Insider words
 
-In human prose, prefer: "build check" over gate, "self-contained" over
-hermetic, "reference fixtures" over oracle, "binding check" over dogfood, "docs
-that must match today's code" over living-state, and introduce the ladder
-before saying rung. Keep real identifiers (`zig build oracle-check`,
-`*-dogfood`) and gloss them once. Describe inbound frames as untrusted,
-peer-supplied, or malformed.
+The names we use while building glowcap are not the reader's. A page for
+people using glowcap or Rooms says what they would call the thing: the
+sidebar, not the rail; a Rust library, not the sidecar; storage, not custody;
+a build check, not a gate; reference fixtures, not the oracle. The same goes
+for internal state names (intent, journal, front, pane) and for UI copy a
+screen reader speaks. Refer to an on-screen label by its exact text in bold.
+Keep real identifiers (`zig build oracle-check`) in code spans and gloss them
+once. Describe inbound frames as untrusted, peer-supplied, or malformed.
+Contributor pages may use the working words. `insider_words` in
+`source_check/docs/reader_voice.zig` holds the ones that are never the
+reader's, and `source-check` holds the reader pages and the Rooms text
+catalog (`apps/rooms/lib/text/`) to that list and to the punctuation rule.
+The [reader-voice skill](../skills/reader-voice/SKILL.md) is the procedure
+for writing or sweeping those pages.

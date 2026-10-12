@@ -45,7 +45,7 @@ const Tagged = harness.Tagged;
 const keyedDesignator = harness.keyedDesignator;
 const TraceLog = harness.TraceLog;
 
-/// True when `result` is exactly the reentry refusal — any success or other
+/// True when `result` is exactly the reentry refusal, any success or other
 /// error is a legality-classification bug.
 fn refusedReentered(result: anytype) bool {
     if (result) |_| return false else |err| return err == driver.core.HostError.ReenteredHost;

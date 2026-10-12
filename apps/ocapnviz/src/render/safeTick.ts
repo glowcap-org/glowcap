@@ -7,7 +7,7 @@
  *     running. A bare `app.ticker.add(cb)` would lose the
  *     subsequent frames if `cb` throws, because the throw escapes
  *     into Pixi's rAF loop and Pixi de-registers nothing on its
- *     own — but the React boundary doesn't see it either (the
+ *     own, but the React boundary doesn't see it either (the
  *     callback is invoked outside React's render path).
  *
  *   - safeListener: same shape for `addEventListener` callbacks

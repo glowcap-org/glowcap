@@ -17,7 +17,7 @@ import {
 	runHandshake,
 	serveLoop,
 } from "../pump.ts";
-import type { Channel, LoopChannel, Session } from "../session.ts";
+import type { Channel, LoopChannel } from "../session.ts";
 import { traceDrainHost } from "../trace.ts";
 import { insideTurn } from "../trampoline.ts";
 import type { SessionProfile } from "../value.ts";
@@ -62,12 +62,12 @@ export abstract class SessionLifecycle {
 		prefix: new Uint8Array(HOST_OUTBOUND_PREFIX_CAP),
 		prefixLen: new Uint8Array(8),
 	};
-	// Live accessors into the private fields above — what `pump.ts` drives.
+	// Live accessors into the private fields above. `pump.ts` drives them.
 	readonly #pump: PumpHandle;
 	// Opaque Host capability id -> trampoline ctx id for objects this session
 	// hosts, so a `Forward` whose target this side hosts composes in process.
 	readonly #hosted: Map<bigint, bigint>;
-	// Distributed GC (ADR-0063), opt-in and off by default — see `gc.ts`.
+	// Distributed GC (ADR-0063), opt-in and off by default (see `gc.ts`).
 	#gcEnabled = false;
 
 	protected constructor(ptr: Ptr, host: Host, transport: Channel) {
@@ -76,9 +76,8 @@ export abstract class SessionLifecycle {
 		this.#hosted = host.hosted;
 		this.#transport = transport;
 		this.#pump = this.#makePump();
-		// Join the host's registry so a FLUSH action can find the transport and
-		// a dialed exporter stays reachable for teardown.
-		host.registerSession(ptr, this as unknown as Session);
+		// The host's registry join happens in the concrete `Session`
+		// constructor, once `this` can be typed as the class it stores.
 	}
 
 	/** Bind `#pump` getters/setters onto this Session's private fields. */
@@ -216,8 +215,8 @@ export abstract class SessionLifecycle {
 	// loop lives in `pump.runHandshake`.
 	//
 	// The one place both halves bound that handshake. A peer that opens the byte
-	// channel and then says nothing is the case no failure check can catch —
-	// nothing fails, the handshake simply waits — so unbounded it parks the
+	// channel and then says nothing is the case no failure check can catch:
+	// nothing fails, the handshake waits, so unbounded it parks the
 	// dialer forever, and on the accepting side every later connection behind
 	// that one client. An elapsed budget takes the same abandon path a failed
 	// handshake does, and closing the transport is what unparks the abandoned
@@ -240,8 +239,8 @@ export abstract class SessionLifecycle {
 	 * rejects on a transport or protocol error. Started once; calling again
 	 * returns the same promise.
 	 *
-	 * A loop-backed session (ADR-0112) has no byte pump of its own — the
-	 * native loop reads, feeds, and drains — so its serve promise only awaits
+	 * A loop-backed session (ADR-0112) has no byte pump of its own: the
+	 * native loop reads, feeds, and drains. Its serve promise only awaits
 	 * the session's closure, keeping the resolves-on-close contract. */
 	#attendInbound(): void {
 		if (this.#serving === null) {
@@ -287,7 +286,7 @@ export abstract class SessionLifecycle {
 	}
 
 	/** Drain every transport-ready packet on this CapTP session and write it to
-	 * the transport — how a FLUSH action lands. Writes are serialized, so
+	 * the transport, how a FLUSH action lands. Writes are serialized, so
 	 * packets stay whole and in submission order. On a loop-backed session one
 	 * loop step is the flush. Binding-internal. */
 	async flushOutbound(): Promise<void> {
@@ -359,7 +358,7 @@ export abstract class SessionLifecycle {
 	 * resolves cleanly; pending vows settle with the typed CLOSED.
 	 *
 	 * It does not reach a sibling session, and it does not reach the
-	 * connections the host opened by itself to redeem a handoff — the `via`
+	 * connections the host opened by itself to redeem a handoff: the `via`
 	 * from `sendRedeeming()` is one of those. `Runtime.close()` ends the
 	 * Runtime's Host and those sessions. */
 	async close(options: CloseOptions = {}): Promise<void> {
@@ -494,7 +493,7 @@ export abstract class SessionLifecycle {
 		this.#releasePending = false;
 		const ptr = this.#ptr;
 		this.#ptr = NULL;
-		this.#host.unregisterSession(ptr, this as unknown as Session);
+		this.#host.unregisterSession(ptr, this);
 		if (this.#transportClose == null) {
 			try {
 				this.#transportClose = Promise.resolve(this.#transport.close());
@@ -553,7 +552,7 @@ export abstract class SessionLifecycle {
 			}
 			this.#released = true;
 			this.#releasePending = false;
-			this.#host.unregisterSession(ptr, this as unknown as Session);
+			this.#host.unregisterSession(ptr, this);
 			this.#ptr = NULL;
 			// The released session is retired close-relevant state; wake any
 			// parked close driver.

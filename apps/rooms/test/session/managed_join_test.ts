@@ -8,7 +8,10 @@ import type { RoomsManagedCommand } from "../../../../zig-out/wasm/rooms/rooms_b
 import type { WorkspaceSnapshot } from "../../web/ui/session/managed/model.ts";
 import { ManagedActions } from "../../web/ui/session/managed/actions.ts";
 import type { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
+import { initializeApplication } from "../support/application.ts";
 import { ReadinessNotices } from "../../web/ui/session/managed/readiness.ts";
+
+await initializeApplication();
 
 Deno.test("direct retries keep one opening and ignore sibling readiness", async () => {
 	for (const closing of [false, true]) {
@@ -28,6 +31,15 @@ Deno.test("direct retries keep one opening and ignore sibling readiness", async 
 		const openings: string[] = [];
 		let readiness: Parameters<ManagedRoomsSession["waitNotice"]>[0] | undefined;
 		const session = {
+			execute: async (
+				_id: string,
+				prepare: () => Promise<ManagedOperation>,
+				complete: (op: ManagedOperation) => Promise<void>,
+				continuation?: { settled(): Promise<void> },
+			) => {
+				await complete(await prepare());
+				await continuation?.settled();
+			},
 			refresh: () => Promise.resolve(current),
 			workspace: {
 				directoryReader: () =>
@@ -89,13 +101,14 @@ Deno.test("direct retries keep one opening and ignore sibling readiness", async 
 		assertEquals(openings.length, 2);
 		assertEquals(openings[0], openings[1]);
 		assert(openings[0].length > 0, "one opening identity was minted");
+		const notice = { kind: "introducible" as const, registration: "peer", opening: "sibling" };
 		const event: Parameters<NonNullable<typeof readiness>>[0] = {
 			target: { kind: "directory", id: "directory" },
-			notice: { kind: "introducible", registration: "peer", opening: "sibling" },
+			notice,
 		};
 		assert(readiness != null, "readiness was installed before introduction");
 		assertEquals(readiness(event), false);
-		event.notice.opening = openings[0];
+		notice.opening = openings[0];
 		assertEquals(readiness(event), true);
 	}
 });
@@ -134,6 +147,15 @@ Deno.test("named direct contact reuses only the exact current registration", asy
 		const calls: string[] = [];
 		let opening = "";
 		const session = {
+			execute: async (
+				_id: string,
+				prepare: () => Promise<ManagedOperation>,
+				complete: (op: ManagedOperation) => Promise<void>,
+				continuation?: { settled(): Promise<void> },
+			) => {
+				await complete(await prepare());
+				await continuation?.settled();
+			},
 			refresh: () => Promise.resolve(structuredClone(current)),
 			workspace: {
 				directoryReader: () =>
@@ -291,7 +313,7 @@ for (const existing of [true, false]) {
 		assertEquals(frees, 0, "refusal must retain the original acquisition");
 		assertEquals(session.actions.pending.length, 1);
 		await session.actions.recoverAcquisition(session.actions.pending[0]);
-		assertEquals(accepted.intent.active, selected.id);
+		assertEquals(accepted.intent.active, original.intent.active, "acquisition preserves selection");
 		assertEquals(preparations, 1);
 		assertEquals(submissions, 2);
 		assertEquals(frees, 1);

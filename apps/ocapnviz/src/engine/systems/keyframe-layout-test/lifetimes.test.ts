@@ -117,7 +117,7 @@ layoutTest(
 	"an entity only the document declares keeps to its own timing",
 	() => {
 		// Nothing announces an entity authored in Build, so its declared timing is
-		// what says when it arrives and when it leaves — the same two moments an
+		// what says when it arrives and when it leaves. The same two moments an
 		// observed entity's join and departure state. Seeded into every era
 		// instead, it was a body in the solve before it existed, holding space
 		// against peers that were standing there and taking none of its own when it

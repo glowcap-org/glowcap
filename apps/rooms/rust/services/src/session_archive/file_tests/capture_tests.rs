@@ -113,7 +113,7 @@ pub(super) async fn run(runtime: Rc<Runtime>, client: &Client<HostPlatform>, lin
 }
 
 /// A source that never answers holds only its own line. Reads, and lines
-/// admitted after it, are served while its bytes are outstanding; when the
+/// admitted after it, are served while its bytes are outstanding. When the
 /// source finally fails, its line lands without bytes rather than never.
 ///
 /// Validated against the defect it guards: with the capture awaited on the

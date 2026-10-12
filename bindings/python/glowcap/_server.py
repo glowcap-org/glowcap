@@ -63,7 +63,7 @@ class DriverServer:
         """Stop admission and preserve sessions already returned.
 
         A server that minted its own loop requests that loop's retirement.
-        Native release runs once those application-owned sessions close; this
+        Native release runs once those application-owned sessions close. This
         method does not wait for them, so a finally block can still close the
         sessions it holds. It does join this listener's provider teardown, so
         success means no later accepted session can name it.

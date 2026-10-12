@@ -18,7 +18,7 @@ pub enum Rights {
 	Admin,
 }
 
-/// A display of current access; it does not confer a capability.
+/// A display of current access. It does not confer a capability.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Access {

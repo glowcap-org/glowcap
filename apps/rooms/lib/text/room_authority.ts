@@ -1,19 +1,15 @@
 // Who can manage or moderate a room, and what each act leaves standing.
 //
-// These are destructive acts with different blast radii, and the whole job
-// of the sentences is to say which. Discarding a capability this session
-// holds is not the same as revoking one everybody holds, and a reader about
-// to press one of them needs to know which they are pressing.
+// These are destructive acts with different reach, and the sentences say
+// which. Discarding a capability this session holds is not the same as
+// revoking one everybody holds, and a reader about to press one needs to know
+// which they are pressing.
 
 export const roomCapabilitiesTitle = "Room capabilities";
 
 /** A bridged room has no manager capability to take, because the channel is not
- * this server's to manage. Said in three parts because the middle one is the
- * way there: a sentence that names somewhere else in Rooms and leaves the
- * reader to go and find it has told them about a job instead of giving it to
- * them, and the reader who most needs this is the one who does not yet know
- * where IRC operations is. The component supplies the address, because routes
- * are the page's business and words are this file's. */
+ * this server's to manage. The sentence comes in three parts so the middle one
+ * can be a link to the place to go. The component supplies the address. */
 export const bridgeHasNoManagerLead = "The IRC bridge owns entry and moderator authority. Administer the channel in";
 export const bridgeHasNoManagerLink = "IRC operations";
 export const bridgeHasNoManagerAfter = ".";
@@ -48,8 +44,8 @@ export const roomUnbridgeSay = "Unbridge this room? Every connection closes and 
 export const roomKeepHere = "Keep here";
 export const roomKeepBridge = "Keep bridge";
 
-/** The room card's three wells: management, the entry link, and moderation.
- * Moved here verbatim from the card. */
+/** The room card's three sections: management, the entry link, and
+ * moderation. */
 export function roomAccessNow(preset: string): string {
 	return `Room access is now ${preset}.`;
 }

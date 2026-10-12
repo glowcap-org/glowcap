@@ -1,5 +1,7 @@
-// One viewer prepares commands in order; other viewers retain revision fences.
-import { assertEquals } from "../assert.ts";
+// One viewer prepares commands in order. Other viewers retain revision fences.
+import { assert, assertEquals } from "../assert.ts";
+import { ResultAcquisitionError } from "../../web/ui/session/managed/operation.ts";
+import type { RoomsManagedCommand } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
 import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
 import { initializeApplication } from "../support/application.ts";
 
@@ -16,7 +18,7 @@ Deno.test("terminal observation wakes admission and releases its completed wrapp
 		snapshot: () => Promise.resolve(snapshot()),
 		prepareCommand: (id: string, revision: string, name: string, args: string[]) =>
 			Promise.resolve({
-				originalIntent: () => [id, revision, name, args],
+				originalIntent: () => [id, Number(revision), name, args],
 				submit: () => {
 					submissions++;
 					return Promise.resolve("pending");
@@ -263,7 +265,7 @@ for (const change of ["callback", "access", "source", "uncertain"] as const) {
 			prepareCommand: (id: string, revision: string, name: string, args: string[]) => {
 				prepared.push([id, revision, args]);
 				return Promise.resolve({
-					originalIntent: () => [id, revision, name, args],
+					originalIntent: () => [id, Number(revision), name, args],
 					submit: () => {
 						if (++submissions > 1) return Promise.resolve("committed");
 						if (change === "uncertain") return Promise.reject(new Error("acknowledgment lost"));
@@ -307,7 +309,7 @@ Deno.test("equal command text does not reuse another gesture's uncertain receipt
 			prepared.push(id);
 			const status = id === "original" ? "unknown" : "committed";
 			return Promise.resolve({
-				originalIntent: () => [id, revision, name, args],
+				originalIntent: () => [id, Number(revision), name, args],
 				submit: () => Promise.resolve(status),
 				status: () => Promise.resolve(status),
 				result: () => Promise.reject(new Error("original delivery remains uncertain")),
@@ -330,3 +332,256 @@ Deno.test("equal command text does not reuse another gesture's uncertain receipt
 		await session.close();
 	}
 });
+
+for (const stage of ["status", "refresh", "result"] as const) {
+	Deno.test(`a ${stage} failure preserves exactly the commit evidence already observed`, async () => {
+		let submitted = false;
+		const reason = new Error("observation interrupted");
+		const session = viewer({
+			snapshot: () => submitted && stage === "refresh" ? Promise.reject(reason) : Promise.resolve(snapshot()),
+		});
+		const request = {
+			submit: () => {
+				submitted = true;
+				return Promise.resolve("pending");
+			},
+			status: () => stage === "status" ? Promise.reject(reason) : Promise.resolve("committed"),
+			result: () => Promise.reject(reason),
+			originalIntent: () => ["known", 1, "say", ["room", "delivered"]],
+			free() {},
+		} as unknown as RoomsManagedCommand;
+		try {
+			const outcome = (await Promise.allSettled([(async () => {
+				const operation = await session.perform("known", () => Promise.resolve(request));
+				await session.completeResult(operation);
+			})()]))[0];
+			assert(outcome.status === "rejected", "the interrupted observation is reported");
+			if (stage === "status") assert(outcome.reason === reason, "an unread status proves no commit");
+			else {
+				assert(outcome.reason instanceof ResultAcquisitionError, "observed commit survives later failure");
+				assert(outcome.reason.cause === reason, "the interruption retains its cause");
+			}
+			assertEquals(session.pending, ["known"], "recovery retains the original operation");
+		} finally {
+			await session.close();
+		}
+	});
+}
+
+Deno.test("owned admission and settlement never publish a recovery decision", async () => {
+	const admitted = deferred<void>();
+	const settled = deferred<void>();
+	let status = "pending";
+	const session = viewer({
+		snapshot: () => Promise.resolve(snapshot()),
+		prepareCommand: () =>
+			Promise.resolve({
+				submit: async () => {
+					await admitted.promise;
+					return "pending";
+				},
+				status: () => Promise.resolve(status),
+				receive: () => settled.promise,
+				free() {},
+			}),
+	});
+	const decisions: string[][] = [];
+	const stop = session.subscribe(() => decisions.push([...session.recoverable]));
+	const pending = session.command("first", [], "owned");
+	await session.refresh();
+	admitted.resolve();
+	for (let i = 0; i < 20; i++) await Promise.resolve();
+	await session.refresh();
+	assertEquals(session.recoverable, []);
+	status = "committed";
+	settled.resolve();
+	const operation = await pending;
+	assertEquals(decisions.every((ids) => ids.length === 0), true);
+	session.finish(operation);
+	stop();
+	await session.close();
+});
+
+Deno.test("lost admission explicitly orphans only the retained operation", async () => {
+	const session = viewer({
+		snapshot: () => Promise.resolve(snapshot()),
+		prepareCommand: () =>
+			Promise.resolve({
+				submit: () => Promise.reject(new Error("reply lost")),
+				free() {},
+			}),
+	});
+	await Promise.allSettled([session.command("first", [], "retained")]);
+	assertEquals(session.recoverable, ["retained"]);
+	await session.close();
+});
+
+// TypeScript enforces the table against the generated verb inventory; this
+// loop exercises the common owner for every declared policy as well.
+import { GESTURES } from "../../web/ui/session/managed/gestures.ts";
+for (const name of Object.keys(GESTURES)) {
+	Deno.test(`${name}: owned admission never becomes a decision`, async () => {
+		const reply = deferred<string>();
+		const session = viewer({
+			snapshot: () => Promise.resolve(snapshot()),
+			prepareCommand: () =>
+				Promise.resolve({
+					submit: () => reply.promise,
+					status: () => Promise.resolve("committed"),
+					free() {},
+				}),
+		});
+		const decisions: string[][] = [];
+		const stop = session.subscribe(() => decisions.push([...session.recoverable]));
+		const work = session.command(name, [], "owned");
+		await session.refresh();
+		reply.resolve("committed");
+		const operation = await work;
+		assertEquals(decisions.every((ids) => ids.length === 0), true);
+		session.finish(operation);
+		stop();
+		await session.close();
+	});
+}
+
+for (const front of ["command", "action"] as const) {
+	Deno.test(`${front} captures its selected authority before its first asynchronous read`, async () => {
+		let current = snapshot();
+		current.intent.directories.push({
+			id: "dir",
+			access: "old",
+			nick: "ada",
+			nickAllocation: "exact",
+			home: true,
+			standing: null,
+		});
+		let prepared = 0;
+		const session = viewer({
+			snapshot: () => Promise.resolve(current),
+			prepareCommand: () => {
+				prepared++;
+				throw new Error("must not prepare");
+			},
+		});
+		await session.refresh();
+		const result = Promise.allSettled([
+			front === "command"
+				? session.command("setDirectoryStanding", ["dir", "away"])
+				: session.actions.run("setDirectoryStanding", ["dir", "away"]),
+		]);
+		current = structuredClone(current);
+		current.revision = "2";
+		current.intent.directories[0].access = "replacement";
+		const [outcome] = await result;
+		assertEquals(outcome.status, "rejected");
+		if (outcome.status === "rejected") {
+			assert(
+				outcome.reason.message.includes("selection changed"),
+				"refuse the retired authority before preparation",
+			);
+		}
+		assertEquals(prepared, 0);
+		assertEquals(session.pending, []);
+		await session.close();
+	});
+}
+
+for (const keep of [false, true]) {
+	for (const change of ["room startup", "retention choice", "erasure"] as const) {
+		Deno.test(`history ${keep}: admission fences ${change} at the retention owner`, async () => {
+			let current = snapshot();
+			current.intent.keepHistory = !keep;
+			current.intent.conversations.push({
+				kind: "room",
+				id: "room",
+				directory: "directory",
+				source: "source",
+				access: "access",
+				name: "room",
+				control: null,
+				reconnect: "requested",
+				standing: null,
+				draft: "",
+			});
+			let prepared = 0;
+			const session = viewer({
+				snapshot: () => Promise.resolve(current),
+				prepareCommand: (id: string, revision: string, name: string, args: string[]) => {
+					prepared++;
+					return Promise.resolve({
+						originalIntent: () => [id, Number(revision), name, args],
+						submit: () => Promise.resolve("committed"),
+						status: () => Promise.resolve("committed"),
+						free() {},
+					});
+				},
+			});
+			try {
+				await session.refresh();
+				const work = Promise.allSettled([session.command("chooseHistoryRetention", [String(keep)])]);
+				current = structuredClone(current);
+				current.revision = "2";
+				if (change === "room startup") current.intent.conversations[0].inbox = "callback";
+				else if (change === "retention choice") current.intent.keepHistory = keep;
+				else current.intent.historyErasure = "original-erasure";
+				const [outcome] = await work;
+				assertEquals(outcome.status, change === "room startup" ? "fulfilled" : "rejected");
+				assertEquals(prepared, change === "room startup" ? 1 : 0);
+				if (outcome.status === "fulfilled") session.finish(outcome.value);
+				if (outcome.status === "rejected") {
+					assert(
+						outcome.reason.message.includes("selection changed"),
+						"the changed retention owner refuses admission",
+					);
+				}
+			} finally {
+				await session.close();
+			}
+		});
+	}
+}
+
+for (const level of ["global", "directory", "room"] as const) {
+	Deno.test(`effective standing projects and conflicts at its ${level} owner`, async () => {
+		const current = snapshot();
+		current.intent.directories.push({
+			id: "directory",
+			source: "source",
+			access: "access",
+			standing: level === "directory" ? "here" : null,
+			nick: "reader",
+			nickAllocation: "exact",
+			home: true,
+		});
+		current.intent.conversations.push({
+			kind: "room",
+			id: "room",
+			directory: "directory",
+			source: "room-source",
+			access: "room-access",
+			name: "room",
+			control: null,
+			reconnect: "requested",
+			standing: level === "room" ? "here" : null,
+			draft: "",
+		});
+		const session = viewer({ snapshot: () => Promise.resolve(current) });
+		await session.refresh();
+		const name = level === "global"
+			? "setStanding"
+			: level === "directory"
+			? "setDirectoryStanding"
+			: "setRoomStanding";
+		const target = level === "global" ? null : level;
+		session.effects.reserve("effective", "setEffectiveStanding", ["room", "away"]);
+		assertEquals(session.effects.standing(name, target, "here"), "away");
+		let refusal = "";
+		try {
+			session.effects.reserve("other", name, target == null ? ["here"] : [target, "here"]);
+		} catch (error) {
+			refusal = String(error);
+		}
+		assert(refusal.includes("still pending"), "the effective scope blocks its owning setting");
+		await session.close();
+	});
+}

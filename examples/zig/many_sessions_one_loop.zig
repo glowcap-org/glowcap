@@ -9,7 +9,7 @@
 //!
 //! Three roles in one process: the widget host (exporter), the directory
 //! (gifter), and the clients (recipients). The widget host and the directory
-//! each serve from one thread; each client runs its own `driver.Session`.
+//! each serve from one thread. Each client runs its own `driver.Session`.
 //!
 //! Run: `zig build examples` (it also runs under `zig build check`).
 

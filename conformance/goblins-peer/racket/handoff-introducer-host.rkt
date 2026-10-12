@@ -1,10 +1,10 @@
 #lang racket
-;; handoff-introducer-host.rkt — the Goblins side of a live three-party handoff,
+;; handoff-introducer-host.rkt: the Goblins side of a live three-party handoff,
 ;; with glowcap playing the recipient (Carol).
 ;;
 ;; Two Goblins vats in one process:
-;;   * Bob  — hosts a `^greeter` cap (the exporter / gift origin).
-;;   * Alice — enlivens Bob's greeter, then hosts an `^introducer` cap that hands
+;;   * Bob, hosts a `^greeter` cap (the exporter / gift origin).
+;;   * Alice, enlivens Bob's greeter, then hosts an `^introducer` cap that hands
 ;;             that live ref out. Alice is the gifter; the introducer is what the
 ;;             recipient enlivens and asks for the greeter.
 ;;

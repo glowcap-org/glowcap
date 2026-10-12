@@ -14,11 +14,11 @@ amended_by: [ADR-0166]
 
 ## Context
 
-The [storage plan](../../planning/loam/access/storage.md) requires a bounded working
-set and one authority evaluator across resident and persistent execution.
-Scope previously depended directly on the resident graph. Adding a database
-adapter behind that dependency would either treat unloaded data as absent or
-require another implementation of resource ancestry.
+The [storage plan](../../loam/access-storage.md) requires a bounded working set
+and one authority evaluator across resident and persistent execution. Scope
+depended directly on the resident graph. Adding a database adapter behind that
+dependency would either treat unloaded data as absent or require another
+implementation of resource ancestry.
 
 This slice establishes the data-only read boundary and first record grammar.
 It does not implement the complete owner store, a cache, asynchronous loading,
@@ -29,7 +29,7 @@ or restoration of capability authority.
 Expose `ResourceView` through `glowcap.loam.access.core`. A view binds an owner and
 resource revision, a maximum ancestry depth, and a synchronous record-source
 function. A source returns a snapshot-stamped present record, known absence,
-or unloaded state. Its only direct failure is `ReadFailed`; it cannot supply
+or unloaded state. Its only direct failure is `ReadFailed`. It cannot supply
 an access decision or substitute an error for a typed unloaded response.
 The embedding must keep the source alive and serialize calls with its state.
 
@@ -37,28 +37,28 @@ A canonical structural record contains resource identity, kind, and parent.
 `Record.validate` checks generation and immediate parent shape. The view
 checks the returned identity and snapshot before exposing a value. Row shape
 and snapshot agreement cannot prove that a malicious storage adapter supplied
-truthful data; the source is part of the trusted embedding.
+truthful data. The source is part of the trusted embedding.
 
 `get` returns `RecordUnloaded` with an exact owner/revision/resource demand in
 `missing`. Callers inspect that field only after that error. A new lookup clears
-the old demand. Unknown and deleted records remain distinct from unloaded ones;
-stale present, absent, and unloaded replies all refuse as `RevisionConflict`.
+the old demand. Unknown and deleted records remain distinct from unloaded ones.
+Stale present, absent, and unloaded replies all refuse as `RevisionConflict`.
 The demand is not an asynchronous completion receipt or an authority handle.
 Owner incarnation, load coalescing, pin ownership, and late-completion matching
 still belong to the pending storage-effect implementation.
 
-`Scope` and `Terms` now consume this view. The resident graph exposes a view,
-and its own ancestry operation uses the same traversal. Grant use, issuance,
-and control-ceiling validation construct resident views before calling those
-shared functions. No callback implements containment or permission algebra.
-The ledger itself still retains all grant records and its resource graph.
+`Scope` and `Terms` consume this view. The resident graph exposes a view, and
+its own ancestry operation uses the same traversal. Grant use, issuance, and
+control-ceiling validation construct resident views before calling those shared
+functions. No callback implements containment or permission algebra. The ledger
+itself still retains all grant records and its resource graph.
 
 Subtree traversal follows canonical parent edges with bounded work and no
 allocation. A positive ancestor match still validates the remaining path to a
-root; it cannot hide an unloaded or absent ancestor, a cycle, or excess depth.
+root. It cannot hide an unloaded or absent ancestor, a cycle, or excess depth.
 Cycles longer than one edge exhaust the configured depth budget and refuse.
 This costs a complete ancestry walk even when the selected subtree matches
-near the target; it remains bounded by configured depth, not owner size.
+near the target. It remains bounded by configured depth, not owner size.
 Selected scopes continue to validate every member before returning coverage.
 
 ## Structural record grammar
@@ -71,13 +71,13 @@ row revision, and canonical structural resource. The first grammar is:
 parent = false | [ owner-bytes slot generation ]
 ```
 
-The notation abbreviates actual Syrup lengths and integer markers. Owners are
-exactly 16 bytes in big-endian order. Slots fit unsigned 32 bits; generations,
-kinds, and revisions fit unsigned 64 bits. Zero resource generations, foreign
-parents, and immediate self-parenting refuse through shared record validation.
-The row revision records a stored version; it does not establish which backend
-snapshot supplied a later read. The record source must independently stamp that
-snapshot. The codec does not publish a capability from decoded identifiers.
+The notation abbreviates Syrup lengths and integer markers. Owners are 16 bytes
+in big-endian order. Slots fit unsigned 32 bits. Generations, kinds, and
+revisions fit unsigned 64 bits. Zero resource generations, foreign parents, and
+immediate self-parenting refuse through shared record validation. The row
+revision records a stored version. It does not establish which backend snapshot
+supplied a later read. The record source must independently stamp that snapshot.
+The codec does not publish a capability from decoded identifiers.
 
 `encodeAlloc` produces one exact allocation, freed by its caller. `decode`
 returns owned scalar values without allocation or retained byte borrows. A
@@ -101,8 +101,8 @@ resident and forced-miss records. It checks stale snapshots, mixed-revision
 traversals, missing/deleted distinctions, malformed identity/parent records,
 bounded cycle refusal, full selection validation, and expired resident views.
 The resident read and reparent path is checked with allocations disabled.
-Temporarily removing snapshot validation made the stale-reply test fail;
-returning early after a subtree match made the ancestry test fail. Both defects
+Temporarily removing snapshot validation made the stale-reply test fail.
+Returning early after a subtree match made the ancestry test fail. Both defects
 were removed and the focused suite rerun.
 
 `test/loam/access/resource_record_test.zig` pins root and parent golden encodings,

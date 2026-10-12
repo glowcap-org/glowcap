@@ -3,7 +3,7 @@ import { endpointStageId } from "../schema/session-end.ts";
 import { payloadOf, wireFrames } from "./wire-frames.ts";
 
 /**
- * Chapter 07 — Speak Goblins (OCapN 1.0).
+ * Chapter 07, Speak Goblins (OCapN 1.0).
  *
  * The same call-and-answer pattern as chapter 01, but on the OCapN 1.0
  * baseline, where a resolution is not an `op:resolve` at all: the runtime
@@ -12,8 +12,8 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  * argument different and the wire bytes differ from byte one.
  *
  * On the wire: Alice is at `127.0.0.1:9701` and Bob at
- * `127.0.0.1:9702`, over plain `tcp`. Bob does not publish a trace —
- * Goblins has no tap this viewer reads — so nothing correlates his
+ * `127.0.0.1:9702`, over plain `tcp`. Bob does not publish a trace,
+ * Goblins has no tap this viewer reads, so nothing correlates his
  * end. Plain TCP proves nothing about the designator in his hello, so
  * that far end remains a loose claim.
  * Bob is a Goblins vat, and Goblins states no profile in its hello, so both
@@ -23,7 +23,7 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
 const AGENT = "ocapnviz:fixtures/07-speak-goblins";
 
 /** The OCapN Session ID this recording carries, 64 lowercase hex digits the
- *  way a real one is. Named rather than written at each use because it is now
+ *  way a real one is. Named rather than written at each use because it is
  *  read twice over: once as the session's own id, and again through
  *  `endpointStageId` for the far end nothing has attributed. A second copy of
  *  it silently detaches those messages from their session. */

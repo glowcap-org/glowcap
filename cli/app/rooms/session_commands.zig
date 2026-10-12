@@ -23,6 +23,7 @@ const join = [_]Flag{ dir, nick, locator, rooms };
 const start = join ++ [_]Flag{
     value("transport", "iroh (default), tcp (cleartext tests), or onion"),
     value("relay-url", "Browser rendezvous relay URL"),
+    value("relay-alias-url", "Advertised route to dial through the configured relay (same registry)"),
     value("reachability", "iroh discovery (default) or direct"),
 };
 const team_start = start ++ [_]Flag{
@@ -31,7 +32,7 @@ const team_start = start ++ [_]Flag{
     value("max", "Maximum roster size including lead (default 4)"),
 };
 pub const commands = [_]types.Command{
-    .{ .name = "serve", .short_help = "Serve a foreground session for a host supervisor or attached browser", .flags = &(@import("commands.zig").transport ++ [_]Flag{ dir, value("checkpoint", "Import managed workspace intent into an empty session"), value("readiness-file", "Write the workspace use capability here"), value("relay-url", "Browser rendezvous relay URL") }), .run = @import("mod.zig").run("rooms-session", .session_serve) },
+    .{ .name = "serve", .short_help = "Serve a foreground session for a host supervisor or attached browser", .flags = &(@import("commands.zig").transport ++ @import("commands.zig").admission ++ [_]Flag{ dir, value("checkpoint", "Import managed workspace intent into an empty session"), value("readiness-file", "Write the workspace use capability here"), value("relay-url", "Browser rendezvous relay URL"), value("relay-alias-url", "Advertised route to dial through the configured relay (same registry)") }), .run = @import("mod.zig").run("rooms-session", .session_serve) },
     .{ .name = "ready", .short_help = "Read the foreground session's readiness capability", .flags = &.{value("file", "Readiness file (required)")}, .run = @import("mod.zig").run("rooms-session", .session_ready) },
     .{ .name = "start", .short_help = "Start or restore a durable Rooms workspace", .flags = &start, .run = run("start") },
     .{ .name = "join", .short_help = "Join rooms without leaving existing conversations", .flags = &join, .run = run("join") },

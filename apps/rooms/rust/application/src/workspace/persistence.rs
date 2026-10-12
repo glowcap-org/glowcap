@@ -1,5 +1,5 @@
 //! Bounded save admission and retry policy. The adapter owns two cancellable
-//! timers and performs synchronous storage calls; no document queue is kept.
+//! timers and performs synchronous storage calls. No document queue is kept.
 use alloc::string::String;
 
 pub const COALESCE_MS: u32 = 200;

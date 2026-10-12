@@ -1,10 +1,10 @@
 /**
- * The Inspector rail — Details and Connections for what is shown.
+ * The Inspector rail, Details and Connections for what is shown.
  *
  * What the pane shows is not always what is selected: Live keeps a
  * selection so returning to Play restores it, and that selection can
  * name entities the live stream has never mentioned. AppView derives
- * `shown` once; this rail reads it for titles and bodies alike.
+ * `shown` once. This rail reads it for titles and bodies alike.
  */
 
 import type { Engine } from "../engine/engine.ts";
@@ -54,11 +54,11 @@ export function InspectorRail({
 			/>
 			{
 				/* Section title swaps: "DETAILS" when nothing is
-          selected (consistent with sibling sections — the pane
+          selected (consistent with sibling sections, the pane
           reads as a labeled empty placeholder), then *replaced*
           by the entity's own heading (name + pill, rendered
           inside the body) once a selection lands. The two
-          never coexist — when a heading is present it IS the
+          never coexist, when a heading is present it IS the
           label, so a "DETAILS" header above it would only
           duplicate the FieldGroup "Details" rectangle title
           further down.
@@ -66,7 +66,7 @@ export function InspectorRail({
           Decided from `shown`, not from the selection: in Live the
           selection is kept so returning to Play restores it, and
           it names entities the live stream has never heard of.
-          Every part of the pane reads `shown` for that reason —
+          Every part of the pane reads `shown` for that reason,
           `inspectorView` is where the two are told apart, and a
           part that asked for itself is how a titleless empty pane
           got in. */

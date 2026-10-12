@@ -34,9 +34,9 @@ fits no layer goes to the layer that owns the decision, not the layer where the
 symptom appeared. Export positions are minted only by `Peer.exportNextObject`;
 the C Host exposes opaque identities, never positions.
 
-Treat a named design pattern as a candidate when a request presents it as an
-example: derive the improvement from the actual code and constraints, then
-choose the smallest structure that earns its complexity.
+When a request names a design pattern as an example, treat it as a candidate:
+derive the improvement from the code and constraints, then choose the smallest structure
+that earns its complexity.
 
 ## The core stays sync and no-I/O
 
@@ -74,7 +74,7 @@ session key proves continuity, never durable identity.
 ## Names carry three things
 
 A key naming a table row carries its namespace, whose namespace it is, and when
-it meant that. A bare `u64` or byte slice carries only the first, and every
+it meant that. A bare `u64` or byte slice carries only the first, and each
 costly bug here was a missing dimension. Fixes that held added a dimension
 (disjoint ranges, identity stamps, domain separation, a token that dies with
 its row); fixes that policed a peer-chosen name refused correct peers. Prefer a

@@ -12,7 +12,7 @@ function ctx(opts: Partial<GestureContext> & { hit: Hit }): GestureContext {
 	};
 }
 
-// ─────────────────────── R1 — totality (§ 4.3) ────────────────────────
+// ─────────────────────── R1, totality (§ 4.3) ────────────────────────
 
 Deno.test("R1: resolveGesture is total over (every surface × every tool)", () => {
 	for (const surface of ALL_SURFACES) {
@@ -28,7 +28,7 @@ Deno.test("R1: resolveGesture is total over (every surface × every tool)", () =
 	}
 });
 
-// ─────────────────────── R2 — Spacebar wins (P1) ──────────────────────
+// ─────────────────────── R2, Spacebar wins (P1) ──────────────────────
 
 Deno.test("R2: spaceHeld → tier=space-pan regardless of surface/tool/modifier", () => {
 	for (const surface of ALL_SURFACES) {
@@ -64,7 +64,7 @@ Deno.test("Hand tool → tier=hand-tool regardless of surface/modifier", () => {
 	}
 });
 
-// ─────────────────────── R3 — Select tool = surface defaults ──────────
+// ─────────────────────── R3, Select tool = surface defaults ──────────
 
 Deno.test("R3: Select tool with no modifier returns the § 4.5 default verb", () => {
 	for (const surface of ALL_SURFACES) {
@@ -76,7 +76,7 @@ Deno.test("R3: Select tool with no modifier returns the § 4.5 default verb", ()
 	}
 });
 
-// ─────────────────────── R4 — Modifiers veto tool-create ──────────────
+// ─────────────────────── R4, Modifiers veto tool-create ──────────────
 
 Deno.test("R4: Add Peer + Shift → falls through to default (no tool-create)", () => {
 	const r = resolveGesture(
@@ -136,7 +136,7 @@ Deno.test("Open Session on peer picks that peer", () => {
 });
 
 Deno.test("Send Message picks an end nothing has attributed", () => {
-	// A message can name a loose end — that is what the wire looks like before
+	// A message can name a loose end. That is what the wire looks like before
 	// anything proves who answered, and a recording holds it. The tool has to
 	// be able to author every shape a recording can hold.
 	const r = resolveGesture(

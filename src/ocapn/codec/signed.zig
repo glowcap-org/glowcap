@@ -1,6 +1,6 @@
 //! The byte form OCapN signatures are defined over.
 //!
-//! It is Syrup, always, and it deliberately does **not** follow the session's
+//! It is Syrup, always, and it does **not** follow the session's
 //! negotiated codec. A `desc:handoff-give` signed by a gifter on one session is
 //! verified by an exporter on a different one, and those two sessions negotiate
 //! their codecs independently. If the signed bytes followed the negotiation, a
@@ -10,7 +10,7 @@
 //!
 //! So the signed envelope has one grammar, and `codec.dispatch` is not
 //! consulted here. That is the precondition, not merely the motivation: every
-//! other byte the engine emits goes through `dispatch` precisely so the
+//! other byte the engine emits goes through `dispatch` so the
 //! negotiated codec decides, and a reader who ports that pattern to these
 //! functions breaks cross-codec handoff in a way no single-codec test would
 //! catch.

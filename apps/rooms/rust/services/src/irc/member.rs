@@ -1,6 +1,6 @@
 //! One member's socket and independently retired channel memberships. A PART
-//! must be confirmed before the same channel can acquire a new membership;
-//! otherwise a late JOIN could authorize the replacement accidentally.
+//! must be confirmed before the same channel can acquire a new membership.
+//! Otherwise a late JOIN could authorize the replacement accidentally.
 use super::{Connection, Endpoint, Event, Events, Tls, WriteReceipt};
 use rooms_application::server::irc::{
 	MAX_BRIDGED_ROOMS,

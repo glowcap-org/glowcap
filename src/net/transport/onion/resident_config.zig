@@ -2,7 +2,7 @@
 //!
 //! Every endpoint and credential is explicit because Glowcap neither starts
 //! nor supervises Tor. The configuration is borrowed for the resident's
-//! lifetime; provider archives and bindings own any copied projection.
+//! lifetime. Provider archives and bindings own any copied projection.
 
 const control = @import("control.zig");
 

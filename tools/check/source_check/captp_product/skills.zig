@@ -10,7 +10,7 @@ const expectFileContains = util.expectFileContains;
 
 /// The application-surface verbs the vision promises in every binding and on the
 /// native driver. Each surface that introduces the vocabulary must list all of
-/// them; a dropped verb is a silently second-class surface.
+/// them. A dropped verb is a silently second-class surface.
 const application_surface_verbs = [_][]const u8{
     "connect", "listen", "fetch", "publish", "spawn", "send", "tell", "serve", "close",
 };
@@ -66,8 +66,8 @@ pub fn checkApplicationSurfaceVerbs(
 }
 
 /// CapTP leaf names from `cli/registry.zig`'s `commands` table.
-/// Command rows put `.name` / `.help` on consecutive lines; positional structs
-/// keep both on one line — that difference is how we avoid collecting `locator`.
+/// Command rows put `.name` / `.help` on consecutive lines, positional structs
+/// keep both on one line, that difference is how we avoid collecting `locator`.
 pub fn collectCaptpRegistryNames(
     gpa: std.mem.Allocator,
     registry_src: []const u8,
@@ -183,7 +183,7 @@ pub fn checkGlowcapMcpSkillAuthority(
     if (std.mem.indexOf(u8, skill, "GLOWCAP_MCP_TOOLS") != null) {
         try appendViolation(gpa, violations, "{s}: forbids unimplemented `GLOWCAP_MCP_TOOLS` — catalog is `--tools` only", .{skill_path});
     }
-    // Hand-maintained default inventory (second catalog) — body or description.
+    // Hand-maintained default inventory (second catalog), body or description.
     if (std.mem.indexOf(u8, skill, "everyday CapTP (dial, probe") != null or
         std.mem.indexOf(u8, skill, "dial, probe, call, tell, fetch, publish, info") != null or
         std.mem.indexOf(u8, skill, "dial/probe/call/tell/fetch/publish/info/close") != null)

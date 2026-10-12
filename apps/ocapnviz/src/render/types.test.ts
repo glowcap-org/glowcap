@@ -2,8 +2,8 @@
  * What a node is doing in the traffic at the playhead, read two ways.
  *
  * The stage marks every node at once and the Inspector asks about the one node
- * it is showing. Both readings fold the same rule — a message's source is
- * sending, its destination is receiving — so the chip in the panel cannot
+ * it is showing. Both readings fold the same rule, a message's source is
+ * sending, its destination is receiving, so the chip in the panel cannot
  * disagree with the mark on the node it names.
  */
 

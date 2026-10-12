@@ -116,11 +116,15 @@
                  RENDEZVOUS-QUERY "=" designator))
 
 (define (driver-loop-add-relay! lp relay-url [register-url ""]
-                                #:trust-pem [trust-pem #f])
+                                #:trust-pem [trust-pem #f]
+                                #:relay-alias-url [relay-alias-url ""])
   (unless (or (not trust-pem) (bytes? trust-pem))
     (raise-argument-error 'driver-loop-add-relay! "(or/c #f bytes?)" trust-pem))
   (define relay-bs (string->bytes/utf-8 relay-url))
   (define register-bs (string->bytes/utf-8 register-url))
+  (define alias-bs (string->bytes/utf-8 relay-alias-url))
+  (define alias-ptr (and (positive? (bytes-length alias-bs))
+                         (pin-immobile alias-bs)))
   (define relay-ptr (pin-immobile relay-bs))
   (define register-ptr (and (positive? (bytes-length register-bs))
                             (pin-immobile register-bs)))
@@ -133,12 +137,13 @@
      relay-ptr (bytes-length relay-bs)
      register-ptr (bytes-length register-bs)
      (if trust-pem RELAY-TRUST-COPIED-PEM RELAY-TRUST-SYSTEM)
-     trust-ptr (if trust-pem (bytes-length trust-pem) 0)))
+     trust-ptr (if trust-pem (bytes-length trust-pem) 0)
+     alias-ptr (bytes-length alias-bs)))
   (define-values (rc raw) (glowcap_relay_runtime_new config))
   ;; The config cstruct is retained as the call's argument, but it carries
   ;; only the pins' raw addresses; the sink keeps the URL and PEM buffers
   ;; live for the whole constructor.
-  (void/reference-sink relay-ptr register-ptr trust-ptr)
+  (void/reference-sink relay-ptr register-ptr trust-ptr alias-ptr)
   (check-with rc (lambda () (read-last-error glowcap_relay_last_error)))
   (define package (make-GlowcapTransportProvider 0 0 #f 0 #f #f #f #f))
   (with-handlers ([(lambda (_) #t)
@@ -161,10 +166,12 @@
 
 (define (relay-provider #:relay-url relay-url
                         #:register-url [register-url ""]
-                        #:trust-pem [trust-pem #f])
+                        #:trust-pem [trust-pem #f]
+                        #:relay-alias-url [relay-alias-url ""])
   (make-driver-provider
    (lambda (lp _host)
-     (driver-loop-add-relay! lp relay-url register-url #:trust-pem trust-pem))))
+     (driver-loop-add-relay! lp relay-url register-url #:trust-pem trust-pem
+                            #:relay-alias-url relay-alias-url))))
 
 ;; A WebSocket is only the byte channel. The shared Host applies
 ;; noise-relay's end-to-end sealing after the channel is established.

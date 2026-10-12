@@ -19,6 +19,9 @@ struct Platform {
 	expire_reads: Rc<Cell<bool>>,
 }
 impl rooms_glowcap::client::Deadline for Platform {
+	fn monotonic_millis(&self) -> u64 {
+		0
+	}
 	async fn within<T>(&self, ms: u64, work: impl Future<Output = T>) -> Option<T> {
 		if ms == rooms_application::files::transfer::STALL_MS && self.expire_reads.replace(false) {
 			return None;

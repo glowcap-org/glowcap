@@ -14,7 +14,7 @@ text disagrees with it.
 | **Recording** | What was observed, in order, with provenance. Appended, never rewritten. | Nothing. Live ingest appends. |
 
 Behavior is the only layer the display reads. While a Live capture is running,
-live ingest keeps behavior in sync with arriving observations; authoring edits
+live ingest keeps behavior in sync with arriving observations. Authoring edits
 behavior directly. Playback and an active live capture are therefore the same
 code path, and replaying a recording is an explicit gesture that rewrites
 behavior from the recording rather than a second engine. Idle Live (connected,
@@ -28,7 +28,7 @@ whole role is to say what was observed.
 ## Identity
 
 Identity is the fixed shape of an entity: a peer's profile, label, designator,
-and position; a session's two ends, transport, codec, and CapTP version; a
+and position. A session's two ends, transport, codec, and CapTP version. A
 message's session, sender, receiver, and label. A property that changes with
 time does not belong here. A session's runtime state is a keyframe track, not an
 identity field.
@@ -92,7 +92,7 @@ Most observation kinds say what the network did: `peer-joined`, `peer-left`,
 `session-opened`, `session-closed`, `session-state-changed`, `message-sent`,
 `message-delivered`.
 
-Two kinds say what the viewer learned, and the difference is load-bearing.
+Two kinds say what the viewer learned, and the difference matters.
 
 A peer that accepts a connection can report the session before anything can say
 who dialed it, because the name in a hello is a claim until something backs it.
@@ -125,7 +125,7 @@ make it read better would claim that a row ended and another began. A loose end
 is named the same way and for the same reason. Its id comes from the session
 and the side, through `endpointStageId`. That describes what the loose end is,
 not the designator it happens to claim. A name a partner chose is not one this
-stage may adopt; minting an id from the claim once let a placeholder collide
+stage may adopt. Minting an id from the claim once let a placeholder collide
 with the very peer it was claiming to be.
 
 Having a stage id does not make a loose end an entity. It has no row in the

@@ -6,7 +6,7 @@ lazily on first ``_webrtc()`` use and names how to produce it when absent rather
 than failing at import. It carries the ``glowcap_webrtc_*`` family plus its own
 thread-local last-error (``glowcap_webrtc_last_error``), symbol-disjoint from the
 core. The endpoint config and readiness record are pinned to generated ABI
-layouts; peers remain opaque handles. Nothing here is public; a higher-level surface would sit over it, the
+layouts. Peers remain opaque handles. Nothing here is public. A higher-level surface would sit over it, the
 same way :mod:`glowcap.iroh` sits over :mod:`glowcap._ffi_iroh`.
 """
 
@@ -64,7 +64,7 @@ pin_struct(_WebrtcIceServer, "GLOWCAP_WEBRTC_ICE_SERVER")
 
 
 class _WebrtcConfig(ctypes.Structure):
-    """One WebRTC endpoint's configuration; see the header's
+    """One WebRTC endpoint's configuration. See the header's
     ``GlowcapWebrtcConfig`` for what each setting means. Zero-initialized by
     ``ctypes.Structure``, and an unset field takes the transport's default."""
 

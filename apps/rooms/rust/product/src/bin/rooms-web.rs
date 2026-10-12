@@ -1,5 +1,7 @@
 use rooms_services::web::{self, Config};
 use std::rc::Rc;
+#[path = "../trace_output.rs"]
+mod trace_output;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -21,6 +23,17 @@ async fn start() -> Result<(), String> {
 		tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()).map_err(|e| e.to_string())?;
 	let mut terminate =
 		tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).map_err(|e| e.to_string())?;
+	if args.first().is_some_and(|arg| arg == "trace") {
+		return rooms_services::trace_view::run(
+			&args[1..],
+			|key| std::env::var(key).ok(),
+			async move {
+				tokio::select! { _ = interrupt.recv() => (), _ = terminate.recv() => () }
+			},
+			trace_output::write,
+		)
+		.await;
+	}
 	if let Some(preparation) = web::Preparation::parse(&args)? {
 		let prepared = preparation
 			.run(async move {

@@ -81,7 +81,7 @@ fn appendStreamOutbound(pipe: *BytePipe, prefix: []const u8, bytes: []const u8) 
 /// Drain `from`'s encoded frames into `pipe`, then feed them to `to` through
 /// glowcap_host_session_feed_bytes, presenting at most `chunk` bytes per
 /// call so frames split at pathological boundaries, including mid-frame. The
-/// library owns the tail, so every presented byte is consumed; the leading
+/// library owns the tail, so every presented byte is consumed. The leading
 /// resume feeds any frames the session held behind its handshake open.
 fn shuttleBytes(from: ?*cd.GlowcapHostSession, to: ?*cd.GlowcapHostSession, pipe: *BytePipe, chunk: usize) !bool {
     try expectOk(cd.glowcap_host_session_resume_feed(to));
@@ -606,12 +606,12 @@ test "libglowcap_host: feed_bytes stops at the session-open transition so a coal
 
     // One feed of the whole buffer dispatches exactly the hello: the session
     // just opened, and the frames coalesced behind it wait in the session's
-    // own tail — the fetch has not answered, because its target is not
+    // own tail, the fetch has not answered, because its target is not
     // published yet.
     try expectOk(cd.glowcap_host_session_feed_bytes(accepted, &buf, len));
     try std.testing.expect(cd.glowcap_host_session_is_open(accepted) != 0);
 
-    // The embedder acts on the fresh session — publish — then asks the Host
+    // The embedder acts on the fresh session, publish, then asks the Host
     // to resume retained input, and the fetch that rode behind the hello
     // answers correctly.
     var counter = Counter{};

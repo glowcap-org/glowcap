@@ -3,10 +3,11 @@
 // halves of the keyed-relay rendezvous (ADR-0088), and `@glowcap/relay`. The
 // `WebSocket` global is a web standard every supported runtime ships (browser,
 // Deno, Bun), so this is runtime-neutral code, not a per-runtime adapter
-// seam. Each caller differs only in how it gets the socket — opening it, or
+// seam. Each caller differs only in how it gets the socket: opening it, or
 // being handed an accepted one; the byte plumbing is this one module.
 
 import type { Channel } from "./session.ts";
+import type { Timer } from "./timer.ts";
 import { recordProcessBindingFailure } from "./context.ts";
 import { retainSecondaryFailure } from "./errors.ts";
 import { cancellationError } from "./internal/cancellation.ts";
@@ -32,7 +33,7 @@ const defaultWsInboundHighWaterBytes = BINDING_WEBSOCKET_INBOUND_HIGH_WATER_BYTE
 export interface WebSocketChannelOptions {
 	/** Maximum bytes retained while the consumer is behind. Browser WebSockets
 	 * cannot be paused, so overflow closes with 1009. This is a transport-message
-	 * budget, deliberately independent from the CapTP frame cap. */
+	 * budget, independent from the CapTP frame cap. */
 	inboundHighWaterBytes?: number;
 	/** Maximum time to wait for the browser's close event after requesting a
 	 * close. The WebSocket API has no force-close primitive, so expiry rejects
@@ -81,7 +82,7 @@ function waitForSocketEvent(
 		};
 		const onClose = () => settle(() => reject(new Error("WebSocket closed")));
 		const onError = () => settle(() => reject(new Error("WebSocket error")));
-		const timer = setTimeout(() => settle(resolve), ms) as unknown as number;
+		const timer: Timer = setTimeout(() => settle(resolve), ms);
 		ws.addEventListener("close", onClose, { once: true });
 		ws.addEventListener("error", onError, { once: true });
 	});
@@ -122,7 +123,7 @@ function waitForOpen(ws: WebSocket): Promise<void> {
 	});
 }
 
-/** Adapt `ws` (already open, or opening — messages cannot arrive before the
+/** Adapt `ws` (already open, or opening: messages cannot arrive before the
  * open event) to a `Channel`. Inbound frames flow through a `ReadableStream`
  * reader; a close or error ends the stream. Outbound `write` resolves once the
  * socket's send buffer is at or below the high-water, so a fast producer is
@@ -142,7 +143,7 @@ export function webSocketChannel(
 	let closeFailure: { readonly error: unknown } | null = null;
 	let resolveClose!: () => void;
 	let rejectClose!: (error: unknown) => void;
-	let closeTimer: number | null = null;
+	let closeTimer: Timer | null = null;
 	const closeBarrier = new Promise<void>((resolve, reject) => {
 		resolveClose = resolve;
 		rejectClose = reject;
@@ -186,7 +187,7 @@ export function webSocketChannel(
 			closeTimer = setTimeout(() => {
 				retainCloseFailure(new Error(`WebSocket close timed out after ${closeLimitMs}ms`));
 				finishClose();
-			}, closeLimitMs) as unknown as number;
+			}, closeLimitMs);
 		}
 		return closeBarrier;
 	};
@@ -249,7 +250,7 @@ export function webSocketChannel(
 		async read(): Promise<Uint8Array | null> {
 			// A clean close arrives as `done` via `controller.close()` (onclose); a
 			// transport error arrives as a rejection via `controller.error()`
-			// (onerror). Let the rejection propagate — the native adapters do, and
+			// (onerror). Let the rejection propagate (the native adapters do), and
 			// `Session.serve` promises to reject on a transport error. Swallowing it
 			// into an EOF here would make a dropped socket look like a graceful close.
 			const { value, done } = await reader.read();
@@ -312,7 +313,7 @@ export function openWebSocketChannel(
 		const ws = new WebSocket(url);
 		let done = false;
 		let cancelFailure: unknown = null;
-		let cancelTimer: number | null = null;
+		let cancelTimer: Timer | null = null;
 		const settle = (fn: () => void) => {
 			if (done) return;
 			done = true;
@@ -345,7 +346,7 @@ export function openWebSocketChannel(
 			cancelTimer = setTimeout(
 				() => finishCancellation(new Error(`WebSocket close timed out after ${checkedCloseTimeoutMs}ms`)),
 				checkedCloseTimeoutMs,
-			) as unknown as number;
+			);
 		};
 		// A pre-open error rejects the connect. Once open, `webSocketChannel`
 		// re-wires the handlers for the byte lifecycle.

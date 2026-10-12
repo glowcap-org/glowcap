@@ -1,5 +1,5 @@
 #lang racket/base
-;; ocapn-names.rkt — the two names CapTP derives from session keys.
+;; ocapn-names.rkt: the two names CapTP derives from session keys.
 ;;
 ;; A **Public Identifier** names one end of a session. It is the double SHA256
 ;; of that end's session key written as the gcrypt s-expression

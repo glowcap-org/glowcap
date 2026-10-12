@@ -5,10 +5,7 @@ use rooms_application::content::session::results::Acceptance;
 fn coordinate() -> Coordinate {
 	Coordinate {
 		role: custody::Role::AcceptedAccess,
-		key: FieldKey::new(
-			NonZeroU64::new(1).expect("result slot"),
-			NonZeroU64::new(1).expect("result generation"),
-		),
+		key: FieldKey::new(NonZeroU64::MIN, NonZeroU64::MIN),
 	}
 }
 pub(super) fn read(value: &Argument) -> Result<Settlement> {

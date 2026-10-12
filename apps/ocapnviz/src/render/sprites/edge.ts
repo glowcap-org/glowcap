@@ -1,10 +1,10 @@
 /**
- * Session-edge sprites — create, update, halo, hit area, and the
- * chip that rides the curve. Wire pixels live on `edgeStrokeBatch`;
- * this module owns the per-edge Pixi objects around that batch.
+ * Session-edge sprites, create, update, halo, hit area, and the
+ * chip that rides the curve. Wire pixels live on `edgeStrokeBatch`.
+ * This module owns the per-edge Pixi objects around that batch.
  *
  * `renderFrame` owns which sessions are live, their z-order, and
- * the flush; this module owns one edge's dirty-gated rebuild.
+ * the flush. This module owns one edge's dirty-gated rebuild.
  */
 
 import { Container, type FederatedPointerEvent, Graphics, Rectangle, Text } from "pixi.js";
@@ -118,7 +118,7 @@ export function syncEdgeSprite(
 			lastAy: NaN,
 			lastBx: NaN,
 			lastBy: NaN,
-			// Cx / cy enter the dirty-key now too: the curve moves when
+			// Cx / cy are in the dirty-key too: the curve moves when
 			// the bundle membership changes (new sibling session added)
 			// even if endpoint positions are unchanged.
 			lastCx: NaN,
@@ -166,7 +166,7 @@ export function syncEdgeSprite(
 			sprite.lastCx !== curve.cx ||
 			sprite.lastCy !== curve.cy;
 		// The wire is world geometry and the mark around it is not, so a zoom
-		// repaints the mark and leaves the wire alone — which matters here more
+		// repaints the mark and leaves the wire alone, which matters here more
 		// than on a node, because a dashed wire is walked over
 		// `CURVE_STROKE_SAMPLES` every time it is stroked. The mark reads
 		// `width` too: its spread is measured out from the wire's edge.
@@ -201,7 +201,7 @@ export function syncEdgeSprite(
 
 		if (haloDirty) {
 			sprite.haloGfx.clear();
-			// Halo above the shared wire batch — wider, semi-transparent
+			// Halo above the shared wire batch, wider, semi-transparent
 			// accent that follows the same Bezier so the glow reads as the
 			// same edge. Painted into the non-interactive `haloGfx` so the
 			// wider stroke doesn't enlarge the edge's clickable region.

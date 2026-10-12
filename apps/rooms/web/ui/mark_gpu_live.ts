@@ -7,7 +7,7 @@
 // lockup's mark stands lit and breathing, and replays the strike when the
 // pointer reaches it. A control's mark stands with its light off, strikes when
 // the pointer arrives, stays lit while it is there, and goes out again when it
-// leaves. All four are one renderer under one set of beats; what differs is
+// leaves. All four are one renderer under one set of beats. What differs is
 // which frame of the cycle a moment maps onto.
 //
 // There is no other mark. A browser that cannot make a device gets an empty
@@ -23,14 +23,14 @@ export type MarkPlay = "loop" | "arrive" | "stand" | "unlit";
 
 export type MarkLive = {
 	/** Resolves once the mark has assembled and its light has settled at least
-	 * once, in mark time; at once when there is no play to wait through. */
+	 * once, in mark time. At once when there is no play to wait through. */
 	assembled: Promise<void>;
 	stop: () => void;
 };
 
 /** How much larger the mushroom stands than the box it is given. The box is
  * the flat mark's silhouette box, and the mushroom fills it the way the
- * drawing did, brim to brim; but the drawing stood taller in it than a
+ * drawing did, brim to brim, but the drawing stood taller in it than a
  * cushioned cap on a chubby stalk does, and beside type at the sizes the
  * mark is set at, that reads small. Grown here, once, about the box's
  * centre, so every home grows together and the box still lays out where
@@ -58,10 +58,6 @@ const FADE = 0.35;
  * strike runs at full rate. */
 const STAND_INTERVAL_MS = 1000 / 24;
 
-type Gpu = {
-	gpu?: { requestAdapter: (o?: unknown) => Promise<unknown | null>; getPreferredCanvasFormat: () => string };
-};
-
 let shared: Promise<GPUDevice | null> | null = null;
 
 /** One device for the page. Every mark draws on it with a renderer of its
@@ -71,12 +67,14 @@ let shared: Promise<GPUDevice | null> | null = null;
  * cannot make one: no adapter, or an adapter with no device to give. */
 function device(): Promise<GPUDevice | null> {
 	if (shared !== null) return shared;
-	const nav = navigator as unknown as Gpu;
-	if (nav.gpu == null) return Promise.resolve(null);
+	// The standard library types `navigator.gpu` as always present, but real
+	// browsers do not, so the null check below is the browser's answer.
+	const gpu = navigator.gpu;
+	if (gpu == null) return Promise.resolve(null);
 	const asked = (async () => {
 		let adapter: GPUAdapter | null = null;
 		try {
-			adapter = await (nav.gpu!.requestAdapter() as Promise<GPUAdapter | null>);
+			adapter = await gpu.requestAdapter();
 		} catch {
 			// tolerant: a browser that throws on the question has answered it.
 			return null;
@@ -102,8 +100,8 @@ function device(): Promise<GPUDevice | null> {
  * hangs around it by `VIEW` so the light has room. Resolves to null when this
  * browser cannot draw one. */
 export async function start(host: HTMLElement, play: MarkPlay): Promise<MarkLive | null> {
-	const nav = navigator as unknown as Gpu;
-	if (nav.gpu == null) return null;
+	const gpu = navigator.gpu;
+	if (gpu == null) return null;
 
 	const canvas = document.createElement("canvas");
 	canvas.setAttribute("aria-hidden", "true");
@@ -119,7 +117,7 @@ export async function start(host: HTMLElement, play: MarkPlay): Promise<MarkLive
 
 	const ctx = canvas.getContext("webgpu") as GPUCanvasContext | null;
 	if (ctx == null) return null;
-	const format = nav.gpu.getPreferredCanvasFormat() as GPUTextureFormat;
+	const format = gpu.getPreferredCanvasFormat();
 
 	let running = true;
 	let renderer: Renderer | null = null;
@@ -195,14 +193,14 @@ export async function start(host: HTMLElement, play: MarkPlay): Promise<MarkLive
 	const now = () => (performance.now() - begin) / 1000;
 
 	/** Whether this mark rests with its light off. A control's does, where a
-	 * pointer can arrive to light it; where none can, on a touch screen or
+	 * pointer can arrive to light it, where none can, on a touch screen or
 	 * for a reader who asked for stillness, a dark mark would stay dark for
 	 * good, so it stands lit like a lockup's. */
 	const unlit = () => play === "unlit" && pointer.matches && !still.matches;
 
 	/** Where a standing mark is in its play, and when that began in mark
 	 * seconds. At rest it holds one frame, lit or dark. On approach a lit
-	 * mark lets its light go out and then strikes; a dark one strikes at
+	 * mark lets its light go out and then strikes. A dark one strikes at
 	 * once. After the strike a lockup's mark is back at rest, and a control's
 	 * stays lit until the pointer leaves, when its light fades out. */
 	let phase: "rest" | "out" | "strike" | "lit" | "fade" = "rest";
@@ -220,8 +218,8 @@ export async function start(host: HTMLElement, play: MarkPlay): Promise<MarkLive
 	const arriving = (seconds: number) => play === "arrive" && seconds < REST * CYCLE;
 
 	/** Which frame of the cycle this moment is, and how much of the light is
-	 * up. The loop maps time onto the cycle whole; an arrival maps onto its
-	 * first three quarters; a standing mark reads it off its phase, advancing
+	 * up. The loop maps time onto the cycle whole. An arrival maps onto its
+	 * first three quarters. A standing mark reads it off its phase, advancing
 	 * the phase as each one ends. */
 	const frameAt = (seconds: number): { frame: number; dim: number } => {
 		if (play === "loop") return { frame: (seconds % CYCLE) / CYCLE, dim: 1 };

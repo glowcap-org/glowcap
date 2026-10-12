@@ -56,7 +56,7 @@ pub fn create(b: *Build, root: *Step, runtimes: []const Runtime) Verdict {
 }
 
 /// Peel only `env NAME=value ... command`, including build-resolved paths.
-/// Unsupported options stay visible as `env` and require their own declaration;
+/// Unsupported options stay visible as `env` and require their own declaration,
 /// an assignment wrapper never grants permission to run its command.
 fn commandArgs(args: []const Step.Run.Arg) []const Step.Run.Arg {
     if (args.len == 0) return args;

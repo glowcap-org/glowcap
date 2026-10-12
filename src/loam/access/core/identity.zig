@@ -1,8 +1,8 @@
 //! Resource names include an owner namespace and slot incarnation.
-//! They support comparison and lookup only; none carries invocation authority.
+//! They support comparison and lookup only. None carries invocation authority.
 
-/// Stable authority-store identity. A fresh store requires a fresh identity;
-/// recreating an empty store with an old identity is not restoration.
+/// Stable authority-store identity. A fresh store requires a fresh identity.
+/// Recreating an empty store with an old identity is not restoration.
 pub const OwnerId = enum(u128) { _ };
 pub const KindId = enum(u64) { _ };
 pub const Revision = enum(u64) { _ };

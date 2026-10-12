@@ -1,5 +1,9 @@
 // Submission stays with the initiating draft and conversation through command
 // admission, effect completion and exact result acquisition.
+import { clearRefusal, remaining, rememberRefusal } from "../../admission_feedback.ts";
+import { conversationIdentity } from "./model.ts";
+import { editLine } from "./edit.ts";
+import { withdrawLine } from "./withdraw.ts";
 import * as store from "../../store.ts";
 import type { RoomsPageContext } from "../../page.ts";
 import type { ManagedRoomsSession } from "./session.ts";
@@ -14,18 +18,33 @@ import { applicationModule } from "../../application.ts";
 import { pickedSource } from "../../file_source.ts";
 import { refusalText } from "../../../../lib/text/failure.ts";
 import type { RoomsBrowserSource } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
-import { type ManagedOperation, ResultExpired, TerminalObservationError } from "./operation.ts";
-import { managedSessionText } from "../../../../lib/text/managed_session.ts";
-import type { HistoryCoordinate } from "../../types.ts";
+import { type ManagedOperation, ResultAcquisitionError, ResultExpired, TerminalObservationError } from "./operation.ts";
+import { managedSessionText, resultAcquisitionFailure } from "../../../../lib/text/managed_session.ts";
+import { CompletedLine, isLineResult } from "./completed_line.ts";
 import type { Conv } from "../../types.ts";
 
 type Draft = ReturnType<typeof store.draftFor>;
-/** What a committed send returns: the room's line id, its authority, and where it is archived. */
-type SentReceipt = { id?: number; line?: unknown; history?: HistoryCoordinate | null };
 interface Send {
 	draft: Draft;
 	task: Promise<void>;
 	queued?: { draft: Draft; task: Promise<void> };
+}
+
+/** How a submitted command's line result settled. `acquired` carries the
+ * exact receipt; `degraded` means delivery is known but its result
+ * acquisition failed, so the receipt is partial and the original operation
+ * retains recovery; `expired` means the line's returned authority expired
+ * with an earlier session and it stands as sent, unchangeable. */
+type LineSettlement =
+	| { kind: "acquired"; completed: CompletedLine }
+	| { kind: "degraded"; completed: CompletedLine; failure: ResultAcquisitionError }
+	| { kind: "expired" };
+
+/** The partial result a failed acquisition carried, read as the line result
+ * the committed send produced. An unprovable shape claims no receipt. */
+function degradedCompletion(error: ResultAcquisitionError): CompletedLine {
+	const result: unknown = error.result;
+	return new CompletedLine(isLineResult(result) ? result : null);
 }
 
 type Composer = Pick<
@@ -34,7 +53,13 @@ type Composer = Pick<
 >;
 export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSession, powers: CommandPowers): Composer {
 	const projection = page.projection;
-	const failures = (error: unknown) => store.toast(projection, "failure", refusalText(error));
+	const failures = (error: unknown) => {
+		store.toast(
+			projection,
+			"failure",
+			error instanceof ResultAcquisitionError ? resultAcquisitionFailure(error.message) : refusalText(error),
+		);
+	};
 	const sending = new Map<string, Send>();
 	// Recovery belongs to the submitted draft. A new draft in the same
 	// conversation is a separate gesture; it cannot become an old receipt retry.
@@ -53,8 +78,8 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 		}
 		const id = crypto.randomUUID();
 		retained.set(draft, id);
-		retain?.(id);
 		try {
+			retain?.(id);
 			await session.execute(id, () => prepare(id), async (command) => {
 				await complete(command);
 				retained.delete(draft);
@@ -70,7 +95,7 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 		store.setDraft(projection, text, row.key);
 		if (isSessionConv(row)) {
 			session.drafts.stage(row.persistId, text);
-			void session.drafts.flush(row.persistId).catch(failures);
+			session.drafts.sync(row.persistId);
 		}
 	}
 	function submit(): Promise<void> {
@@ -81,6 +106,9 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 		if (previous?.draft === draft) return previous.task;
 		const plan = draft.changing == null ? planComposerSend(row, draft, powers) : undefined;
 		if (plan?.kind === "nothing") return Promise.resolve();
+		if (plan?.kind !== "command" && remaining(projection.get().actionRefusals.get(`send:${row.key}`)) > 0) {
+			return Promise.resolve();
+		}
 		if (previous == null) return start(row, draft, plan);
 		if (previous.queued != null) {
 			return previous.queued.draft === draft
@@ -107,14 +135,14 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 		if (!store.replaceDraft(projection, row.key, draft, cleared)) return;
 		if (isSessionConv(row)) {
 			session.drafts.stage(row.persistId, "");
-			void session.drafts.flush(row.persistId).catch(failures);
+			session.drafts.sync(row.persistId);
 		}
 		return cleared;
 	}
 	function restoreSubmission(row: Conv, cleared: Draft, draft: Draft): void {
 		if (store.replaceDraft(projection, row.key, cleared, draft) && isSessionConv(row)) {
 			session.drafts.stage(row.persistId, draft.text);
-			void session.drafts.flush(row.persistId).catch(failures);
+			session.drafts.sync(row.persistId);
 		}
 	}
 	function start(row: Conv, draft: Draft, plan?: ComposerPlan, cleared?: Draft): Promise<void> {
@@ -122,7 +150,10 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 		if ((plan?.kind === "command" || plan?.kind === "send") && !retained.has(draft)) {
 			cleared ??= clearSubmission(row, draft);
 		}
-		const task = perform(row, draft, plan, cleared).finally(() => sending.delete(row.key));
+		clearRefusal(projection, `send:${row.key}`);
+		const task = perform(row, draft, plan, cleared).catch((error: unknown) => {
+			if (!rememberRefusal(projection, `send:${row.key}`, error)) throw error;
+		}).finally(() => sending.delete(row.key));
 		sending.set(row.key, { draft, task });
 		return task;
 	}
@@ -140,36 +171,36 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 			}
 			const refusal = composerLineRefusal(row, draft.text);
 			if (refusal != null) throw new Error(refusal);
-			await session.drafts.flush(row.persistId);
-			const line = item.lineId;
-			await gesture(
-				draft,
-				(operation) =>
-					draft.keeping == null
-						? session.command("editLine", [row.persistId, String(line), draft.text], operation)
-						: upload(
+			const completeDraft = async () => {
+				if (store.draftFor(projection, row.key) !== draft) return;
+				store.cancelChange(projection, row.key);
+				session.drafts.stage(row.persistId, "");
+				await session.drafts.flush(row.persistId);
+			};
+			if (draft.keeping == null) {
+				await editLine(page, session, row.key, item.id, draft.text, completeDraft);
+			} else {
+				await session.drafts.flush(row.persistId);
+				await gesture(
+					draft,
+					(operation) =>
+						upload(
 							operation,
 							row.persistId,
 							draft.text,
 							[],
 							draft.files,
-							line,
+							item.lineId,
 							(item.attachments ?? []).flatMap((file, i) =>
 								draft.keeping?.some((kept) => kept.id === file.id) ? [i] : []
 							),
 						),
-				async (command) => {
-					if (draft.keeping == null) {
-						await command.result();
-						session.finish(command);
-					} else await session.actions.acquireLine(row.persistId, command);
-					if (store.draftFor(projection, row.key) === draft) {
-						store.cancelChange(projection, row.key);
-						session.drafts.stage(row.persistId, "");
-						await session.drafts.flush(row.persistId);
-					}
-				},
-			);
+					async (command) => {
+						await session.actions.acquireLine(row.persistId, command);
+						await completeDraft();
+					},
+				);
+			}
 			return;
 		}
 		// Draft admission and the command both mutate the same workspace. Finish
@@ -226,6 +257,49 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 			);
 			store.deliver(projection, row.key, { ...item, awaitingReceipt: true, retryable: false });
 			let confirmed = false;
+			const confirm = (completed?: CompletedLine) => {
+				confirmed = true;
+				store.confirmSentLine(
+					projection,
+					row.key,
+					item.id,
+					completed?.receipt(session.current) ?? { held: false },
+				);
+				store.rememberLastSent(projection, row.key, prepared.original);
+			};
+			const settleLineAcquisition = async (command: ManagedOperation): Promise<LineSettlement> => {
+				try {
+					return { kind: "acquired", completed: await session.actions.acquireLine(row.persistId, command) };
+				} catch (error) {
+					if (error instanceof ResultAcquisitionError) {
+						return { kind: "degraded", completed: degradedCompletion(error), failure: error };
+					}
+					if (!(error instanceof ResultExpired)) throw error;
+					session.finish(command);
+					return { kind: "expired" };
+				}
+			};
+			/** A send that did not confirm still settles its presentation
+			 * exactly: delivery evidence degrades to a receipt, an uncertain
+			 * observation retains its recovery, and a terminal refusal
+			 * restores the cleared draft. */
+			const settleSendFailure = (error: unknown) => {
+				if (confirmed) return;
+				if (error instanceof ResultAcquisitionError) {
+					confirm(degradedCompletion(error));
+					return;
+				}
+				// Presentation is not delivery evidence. A retained receipt
+				// keeps its original source and cannot authorize a fresh blind
+				// send.
+				const outcomeRetained = error instanceof TerminalObservationError || retained.has(draft);
+				if (cleared != null && !outcomeRetained) restoreSubmission(row, cleared, draft);
+				store.updateItem(projection, row.key, item.id, {
+					state: outcomeRetained ? "unconfirmed" : "failed",
+					retryable: retained.has(draft),
+					operation: retained.get(draft),
+				});
+			};
 			try {
 				await session.drafts.flush(row.persistId);
 				await gesture(
@@ -239,59 +313,17 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 								JSON.stringify(prepared.previewUrls),
 							], operation),
 					async (command) => {
-						let result = null as SentReceipt | null;
-						let expired = false;
-						try {
-							result = await command.result() as SentReceipt | null;
-						} catch (error) {
-							// Delivered, but the line's returned authority expired with an
-							// earlier session: it stands as sent and cannot be changed.
-							if (!(error instanceof ResultExpired)) throw error;
-							expired = true;
-						}
-						if (result?.id != null) {
-							store.nameSentLine(projection, row.key, item.id, {
-								id: result.id,
-								history: result.history,
-							});
-						}
-						if (expired) session.finish(command);
-						else await session.actions.acquireLine(row.persistId, command);
-						confirmed = true;
-						if (result?.id != null) {
-							store.confirmSentLine(projection, row.key, item.id, {
-								id: result.id,
-								history: result.history,
-								held: result.line != null,
-							});
-						} else {
-							store.updateItem(projection, row.key, item.id, {
-								state: undefined,
-								awaitingReceipt: undefined,
-								operation: undefined,
-								retryable: undefined,
-							});
-						}
-						store.rememberLastSent(projection, row.key, prepared.original);
+						const settlement = await settleLineAcquisition(command);
+						confirm(settlement.kind === "expired" ? undefined : settlement.completed);
+						// Delivery stays confirmed while the original operation
+						// retains recovery of its result. A new send is never a
+						// recovery action.
+						if (settlement.kind === "degraded") throw settlement.failure;
 					},
 					(operation) => store.updateItem(projection, row.key, item.id, { operation }),
 				);
 			} catch (error) {
-				if (
-					!confirmed && cleared != null && !retained.has(draft) &&
-					!(error instanceof TerminalObservationError)
-				) restoreSubmission(row, cleared, draft);
-				// Presentation is not delivery evidence. A retained receipt keeps
-				// its original source and cannot authorize a fresh blind send.
-				if (!confirmed) {
-					store.updateItem(projection, row.key, item.id, {
-						state: error instanceof TerminalObservationError || retained.has(draft)
-							? "unconfirmed"
-							: "failed",
-						retryable: retained.has(draft),
-						operation: retained.get(draft),
-					});
-				}
+				settleSendFailure(error);
 				throw error;
 			}
 			return;
@@ -306,6 +338,14 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 		line?: number,
 		keep: number[] = [],
 	): Promise<ManagedOperation> {
+		const original = session.current?.intent.conversations.find((row) => row.id === id);
+		if (original == null) throw new Error("The original conversation was removed");
+		const identity = conversationIdentity(original);
+		const originalLine = line == null ? undefined : original.lines?.find((row) => row.id === line)?.handle;
+		session.effects.reserve(operation, line == null ? "say" : "editLine", [
+			id,
+			...(line == null ? [] : [String(line)]),
+		]);
 		const wrappers: RoomsBrowserSource[] = [];
 		try {
 			for (const file of files) {
@@ -321,11 +361,18 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 					),
 				);
 			}
-			const snapshot = await session.refresh();
 			return await session.perform(
 				operation,
-				() =>
-					session.workspace.prepareUpload(
+				async () => {
+					const snapshot = await session.refresh();
+					const current = snapshot.intent.conversations.find((row) => row.id === id);
+					if (
+						current == null || conversationIdentity(current) !== identity ||
+						(line != null && current.lines?.find((row) => row.id === line)?.handle !== originalLine)
+					) {
+						throw new Error("The original upload target changed during preparation");
+					}
+					return session.workspace.prepareUpload(
 						operation,
 						snapshot.revision,
 						id,
@@ -335,7 +382,8 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 						wrappers.splice(0),
 						line == null ? undefined : String(line),
 						new Uint32Array(keep),
-					),
+					);
+				},
 			);
 		} finally {
 			for (const wrapper of wrappers) wrapper.free();
@@ -380,10 +428,9 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 			});
 		},
 		withdraw: (key, id) => {
-			const row = store.getConv(projection, key);
-			const item = store.historyOf(projection, key).find((line) => line.id === id);
-			if (row == null || !isSessionConv(row) || item?.kind !== "chat" || item.lineId == null) return;
-			void session.actions.run("withdrawLine", [row.persistId, String(item.lineId)]).catch(failures);
+			void withdrawLine(page, session, key, id).catch(() => {
+				// The original line retains the refusal and exact receipt.
+			});
 		},
 	};
 }

@@ -1,8 +1,8 @@
 # conformance/keri-conformance
 
 Small KERI fixture verifier for the accountability worked example. It checks
-committed KEL/Episode fixtures with a Python oracle; it does not define
-glowcap's wire protocol and it does not introduce KERI into the Zig core.
+committed KEL/Episode fixtures with a Python reference verifier. It does not
+define glowcap's wire protocol or bring KERI into the Zig core.
 
 ## Files
 
@@ -21,7 +21,7 @@ bash conformance/keri-conformance/run.sh --fixture sample-kel
 ## Posture
 
 - This scenario is external application-layer evidence.
-- Fixtures are allowed because they are named and documented under `fixtures/`.
+- Fixtures live under `fixtures/`, each named and documented.
 - Generated accountability demo output belongs under
-  `conformance/accountability-on-goblins/.data/` and should not become a new
-  fixture by accident.
+  `conformance/accountability-on-goblins/.data/` and is not a fixture until
+  someone copies it into `fixtures/`.

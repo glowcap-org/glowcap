@@ -1,7 +1,7 @@
 //! The two live conversations with a Tor daemon: the SOCKS dial and the control
 //! session that hosts a service.
 //!
-//! `socks5.zig` and `control.zig` own the bytes; this module owns the streams
+//! `socks5.zig` and `control.zig` own the bytes. This module owns the streams
 //! that carry them. Nothing here decides protocol shape, so a change to what Tor
 //! is told belongs next door and a change to how it is reached belongs here.
 
@@ -89,7 +89,7 @@ pub fn socksHandshake(io: std.Io, stream: Stream, service_id: []const u8) Error!
         else => Error.ProtocolViolation,
     };
 
-    // The bound address is unused — Tor reports a null one — but it precedes the
+    // The bound address is unused, Tor reports a null one, but it precedes the
     // session bytes and has to leave the stream, or the frame reader starts
     // mid-reply and refuses a frame that was never sent.
     var discard: [std.math.maxInt(u8) + 2]u8 = undefined;
@@ -173,7 +173,7 @@ pub const ControlSession = struct {
     }
 
     /// Ask Tor for a service forwarding `virtual_port` to `forward`. `restore_key`
-    /// empty asks for a fresh one; otherwise it is the stored key, passed through
+    /// empty asks for a fresh one. Otherwise it is the stored key, passed through
     /// unchanged.
     pub fn addOnion(
         self: *ControlSession,

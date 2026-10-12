@@ -1,5 +1,5 @@
 //! A local conversation graph over the shipped actor and LMDB interfaces.
-//! Only conversation headers have actor endpoints; message records stay cold.
+//! Only conversation headers have actor endpoints, message records stay cold.
 const std = @import("std");
 const glowcap = @import("glowcap");
 pub const core = glowcap.loam.core;

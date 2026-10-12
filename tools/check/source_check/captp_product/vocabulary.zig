@@ -9,7 +9,7 @@ const expectFileContains = util.expectFileContains;
 const bans_transport = @import("../bans/transport.zig");
 
 /// The transport-agnosticism phrase bans live in `source_check/bans.zig`
-/// (`transport_vocabulary`); this keeps only the resident-count heuristic,
+/// (`transport_vocabulary`). This keeps only the resident-count heuristic,
 /// whose violation message names the fix (`keyed-tcp` in the enumeration)
 /// rather than the matched needle. It shares the scanned path list with
 /// those rows.

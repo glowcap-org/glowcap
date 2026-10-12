@@ -3,7 +3,7 @@
 //! One inline aggregate owns admission, delayed gift entropy, recursive
 //! rewrite, commit or rollback, pressure reservations, and terminal teardown.
 //! `passable.zig` owns the carrier vocabulary and `walk.zig` owns the shared
-//! tree passes; this module owns the transaction that applies them.
+//! tree passes. This module owns the transaction that applies them.
 
 const std = @import("std");
 
@@ -27,12 +27,12 @@ const Internal = node_mod.Internal;
 const PeerHandle = @import("../../peer_handle.zig").PeerHandle;
 
 /// Every mutable fact owned by one Node's delayed Passable transactions.
-/// The aggregate is embedded in Node; no runtime object or allocation is
+/// The aggregate is embedded in Node. No runtime object or allocation is
 /// introduced by the ownership boundary.
 pub const Batches = struct {
     rows: std.AutoHashMapUnmanaged(passable.BatchId, Batch) = .empty,
     /// Aggregate staged projection occurrences by recipient. Batches are
-    /// already individually queue-capped; this also bounds their metadata.
+    /// already individually queue-capped. This also bounds their metadata.
     occurrences_by_recipient: std.AutoHashMapUnmanaged(PeerHandle, usize) = .empty,
     /// Future terminal action seats held by every live batch.
     action_reservations: usize = 0,
@@ -61,6 +61,9 @@ const Batch = struct {
     terminal_action_reservations: usize,
 
     fn deinit(self: *Batch, node: *Node) void {
+        // `removePeer` retires a recipient's batches before the Peer goes, and
+        // `Node.deinit` retires every batch before any Peer; the occurrence row
+        // was counted when the batch was staged.
         const projection_count = self.gifts.len + self.promises.len;
         if (self.staging_reservation) |reservation| {
             const recipient = node.peer(self.recipient_peer) orelse unreachable;
@@ -271,6 +274,7 @@ pub fn stage(
     }
     if (gifts.len == 0) {
         finish(self, batch_id) catch |err| {
+            // `finish` removes the row only after its last refusal point.
             const failed = batches.rows.getPtr(batch_id) orelse unreachable;
             if (!failed.payload_owned) {
                 // Peer consumed the message before its final refusal. No
@@ -589,6 +593,7 @@ fn finish(self: *Node, batch_id: passable.BatchId) !void {
         },
     }
 
+    // The row found at the top of `finish`; nothing in the switch removes it.
     var finished = (self.inline_passable_batches.rows.fetchRemove(batch_id) orelse unreachable).value;
     spendTerminalReservations(self, &finished);
     for (finished.gifts) |gift| actions.pushReserved(self, .{ .flush = gift.home });

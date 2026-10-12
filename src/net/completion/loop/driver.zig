@@ -3,7 +3,7 @@
 //! One poll turn settles adapter work and owed retirement before sizing the
 //! wait, consumes every earned completion exactly once, repairs buffer/deadline
 //! ordering, then surfaces the first loop-global failure. Public driver methods
-//! are direct aliases on Loop; this module owns no runtime object.
+//! are direct aliases on Loop. This module owns no runtime object.
 
 const std = @import("std");
 const clock = @import("../../clock.zig");
@@ -34,12 +34,12 @@ pub fn Machine(
         /// and not the others, and what goes missing that way is a sweep no
         /// driver announces it is skipping.
         ///
-        /// The order is load-bearing. Deferred work is drained *before* the
+        /// The order matters. Deferred work is drained *before* the
         /// wait is sized, because draining it can create the deadline the wait
         /// must not sleep through. `caller_deadline_ms` is the driver's own
         /// bound, or null for "wait as long as the connections allow".
         pub fn pollOnce(self: *Self, caller_deadline_ms: ?i32) !void {
-            // Per-poll batch cap, deliberately independent of
+            // Per-poll batch cap, independent of
             // `BackendOptions.queue_entries`: a deeper completion queue drains across
             // more polls, while the fixed stack batch keeps this
             // allocation-free.
@@ -49,7 +49,7 @@ pub fn Machine(
             Flow.drainFanInDirty(self);
             // Owed closes are this loop's own work, not the backend's, so they
             // run before the wait rather than after it. On a backend whose
-            // `shutdownFd` cannot cancel — iroh's is a documented no-op — the
+            // `shutdownFd` cannot cancel, iroh's is a documented no-op, the
             // ops these closes retire are the only reason some connections
             // ever complete, and sleeping first can mean sleeping on them.
             try Lifecycle.retryPendingCloses(self);
@@ -97,8 +97,8 @@ pub fn Machine(
             // is checked.
             std.debug.assert(n <= completions.len);
             // Held, not propagated yet. The three sweeps below repair what the
-            // batch left behind — a connection parked buffer-starved after its
-            // recycle already ran, a deadline that came due — and a dispatch
+            // batch left behind, a connection parked buffer-starved after its
+            // recycle already ran, a deadline that came due, and a dispatch
             // failure is loop-global, so for some of those connections this is
             // the last turn there is.
             const dispatched = dispatchBatch(self, completions[0..n]);
@@ -122,7 +122,7 @@ pub fn Machine(
         /// production server or dialer, `.{ .after_closed = n }` to return once
         /// `n` connections have been fully served and closed (the test-shaped
         /// stop condition). Per-connection failures close only their
-        /// connection; the errors that escape here are loop-global, namely a
+        /// connection. The errors that escape here are loop-global, namely a
         /// backend poll failure, listener accept failure, or listener accept
         /// re-arm failure.
         pub fn run(self: *Self, stop: Stop) !void {
@@ -138,23 +138,23 @@ pub fn Machine(
 
         /// Drive the loop until `done` is true. Same poll/dispatch body as
         /// `run` until the flag a Host vow callback (or peer teardown) sets.
-        /// Call from the loop-owner thread — the same affinity as `dial`.
+        /// Call from the loop-owner thread, the same affinity as `dial`.
         ///
         /// `deadline_ms` bounds wall-clock wait time from the first poll:
-        /// `0` is unbounded (prior behavior); a positive value polls with the
+        /// `0` is unbounded (prior behavior). A positive value polls with the
         /// remaining milliseconds and returns `error.Timeout` if the deadline
-        /// elapses while `done` is still false — the same contract as
+        /// elapses while `done` is still false, the same contract as
         /// `Connection.runUntil`.
         ///
         /// If `done` is set from another thread, that thread must also wake
-        /// this loop's `poll`: nudge the armed wake channel (`armWake`; a
+        /// this loop's `poll`: nudge the armed wake channel (`armWake`. A
         /// `driver.SettleMailbox.wake` is the sanctioned entry), call a
         /// userspace backend's explicit stopper wake when it exposes one, or,
         /// on a listening loop with no wake armed, a connect-and-drop against
         /// the bound port. A flag set from a serve/vow callback on this thread
-        /// needs no wake — the next loop iteration sees it.
+        /// needs no wake, the next loop iteration sees it.
         ///
-        /// After return, slots may still hold armed recvs; call `closeAndDrain`
+        /// After return, slots may still hold armed recvs. Call `closeAndDrain`
         /// before `deinit`.
         pub fn runUntil(self: *Self, done: *const std.atomic.Value(bool), deadline_ms: i32) !void {
             const claimed = affinity.latch(self);
@@ -169,22 +169,22 @@ pub fn Machine(
                 } else null;
                 try pollOnce(self, caller_timeout);
             }
-            // closeAndDrain is separate: callers that need honest deinit invoke
+            // closeAndDrain is separate: callers that need a clean deinit invoke
             // it after runUntil (same thread), once CapTP work is done.
         }
 
         /// Close every open connection and the listen handle, then poll until
         /// every slot is free. After this returns, `deinit` is safe: no armed
         /// recv can hang the drain because each close retires pending ops
-        /// (Backend contract). Call from the loop-owner thread — typically
+        /// (Backend contract). Call from the loop-owner thread, typically
         /// after `runUntil` returns, or after an early `run` return that left
         /// slots live.
         pub fn closeAndDrain(self: *Self) !void {
             const claimed = affinity.latch(self);
             if (comptime std.debug.runtime_safety) std.debug.assert(claimed);
             defer affinity.release(self);
-            // The close sweep below is idempotent — it touches only `.open` and
-            // `.draining` slots — so a drain that failed part-way can be
+            // The close sweep below is idempotent, it touches only `.open` and
+            // `.draining` slots, so a drain that failed part-way can be
             // retried. Returning early on the second call instead left the
             // caller no way to finish, and `deinit` then asserts on the ops
             // still in flight, or in a release build frees an outbound buffer
@@ -313,9 +313,9 @@ pub fn Machine(
                 // Each per-connection op decrements its in-flight count after the
                 // handler runs; the last one on a closing connection reclaims it.
                 .recv => {
-                    // Consume the borrowed pool bytes, recycle the buffer —
+                    // Consume the borrowed pool bytes, recycle the buffer,
                     // exactly once per completion that carried one, on every
-                    // verdict — then act on the verdict.
+                    // verdict, then act on the verdict.
                     const verdict = Flow.onRecvConsume(self, slot, comp);
                     if (comp.borrowed.active()) Flow.recycleBorrowedPayload(self, comp);
                     Flow.onRecvFinish(self, slot, verdict);

@@ -1,4 +1,4 @@
-//! The session owns actual tasks; views only request retry or retirement.
+//! The session owns actual tasks. Views only request retry or retirement.
 //! Startup permits cap retained candidates independently of live callbacks.
 use glowcap::{Result, loam};
 use rooms_glowcap::client::Tasks;
@@ -82,10 +82,15 @@ impl<P: Tasks> Budget<P> {
 			.values()
 			.any(|worker| worker.target.as_ref() == Some(target))
 	}
-	pub(in crate::session::managed) fn identify(&self, id: &str, target: glowcap::Ref) {
+	pub(in crate::session::managed) fn identify(&self, id: &str, target: glowcap::Ref) -> Result<()> {
 		let mut tasks = self.tasks.borrow_mut();
-		let worker = tasks.get_mut(id).expect("spawned worker owns its target");
-		assert!(worker.target.replace(target).is_none());
+		let worker = tasks
+			.get_mut(id)
+			.ok_or_else(|| loam::refusal("spawned worker is not retained"))?;
+		if worker.target.replace(target).is_some() {
+			return Err(loam::refusal("spawned worker already has a target"));
+		}
+		Ok(())
 	}
 	pub(in crate::session::managed) fn retirement(&self, id: &str) -> Option<Rc<super::retirement::Owner>> {
 		let tasks = self.tasks.borrow();
@@ -100,11 +105,14 @@ impl<P: Tasks> Budget<P> {
 	pub(in crate::session::managed) fn worker_retirement(&self, id: &str) -> Option<Rc<super::retirement::Owner>> {
 		self.tasks.borrow().get(id).and_then(|worker| worker.retirement.clone())
 	}
-	pub(super) fn select_admission(&self, worker: &str, admission: &str) {
+	pub(super) fn select_admission(&self, worker: &str, admission: &str) -> Result<()> {
 		let mut tasks = self.tasks.borrow_mut();
-		let selected = tasks.get_mut(worker).expect("retained startup owner");
+		let selected = tasks
+			.get_mut(worker)
+			.ok_or_else(|| loam::refusal("startup owner is not retained"))?;
 		selected.admission.clear();
 		selected.admission.push_str(admission);
+		Ok(())
 	}
 	pub(in crate::session::managed) async fn close_all(&self) -> Result<()> {
 		if self.starting.get() != 0 {
@@ -199,7 +207,7 @@ pub(in crate::session::managed) struct Signals {
 	pub finished: watch::Sender<Option<Result<()>>>,
 }
 /// One task owner serves both membership and workspace observation. Views
-/// request retirement; the registry retains the actual task until its cleanup
+/// request retirement. The registry retains the actual task until its cleanup
 /// future succeeds. The running future holds only a weak registry charge.
 pub(in crate::session::managed) fn spawn<P, F, W>(
 	platform: &P,

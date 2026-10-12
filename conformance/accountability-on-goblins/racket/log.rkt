@@ -1,10 +1,10 @@
 #lang racket/base
-;; log.rkt — Sigstore-shaped local transparency log.
+;; log.rkt: Sigstore-shaped local transparency log.
 ;;
 ;; Append-only file at .data/transparency.log holding Blake3 leaf hashes of
 ;; each Episode's signed bytes. Merkle root is recomputed on every append so
 ;; verifiers can check inclusion via a path of sibling hashes. Sigstore-shaped
-;; in spirit (transparency log of signed leaves), not Sigstore-conformant —
+;; in spirit (transparency log of signed leaves), not Sigstore-conformant,
 ;; upstream Sigstore service integration is deferred to a later step.
 
 (require racket/contract

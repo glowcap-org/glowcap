@@ -1,7 +1,7 @@
 //! The WebRTC signaling object as a real OCapN capability, driven over CapTP
-//! (ADR-0089 phase 6, native half).
+//! (ADR-0089).
 //!
-//! `webrtc-mesh` builds the signaling object (phase 5) and calls its
+//! `webrtc-mesh` builds the signaling object and calls its
 //! `offer` / `candidate` verbs directly, in process. This proof hosts the same
 //! verbs on a `Host` and routes every one of them over a real keyed OCapN
 //! session, which is the wire-capability shape the browser arm and a

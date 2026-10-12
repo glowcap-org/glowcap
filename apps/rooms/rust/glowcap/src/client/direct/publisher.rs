@@ -1,5 +1,5 @@
-//! Host-scoped direct inbox publication. Directory owners share a pure ledger;
-//! native alias effects run outside delivering turns and expose actual failures.
+//! Host-scoped direct inbox publication. Directory owners share a pure ledger.
+//! Native alias effects run outside delivering turns and expose actual failures.
 use crate::client::{Deadline, Error, directory::Directory};
 use glowcap::{Behavior, Host, Ref, Session};
 use rooms_application::failure::{Failure, FailureCode};
@@ -19,8 +19,8 @@ impl<D: Deadline + Entropy + Clone> Publisher<D> {
 		Self::with_limit(host, platform, policy::DEFAULT_INBOX_LIMIT)
 	}
 	pub fn with_limit(host: Host, platform: D, limit: usize) -> Result<Self, Error> {
-		policy::Ledger::validate_limit(limit)?;
-		let ledger = host.application_state(|| RefCell::new(policy::Ledger::new(limit).expect("validated limit")))?;
+		let initial = policy::Ledger::new(limit)?;
+		let ledger = host.application_state(move || RefCell::new(initial))?;
 		if ledger.borrow().limit() != limit {
 			return Err(policy::Error::Limit.into());
 		}
@@ -43,8 +43,8 @@ impl<D: Deadline + Entropy + Clone> Publisher<D> {
 		})
 	}
 	/// Retry exact retired aliases, including dropped offerers. A failed remove
-	/// keeps its ledger row and capacity. This operation is cancellation-safe;
-	/// every completed native remove is reflected before another await.
+	/// keeps its ledger row and capacity. This operation is cancellation-safe.
+	/// Every completed native remove is reflected before another await.
 	pub async fn reconcile(&self) -> Result<(), Error> {
 		outside_turn().await;
 		let retired = self.ledger.borrow_mut().retirements();
@@ -79,9 +79,9 @@ impl<D: Deadline + Entropy + Clone> Offerer<D> {
 	/// Pass the current directory on every offer, including after reconnect.
 	/// Alias selection and publication form one synchronous transition after
 	/// cleanup. Concurrent offers reuse that alias while awaiting independent
-	/// directory acknowledgements; no factory or ledger borrow spans a wait.
+	/// directory acknowledgements. No factory or ledger borrow spans a wait.
 	/// Cancelling an acknowledged or unacknowledged offer retains its published
-	/// alias for re-offer; only forget/close ends that registration's authority.
+	/// alias for re-offer. Only forget/close ends that registration's authority.
 	pub async fn offer(&self, directory: &Directory<D>, peer: &str, id: &Id, opening: &str) -> Result<(), Error> {
 		if self.skip.as_ref().is_some_and(|skip| skip(peer)) {
 			return Ok(());
@@ -93,7 +93,7 @@ impl<D: Deadline + Entropy + Clone> Offerer<D> {
 	}
 	/// Publish on a separate inbox Host and import through an established
 	/// connection to it before offering the capability to the directory.
-	/// `exporter` and `importer` are the two ends of that connection; their
+	/// `exporter` and `importer` are the two ends of that connection. Their
 	/// native owner establishes and retains the pair. The importer must belong
 	/// to the directory Host. Its exporter locator must name the public inbox
 	/// endpoint, since the directory will redeem the resulting handoff there.
@@ -212,10 +212,9 @@ impl Drop for Reservation {
 	fn drop(&mut self) {
 		// The token was created by this ledger. A successful publication remains
 		// retained, including when the later directory offer fails or is cancelled.
-		self.ledger
-			.borrow_mut()
-			.abandon(&self.inbox)
-			.expect("reservation owner");
+		// tolerant: abandon refuses only a token another ledger minted, and
+		// this reservation holds the token its own ledger issued.
+		let _ = self.ledger.borrow_mut().abandon(&self.inbox);
 	}
 }
 async fn outside_turn() {

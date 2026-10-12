@@ -366,7 +366,7 @@ test "driver and Host failure tables agree on every name both classify" {
     // with I/O, timeout, and would-block arms it alone can mint. The names
     // both tables list explicitly must land in corresponding categories, or an
     // embedder sees one error change meaning across the two fronts. The two
-    // `else` arms differ on purpose (driver: transport I/O; Host: abort
+    // `else` arms differ (driver: transport I/O; Host: abort
     // projection), so only the shared explicit names are held here.
     const HostFailure = driver.core.HostFailure;
     const OperationFailure = driver.OperationFailure;

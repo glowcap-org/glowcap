@@ -7,9 +7,9 @@ by its reader, because only the reader's browser ever sees its plaintext.
 So Rooms gives each member one ordinary OCapN object for what they kept. One
 Rust design implements it in three places:
 
-- in the browser, over IndexedDB;
-- in the archive service, over a journal on disk;
-- inside the session service, for the history a durable session records.
+- in the browser, over IndexedDB
+- in the archive service, over a journal on disk
+- inside the session service, for the history a durable session records
 
 This page describes that design. [Operating Rooms](../operating.md) explains
 how to run the archive service. These decision records hold the details:
@@ -76,7 +76,7 @@ would.
 `services::archive::file::FileArchive` owns the record journal, the blob
 directory, and an exclusive lease on the state directory. Startup validates
 snapshot order, identities, and revision continuity before publishing an
-index. A torn final line is repaired durably before serving; a corrupt
+index. A torn final line is repaired durably before serving. A corrupt
 complete line refuses startup without rewriting the file. Append and fsync
 precede index publication and the reply. Compaction replaces the file
 atomically with file and directory synchronization, keeping the prior index
@@ -85,7 +85,7 @@ the backend until it is reopened and recovered.
 
 The default bounds are 5,000 records, 512 extra journal rows before
 compaction, and 128 MiB per file. Parsing, indexing, and filesystem work run
-on a blocking worker; records cross that boundary shared, not copied. A
+on a blocking worker. Records cross that boundary shared, not copied. A
 cancelled observation leaves the job owned, and a later operation observes
 its result first. Session documents use the same lock, read, and atomic
 replacement owner with their own codec and filenames.
@@ -99,7 +99,7 @@ streams exact chunks to the disk worker through a single slot: at most one
 chunk is queued, one being written, and one being fetched, and no whole file
 is assembled. Waiting for a slow source happens before the backend is asked
 to store anything, so every other operation keeps its place in the queue. An
-erasure refuses every put whose bytes are still arriving; a capture cut short
+erasure refuses every put whose bytes are still arriving. A capture cut short
 by shutdown is refused rather than left unanswered.
 
 A reader is bounded by the issued scope, the exact record address, the file
@@ -115,7 +115,7 @@ uploading matching content again repairs a corrupt blob.
 A share is an independently revocable sturdyref onto some scope of the
 archive. The version-one `shares.json` keeps issuance order, exact UTF-16
 text, the HMAC-derived entropy, at most 32 active shares and 256 lifetime
-identities. Retrying the same share is idempotent; a conflicting or revoked
+identities. Retrying the same share is idempotent. A conflicting or revoked
 identity refuses reuse. The ledger is published only after atomic
 replacement is durable, and an uncertain outcome disables storage until
 reopen.
@@ -138,7 +138,7 @@ Only the whole-archive root of a service can issue shares.
 selected archive (the browser store, the session's own archive, or a chosen
 peer), ordered local recording, shares, and erasure. Its queue admits 64
 requests holding at most 2 MiB of input and 64 MiB of named file bytes.
-Selection takes effect between operations; a failed selected peer stays
+Selection takes effect between operations. A failed selected peer stays
 unavailable rather than redirecting writes to the browser, so a member
 never has a second history they did not choose. Reads merge every archive
 the member holds, comparing full record identity, then withdrawal and edit

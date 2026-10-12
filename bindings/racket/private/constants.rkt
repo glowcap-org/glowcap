@@ -17,8 +17,8 @@
 ;; The ADR-0097 provenance symbol for one reflected ABI value.
 ;;
 ;; It lives beside the constants it reads because two surfaces report the
-;; same fact about the same partner — a session's partner identity
-;; and the live trace's session-open — and `trace.rkt` sits below the session
+;; same fact about the same partner (a session's partner identity
+;; and the live trace's session-open), and `trace.rkt` sits below the session
 ;; structs, so neither can reach a copy kept in the other. One answer, one
 ;; spelling.
 (define (provenance<-abi raw)

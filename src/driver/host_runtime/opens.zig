@@ -56,7 +56,7 @@ pub fn connectLocator(
 
 /// Stage a dial toward `locator` without pumping it (ADR-0112): mint the
 /// dialed session, start its transport connect, and return. The
-/// handshake advances through whichever pump runs next; `observer` hears
+/// handshake advances through whichever pump runs next. `observer` hears
 /// `opened` with `tag` when the session opens, or
 /// `failed` when the wire closes or the handshake budget expires. The
 /// transport connect and the handshake both advance through later pumps,
@@ -77,7 +77,7 @@ pub fn startDial(
 
 /// Begin adopting one externally established provider connection without
 /// pumping its handshake. The provider owns the subject namespace and
-/// supplies the authenticated durable key; this face owns only the
+/// supplies the authenticated durable key. This face owns only the
 /// resulting wire.
 /// No locator is supplied by the caller. A dialed adoption uses the
 /// provider's proved key as its target, while an accepted adoption uses
@@ -153,7 +153,7 @@ pub fn startAdoptExternal(
 /// The shared staged-dial mint behind `startDial` and the
 /// redeem drain: open the dialed half, start the transport connect, and
 /// park a `PendingOpen` row for the pump to settle. `locator` is
-/// borrowed for the call; nothing of it is retained.
+/// borrowed for the call. Nothing of it is retained.
 pub fn stageDial(
     self: *HostRuntime,
     locator: model.PeerLocator,
@@ -183,8 +183,8 @@ pub fn stageDial(
             };
             // A Host-level fetch can be this runtime's first connection. The
             // selected concrete route owns the same dial-side hello default as
-            // an application-started dial; handoff redemption merely used to
-            // hide this requirement behind its already-open source session.
+            // an application-started dial; handoff redemption has an already-open
+            // source session that satisfies this requirement.
             if (self.core.advertisedLocator(locator.transport) == null)
                 try self.core.ensureAdvertisedLocator(locator.transport);
             break :blk try self.core.openPendingDial(redeem.ticket, redeem.route_index) orelse {
@@ -315,7 +315,7 @@ pub fn advancePendingOpens(self: *HostRuntime) !void {
 
 /// Report one completed session open. For a redeem row, a refused
 /// `exporterDialed` fails closed: the ticket's action was consumed at
-/// stage time, so there is no drain retry to lean on — the session
+/// stage time, so there is no drain retry to lean on. The session
 /// unwinds and the waiting redeems break rather than strand.
 fn completePendingOpen(self: *HostRuntime, row: *PendingOpen) !void {
     defer {
@@ -359,7 +359,7 @@ fn completePendingOpen(self: *HostRuntime, row: *PendingOpen) !void {
 }
 
 /// Unwind and report one failed session open. The still-parked
-/// resident connect is canceled; a bound wire drops with its session.
+/// resident connect is canceled. A bound wire drops with its session.
 fn failPendingOpen(self: *HostRuntime, row: *PendingOpen, err: anyerror) !void {
     return failPendingOpenFailure(self, row, self.operationFailure(err));
 }

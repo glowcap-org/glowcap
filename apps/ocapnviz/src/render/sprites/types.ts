@@ -1,5 +1,5 @@
 /**
- * Per-entity sprite shapes — the Pixi objects `renderFrame` maps
+ * Per-entity sprite shapes. The Pixi objects `renderFrame` maps
  * hold, and the drag closure both node kinds raise.
  *
  * An implementation detail of the projection: `Stage` allocates the

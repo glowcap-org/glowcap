@@ -68,7 +68,7 @@ pub export fn glowcap_driver_has_transport(
 
 /// Begin a nonblocking dial toward one complete canonical OCapN peer locator
 /// and answer at once with an operation id. Transport completion and the handshake
-/// advance across steps under the handshake budget; OPENED or OPEN_FAILED
+/// advance across steps under the handshake budget. OPENED or OPEN_FAILED
 /// carries the operation id.
 pub export fn glowcap_driver_dial(
     raw: ?*c.GlowcapDriverLoop,
@@ -86,8 +86,8 @@ pub export fn glowcap_driver_dial(
 }
 
 /// Begin adoption of one externally established provider connection. The
-/// subject is meaningful only to the provider registered under `transport`;
-/// the driver never interprets it. `role` selects the Host/session half; the
+/// subject is meaningful only to the provider registered under `transport`.
+/// The driver never interprets it. `role` selects the Host/session half. The
 /// terminal OPENED or OPEN_FAILED event carries the returned operation id.
 pub export fn glowcap_driver_adopt_external(
     raw: ?*c.GlowcapDriverLoop,

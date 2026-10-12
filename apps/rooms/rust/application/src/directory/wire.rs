@@ -59,7 +59,7 @@ fn member_row<B: BuildArguments>(member: &Member) -> B::Value {
 	])
 }
 
-/// Baseline `watch` answers room rows; `watchPublications` answers
+/// Baseline `watch` answers room rows. `watchPublications` answers
 /// `[rooms, peers, omitted]`.
 pub fn snapshot<B: BuildArguments>(snapshot: &Snapshot, shape: Shape) -> B::Value {
 	if shape == Shape::Baseline {

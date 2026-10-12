@@ -51,7 +51,7 @@ let doorsOpen = false;
  *
  * Deno overlays `options.env` onto the parent (`clearEnv` defaults false), so
  * deleting a key from a copied map does not hide it. The pane that launches
- * `check` sets `GLOWCAP_ROOMS_STATE` for a live server; in-tree proofs must
+ * `check` sets `GLOWCAP_ROOMS_STATE` for a live server. In-tree proofs must
  * not inherit that directory. A caller that names the variable in
  * `options.env` is asking for a specific directory and keeps it.
  *
@@ -76,8 +76,8 @@ function childEnv(extra?: Record<string, string>): Record<string, string> {
  *
  * Takes what `new Deno.Command(command, options).spawn()` takes and answers the
  * same child, so a caller reads its stdout, awaits its `status`, and reports its
- * pid unchanged. The one difference is that it is now reaped with its own
- * children whichever way this proof ends.
+ * pid unchanged. The difference is that it is reaped with its own children
+ * whichever way this proof ends.
  *
  * Wants `setsid` on the path. Without it the spawn fails outright, which is the
  * report we want: a proof that quietly lost its group would leak again. */

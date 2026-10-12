@@ -1,6 +1,6 @@
 import { spawnWeb } from "../support/web_front.ts";
 // A nickname is a claim the room grants and takes back, so a direct conversation
-// cannot be keyed on one. This drives the sequence that used to break that,
+// cannot be keyed on one. This drives the sequence that breaks that rule,
 // with three real browser peers against the page serve.ts serves:
 //
 //   zoe is introduced to ada and they talk
@@ -9,9 +9,9 @@ import { spawnWeb } from "../support/web_front.ts";
 //   the old conversation becomes read-only
 //   zoe explicitly opens a new conversation to the replacement registration
 //
-// The last line used to redeem a fresh introduction by name and reach the new
-// holder — same thread, same title, same history, a different human, and no
-// marker anywhere. The old registration now makes the composer unavailable,
+// The last line must not redeem a fresh introduction by name and reach the new
+// holder, with the same thread, title, and history, a different human, and no
+// marker anywhere. The old registration makes the composer unavailable,
 // while an explicit new conversation receives a separate registration ID.
 //
 // Needs deno, the wasm module (`zig build wasm-driver`), the native archives,
@@ -121,8 +121,8 @@ try {
 	const rows = await zoe.page.evaluate(() => document.querySelectorAll("#dmList li").length);
 	if (rows !== 1) fail(`expected one direct conversation, found ${rows}`);
 
-	// And now the case the keying itself protects: zoe deliberately starts a
-	// conversation with the person who holds the name now. That is a different
+	// Next the case the keying itself protects: zoe starts a
+	// conversation with the person who holds the name. That is a different
 	// conversation with a different person, and the closed one keeps its history.
 	// Keyed on the nickname, the new one would land on top of the old and the
 	// history would be gone.

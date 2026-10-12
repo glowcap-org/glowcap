@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Live Rooms-over-onion proof. The harness owns Tor explicitly; glowcap only
+# Live Rooms-over-onion proof. The harness owns Tor explicitly. Glowcap only
 # receives configured SOCKS and control endpoints.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"

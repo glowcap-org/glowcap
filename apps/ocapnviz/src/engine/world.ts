@@ -3,8 +3,8 @@ import type { CaptpVersion, Codec, PeerProfile, SessionState } from "../schema/t
 import type { SessionSide } from "../schema/session-end.ts";
 
 /**
- * ECS world. The world *is* the graph — no parallel data structure.
- * Systems read and mutate it through queries; the renderer projects
+ * ECS world. The world *is* the graph. No parallel data structure.
+ * Systems read and mutate it through queries. The renderer projects
  * it to sprites. Components are small and composable so new concerns
  * (selection, highlighting) drop in as new keys.
  */
@@ -28,8 +28,8 @@ export type Components = {
 	 *
 	 *  It is drawn, and so it is an entity: the force layout needs a position
 	 *  at both ends of every edge, and a reader needs something to select in
-	 *  order to ask what this end claims. It is deliberately NOT a `peer`
-	 *  component — a claim nothing proved is not a peer, and anything that
+	 *  order to ask what this end claims. It is NOT a `peer`
+	 *  component. A claim nothing proved is not a peer, and anything that
 	 *  walks peers must not pick it up. It lives and dies with its session. */
 	endpoint?: {
 		id: string;
@@ -65,7 +65,7 @@ export type Components = {
 	/**
 	 * Rendered position, written each tick by KeyframeLayoutSystem
 	 * (peers) or MessageFlightSystem (in-flight messages). Pure
-	 * function of `t` and the world; no integration history.
+	 * function of `t` and the world. No integration history.
 	 */
 	position?: Vec2;
 };
@@ -76,7 +76,7 @@ export function createWorld(): GameWorld {
 	return new World<Components>();
 }
 
-/** Entity shapes the renderer consumes — the same `With<>` shapes
+/** Entity shapes the renderer consumes. The same `With<>` shapes
  * the queries below yield. Exported from this layer (not redeclared
  * in the renderer) so any caller that iterates an engine query
  * gets the canonical element type. */
@@ -96,7 +96,7 @@ export function queries(world: GameWorld) {
 }
 export type Queries = ReturnType<typeof queries>;
 
-/** Find a peer by id. Linear scan; fine at our scale (tens of peers). */
+/** Find a peer by id. Linear scan. Fine at our scale (tens of peers). */
 export function findPeer(world: GameWorld, id: string) {
 	for (const e of world.with("peer")) {
 		if (e.peer.id === id) return e;

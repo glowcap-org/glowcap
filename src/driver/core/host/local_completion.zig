@@ -13,10 +13,10 @@ const action = @import("action.zig");
 const vows = @import("../vows.zig");
 const settlement = @import("../vows/settlement.zig");
 
-/// One allocation embeds the existing Producer with public reply metadata.
-/// Its arena owns trusted callback output until outer commit transfers it to
-/// the Host action. Depth remains bounded by the shared Value walk; aggregate
-/// reply bytes use the Host allocator, as opposed to a Call's fixed allowance.
+/// One allocation embeds the existing Producer with public reply metadata. Its
+/// arena owns trusted callback output until outer commit transfers it to the
+/// Host action. Depth remains bounded by the shared Value walk. Aggregate reply
+/// bytes use the Host allocator, as opposed to a Call's fixed allowance.
 /// Cancellation consumes observation, never allocation provenance or effects.
 pub const Reply = struct {
     producer: local.Producer,
@@ -92,7 +92,7 @@ pub const Reply = struct {
     }
 
     /// Destruction never publishes. Ordinary settlement has transferred the
-    /// reply; aggregate teardown only reclaims remaining storage.
+    /// reply. Aggregate teardown only reclaims remaining storage.
     pub fn deinit(self: *Reply) void {
         std.debug.assert(self.result != .prepared);
         var arena = self.storage.promote(self.producer.host.allocator);

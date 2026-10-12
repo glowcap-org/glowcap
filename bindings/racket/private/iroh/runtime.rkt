@@ -6,14 +6,14 @@
 ;; byte-channel endpoint; it contains no application-facing selection policy.
 ;;
 ;; Mirrors the à-la-carte archive split (ADR-0059): `glowcap.rkt` is the core
-;; (libglowcap_ocapn), and each transport is its own composable module —
+;; (libglowcap_ocapn). Each transport is a composable module:
 ;; `glowcap-tcp.rkt`, `glowcap-inproc.rkt`, and this one. This module is
 ;; libglowcap_net_transport_iroh's binding, the optional encrypted-QUIC netlayer.
 ;; Its private loader (`private/ffi-iroh.rkt`) opens ONLY the iroh companion
-;; (`zig build iroh-abi`, needs cargo) — which exports only `glowcap_iroh_*` —
+;; (`zig build iroh-abi`, needs cargo). That archive exports only `glowcap_iroh_*`
 ;; and builds an `async-transport` over it through the transport seam
 ;; (`private/seam.rkt`); the core calls come from there. Everything above the
-;; pump — vat, session-* verbs, events — is the core's; only the transport differs.
+;; pump (vat, session-* verbs, events) is the core's; only the transport differs.
 ;;
 ;; Explicit provider/connector values keep iroh out of TCP-only programs; `listen-iroh` registers the
 ;; endpoint as a provider with the native loop; the raw `iroh-endpoint` byte
@@ -73,8 +73,8 @@
 ;; one green thread multiplexes
 ;; many connections instead of parking a blocking read per connection. The
 ;; netlayer exposes one OS readiness fd; the loop thread parks on it natively with
-;; `unsafe-file-descriptor->semaphore` — the place's rktio poller wakes the
-;; semaphore when the fd is readable, so the thread truly sleeps (no busy-poll)
+;; `unsafe-file-descriptor->semaphore`. The place's rktio poller wakes the
+;; semaphore when the fd is readable, so the thread sleeps (no busy-poll)
 ;; while every other green thread on the place keeps running. On each wake it
 ;; drains the pending records with `drain-ready` and posts each to the connection
 ;; (or the accept queue) waiting on it. The per-connection try-read / try-write
@@ -228,14 +228,14 @@
 
 ;; The dedicated readiness thread: park on the netlayer's readiness fd, and on
 ;; each wake drain the records and post them to the waiting connections. The park
-;; is native — `unsafe-file-descriptor->semaphore` registers the fd with the
-;; place's poller and posts the semaphore when it is readable — so the thread
-;; truly sleeps without freezing the place.
+;; is native: `unsafe-file-descriptor->semaphore` registers the fd with the
+;; place's poller and posts the semaphore when it is readable, so the thread
+;; sleeps without freezing the place.
 (define (loop-run lp)
   (define fd ((iroh-fn 'netlayer-readiness-fd) (iroh-netlayer-handle (iroh-loop-netlayer lp))))
   ;; The netlayer arms the loop at construction, so the readiness fd is always a
   ;; live, pollable handle (a non-blocking socketpair end). A negative fd or an fd
-  ;; rktio cannot register is a broken invariant, not a transient state — so it is
+  ;; rktio cannot register is a broken invariant, not a transient state. It is
   ;; raised, not polled around. Wake every waiter first so no parked pump hangs.
   (define (park-fail why)
     (wake-all! lp)
@@ -285,7 +285,7 @@
 
 ;; ── the iroh `async-transport` ────────────────────────────────────────────────
 ;; Wrap a loop-driven iroh connection as a core transport. It moves raw bytes
-;; through the non-blocking try-read / try-write — exactly the shape the TCP port
+;; through the non-blocking try-read / try-write, the shape the TCP port
 ;; transport uses, since the frame unit is identical; the readiness loop, not a
 ;; parked read, decides when bytes are available. `owns-loop?` marks the dialer's
 ;; pump, which minted its own netlayer and loop and tears both down on close; an
@@ -320,7 +320,7 @@
      (void))
    void ; the sidecar owns admitted bytes; nothing buffered here to flush
    ;; read-some!: drain whatever bytes are buffered, then park on this
-   ;; connection's readability together with the pump's wake event — never a
+   ;; connection's readability together with the pump's wake event and never a
    ;; wire read. `closed?` (or an ERR-CLOSED return) is a clean end of stream;
    ;; 'woke means the pump should re-check its predicate first.
    (lambda (wake-evt)
@@ -345,7 +345,7 @@
          [(= rc ERR-CLOSED) eof]
          [else (check/iroh rc)])))
    ;; close!: drop the routing entry (waking any parked waiter), release the
-   ;; connection, and — for the dialer's owned loop — stop the loop and release
+   ;; connection, and (for the dialer's owned loop) stop the loop and release
    ;; the ephemeral netlayer, in that order, so no foreign call touches the
    ;; endpoint after it is freed. Idempotent through a `closed?` guard and the
    ;; shared `released?` box (loop-stop! may already have released the handle).
@@ -373,7 +373,7 @@
 ;; The fresh host's session key and its node identity are one and the same
 ;; seed, so the connection's wire identity stays coherent, a handoff this host
 ;; later redeems signs its `desc:handoff-receive` with the very key the gifter
-;; recorded, exactly as a runtime TCP dial does. Delegates to the
+;; recorded, as a runtime TCP dial does. Delegates to the
 ;; node-keyed dial with a fresh host rather than keying the session
 ;; independently of the host it builds.
 ;; Discovery-posture dial retry (ADR-0082): lockstep with GLOWCAP_DISCOVERY_DIAL_*.
@@ -390,7 +390,7 @@
     (define result
       ;; Let a break through rather than absorbing it into a retry: the retry
       ;; loop sleeps for seconds under discovery, so catching exn:break here
-      ;; would make the dial uninterruptible — the same defect the convert-to-
+      ;; would make the dial uninterruptible. This is the same defect the convert-to-
       ;; broken sites fixed. Only a non-break failure is a retry candidate.
       ;; ADR-0082: only transient dial faults (ERR-IO) are retried.
       (with-handlers ([(lambda (e) (not (exn:break? e)))
@@ -424,8 +424,8 @@
 ;; An iroh connection with nothing running over it: raw bytes in, raw bytes out,
 ;; and no CapTP handshake. Two consumers need exactly that. A byte-transparent
 ;; relay pipes the bytes between its legs and keys nothing itself (ADR-0086),
-;; and a foreign CapTP — a Spritely Goblins vat, running its own protocol over a
-;; netlayer written for it — frames those bytes its own way. Neither wants the
+;; and a foreign CapTP (a Spritely Goblins vat running its own protocol over a
+;; netlayer written for it) frames those bytes its own way. Neither wants the
 ;; native driver listener to bring up CapTP on its behalf.
 ;;
 ;; The shape is `byte-channel`: `read` answers the next chunk or eof, `write`
@@ -448,11 +448,11 @@
 ;; handshake, as the lowercase-hex designator an `iroh` locator carries, or #f
 ;; when the sidecar could not read it. Accepted and dialed connections both
 ;; carry one: QUIC authenticates the remote either way, so an accept can name
-;; its partner exactly as a dial can.
+;; its partner as a dial can.
 ;;
 ;; A connection whose proof cannot be read answers #f rather than raising: the
 ;; bytes still move, and a consumer that pipes them (a relay) never asks. What
-;; #f costs is attribution — a consumer weighing a partner's claim has nothing
+;; #f costs is attribution: a consumer weighing a partner's claim has nothing
 ;; to weigh it against and must call the partner unproven.
 (define (conn-verified-remote conn)
   (define buf (make-bytes IROH-NODE-ID-BYTES))
@@ -532,9 +532,9 @@
 ;; other endpoint would reach the partner under a key that is not the one it
 ;; publishes.
 ;;
-;; Nothing runs over the bytes here, exactly what a consumer with its own
-;; protocol needs: a foreign CapTP — a Spritely Goblins vat, over a netlayer
-;; written for it — frames them its own way. The keyed glowcap server below is
+;; Nothing runs over the bytes here. A consumer with its own protocol needs
+;; that: a foreign CapTP (a Spritely Goblins vat over a netlayer
+;; written for it) frames them its own way. The keyed glowcap server below is
 ;; the other consumer, and it is this endpoint plus a CapTP host.
 (struct iroh-endpoint (netlayer loop reachability))
 

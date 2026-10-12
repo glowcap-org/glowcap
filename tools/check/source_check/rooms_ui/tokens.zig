@@ -11,8 +11,8 @@
 //! missing, so it is read and skipped.
 //!
 //! What a green run here means, measured by breaking the code rather than
-//! assumed. It was validated against a name written nowhere at all — a typo in
-//! a `var()`, or a token deleted out from under its readers — and it catches
+//! assumed. It was validated against a name written nowhere at all, a typo in
+//! a `var()`, or a token deleted out from under its readers, and it catches
 //! that.
 //!
 //! It does **not** reach the case it was first written for, and that was
@@ -23,7 +23,7 @@
 //! passed here green. Whether a definition reaches a given element is the
 //! cascade's answer, and only a browser computes it, so that case is measured
 //! in the page proof instead (`apps/rooms/test/page/operations.ts` reads the
-//! computed background of every well). Do not widen this file toward it; a
+//! computed background of every well). Do not widen this file toward it. A
 //! stylesheet read as text cannot answer it.
 
 const std = @import("std");
@@ -89,7 +89,7 @@ fn collectUsed(gpa: std.mem.Allocator, css: []const u8, out: *std.StringHashMapU
 /// relationship it is spacing rather than a number that looked right.
 ///
 /// A length that is not layout spacing is not this. The wordmark's letterfit
-/// is the one, and it says so where it is written; it is also the only
+/// is the one, and it says so where it is written. It is also the only
 /// fractional one, and this reads that to tell them apart.
 ///
 /// Measured by breaking the code: a rule given its own `gap` is caught and
@@ -162,14 +162,14 @@ pub fn checkRoomsGapSteps(
 /// reports: the send is in flight, the session is open, and the promise is
 /// pending, so a wait without a bound is a wait for the life of the tab. That
 /// reasoning is written at `apps/rooms/lib/deadline.ts`, and `ask()` is the one
-/// helper that carries it — but a `send` in a lifecycle method is not a verb
+/// helper that carries it, but a `send` in a lifecycle method is not a verb
 /// and does not pass through `ask`, which is how the room goodbye came to have
 /// no bound. Its cleanup sat in the `finally` behind that send, so a room that
 /// never answered held the membership's references and its stream.
 ///
 /// So the rule is about the send rather than the verb: one that is not raced
-/// against something says so where it stands. `void`-ed sends are excluded —
-/// nothing is waiting on those — and the deadline module itself is where the
+/// against something says so where it stands. `void`-ed sends are excluded,
+/// nothing is waiting on those, and the deadline module itself is where the
 /// racing is written.
 ///
 /// Measured by making it: taking the bound off the goodbye turns this red, and
@@ -300,11 +300,10 @@ pub fn checkRoomsComposedTokens(
 
 /// A card standing on a backdrop takes one of the named width steps.
 ///
-/// Seven widths accumulated here once, each written where its card was drawn:
-/// two pairs sat twenty and sixty pixels apart, which is a difference no
-/// reader takes for a decision, and four gave no reason at all. The steps in
-/// `page.css` are the decision now, and a card names the one its contents ask
-/// for. A raw length written at the card is how the drift started.
+/// Card widths written where each card is drawn drift: pairs twenty and sixty
+/// pixels apart are a difference no reader takes for a decision, and some give
+/// no reason at all. The steps in `page.css` are the decision, and a card names
+/// the one its contents ask for.
 ///
 /// It reads the selector, so it holds the cards and lets the pages and the
 /// bars past: a page is not a card on a backdrop and answers to nothing here.
@@ -317,7 +316,7 @@ pub fn checkRoomsComposedTokens(
 /// one card family leaves the others setting widths, so the count stays above
 /// zero and this stays green. It fires only when nothing at all is left that
 /// it recognises. Naming `.modal-card` outright would close that and is worse
-/// — a banned old spelling is a tombstone, and the general shape is what earns
+/// ,  a banned old spelling is a tombstone, and the general shape is what earns
 /// its rent here.
 pub fn checkRoomsCardWidths(
     io: std.Io,
@@ -381,7 +380,7 @@ fn namesACard(selector: []const u8) bool {
 }
 
 /// The `width` a rule sets on itself, if it sets one. `max-width` and
-/// `min-width` are bounds a card may hold in its own right; this is the
+/// `min-width` are bounds a card may hold in its own right. This is the
 /// measure the card stands at, which is the thing the scale names.
 fn ownWidthValue(body: []const u8) ?[]const u8 {
     var at: usize = 0;
@@ -399,13 +398,13 @@ fn ownWidthValue(body: []const u8) ?[]const u8 {
 /// own block why it is not one.
 ///
 /// The ramp in `tokens.css` says of itself that a new size is a claim the ramp
-/// is wrong. Four sizes were making that claim without saying so: the base the
-/// whole document inherits, written as a number in the body rule so the ramp
-/// described every size except the one under all the others; a boot note at
-/// half a pixel between two steps; a boot heading between the last two; and a
-/// setup screen's own heading. The first is a step now (`--type-read`), the
-/// next two snapped to steps, and the last says why the page it fills is not
-/// measured by a ramp built for chrome.
+/// is wrong. Four sizes can make that claim without saying so: the base the
+/// document inherits, written as a number in the body rule so the ramp
+/// describes every size except the one under all the others. A boot note at
+/// half a pixel between two steps. A boot heading between the last two, and a
+/// setup screen's heading. The first is a step (`--type-read`), the next two
+/// snap to steps, and the last says why the page it fills is not measured by a
+/// ramp built for chrome.
 ///
 /// What stays off the ramp is what is not chrome type at all: a logotype's
 /// drawing, a sigil sized against the word beside it, monospace corrected
@@ -529,7 +528,7 @@ pub fn checkRoomsCustomProperties(
     violations: *std.ArrayList([]const u8),
 ) !void {
     // Every sheet, tokens.css included: it is where most of these are written,
-    // and the sheet list the other rooms checks use leaves it out on purpose.
+    // and the sheet list the other rooms checks use leaves it out.
     const css = (util.concatDirFiles(io, gpa, root, ui_dir, keepAnySheet) catch null) orelse {
         try appendViolation(gpa, violations, "{s}: could not read the rooms stylesheets", .{ui_dir});
         return;

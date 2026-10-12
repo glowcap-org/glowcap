@@ -15,7 +15,7 @@ const PeerHandle = @import("../../peer_handle.zig").PeerHandle;
 
 /// Who frees one registered peer after its Node membership ends.
 pub const Ownership = enum {
-    /// `registerPeer` allocated the peer; removal and Node teardown free it.
+    /// `registerPeer` allocated the peer. Removal and Node teardown free it.
     node_owned,
     /// `registerPeerOver` adopted an embedder-owned peer and only unregisters it.
     borrowed,
@@ -63,7 +63,7 @@ pub fn registerPeer(self: *Node, options: engine.Peer.NegotiatingOptions) !PeerH
 /// Register an embedder-owned, stably pinned peer without taking ownership.
 ///
 /// This is how a peer-owning completion loop joins Node routing without
-/// surrendering its inline peer. The embedder must keep it alive until removal;
+/// surrendering its inline peer. The embedder must keep it alive until removal.
 /// Node detaches services and membership but never frees the peer itself.
 pub fn registerPeerOver(self: *Node, adopted: *engine.Peer) !PeerHandle {
     if (self.next_peer_handle == std.math.maxInt(u64)) return error.CapabilitySpaceExhausted;
@@ -80,7 +80,7 @@ pub fn registerPeerOver(self: *Node, adopted: *engine.Peer) !PeerHandle {
 /// Remove one live peer and retire every Node fact that names its generation.
 ///
 /// Cleanup remains allocation-free after membership disappears. Each child
-/// authority owns its rows; this function fixes the ordering between them and
+/// authority owns its rows. This function fixes the ordering between them and
 /// frees the peer only when the membership row says the Node owns it.
 /// The monotonic handle remains burned, so a stale routed reference can only fail
 /// closed and can never acquire a later session's meaning.

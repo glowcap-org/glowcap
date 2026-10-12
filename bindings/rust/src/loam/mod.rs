@@ -1,5 +1,5 @@
 //! Optional durable resources on an existing Host. Zig owns policy and commit
-//! decisions; the Rust projection owns callbacks, handles, and storage jobs.
+//! decisions. The Rust projection owns callbacks, handles, and storage jobs.
 #[cfg(target_arch = "wasm32")]
 pub(crate) mod browser;
 mod content;
@@ -41,7 +41,8 @@ use crate::{Error, Host, Result};
 #[cfg(target_arch = "wasm32")]
 pub(crate) use browser::work;
 pub use content::{
-	BoundResource, Call, Content, Delivery, Invocation, Method, ReferenceRequest, Registration, ResourceId, Retry,
+	BoundResource, Call, Content, Delivery, ForwardAdmission, ForwardWork, Invocation, Method, ReferenceRequest,
+	Registration, ResourceId, Retry,
 };
 pub use content_graph::{Graph, GraphField, GraphPage, Page, PageSchema, Pages};
 mod invocation_bounds;
@@ -62,9 +63,9 @@ pub const DENIED: i32 = ffi::GLOWCAP_LOAM_ERR_DENIED;
 pub const UNCHANGED: i32 = ffi::GLOWCAP_LOAM_ERR_UNCHANGED;
 pub const APPLICATION_REFUSED: i32 = ffi::GLOWCAP_LOAM_ERR_APPLICATION;
 
-/// Construct a deliberate content callback refusal. The callback boundary
-/// reports APPLICATION_REFUSED to Zig. Local detail is not forwarded or queued;
-/// the application must record it before returning when it needs that diagnostic.
+/// Construct a content callback refusal. The callback boundary
+/// reports APPLICATION_REFUSED to Zig. Local detail is not forwarded or queued.
+/// The application must record it before returning when it needs that diagnostic.
 pub fn refusal(message: impl Into<String>) -> Error {
 	Error::with_detail(APPLICATION_REFUSED, message.into())
 }
@@ -77,6 +78,8 @@ pub(super) fn check(code: i32, _storage: bool) -> Result<()> {
 		return Ok(());
 	}
 	let mut bytes = [0u8; 512];
+	// SAFETY: `bytes` is a local `[u8; 512]` live for the call; each reader needs no handle, reads the calling thread's
+	// last-error slot, and copies at most `bytes.len()` bytes into it, returning the count.
 	let len = unsafe {
 		if _storage {
 			#[cfg(not(target_arch = "wasm32"))]
@@ -113,11 +116,13 @@ impl Schema {
 		}
 	}
 	/// Maximum encoded record bytes, including envelope and checksum. The
-	/// shared writer derives this without allocation or storage access; it does
+	/// shared writer derives this without allocation or storage access. It does
 	/// not admit the schema or guarantee available backend capacity.
 	pub fn encoded_size_bound(self) -> Result<usize> {
 		let mut bytes = 0;
 		check(
+			// SAFETY: `self.raw()` is a temporary `GlowcapLoamSchema` that lives to the end of this statement and the
+			// callee only reads it; `bytes` is a local out-parameter the callee writes.
 			unsafe { ffi::glowcap_loam_schema_size_bound(&self.raw(), &mut bytes) },
 			false,
 		)?;
@@ -237,7 +242,7 @@ impl Resource {
 	}
 }
 /// Exclusive storage persistence owner. Opening and fresh creation perform
-/// blocking startup I/O; call them before admitting application traffic.
+/// blocking startup I/O. Call them before admitting application traffic.
 pub struct Store {
 	inner: Rc<StoreInner>,
 }
@@ -266,6 +271,12 @@ impl Store {
 		let prepared = registration::Prepared::new(registrations, diagnostics, shared.diagnostic_id());
 		let mut raw = core::ptr::null_mut();
 		check(
+			// SAFETY: `self.inner.store` is the `GlowcapLoamStore` handle the `StoreInner` this `Store` holds owns;
+			// `shared.raw()` is the Host handle, non-null after `guard_handle`; `prepared.declarations` is a local
+			// `Vec` whose pointer and length stay live for the call, and the content contexts it points into live in
+			// `prepared.callbacks`, which moves into the `AttachmentInner` that releases the attachment before dropping
+			// them; `content::entropy` is an `extern "C"` function and the null context is unused; `raw` is an
+			// out-parameter the callee fills.
 			unsafe {
 				ffi::glowcap_loam_attach(
 					self.inner.store,
@@ -317,6 +328,9 @@ impl StoreInner {
 		if self.storage.get().is_null() {
 			return Ok(());
 		}
+		// SAFETY: `self.storage.get()` is this `StoreInner`'s non-null (checked above) `GlowcapLoamLmdb` handle from
+		// `glowcap_loam_lmdb_open`, released here and then replaced by null so no later use sees it; on a refusal such
+		// as Busy the callee leaves it alive.
 		check(unsafe { ffi::glowcap_loam_lmdb_release(self.storage.get()) }, true)?;
 		self.storage.set(core::ptr::null_mut());
 		Ok(())
@@ -366,8 +380,13 @@ impl Attachment {
 	pub fn restore(&self, resource: Resource) -> Result<(Ref, Ref)> {
 		let owner = self.inner()?;
 		let restore = |object: &ffi::GlowcapLoamObject| -> Result<Ref> {
+			// SAFETY: `GlowcapReference` is a plain C struct of integers and null pointers; all-zero is a valid value,
+			// and the callee fills it before it is read.
 			let mut raw = unsafe { core::mem::zeroed() };
 			check(
+				// SAFETY: `owner.store.storage.get()` and `owner.raw.get()` are the storage and attachment handles that
+				// `owner`, an `Rc<AttachmentInner>` held by this call, keeps live; `object` is a borrowed
+				// `GlowcapLoamObject` the callee only reads; `raw` is an out-parameter the callee fills.
 				unsafe { ffi::glowcap_loam_lmdb_restore(owner.store.storage.get(), owner.raw.get(), object, &mut raw) },
 				true,
 			)?;
@@ -443,6 +462,9 @@ impl AttachmentInner {
 				"Loam restores still own the attachment".into(),
 			));
 		}
+		// SAFETY: `self.raw.get()` is this `AttachmentInner`'s non-null handle from `glowcap_loam_attach`, released
+		// only by its teardown; a refusal such as Busy preserves the handle, so it is cleared only after this call
+		// succeeds.
 		check(unsafe { ffi::glowcap_loam_attachment_release(self.raw.get()) }, false)?;
 		self.raw.set(core::ptr::null_mut());
 		self.callbacks.borrow_mut().take();
@@ -454,6 +476,8 @@ impl AttachmentInner {
 			return Ok(false);
 		}
 		let mut pending = 0;
+		// SAFETY: `self.raw.get()` is this `AttachmentInner`'s non-null handle from `glowcap_loam_attach`, released
+		// only by its teardown; `pending` is a local out-parameter the callee writes.
 		let rc = unsafe { ffi::glowcap_loam_has_pending_work(self.raw.get(), &mut pending) };
 		check(rc, false)?;
 		Ok(pending != 0)
@@ -468,6 +492,9 @@ impl AttachmentInner {
 		};
 		let mut progressed = 0;
 		check(
+			// SAFETY: `self.raw.get()` is this `AttachmentInner`'s non-null handle from `glowcap_loam_attach`, released
+			// only by its teardown and `progress` returned early if it was null; `progressed` is a local out-parameter
+			// the callee writes.
 			unsafe { ffi::glowcap_loam_advance(self.raw.get(), &mut progressed) },
 			false,
 		)?;
@@ -475,6 +502,9 @@ impl AttachmentInner {
 		loop {
 			let mut raw = core::ptr::null_mut();
 			check(
+				// SAFETY: `self.raw.get()` is this `AttachmentInner`'s non-null handle from `glowcap_loam_attach`,
+				// released only by its teardown and `progress` returned early if it was null; `raw` is an out-parameter
+				// the callee fills with a work handle or leaves null.
 				unsafe { ffi::glowcap_loam_next_work(self.raw.get(), 0, &mut raw) },
 				false,
 			)?;
@@ -496,7 +526,7 @@ impl Drop for Driving<'_> {
 		self.changed.notify_waiters();
 	}
 }
-/// Registration changes allocate; progress clones one immutable Rc inventory
+/// Registration changes allocate. Progress clones one immutable Rc inventory
 /// and walks it without allocating a new list on each Host turn.
 #[derive(Default)]
 pub(crate) struct Registry {

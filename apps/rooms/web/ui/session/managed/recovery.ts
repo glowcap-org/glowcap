@@ -4,7 +4,13 @@ import type {
 	RoomsManagedRecoveredEffect,
 	RoomsManagedWorkspace,
 } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
-import { ManagedOperation, readResult, ResultExpired, TerminalObservationError } from "./operation.ts";
+import {
+	ManagedOperation,
+	readResult,
+	ResultAcquisitionError,
+	ResultExpired,
+	TerminalObservationError,
+} from "./operation.ts";
 
 export async function discloseFailure(request: Pick<RoomsManagedCommand, "result">, retire: () => void): Promise<void> {
 	try {
@@ -15,12 +21,19 @@ export async function discloseFailure(request: Pick<RoomsManagedCommand, "result
 	}
 }
 
-export async function resumeEffect(request: RoomsManagedRecoveredEffect, retire: () => void): Promise<string> {
+export async function resumeEffect(
+	request: RoomsManagedRecoveredEffect,
+	retire: () => void,
+	observe?: (status: string) => void,
+): Promise<string> {
 	const status = await request.status();
+	observe?.(status);
 	try {
 		// Unknown can mean a paused executor with no result yet. Resume checks
 		// that exact owner; a speculative result read would prevent its recovery.
-		return await request.resume();
+		const resumed = await request.resume();
+		observe?.(resumed);
+		return resumed;
 	} catch (error) {
 		if (status === "unknown") {
 			try {
@@ -29,7 +42,7 @@ export async function resumeEffect(request: RoomsManagedRecoveredEffect, retire:
 				if (diagnostic instanceof TerminalObservationError) throw diagnostic;
 			}
 		}
-		throw error;
+		throw status === "committed" ? new ResultAcquisitionError(undefined, error) : error;
 	}
 }
 
@@ -53,6 +66,7 @@ export async function releaseEffect(
 export interface Recovery {
 	workspace: RoomsManagedWorkspace;
 	retain(operation: ManagedOperation): void;
+	orphan?(operation: ManagedOperation): void;
 	finish(operation: ManagedOperation): void;
 	complete(operation: ManagedOperation): Promise<unknown>;
 	report(error: unknown): void;
@@ -63,9 +77,12 @@ export async function restoreEffects(viewer: Recovery): Promise<void> {
 		if (receipt.status === "unsent") continue;
 		const recovered = await viewer.workspace.recoverEffect(receipt.operation);
 		if (recovered == null) continue;
-		const operation = new ManagedOperation(receipt.operation, recovered);
+		const operation = new ManagedOperation(receipt.operation, recovered, receipt.status);
 		viewer.retain(operation);
-		if (receipt.status === "pending") continue;
+		if (receipt.status === "pending") {
+			viewer.orphan?.(operation);
+			continue;
+		}
 		try {
 			if (receipt.status === "unknown") await operation.result();
 			else await viewer.complete(operation);
@@ -83,6 +100,8 @@ export async function restoreEffects(viewer: Recovery): Promise<void> {
 				retained.free();
 				viewer.report(error);
 			}
+		} finally {
+			viewer.orphan?.(operation);
 		}
 	}
 }

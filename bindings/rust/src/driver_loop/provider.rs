@@ -4,7 +4,7 @@ use super::*;
 type InstallFuture = Pin<Box<dyn Future<Output = Result<()>>>>;
 
 /// A configured transport package that can install itself into a native loop.
-/// Transport modules construct this value; the driver registry alone records
+/// Transport modules construct this value. The driver registry alone records
 /// which transport symbols the package registered.
 #[derive(Clone)]
 pub struct Provider {

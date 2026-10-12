@@ -53,7 +53,7 @@ export function joinAddress(options: { room?: string; locator?: string; director
 }
 
 /** The address of the card as a filed act shows it, so the address mirror can
- * keep the two in step. Only what was named or implied goes in; a field the act
+ * keep the two in step. Only what was named or implied goes in. A field the act
  * says nothing about is a field the address says nothing about. */
 export function joinAddressOf(act: { room?: Given<string>; locator?: Given<string> }): string {
 	return joinAddress({

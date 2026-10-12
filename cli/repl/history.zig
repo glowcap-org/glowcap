@@ -4,7 +4,7 @@ const std = @import("std");
 pub const History = struct {
     gpa: std.mem.Allocator,
     entries: std.ArrayList([]u8) = .empty,
-    /// null = editing the live draft; else index into entries (0 = oldest).
+    /// null = editing the live draft. Else index into entries (0 = oldest).
     cursor: ?usize = null,
     draft: std.ArrayList(u8) = .empty,
     const cap: usize = 200;

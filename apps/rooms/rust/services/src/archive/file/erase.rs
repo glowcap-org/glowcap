@@ -9,7 +9,7 @@ impl FileArchive {
 		Ok(())
 	}
 	/// Clear retained records and bytes without resetting revision or shares.
-	/// Failure may mean committed erasure with pending physical cleanup; retry
+	/// Failure may mean committed erasure with pending physical cleanup. Retry
 	/// clear or cleanup_blobs. An uncertain journal outcome requires reopen.
 	pub async fn clear(&mut self) -> Result<(), Error> {
 		self.submit(|store| store.clear().map(|()| Completion::Cleaned)).await?;
@@ -50,9 +50,9 @@ impl Store {
 			self.index = retained;
 			self.bytes = snapshot.byte_len();
 			self.rows = self.index.len();
-			self.blobs.as_mut().expect("opened blobs").committed(changes);
+			self.blobs_mut()?.committed(changes)?;
 		}
-		self.blobs.as_mut().expect("opened blobs").cleanup()
+		self.blobs_mut()?.cleanup()
 	}
 	fn clear(&mut self) -> Result<(), DiskFailure> {
 		self.live()?;
@@ -68,7 +68,7 @@ impl Store {
 		}
 		// Once committed, no retained record can reach these bytes. Keep failed
 		// deletions charged so another clear or startup can finish physical erase.
-		self.blobs.as_mut().expect("opened blobs").erase().map_err(|cleanup| {
+		self.blobs_mut()?.erase().map_err(|cleanup| {
 			DiskFailure::Corrupt("archive records erased; retained byte cleanup failed".into()).retain(cleanup)
 		})
 	}

@@ -1,5 +1,5 @@
 //! A synchronous resource view distinguishes unloaded records from absence.
-//! Sources provide records from one revision; managed access validates and traverses
+//! Sources provide records from one revision. Managed access validates and traverses
 //! them. A miss names the record to load without performing I/O or allocating.
 const identity = @import("identity.zig");
 const ResourceId = identity.ResourceId;

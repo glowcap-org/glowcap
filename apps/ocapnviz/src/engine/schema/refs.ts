@@ -7,7 +7,7 @@
  * a raw `string` as an id without an explicit acknowledgement at the
  * brand boundary. Branded values are structurally still strings, so
  * they pass freely into APIs that take `string` (DOM keys, JSON
- * serializers, etc.) — the asymmetry is intentional.
+ * serializers, etc.). The asymmetry is intentional.
  *
  * Cast helpers (`asPeerId`, `asSessionId`, `asMessageId`) are the
  * authoritative boundary. Use them at the points where an id enters

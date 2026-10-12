@@ -1,12 +1,12 @@
 //! Inbound set-uniqueness scratch must not accumulate across delivers.
 //!
-//! The borrowed inbound-deliver path validates a set argument by materializing
-//! its elements into the session's `recv_scratch` arena to hash them for
-//! duplicate refusal (`session/validate/passable.zig`'s set-uniqueness fold). That arena
+//! The borrowed inbound-deliver path stores hash/checkpoint rows and caches
+//! collided views in `recv_scratch` for duplicate refusal
+//! (`session/validate/set_uniqueness.zig`). That arena
 //! is turn-scratch: `Session.validateInboundDeliverView` must reset it every turn,
 //! exactly as the other recv entry points do. Without the reset a partner
 //! streaming set-carrying `op:deliver` frames grows `recv_scratch` for the
-//! session's whole life — untrusted unbounded growth on the hottest
+//! session's whole life, untrusted unbounded growth on the hottest
 //! inbound path. This test pins the reset: the per-turn allocation budget is a
 //! flat constant, so a dropped reset (scratch retained turn over turn) fails.
 
@@ -19,7 +19,7 @@ const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAlloca
 
 /// A no-answer (`#f` answer position) `op:deliver` to local export 7 carrying one
 /// set argument `{1, 2}` (two integers, canonically ascending). The set drives
-/// `checkInboundSetUniqueness`, which bumps `recv_scratch`; with no answer
+/// uniqueness validation on stack scratch. With no answer
 /// position the turn installs no inbound answer row, so a steady stream mutates
 /// no session table and the only per-turn heap cost is the owned-frame copy the
 /// retained event requires.
@@ -64,9 +64,9 @@ test "a stream of set-carrying delivers holds a flat per-turn scratch budget" {
 
 /// Build one `op:deliver` to live export 7 whose sole argument is a set of `n`
 /// distinct symbols. The names are fixed-width and zero-padded, so their Syrup
-/// encodings are strictly ascending by construction — the order the wire form
-/// requires — with no sort. A large `n` forces `checkInboundSetUniqueness` to
-/// materialize every element into `recv_scratch`, growing it many kilobytes
+/// encodings are strictly ascending by construction, the order the wire form
+/// requires, with no sort. A large `n` spills the hash/checkpoint rows
+/// into `recv_scratch`, growing it many kilobytes
 /// past its steady bound for that single turn.
 fn buildBigSetDeliver(allocator: std.mem.Allocator, n: usize) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
@@ -88,7 +88,7 @@ test "a big-set inbound frame trims recv_scratch back under its steady bound" {
 
     // One inbound deliver carrying a set of 200 distinct symbols drives the
     // borrowed deliver path (`validateInboundDeliverView`); the set-uniqueness
-    // fold materializes every element into `recv_scratch`, growing it to many
+    // fold spills its rows into `recv_scratch`, growing it to many
     // kilobytes for that single turn.
     const frame = try buildBigSetDeliver(std.testing.allocator, 200);
     defer std.testing.allocator.free(frame);
@@ -103,4 +103,29 @@ test "a big-set inbound frame trims recv_scratch back under its steady bound" {
     // it would stay at the multi-kilobyte peak and this fails; the
     // `.retain_with_limit` reset returns the burst capacity.
     try std.testing.expect(peer.session_state.recv_scratch.queryCapacity() <= session.Session.steady_recv_scratch_bytes);
+}
+
+test "distinct borrowed sets need compact row scratch on both codecs" {
+    const model = glowcap.ocapn.model;
+    const codec = glowcap.ocapn.codec;
+    const members = 1024;
+    var elements: [members]model.Argument = undefined;
+    for (&elements, 0..) |*element, i| element.* = .{ .integer = @intCast(i) };
+    for ([_]model.CodecId{ .syrup, .capnp }) |encoding| {
+        var frame = try codec.dispatch.encodeMessageForProfile(encoding, std.testing.allocator, .v1_0, .{ .deliver = .{
+            .target = .{ .far = model.FarRef.object(7) },
+            .args = &.{.{ .set = &elements }},
+        } });
+        defer frame.deinit();
+        const body = try codec.dispatch.decodeBodyForProfile(encoding, .v1_0, frame.view());
+        var traffic = std.testing.FailingAllocator.init(std.testing.allocator, .{ .resize_fail_index = 0 });
+        var state = session.Session.init(traffic.allocator());
+        defer state.deinit();
+        try state.registerExport(.from(7));
+        const before = traffic.allocated_bytes;
+        try state.recordRecvView(body);
+        // Two words per member, with another row's worth of room for arena
+        // growth/metadata. Staging a full Argument per member breaks this cap.
+        try std.testing.expect(traffic.allocated_bytes - before <= members * 4 * @sizeOf(u64));
+    }
 }

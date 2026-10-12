@@ -1,7 +1,7 @@
 //! The rooms a server hosts: who is in each, what they say, the files they
 //! post, the topic, and the invitations, links, and stewardship that let
 //! others in. Connections are the adapter's keys (`C`) and capabilities its
-//! tokens (`R`); the policy performs no effect. Every verb answers with the
+//! tokens (`R`). The policy performs no effect. Every verb answers with the
 //! notices to tell, the capabilities to give back, the directory events to
 //! announce, and the history to persist, so the same decisions run under any
 //! host and a test reads them without a wire.
@@ -11,7 +11,7 @@
 //! a refusal hands the token straight back and never leaves an orphan.
 //!
 //! File events take the host's current monotonic milliseconds, from the same
-//! origin as `advance`. Timer delivery reclaims quiet uploads; event time also
+//! origin as `advance`. Timer delivery reclaims quiet uploads. Event time also
 //! checks expiry and dates each new or renewed reservation when no timer fired.
 mod entrance;
 mod files;
@@ -21,6 +21,7 @@ mod notice;
 mod presence;
 mod receipts;
 mod state;
+pub(crate) use state::roster_count;
 #[cfg(test)]
 mod tests;
 pub mod wire;
@@ -50,7 +51,7 @@ pub struct LiveMember<'a, C> {
 	pub membership: MembershipKey,
 	pub nick: &'a str,
 	pub connection: C,
-	/// Why the member has stepped away; empty while they are here.
+	/// Why the member has stepped away. Empty while they are here.
 	pub away: &'a str,
 }
 
@@ -64,6 +65,9 @@ use alloc::{collections::BTreeMap, string::String, vec::Vec};
 use state::{Invitation, Line, Room, Upload};
 
 pub const MAX_ROOM_MEMBERS: usize = 256;
+/// Disconnected names retained for display in one live room generation.
+pub const MAX_ROOM_OFFLINE: usize = 256;
+pub const MAX_ROSTER_SEEN: usize = MAX_ROOM_MEMBERS + MAX_ROOM_OFFLINE;
 pub const MAX_ROOMS_PER_CREATOR: usize = 256;
 pub const MAX_ROOM_INVITATIONS: usize = 64;
 pub use crate::room::membership::MAX_AWAY;
@@ -88,7 +92,7 @@ pub struct Rooms<C, R> {
 	public: BTreeMap<String, RoomKey>,
 	by_entry: BTreeMap<String, RoomKey>,
 	per_owner: BTreeMap<C, usize>,
-	/// Every line a room still answers edits on; each room's own set names
+	/// Every line a room still answers edits on. Each room's own set names
 	/// its share, oldest first.
 	lines: BTreeMap<LineKey, Line>,
 	/// The line behind each history row this process made, so a row leaving
@@ -102,7 +106,7 @@ pub struct Rooms<C, R> {
 }
 
 impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
-	/// `history` is the retention policy the operator stated; `None` keeps
+	/// `history` is the retention policy the operator stated. `None` keeps
 	/// nothing, and `history` on a membership is then not a method.
 	pub fn new(history: Option<history::Index>, limits: FileLimits) -> Self {
 		Self {
@@ -235,9 +239,14 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		self.public.contains_key(&state::folded(name))
 	}
 	/// A fresh registration id for a public-room generation, drawn by the
-	/// adapter; the policy checks it names nothing live.
+	/// adapter. The policy checks it names nothing live.
 	pub fn entry_id_known(&self, id: &Id) -> bool {
 		self.by_entry.contains_key(id.as_str())
+	}
+	/// The exact live incarnation used for reconnect admission. A room name
+	/// may be reused. Accounting must not mistake it for this generation.
+	pub fn generation(&self, key: &RoomKey) -> Option<&str> {
+		self.rooms.get(key).map(|room| room.entry_id.as_str())
 	}
 	pub(super) fn authority_kind_name(kind: crate::room::stewardship::Kind) -> &'static str {
 		match kind {

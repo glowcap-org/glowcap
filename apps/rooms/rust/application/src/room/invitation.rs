@@ -22,8 +22,8 @@ impl core::fmt::Display for Error {
 impl core::error::Error for Error {}
 
 /// Construct once from 128 bits of platform entropy. A failed or cancelled
-/// claim must reuse this exact receipt; another receipt competes for authority.
-/// The receipt is intentionally neither Debug nor serializable.
+/// claim must reuse this exact receipt. Another receipt competes for authority.
+/// The receipt is neither Debug nor serializable.
 pub struct Receipt(String);
 impl Receipt {
 	pub fn from_entropy(bytes: [u8; 16]) -> Self {

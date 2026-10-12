@@ -3,7 +3,7 @@
 #
 # The wrapper bounds every gate in ci/gates.sh, and ci/gates.sh branches on the
 # codes it returns, so the contract is its observable behaviour: the exit code
-# a shell sees, the signal the child actually receives, and whether anything
+# a shell sees, the signal the child receives, and whether anything
 # survives the wrapper. A source-string check cannot see any of that.
 set -eu
 
@@ -44,6 +44,12 @@ expect_code 2 "not-a-number deadline is invalid" python3 "$RWT" nan true
 expect_code 124 "deadline fires" python3 "$RWT" --kill-after 1s 1s sh -c 'sleep 30'
 expect_code 124 "a child ignoring SIGTERM is still bounded" \
 	python3 "$RWT" --kill-after 1s 1s sh -c 'trap "" TERM; sleep 30'
+
+deadline_said=$(python3 "$RWT" --kill-after 1s 1s sh -c 'sleep 30' 2>&1 >/dev/null || true)
+case "$deadline_said" in
+*"1s deadline"*) ok "a fired deadline names itself on stderr" ;;
+*) bad "a fired deadline was silent (got: $deadline_said)" ;;
+esac
 
 quiet_output=$(python3 "$RWT" --quiet-success 5s sh -c 'echo hidden-out; echo hidden-error >&2' 2>&1)
 if [ -z "$quiet_output" ]; then
@@ -101,7 +107,7 @@ fi
 
 # The other half of the contract: the sequence that reads these codes must
 # actually classify them. Sourced, so this exercises the real function rather
-# than looking for its text — a literal can survive in a branch nobody takes.
+# than looking for its text, a literal can survive in a branch nobody takes.
 # shellcheck disable=SC1091
 GATES_SOURCE_ONLY=1 . ci/gates.sh
 for code in 124 137; do

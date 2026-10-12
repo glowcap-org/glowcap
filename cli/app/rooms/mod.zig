@@ -1,5 +1,5 @@
 //! Product command composition. Zig owns argv/help/completion and installation
-//! paths; Rust owns service configuration, supervision, and Rooms behavior.
+//! paths. Rust owns service configuration, supervision, and Rooms behavior.
 const std = @import("std");
 const Ctx = @import("../../ctx.zig").Ctx;
 const Parsed = @import("../../cmd/types.zig").Parsed;
@@ -7,7 +7,7 @@ const runtime = @import("../../operability/installation.zig");
 const log = @import("../../operability/log.zig");
 pub const commands = @import("commands.zig").commands;
 
-pub const Mode = enum { service, serve, session_serve, session_ready, capabilities, status, locator, revision, skills };
+pub const Mode = enum { service, serve, session_serve, session_ready, capabilities, status, locator, revision, trace, skills };
 
 fn env(ctx: *Ctx, key: []const u8) ?[]const u8 {
     const value = ctx.environ.get(key) orelse return null;
@@ -32,6 +32,7 @@ pub fn run(comptime name: []const u8, comptime mode: Mode) *const fn (*Ctx, *Par
                 return 0;
             }
             var arguments: std.ArrayList([]const u8) = .empty;
+            if (mode == .trace) try arguments.append(alloc, "trace");
             if (mode == .serve) {
                 // Product composition owns the child executable. The private
                 // web front's test override must not select another release.

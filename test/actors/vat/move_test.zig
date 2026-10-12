@@ -28,7 +28,7 @@ const StringCapture = promise_capture.CapturedString;
 
 /// A persistent actor whose reply aliases its own heap state while it becomes a
 /// fresh state in the same turn. The become frees this box when the turn
-/// unwinds, so the reply — a borrow into that box — would dangle unless the vat
+/// unwinds, so the reply, a borrow into that box, would dangle unless the vat
 /// severs it onto the turn arena before promoting. The label is a separate heap
 /// allocation freed by `deinit`, so a stale read lands on memory the testing
 /// allocator has already reclaimed.
@@ -82,9 +82,9 @@ test "a reply aliasing state survives a same-turn become" {
 }
 
 /// A mutable actor that swaps its owned label for a fresh one and hands the old
-/// buffer to the reply with `turn.moveOut` — the headline use of the move: an
+/// buffer to the reply with `turn.moveOut`, the headline use of the move: an
 /// O(1) transfer where copying the buffer onto the turn arena would be O(len).
-/// No `become` in sight; the move stands on its own.
+/// No `become` in sight. The move stands on its own.
 const BufferHandoff = struct {
     allocator: std.mem.Allocator,
     label: []u8,
@@ -120,7 +120,7 @@ test "moveOut transfers the reply buffer with zero copies (pointer identity)" {
     const original = try allocator.dupe(u8, "alpha");
     const actor = try vat.spawn(BufferHandoff, .{ .allocator = allocator, .label = original });
 
-    // The near reply is the very allocation the state held — moved, not copied.
+    // The near reply is the very allocation the state held, moved, not copied.
     const near_reply = try vat.near(actor, .{ .verb = "swap", .args = &.{.{ .bytes = "beta" }} });
     try std.testing.expectEqualStrings("alpha", near_reply.bytes);
     try std.testing.expectEqual(@intFromPtr(original.ptr), @intFromPtr(near_reply.bytes.ptr));
@@ -145,7 +145,7 @@ test "a handler error after moveOut leaks nothing and leaves the field cleared" 
     });
     // The moved bytes are vat-held from the moment `moveOut` returns, so the
     // error path frees them on schedule (the testing allocator would report a
-    // leak otherwise); the cleared field stays cleared — mutable-actor state
+    // leak otherwise); the cleared field stays cleared, mutable-actor state
     // changes never roll back.
     try std.testing.expectError(error.Boom, vat.near(actor, .{ .verb = "swap-then-fail" }));
     try std.testing.expectEqual(@as(i64, 0), (try vat.near(actor, .{ .verb = "len" })).integer);
@@ -164,7 +164,7 @@ test "moveOut under a live snapshot moves the copy-on-write clone, not the share
     defer snap.deinit();
 
     // The mutating turn runs against the copy-on-write clone, so the buffer
-    // `moveOut` hands the vat is the clone's — the snapshot's "v0" is never
+    // `moveOut` hands the vat is the clone's, the snapshot's "v0" is never
     // moved or freed under it.
     const reply = try vat.near(actor, .{ .verb = "swap", .args = &.{.{ .bytes = "v1" }} });
     try std.testing.expectEqualStrings("v0", reply.bytes);
@@ -174,7 +174,7 @@ test "moveOut under a live snapshot moves the copy-on-write clone, not the share
     try std.testing.expectEqualStrings("v0", restored.bytes);
 }
 
-/// A mutable actor that `become`s while its reply rides `moveOut` — the moved
+/// A mutable actor that `become`s while its reply rides `moveOut`, the moved
 /// bytes are vat-owned, so they outlive the old box with no sever-copy.
 const MovingSwapper = struct {
     allocator: std.mem.Allocator,
@@ -218,7 +218,7 @@ test "moveOut hands an owned reply to the vat with no sever-copy across a become
 
 /// A mutable actor that moves one field out but replies with a borrow of a
 /// *different* field, and `become`s. The moved bytes are vat-owned, but the
-/// reply is not them — it borrows the old box, which the become frees — so the
+/// reply is not them, it borrows the old box, which the become frees, so the
 /// vat must still sever it. The pointer-identity gate in `callLocal` is what
 /// this pins: `moveOut` must never blanket-disable the sever for a reply it
 /// does not actually own.
@@ -269,7 +269,7 @@ test "a reply borrowing state other than the moved bytes is still severed across
 
 /// A mutable actor that moves TWO fields out in one turn and replies with the
 /// FIRST, then `become`s. The sever gate scans every allocation the turn
-/// moved — not just the last — so this reply is recognized as vat-owned and
+/// moved, not just the last, so this reply is recognized as vat-owned and
 /// returned with pointer identity, no sever-copy.
 const DoubleMover = struct {
     allocator: std.mem.Allocator,
@@ -344,7 +344,7 @@ test "moveOutString hands an owned string reply to the vat with no sever-copy ac
     const swapper = try vat.spawn(StringSwapper, .{ .allocator = allocator, .label = original });
 
     // The near reply is the very allocation the state held, returned through
-    // the string arm — the sever gate covers `.string` exactly as `.bytes`.
+    // the string arm, the sever gate covers `.string` exactly as `.bytes`.
     const near_reply = try vat.near(swapper, .{ .verb = "swap", .args = &.{.{ .bytes = "beta" }} });
     try std.testing.expectEqualStrings("alpha", near_reply.string);
     try std.testing.expectEqual(@intFromPtr(original.ptr), @intFromPtr(near_reply.string.ptr));

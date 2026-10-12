@@ -1,5 +1,5 @@
 /**
- * Doc-aware temporal resolver — turns the stored `entity.timing`
+ * Doc-aware temporal resolver, turns the stored `entity.timing`
  * (layer 1, see `time-span.ts`) into the intrinsic (layer 2) and
  * effective (layer 3) ranges every consumer reads.
  *
@@ -28,13 +28,13 @@
  * # Invariants
  *
  *   - Reads `entity.timing` only. Observations have already been
- *     projected into timing by `projectFromObservations`; callers
+ *     projected into timing by `projectFromObservations`. Callers
  *     that skip projection get an implicit-implicit fallback so we
  *     don't crash, but the result is meaningless.
- *   - Pure over the doc. No mutation, no caching here — memoization
+ *   - Pure over the doc. No mutation, no caching here, memoization
  *     (if needed) lives in the engine, not in this module.
  *   - Effective.duration can be 0 or "empty" (start > end after
- *     clamping). Renderers treat that as "not visible"; do NOT
+ *     clamping). Renderers treat that as "not visible". Do NOT
  *     interpret it as "deleted".
  */
 
@@ -82,7 +82,7 @@ function messageSpan(doc: TimelineDocument, id: string): TimeSpan {
 	return doc.entities?.messages?.[id]?.timing ?? FALLBACK_SPAN;
 }
 
-/** Intrinsic range for a peer — parent is world. */
+/** Intrinsic range for a peer, parent is world. */
 export function peerIntrinsic(
 	doc: TimelineDocument,
 	id: string,
@@ -90,7 +90,7 @@ export function peerIntrinsic(
 	return intrinsicOf(peerSpan(doc, id), WORLD_INTRINSIC);
 }
 
-/** Effective range for a peer — clamped into world (which is
+/** Effective range for a peer, clamped into world (which is
  *  unbounded, so this is effectively the intrinsic). */
 export function peerEffective(
 	doc: TimelineDocument,
@@ -104,7 +104,7 @@ export function peerEffective(
  * `session-endpoint-attributed` observation put there.
  *
  * The one answer to "was this peer ever on this end", so a reader asking it
- * cannot accidentally ask the narrower "is it there at genesis" — which is
+ * cannot accidentally ask the narrower "is it there at genesis", which is
  * what comparing a peer id against the endpoint itself amounts to, and the
  * compiler does not catch that. */
 export function sessionEndpointOccupants(
@@ -139,10 +139,10 @@ function endpointTrack(
  * arrival to the last one's departure.
  *
  * An end can change occupant while the session runs. Something backs a claim
- * nobody could name and the end attaches; an author states a later attachment
+ * nobody could name and the end attaches. An author states a later attachment
  * naming somebody else. The span covers all of them rather than their
- * intersection, because the end was occupied throughout — the session ran the
- * whole time — and an intersection would end it the moment one occupant's life
+ * intersection, because the end was occupied throughout, the session ran the
+ * whole time, and an intersection would end it the moment one occupant's life
  * stopped overlapping the next.
  *
  * A loose end has no occupant, and no occupant is not a zero-length life: the
@@ -199,7 +199,7 @@ export function sessionIntrinsic(
 	id: string,
 ): EffectiveRange {
 	// Inheritance reads parent intrinsic, but for sessions we use the
-	// peer-overlap context for both layers — sessions' "intrinsic
+	// peer-overlap context for both layers, sessions' "intrinsic
 	// parent" is the same peer intersection we'd clamp against. The
 	// distinction between session.intrinsic and session.effective is
 	// carried by the session's own span values, not by two different
@@ -229,7 +229,7 @@ export function messageIntrinsic(
 	doc: TimelineDocument,
 	id: string,
 ): EffectiveRange {
-	// See sessionIntrinsic comment — same simplification.
+	// See sessionIntrinsic comment, same simplification.
 	const ctx = messageContext(doc, id);
 	return intrinsicOf(messageSpan(doc, id), ctx);
 }
@@ -244,7 +244,7 @@ export function messageEffective(
 /** The value one of a session's temporal properties carries at `t`:
  * the latest keyframe at or before `t`, else the value the session
  * was born with. Undefined when the session isn't declared, or when
- * nothing ever stated the property — an end nothing has attributed
+ * nothing ever stated the property. An end nothing has attributed
  * carries no peer, and that is the answer rather than a gap.
  *
  * The session sibling of `peerValueAt`, and the one resolution behind
@@ -262,7 +262,7 @@ export function sessionPropertyValueAt(
 	return keyframeAt(spec.track(def), t) ?? spec.genesis(def);
 }
 
-/** The one string that names what a property carries at `t` — the reader
+/** The one string that names what a property carries at `t`, the reader
  * above narrowed through the property's `stated` channel.
  *
  * An end carries a pair, so this answers with the peer alone and a caller
@@ -305,9 +305,9 @@ export function sessionStateAt(
 /** One end of a session as it stands at `t`: what it claims, the peer it is
  * attached to, and what backed that attachment.
  *
- * The whole end, resolved — which is the one thing a bare peer id could never
+ * The whole end, resolved, which is the one thing a bare peer id could never
  * be. An end's claim is stated once when the session opens and never restated,
- * so it comes off the genesis endpoint; who is attached and what put them
+ * so it comes off the genesis endpoint. Who is attached and what put them
  * there arrive together, change together, and come off the attachment in
  * effect at `t` (`EndpointAttachment`). A reader that asked for the peer at
  * the playhead and the attribution at genesis got a pair of answers from two
@@ -342,7 +342,7 @@ export function sessionEndpointAt(
  * `node` is what the stage draws the edge to: the peer attached to the
  * end, or the end's own stage id when nothing has attributed it.
  * `peer` is that peer, and its absence IS the "this end is loose"
- * test — the one place either question is answered, so the stage, the
+ * test. The one place either question is answered, so the stage, the
  * inspector, and every reader that walks the graph agree about which
  * ends are loose and where the line goes. `attributedBy` is what backed the
  * attachment in effect at `t`, so a panel reading this reads both halves of
@@ -387,9 +387,9 @@ export function peerValueAt(
 }
 
 /** What one of a peer's temporal properties carries when the peer ARRIVES,
- * always — before any moment restates it.
+ * always, before any moment restates it.
  *
- * `peerPropertyAt` is the reader for what a peer is at a moment; this is the
+ * `peerPropertyAt` is the reader for what a peer is at a moment. This is the
  * reader for what it was born with, which is a different question and has a
  * different writer. The Inspector's Details pickers edit the arrival value,
  * so they read it here rather than reading the playhead's value and writing
@@ -409,10 +409,10 @@ export function peerGenesisValue(
  *
  * `peerValueAt` answers what the document *says*, which can be
  * nothing. This answers what the peer *is*, by falling back to the
- * property's declared value for saying nothing — so a caller holding
+ * property's declared value for saying nothing. So a caller holding
  * a `PeerProperty` it cannot name gets a real value back rather than
  * having to invent one. The three named readers below are this
- * function with a return type; the trajectory insert control calls
+ * function with a return type. The trajectory insert control calls
  * it generically. */
 export function peerPropertyAt(
 	doc: TimelineDocument,
@@ -468,7 +468,7 @@ export function momentEffective(
 	return t;
 }
 
-/** Dispatch helper — kind-keyed effective range. */
+/** Dispatch helper, kind-keyed effective range. */
 export function effectiveOfEntity(
 	doc: TimelineDocument,
 	kind: EntityKind,
@@ -479,7 +479,7 @@ export function effectiveOfEntity(
 	return messageEffective(doc, id);
 }
 
-/** Dispatch helper — kind-keyed intrinsic range. */
+/** Dispatch helper, kind-keyed intrinsic range. */
 export function intrinsicOfEntity(
 	doc: TimelineDocument,
 	kind: EntityKind,
@@ -494,8 +494,8 @@ export function intrinsicOfEntity(
  * intrinsic into its effective range. Returns null when the
  * intrinsic value passes through unchanged on that side.
  *
- * For peers, parent is world (unbounded) — never clamps.
- * For sessions, parent is the peer-overlap context — the clamping
+ * For peers, parent is world (unbounded), never clamps.
+ * For sessions, parent is the peer-overlap context, the clamping
  *   peer is whichever endpoint forces the tighter bound.
  * For messages, parent is the session's effective range. */
 export function clampReasonFor(

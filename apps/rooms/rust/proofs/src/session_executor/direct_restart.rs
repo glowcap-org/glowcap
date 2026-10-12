@@ -1,7 +1,7 @@
 //! Physical reopen preserves intent without claiming old Host callbacks work.
 use super::*;
 use managed::{Bootstrap, BootstrapOptions};
-use rooms_application::content::session::workspace::{Connection, Conversation};
+use rooms_application::content::session::workspace::{Connection, Conversation, Reconnect};
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[tokio::test]
@@ -53,6 +53,11 @@ pub(super) async fn run() {
 						}
 						opened.session().import(requests::coordinate(custody::Role::DirectInbox, 2), actor.clone(), None).await.unwrap();
 						opened.session().import(requests::coordinate(custody::Role::Line, 3), actor.clone(), None).await.unwrap();
+						for role in [custody::Role::RoomAccess, custody::Role::RoomSeat, custody::Role::RoomTopic,
+							custody::Role::RoomFiles, custody::Role::RoomInbox, custody::Role::Line] {
+							let reference = if role == custody::Role::RoomAccess { opened.access().unwrap().clone() } else { actor.clone() };
+							opened.session().import(requests::coordinate(role, 4), reference, None).await.unwrap();
+						}
 						let introduction = witness.then(|| serde_json::json!({
 							"access": key::<custody::DirectoryAccess>(),
 							"name": key::<custody::DirectoryName>(),
@@ -66,6 +71,17 @@ pub(super) async fn run() {
 							"conversations":[{"kind":"direct","id":"conversation","directory":"directory","peer":"peer","source":key::<custody::SessionAccess>(),"access":key::<custody::DirectAccess>(),"inbox":requests::coordinate(custody::Role::DirectInbox, 2).key,"lines":[{"id":1,"handle":requests::coordinate(custody::Role::Line, 3).key}],"closed":false,"draft":"preserved draft","introduction":introduction}],
 							"invitations":[],"active":"conversation","standing":"preserved standing","ignored":[],"keepHistory":true,"connection":"relay","archive":null,"archiveControl":null,"operators":[],"peering":[{"id":"publication","directory":"directory","name":"annex-here","room":key::<custody::RoomAccess>(),"lease":key::<custody::PublicationLease>()}]
 						}).to_string()).unwrap();
+						intent.conversations.try_push(serde_json::from_str(&serde_json::json!({
+							"kind":"room", "id":"restarted-room", "directory":"directory", "name":"saved-room",
+							"access":requests::coordinate(custody::Role::RoomAccess, 4).key,
+							"source":key::<custody::SessionAccess>(), "control":null,
+							"seat":requests::coordinate(custody::Role::RoomSeat, 4).key,
+							"topic":requests::coordinate(custody::Role::RoomTopic, 4).key,
+							"files":requests::coordinate(custody::Role::RoomFiles, 4).key,
+							"inbox":requests::coordinate(custody::Role::RoomInbox, 4).key,
+							"lines":[{"id":2,"handle":requests::coordinate(custody::Role::Line, 4).key}],
+							"reconnect":"requested", "standing":"room standing", "draft":"room draft"
+						}).to_string()).unwrap()).unwrap();
 						if witness {
 							intent.conversations.try_push(serde_json::from_str(&serde_json::json!({
 								"kind":"room", "id":"source-room", "directory":"directory", "name":"annex",
@@ -96,6 +112,17 @@ pub(super) async fn run() {
 						assert_eq!(row.draft.text().as_str(), Some("preserved draft"));
 						assert_eq!(row.source, Some(key::<custody::SessionAccess>()));
 						assert_eq!(row.introduction.is_some(), witness);
+						let Conversation::Room(room) = &snapshot.intent.conversations.as_slice()[1] else { unreachable!() };
+						assert!(room.seat.is_none() && room.inbox.is_none() && room.topic.is_none() && room.files.is_none() && room.lines.is_empty(), "a saved room seat cannot make a fresh Host sendable");
+						assert_eq!(room.access.unwrap().slot().get(), 4);
+						assert_eq!(room.source, Some(key::<custody::SessionAccess>()));
+						assert_eq!(room.draft.text().as_str(), Some("room draft"));
+						assert_eq!(room.standing.as_ref().unwrap().text().as_str(), Some("room standing"));
+						assert_eq!(room.reconnect, Reconnect::Requested);
+						for role in [custody::Role::RoomSeat, custody::Role::RoomTopic, custody::Role::RoomFiles,
+							custody::Role::RoomInbox, custody::Role::Line] {
+							assert!(opened.session().restore_custody(&[requests::coordinate(role, 4)]).await.is_err(), "previous room lifetime is retired: {role:?}");
+						}
 						if let Some(introduction) = &row.introduction {
 							assert_eq!(introduction.registration.text().as_str(), Some("12345678-1234-4234-8234-123456789abc"));
 							assert_eq!(introduction.opening.text().as_str(), Some("saved-opening"));

@@ -25,7 +25,7 @@ fn project(draft: Draft) -> String {
 pub fn operations_bundle_draft(raw: js_sys::JsString, pasted: bool) -> Result<String, JsValue> {
 	Draft::parse(&text(raw)?, pasted)
 		.map(project)
-		.map_err(|error| js_sys::Error::new(&error).into())
+		.map_err(|error| js_sys::Error::new(&error.to_string()).into())
 }
 #[wasm_bindgen(js_name = operationsBundleEntries)]
 pub fn operations_bundle_entries(raw: js_sys::JsString) -> Result<String, JsValue> {
@@ -35,7 +35,7 @@ pub fn operations_bundle_entries(raw: js_sys::JsString) -> Result<String, JsValu
 	for (capability, swiss) in entries {
 		draft
 			.insert(&capability, &swiss)
-			.map_err(|error| js_sys::Error::new(&error))?;
+			.map_err(|error| js_sys::Error::new(&error.to_string()))?;
 	}
 	Ok(project(draft))
 }

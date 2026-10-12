@@ -1,6 +1,6 @@
 // What a room says about itself, and what a line costs against it.
 //
-// A room may say it carries less than this app allows — one bridged to IRC has
+// A room may say it carries less than this app allows, one bridged to IRC has
 // to fit each line into a protocol that gives 512 bytes to the whole thing,
 // envelope included. That is a fact a room states about itself rather than a
 // mode anybody switches on. Two rooms in one tab can therefore answer
@@ -92,7 +92,7 @@ Deno.test("a room states its cap in the tail a presence change rides in", () => 
 Deno.test("a room states its topic in the same tail", () => {
 	assertEquals(readTopic(["alice", "welcome", "topic", "release 2.0 is out"]), "release 2.0 is out");
 	// Cleared and never-set are different things, and both have to be sayable:
-	// somebody taking a topic down is doing something on purpose, and reading it
+	// somebody taking a topic down is doing something, and reading it
 	// as "nothing said" would make clearing one impossible.
 	assertEquals(readTopic(["alice", "welcome", "topic", ""]), "", "cleared on purpose");
 	assertEquals(readTopic(["alice", "hi"]), undefined, "an ordinary line says nothing about it");
@@ -253,9 +253,10 @@ Deno.test("a line from somebody else is held to what this app will show", () => 
 
 Deno.test("a directory's live feed is read the way its other claims are", () => {
 	// This is the feed a directory keeps open, and every event on it names
-	// something and counts something. A kind nobody knows used to fall through to
-	// the room list, a name longer than one may be was kept for as long as the tab
-	// held that directory, and a count that is not a count was drawn as it stood.
+	// something and counts something. A kind nobody knows must not fall through
+	// to the room list, a name longer than one may be must not be kept for as
+	// long as the tab holds that directory, and a count that is not a count must
+	// not be drawn as it stands.
 	const lobby = {
 		id: "room-generation",
 		name: "lobby",
@@ -435,7 +436,7 @@ Deno.test("a relayed bring-up is held to a size at both ends of the relay", () =
 	// members as they stand, so their size is the room's to bound rather than a
 	// sender's to choose. A member holds what arrives to the same size, because a
 	// directory is whatever answered the address they typed and what it relays is
-	// only as bounded as it felt like being — and on that side the id becomes a
+	// only as bounded as it felt like being, and on that side the id becomes a
 	// map key and the payload is parsed before anything else looks at it.
 	assertEquals(relayedSignalFits("description", "x1", "v=0\r\no=- 1 1 IN IP4 0.0.0.0"), true);
 	assertEquals(relayedSignalFits("candidate", "x1", '{"candidate":"a=candidate:1 1 udp"}'), true);

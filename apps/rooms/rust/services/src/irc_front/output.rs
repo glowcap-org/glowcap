@@ -18,7 +18,7 @@ impl Output {
 		})
 	}
 	pub fn project(&self, name: &str) -> Result<String, String> {
-		self.names.borrow_mut().project(name)
+		self.names.borrow_mut().project(name).map_err(String::from)
 	}
 	pub fn original(&self, name: &str) -> String {
 		self.names.borrow().original(name).into()

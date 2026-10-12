@@ -1,4 +1,4 @@
-// @glowcap/web — the browser entry for the glowcap runtime (ADR-0070).
+// @glowcap/web: the browser entry for the glowcap runtime (ADR-0070).
 //
 // A browser tab becomes a real OCapN peer: the same sans-io protocol core the
 // native archives link, compiled to wasm32 (`zig build wasm-driver` →
@@ -155,6 +155,8 @@ async function initFresh(options: WebInitOptions): Promise<WebRuntime> {
 	};
 
 	const instance = await instantiate(options.wasm, imports);
+	// The wasm runtime types `exports` as an untyped record, and the module's own
+	// ABI (checked against the struct layout below) is the real shape.
 	const exports = instance.exports as unknown as Parameters<typeof makeWebAdapter>[0];
 
 	// Read the module's self-described wasm32 struct layout (probe the word
@@ -217,8 +219,8 @@ async function initFresh(options: WebInitOptions): Promise<WebRuntime> {
 	} catch (error) {
 		// A failed load must not squat the page's one adapter slot: left
 		// registered, the next attempt is refused as "already installed" and
-		// the failure that actually matters — a stale wasm's archive
-		// fingerprint, a refused Host — is never seen again. Only this
+		// the failure that matters (a stale wasm's archive
+		// fingerprint, a refused Host) is never seen again. Only this
 		// attempt's own registration is withdrawn; a committed adapter
 		// belongs to the runtime and stays.
 		if (registry[injected_adapter_key] === web.adapter) {

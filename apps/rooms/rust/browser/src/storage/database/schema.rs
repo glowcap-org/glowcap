@@ -1,5 +1,5 @@
 //! The exact current records, blob and metadata schema. Prerelease schemas are
-//! refused rather than rewritten; browser settings owns explicit deletion.
+//! refused rather than rewritten. Browser settings owns explicit deletion.
 use super::Error;
 use web_sys::{IdbDatabase, IdbIndexParameters, IdbObjectStoreParameters};
 pub(super) const VERSION: u32 = 1;

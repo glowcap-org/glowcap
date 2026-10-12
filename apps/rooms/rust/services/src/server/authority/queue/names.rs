@@ -19,10 +19,7 @@ impl Pending {
 				|| state.irc.holds_name(name)
 				|| state.rooms.public_key_of(name).is_some_and(|key| key != own)
 			{
-				return Err(format!(
-					"{}: room \"{name}\" already exists",
-					FailureCode::RoomExists.wire()
-				));
+				return Err(FailureCode::RoomExists.line(format_args!("room \"{name}\" already exists")));
 			}
 			names.insert(name.to_lowercase());
 		}

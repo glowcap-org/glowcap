@@ -1,8 +1,8 @@
 /**
- * Peer inspector panel — Details + Timing fields (`PeerFields`) and
+ * Peer inspector panel, Details + Timing fields (`PeerFields`) and
  * the Connections sub-panel that lists sessions touching this peer
  * (`PeerConnections`). Build mode passes an `editor` binding so
- * every field renders as an input; Play / Live render the same shape
+ * every field renders as an input, Play / Live render the same shape
  * read-only and the LifecycleChip narrates where the playhead sits
  * relative to the peer's join/leave window.
  */
@@ -41,7 +41,7 @@ import type { EntityRefKey } from "../../interactions/types.ts";
 
 /** Position row that follows mid-drag world coords. The PeerFields shell
  *  stays on doc+clock so label/id/profile groups do not re-reconcile every
- *  pointer step; this row alone wakes on `version`. */
+ *  pointer step. This row alone wakes on `version`. */
 function PeerPositionLiveRow(
 	{
 		engine,
@@ -56,7 +56,7 @@ function PeerPositionLiveRow(
 	},
 ) {
 	useEngineVersion(engine);
-	// Read the pin from the live doc here — not from a shell prop.
+	// Read the pin from the live doc here. Not from a shell prop.
 	// Mid-drag placement mutates `doc.entities` inside a transaction that
 	// leaves `docVersion` quiet, so a parent-computed `pinned` stays at the
 	// pre-drag point for the whole gesture.
@@ -95,7 +95,7 @@ export function PeerFields(
 	// two modes, the same split `EndFields` makes on a session's ends.
 	//
 	// Reading is easy: a peer has a name and a profile at the playhead, and
-	// that is what a reader wants — the live entity first, since it carries
+	// that is what a reader wants. The live entity first, since it carries
 	// in-flight edits, and the value in effect at the playhead when the peer
 	// is off stage. Editing is the other question. The pickers here write what
 	// the peer ARRIVES with; a peer whose profile a moment later restates is a
@@ -231,7 +231,7 @@ export function PeerFields(
               something about itself, numbered like a session's state
               trajectory. "start" above carries what it ARRIVED with
               (a session's genesis state in peer form); each row here
-              is one property stated at one moment — a time, what
+              is one property stated at one moment. A time, what
               changed, the value, and an X to clear it. The rows come
               from `engine/trajectory.ts`, so a second temporal peer
               property renders here with no change to this file. */
@@ -256,8 +256,8 @@ export function PeerFields(
 										onChange={(next) => {
 											// The shared cell's value channel is wide enough for
 											// both lanes, and a session's end is the arm that
-											// carries a pair. Every peer property is one word —
-											// its editors are `text` and `enum` — so the pair
+											// carries a pair. Every peer property is one word,
+											// its editors are `text` and `enum`, so the pair
 											// cannot arrive here, and this says which lane this
 											// is rather than assuming it.
 											if (typeof next !== "string") {
@@ -338,7 +338,7 @@ export function PeerFields(
 						/* Duration mirrors the data model: TimeSpan is stored as
               {start, duration}. End is a derived round-trip; show the
               field we actually store and dispatch the duration intent
-              directly — no end-translation round trip. */
+              directly. No end-translation round trip. */
 					}
 					<OptionalTimeRow
 						label="duration"
@@ -395,7 +395,7 @@ export function PeerConnections(
 		 *  "other peer" appears in this set get the in-selection
 		 *  highlight. Both are checked because a peer-side row links
 		 *  to a session but visually advertises the other peer's
-		 *  name; either being selected is a meaningful signal. */
+		 *  name. Either being selected is a meaningful signal. */
 		entitySelection?: ReadonlySet<EntityRefKey> | undefined;
 	},
 ) {

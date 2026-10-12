@@ -3,7 +3,7 @@
 //! gift-id / settle / fail). Decode/types and the exhaustive dispatch come
 //! from the generated [`host_action_gen`](crate::host_action_gen) module
 //! (`zig build gen-binding-host-action`). The CapTP [`Host`](crate::Host) facade
-//! and its vow table live in `host/public.rs` and `host/vows.rs`; this module is
+//! and its vow table live in `host/public.rs` and `host/vows.rs`. This module is
 //! the drain's park+execute half
 //! that [`HostShared::kick_actions`](crate::host::HostShared::kick_actions)
 //! drives. Async I/O never runs inside the C callback.
@@ -28,20 +28,27 @@ unsafe extern "C" fn park_arm(
 	if ctx.is_null() || action.is_null() {
 		return sys::ERR_NULL_POINTER;
 	}
+	// SAFETY: `action` is non-null (checked above) and points to the `GlowcapHostAction` the C side passed to this arm,
+	// whose views stay host-owned until the next pop, after this callback has returned.
 	let action = unsafe { &*action };
 	let action = match host_action_gen::decode(action) {
 		Ok(action) => action,
 		Err(error) => return error.code(),
 	};
+	// SAFETY: `ctx` is non-null (checked above) and is the `&mut Vec<HostAction>` that `park` put in the hooks struct,
+	// live for the whole `glowcap_host_pump_drain` call; the pump invokes the arms one at a time, so this is the only
+	// reference to it.
 	let parked = unsafe { &mut *(ctx as *mut Vec<HostAction>) };
 	parked.push(action);
 	if !out_progressed.is_null() {
+		// SAFETY: `out_progressed` is non-null (checked just above) and points to a `u32` the C side gave this callback
+		// for the arm to write.
 		unsafe { *out_progressed = 1 };
 	}
 	sys::OK
 }
 
-/// Run `glowcap_host_pump_drain` with park-only arms; return decoded actions
+/// Run `glowcap_host_pump_drain` with park-only arms. Return decoded actions
 /// in queue order. The hooks struct and the parked vec stay alive for the
 /// duration of the C call.
 pub(crate) fn park(host: &HostShared) -> Result<(Vec<HostAction>, bool)> {
@@ -56,6 +63,9 @@ pub(crate) fn park(host: &HostShared) -> Result<(Vec<HostAction>, bool)> {
 	};
 	let mut acted: u32 = 0;
 	let mut yielded: u32 = 0;
+	// SAFETY: `host.raw()` is the `GlowcapHost` handle `HostShared` owns from `glowcap_host_new_in`, released only by
+	// its teardown, and the `&HostShared` borrow keeps it for the call; `hooks` is a local `GlowcapHostPumpHooks` whose
+	// `ctx` is `parked`, and `acted` and `yielded` are local out-parameters the callee writes, all live for the call.
 	check_host(unsafe { ffi::glowcap_host_pump_drain(host.raw(), &hooks, &mut acted, &mut yielded) })?;
 	Ok((parked, yielded != 0))
 }
@@ -106,12 +116,18 @@ impl HostActionHandlers for Handlers<'_> {
 			Ok(true) => Ok(()),
 			Ok(false) => {
 				let reason = b"dial executor unavailable";
+				// SAFETY: `self.host.raw()` is the `GlowcapHost` handle `HostShared` owns from `glowcap_host_new_in`,
+				// released only by its teardown, and the `&Rc<HostShared>` borrow keeps it for the call; `reason` is a
+				// `'static` byte string whose pointer and length stay live for the call.
 				check_host(unsafe {
 					ffi::glowcap_host_dial_failed(self.host.raw(), ticket, route_index, reason.as_ptr(), reason.len())
 				})
 			}
 			Err(primary) => {
 				let reason = primary.to_string();
+				// SAFETY: `self.host.raw()` is the `GlowcapHost` handle `HostShared` owns from `glowcap_host_new_in`,
+				// released only by its teardown, and the `&Rc<HostShared>` borrow keeps it for the call; `reason` is a
+				// local `String` whose pointer and length stay live for the call.
 				let report = check_host(unsafe {
 					ffi::glowcap_host_dial_failed(self.host.raw(), ticket, route_index, reason.as_ptr(), reason.len())
 				});
@@ -159,10 +175,16 @@ impl HostActionHandlers for Handlers<'_> {
 				getrandom::fill(&mut gift_id).map(|()| gift_id)
 			},
 			|gift_id| {
+				// SAFETY: `self.host.raw()` is the `GlowcapHost` handle `HostShared` owns from `glowcap_host_new_in`,
+				// released only by its teardown, and the `&Rc<HostShared>` borrow keeps it for the call; `gift_id` is
+				// the `[u8; 32]` borrowed by the closure, whose pointer and length stay live for the call.
 				check_host(unsafe {
 					ffi::glowcap_host_provide_gift_id(self.host.raw(), ticket, gift_id.as_ptr(), gift_id.len())
 				})
 			},
+			// SAFETY: `self.host.raw()` is the `GlowcapHost` handle `HostShared` owns from `glowcap_host_new_in`,
+			// released only by its teardown, and the `&Rc<HostShared>` borrow keeps it for the call; `ticket` is a
+			// plain integer argument.
 			|| check_host(unsafe { ffi::glowcap_host_gift_id_failed(self.host.raw(), ticket) }),
 		)
 	}
@@ -186,9 +208,9 @@ impl HostActionHandlers for Handlers<'_> {
 	}
 }
 
-/// The executor is deliberately dumb: every decision was already made in the
-/// core; each arm is pure I/O or marshalling. The kind inventory lives in
-/// generated [`host_action_gen::dispatch`] — a new kind fails compile.
+/// The executor is dumb: every decision was already made in the
+/// core. Each arm is pure I/O or marshalling. The kind inventory lives in
+/// generated [`host_action_gen::dispatch`]: a new kind fails compile.
 pub(crate) async fn run(host: &Rc<HostShared>, action: HostAction) -> Result<()> {
 	host_action_gen::dispatch(action, &Handlers { host }).await
 }
@@ -232,6 +254,8 @@ mod tests {
 	#[test]
 	fn unknown_native_action_kind_is_a_returned_callback_failure() {
 		let mut parked = Vec::new();
+		// SAFETY: `GlowcapHostAction` is a plain C struct of integers, null pointers, and nested plain C structs;
+		// all-zero is a valid value, and this test sets the discriminant fields it exercises before the arm reads them.
 		let mut action: ffi::GlowcapHostAction = unsafe { core::mem::zeroed() };
 		action.kind = u32::MAX;
 		let error = host_action_gen::decode(&action)
@@ -239,6 +263,9 @@ mod tests {
 			.expect("generated decoder must reject an unknown ABI discriminant");
 		assert_eq!(error.code(), sys::ERR_INTERNAL);
 		assert!(error.message().unwrap_or_default().contains("unknown host action kind"));
+		// SAFETY: `park_arm` is called directly: `ctx` is the `&mut Vec<HostAction>` of the local `parked`, `action`
+		// borrows the local `action`, and the null host and null `out_progressed` are the shapes the arm ignores or
+		// checks for.
 		let rc = unsafe {
 			park_arm(
 				&mut parked as *mut Vec<HostAction> as *mut core::ffi::c_void,
@@ -254,6 +281,8 @@ mod tests {
 	#[test]
 	fn unknown_nested_argument_kind_is_a_returned_callback_failure() {
 		let mut parked = Vec::new();
+		// SAFETY: `GlowcapHostAction` is a plain C struct of integers, null pointers, and nested plain C structs;
+		// all-zero is a valid value, and this test sets the discriminant fields it exercises before the arm reads them.
 		let mut action: ffi::GlowcapHostAction = unsafe { core::mem::zeroed() };
 		action.kind = host_action_gen::HOST_ACTION_SETTLE;
 		action.value.kind = u32::MAX;
@@ -262,6 +291,9 @@ mod tests {
 			.expect("generated decoder must reject an unknown nested argument kind");
 		assert_eq!(error.code(), sys::ERR_INTERNAL);
 		assert!(error.message().unwrap_or_default().contains("unknown argument kind"));
+		// SAFETY: `park_arm` is called directly: `ctx` is the `&mut Vec<HostAction>` of the local `parked`, `action`
+		// borrows the local `action`, and the null host and null `out_progressed` are the shapes the arm ignores or
+		// checks for.
 		let rc = unsafe {
 			park_arm(
 				&mut parked as *mut Vec<HostAction> as *mut core::ffi::c_void,

@@ -1,9 +1,9 @@
-//! 06 — Pipeline a dependent call, receive an attenuated capability.
+//! 06: Pipeline a dependent call, receive an attenuated capability.
 //!
 //! The two moves that make capabilities compose. A listener asks a record desk
 //! to `checkout` its house record. Without waiting for the answer, it
 //! addresses `play` and `eject` at the unresolved checkout answer. All three
-//! delivers cross the wire as one batch; the desk queues the dependent calls
+//! delivers cross the wire as one batch. The desk queues the dependent calls
 //! on its pending answer and drains them onto the record the moment `checkout`
 //! resolves. No round trip is paid to learn an answer only the partner needs.
 //!
@@ -120,7 +120,7 @@ pub fn main() !void {
 
     // Shuttle frames until both sides go quiet: the desk drains the pipelined
     // calls onto the freshly attenuated record when `checkout` resolves. Each
-    // `serve` is followed by `drive` — the attenuator answers by *forwarding*,
+    // `serve` is followed by `drive`, the attenuator answers by *forwarding*,
     // which queues a local send the drive loop runs (the serve-then-drive pump
     // `BlockingSession.step` does over a real socket).
     var progressed = true;

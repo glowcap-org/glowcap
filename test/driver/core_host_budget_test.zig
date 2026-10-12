@@ -507,14 +507,14 @@ test "a fed connection flooding a sibling condemns the sibling with a close acti
     _ = try client_a.send(pair_a.a, trigger, .{ .verb = "flood", .args = &.{} });
     const condemned_ingress = pair_b.b.served.port.ingress;
 
-    // Feed the flood by hand: the fed verb must SUCCEED — the breach belongs
+    // Feed the flood by hand: the fed verb must SUCCEED, the breach belongs
     // to the sibling the flood landed on, not to the connection that fed it.
     var flood_frame = (try pair_a.a.takeOutbound()) orelse return error.NoDeliverQueued;
     defer flood_frame.deinit();
     try server.feed(pair_a.b, flood_frame.view());
 
     // Condemnation owns cleanup before the fallible abort/CLOSE notification:
-    // the Port can no longer enqueue and no queued ingress survives for an
+    // the Port cannot enqueue and no queued ingress survives for an
     // embedder release to clean up later.
     try std.testing.expectError(
         actors.Error.UnknownIngress,

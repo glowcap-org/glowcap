@@ -34,10 +34,10 @@ const compactEventsIfDrained = events.compactEventsIfDrained;
 
 /// Move a byte-fed Host with no live sessions or borrowed action into a native
 /// loop. Unpopped actions move with the Host and are first consumed by the driver.
-/// Failure leaves the caller as the Host's runtime owner; success transfers
+/// Failure leaves the caller as the Host's runtime owner. Success transfers
 /// transport execution, action draining, session release, and terminal Host
-/// release to the returned loop. Buffer and admission limits must be positive;
-/// a zero wait budget explicitly selects an unbounded wait, and each nonzero
+/// release to the returned loop. Buffer and admission limits must be positive.
+/// A zero wait budget explicitly selects an unbounded wait, and each nonzero
 /// wait is bounded by GLOWCAP_DRIVER_MAX_WAIT_MS. The generic loop starts with
 /// no transports, so install provider packages before dialing or listening.
 /// Released with `glowcap_driver_release`.
@@ -130,7 +130,7 @@ pub fn releaseRetiredListenerMetadata(inst: *Instance) bool {
 }
 
 /// Project the native runtime phase through the C delivery barrier. Core and
-/// transport teardown remain authoritative below; queued C events keep only
+/// transport teardown remain authoritative below. Queued C events keep only
 /// this ABI owner terminating until the caller has received them.
 fn projectDriverLifecycle(inst: *const Instance) u32 {
     return switch (inst.runtime.lifecyclePhase()) {
@@ -167,7 +167,7 @@ pub export fn glowcap_driver_close(
 }
 
 /// Stop listener admission and retire the loop after every application-owned
-/// session handle releases. Existing sessions remain active; the final
+/// session handle releases. Existing sessions remain active. The final
 /// release begins the ordinary cancel close barrier.
 pub export fn glowcap_driver_retire(raw: ?*c.GlowcapDriverLoop) i32 {
     shared.lastErrorClear();
@@ -201,7 +201,7 @@ pub export fn glowcap_driver_lifecycle_state(raw: ?*c.GlowcapDriverLoop, out_sta
 /// milliseconds until the nearest pending-work deadline (the close grace, a
 /// session's close grace, a dial or listener setup budget), clamped at zero,
 /// or -1 when no finite deadline is pending and readiness alone advances the
-/// loop. Poll-shaped on purpose: the value drops straight into a wait
+/// loop. Poll-shaped: the value drops straight into a wait
 /// primitive's timeout argument.
 pub export fn glowcap_driver_step_wait_ms(raw: ?*c.GlowcapDriverLoop, out_wait_ms: ?*i32) i32 {
     shared.lastErrorClear();
@@ -215,7 +215,7 @@ pub export fn glowcap_driver_step_wait_ms(raw: ?*c.GlowcapDriverLoop, out_wait_m
 /// Release the loop and everything it owns: listeners, in-flight opens,
 /// queued events, every live wire, and then the wrapped host itself (with
 /// `glowcap_host_release`'s exact semantics). Do not release the host handle
-/// separately. Null is a no-op; refused from inside a callback.
+/// separately. Null is a no-op. Refused from inside a callback.
 pub export fn glowcap_driver_release(
     raw: ?*c.GlowcapDriverLoop,
     out_failure: ?*failure_output.GlowcapDriverFailure,
@@ -254,7 +254,7 @@ pub export fn glowcap_driver_release(
         // through the public state machine. If that invariant regresses, preserve the
         // consumed-handle release outcome instead of aborting the process.
         // The core is already gone, so the unexpected payload cannot safely
-        // be traversed and is deliberately leaked on this contract-failure
+        // be traversed and is leaked on this contract-failure
         // path rather than freed through dead ownership.
         .completion => failure_output.noteError(&teardown_failure, error.ProviderContract),
         else => {},

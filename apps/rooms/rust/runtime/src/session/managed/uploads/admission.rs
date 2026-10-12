@@ -1,4 +1,4 @@
-//! Restore only selected and unresolved batches; aliases compare actual authority.
+//! Restore only selected and unresolved batches. Aliases compare actual authority.
 use super::super::{
 	State,
 	content::{self, MetadataRecord},
@@ -106,7 +106,7 @@ pub(in crate::session::managed) fn admit<P: Tasks + Deadline + Clone + 'static>(
 		content::receipts::authenticate(call, input, &metadata, &id, &source)?;
 		let receipt = effects::inspect(&metadata.effects, &id, &receipt.source.reference, &intent)
 			.map_err(|_| refuse("original upload intent required"))?
-			.expect("selected receipt");
+			.ok_or_else(|| refuse("original upload receipt is absent"))?;
 		let original = &receipt.targets.as_slice()[request.intent.target_count()..];
 		if original.len() != request.sources.len() {
 			return Err(refuse("original upload sources required"));
@@ -167,7 +167,11 @@ pub(in crate::session::managed) fn admit<P: Tasks + Deadline + Clone + 'static>(
 		{
 			continue;
 		}
-		let id = receipt.operation.text().as_str().expect("validated operation");
+		let id = receipt
+			.operation
+			.text()
+			.as_str()
+			.ok_or_else(|| refuse("invalid upload receipt"))?;
 		if owner
 			.jobs
 			.borrow()
@@ -193,6 +197,18 @@ pub(in crate::session::managed) fn admit<P: Tasks + Deadline + Clone + 'static>(
 			return Err(refuse("original files facet has an unresolved upload batch"));
 		}
 	}
+	let withdrawing = matches!(request.intent.upload, Kind::Refile(_))
+		&& request.intent.caption.is_empty()
+		&& request.intent.keep.is_empty()
+		&& request.sources.is_empty();
+	if !withdrawing {
+		owner.admission.borrow_mut().upload(
+			call,
+			request.sources.len(),
+			&request.intent.caption,
+			owner.platform.monotonic_millis(),
+		)?;
+	}
 	let seat = Seat::reserve(owner, &request.intent.operation)?;
 	targets.extend(request.sources.iter().cloned());
 	let (reservation, pending) = call.reserve_continuation_copying(&targets)?;
@@ -206,8 +222,8 @@ pub(in crate::session::managed) fn admit<P: Tasks + Deadline + Clone + 'static>(
 			custody::Coordinate {
 				role: custody::Role::SourceBlob,
 				key: custody::FieldKey::new(
-					NonZeroU64::new(index as u64 + 1).expect("source slot"),
-					NonZeroU64::new(1).expect("source generation"),
+					NonZeroU64::new(index as u64 + 1).ok_or_else(|| refuse("invalid upload source slot"))?,
+					NonZeroU64::MIN,
 				),
 			},
 			Field::Held(source),
@@ -237,6 +253,7 @@ pub(in crate::session::managed) fn admit<P: Tasks + Deadline + Clone + 'static>(
 					input,
 					source.clone(),
 					super::super::outgoing::Post {
+						operation: &request.intent.operation,
 						conversation: &request.intent.conversation,
 						text: &request.intent.caption,
 						previews: rooms_application::open_graph::Selection::decode(

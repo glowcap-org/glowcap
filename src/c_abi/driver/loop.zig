@@ -2,17 +2,17 @@
 //! `driver.HostRuntime` over the byte-fed Host implementation. The embedder's
 //! whole transport role is: create the loop, register provider packages, dial
 //! and listen, park on one readiness
-//! descriptor, step, and drain one event queue; every application verb stays
+//! descriptor, step, and drain one event queue. Every application verb stays
 //! `glowcap_host_*` on the Host handle moved into `glowcap_driver_take_host`. Those
-//! symbols belong to `libglowcap_host`; this archive emits only
+//! symbols belong to `libglowcap_host`. This archive emits only
 //! `glowcap_driver_*`.
 //!
 //! Threading: one thread drives one loop, and every verb here except
 //! `glowcap_driver_wake` must run on it. Callbacks fire on the stepping
 //! thread.
 //!
-//! Dial starts are nonblocking by provider contract and run in the dial call;
-//! transport completion and every CapTP handshake advance across later steps
+//! Dial starts are nonblocking by provider contract and run in the dial call.
+//! Transport completion and every CapTP handshake advance across later steps
 //! under the handshake budget. Accepted handshakes use the same pending-open
 //! path, so a silent connector does not park the loop or starve siblings.
 
@@ -65,16 +65,16 @@ const Instance = struct {
     listeners: std.AutoHashMapUnmanaged(ListenerId, ListenerState) = .{},
     next_listener: u64 = 1,
     next_operation_id: u64 = 1,
-    /// FIFO event queue: `events[events_head..]` is pending; the storage
+    /// FIFO event queue: `events[events_head..]` is pending. The storage
     /// compacts when drained.
     events: std.ArrayListUnmanaged(OwnedEvent) = .empty,
     events_head: usize = 0,
     /// Queue slots promised before dial/listen/accept, session-close, and
     /// completion outcomes commit. Every terminal callback publishes without
-    /// allocation; the admitting or preflight boundary owns capacity failure.
+    /// allocation. The admitting or preflight boundary owns capacity failure.
     event_reservations: usize = 0,
     /// The completion view handed out by the last
-    /// `glowcap_driver_next_event`, freed by the next one — the byte-fed
+    /// `glowcap_driver_next_event`, freed by the next one. This is the byte-fed
     /// queue's borrow contract, one tier up. Error names are static.
     handed_completion: ?driver_core.HostAction = null,
     stepping: bool = false,
@@ -134,7 +134,7 @@ fn adoptionOptions(options: c.GlowcapDriverOptions) driver.HostRuntime.AdoptionO
 }
 
 fn waitBudget(milliseconds: u32) driver.Budget {
-    return if (milliseconds == 0) .unbounded else .{ .ms = @intCast(milliseconds) };
+    return if (milliseconds == c.GLOWCAP_DRIVER_WAIT_UNBOUNDED) .unbounded else .{ .ms = @intCast(milliseconds) };
 }
 
 fn operationOptions(raw: ?*const shared.GlowcapTransportOperationOptions) !net.OperationOptions {

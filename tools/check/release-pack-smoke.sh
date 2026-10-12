@@ -16,8 +16,8 @@ if [[ ! -f $archive ]]; then
 	printf 'release-pack-smoke: archive not found: %s\n' "$archive" >&2
 	exit 1
 fi
-if ! command -v zig >/dev/null 2>&1; then
-	printf 'release-pack-smoke: zig is required to compile the C consumers\n' >&2
+if ! command -v cc >/dev/null 2>&1; then
+	printf 'release-pack-smoke: a native C compiler is required to compile the consumers\n' >&2
 	exit 1
 fi
 
@@ -128,6 +128,10 @@ write_consumer() {
 						'    errors += glowcap_driver_last_error(NULL, 0);' \
 						'    fingerprints ^= glowcap_driver_archive_fingerprint();'
 					;;
+				glowcap_loam | glowcap_loam_lmdb)
+					printf '    errors += %s_last_error(NULL, 0);\n' "$name"
+					printf '    fingerprints ^= %s_archive_fingerprint();\n' "$name"
+					;;
 				glowcap_net_transport_*)
 					transport=${name#glowcap_net_transport_}
 					printf '    fingerprints ^= glowcap_%s_archive_fingerprint();\n' "$transport"
@@ -216,20 +220,25 @@ done
 
 write_consumer "$workdir/shared-consumer.c" "${shared_names[@]}"
 
-# Every Zig static archive is a self-contained product tier. Compile it alone:
-# combining tiers asks the linker to define embedded lower-layer C symbols
-# twice and proves a composition the archives neither advertise nor require.
+# Each archive must work alone, and sibling ABI archives must compose for a
+# consumer that uses several tiers. Native cc supplies no implicit Zig runtime.
 for name in "${static_names[@]}"; do
 	write_consumer "$workdir/static-$name-consumer.c" "$name"
-	zig cc -std=c11 -Wall -Wextra -Werror -I"$include_dir" \
+	cc -std=c11 -Wall -Wextra -Werror -I"$include_dir" \
 		"$workdir/static-$name-consumer.c" "$lib_dir/lib$name.a" "${native_libraries[@]}" \
 		-o "$workdir/static-$name-consumer"
 	"$workdir/static-$name-consumer"
 done
 
-zig cc -std=c11 -Wall -Wextra -Werror -I"$include_dir" \
+write_consumer "$workdir/static-consumer.c" "${static_names[@]}"
+cc -std=c11 -Wall -Wextra -Werror -I"$include_dir" \
+	"$workdir/static-consumer.c" "${static_archives[@]}" "${native_libraries[@]}" \
+	-o "$workdir/static-consumer"
+"$workdir/static-consumer"
+
+cc -std=c11 -Wall -Wextra -Werror -I"$include_dir" \
 	"$workdir/shared-consumer.c" -L"$lib_dir" \
 	"${shared_archives[@]}" "${native_libraries[@]}" -o "$workdir/shared-consumer"
 env "$loader_variable=$lib_dir" "$workdir/shared-consumer"
 
-printf 'release-pack-smoke: per-archive static consumers and shared consumer passed\n'
+printf 'release-pack-smoke: individual and combined static consumers and shared consumer passed\n'

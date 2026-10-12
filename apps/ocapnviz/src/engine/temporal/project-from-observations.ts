@@ -27,16 +27,16 @@
  *   - same shape for sessions (session-opened / session-closed)
  *   - message.span.start    = message-sent observation ? explicit(t) : implicit(0)
  *   - message.span.duration = explicit(flightMs ?? 500)
- *                              — messages always have explicit duration
+ *:                              messages always have explicit duration
  *
  * # Timing provenance
  *
  * Every span this module writes is marked `derived` (see
  * `TimeSpan.derived`). A derived span is re-derived on every run, so
- * observations that arrive after the entity was first projected — a
- * live feed's closes always do — still land; the result only replaces
+ * observations that arrive after the entity was first projected, a
+ * live feed's closes always do, still land. The result only replaces
  * the stored span when the derivation actually changed, so a quiet
- * run returns the same doc object. An **authored** span (no marker —
+ * run returns the same doc object. An **authored** span (no marker,
  * every authoring op strips it) is never touched: the user's intent
  * outranks the observation stream. Re-running over an unchanged
  * observation set produces an identical doc.
@@ -51,7 +51,7 @@
  * endpoint tracks re-derive on every run, because `peer-updated` and
  * `session-endpoint-attributed` ARE live arrivals and a track kept
  * after its first derivation would freeze the peer's name at
- * whatever it was called on the tick it first arrived — or leave a
+ * whatever it was called on the tick it first arrived, or leave a
  * session's end loose after something attributed it. Renaming a
  * peer in Build rewrites the observations (`authoring/peer.ts`), so
  * that re-derivation preserves the authored name. When either track
@@ -97,7 +97,7 @@ type SessionStateChanged = Extract<
 type MessageSent = Extract<TimelineEvent, { kind: "message-sent" }>;
 
 /** The observations that bound one row's life. Each entity has one
- *  start and one ending, and the ending has more than one kind —
+ *  start and one ending, and the ending has more than one kind,
  *  named here once so the timing rule below can take "the earliest
  *  of the endings" without knowing what they mean. */
 type PeerRow = {
@@ -127,21 +127,21 @@ function firstEnding(
 
 /** First-occurrence observation rows per entity id, built in ONE
  *  pass so per-run cost stays O(observations), not
- *  O(entities × observations) — the live doc grows every tick and
+ *  O(entities × observations). The live doc grows every tick and
  *  the projection runs every tick. "First" matches the
  *  `event-helpers` find* semantics the rest of the app reads
  *  through. */
 type ObservationIndex = {
-	/** A row's ending is whichever of these arrived — a departure, the
+	/** A row's ending is whichever of these arrived. A departure, the
 	 * identification that revealed it was a peer already on stage, or
 	 * the viewer losing sight of it. The row ends the same length
-	 * whichever it was; which one it was is the whole point of having
+	 * whichever it was, which one it was is the whole point of having
 	 * three kinds rather than one. */
 	peers: Map<string, PeerRow>;
 	/** Per temporal peer property, the moments each peer restated it,
 	 * as keyframes. A value a live feed states after the join (a chat
 	 * nick) holds from that observation's t onward, not over the whole
-	 * timeline. `trajectory.ts` names the properties; this index has
+	 * timeline. `trajectory.ts` names the properties. This index has
 	 * one map per property and learns nothing about them. */
 	peerChanges: Map<PeerProperty, Map<string, Keyframe<string>[]>>;
 	sessions: Map<string, SessionRow>;
@@ -150,7 +150,7 @@ type ObservationIndex = {
 	 * as keyframes. Same shape as `peerChanges` one level up: a value
 	 * a live feed states after the open holds from that observation's
 	 * t onward, not over the whole session. Each keyframe carries the pair
-	 * the observation states — who is on the end, and what backed it — so a
+	 * the observation states, who is on the end, and what backed it, so a
 	 * mid-session attachment resolves to as much as a genesis one. */
 	endpointChanges: Map<
 		SessionSide,
@@ -258,13 +258,13 @@ function indexObservations(events: readonly TimelineEvent[]): ObservationIndex {
 
 function peerTiming(row: PeerRow | undefined): TimeSpan {
 	const joined = row?.joined;
-	// Either disposition ends the row, at whichever came first — a peer
+	// Either disposition ends the row, at whichever came first, a peer
 	// that departed and one the viewer recognized as another peer both
 	// stop being drawn from that moment.
 	//
 	// `event-helpers.peerEnding` answers the same question for readers
 	// that hold a doc rather than this index, and the two are kept as
-	// separate spellings on purpose: this one folds the whole stream
+	// separate spellings: this one folds the whole stream
 	// once per run (see the index note above), while a reader asking
 	// about ONE peer cannot afford to. Change the rule and change both.
 	const ended = firstEnding(row?.left, row?.unobserved);
@@ -278,7 +278,7 @@ function peerTiming(row: PeerRow | undefined): TimeSpan {
 function sessionTiming(row: SessionRow | undefined): TimeSpan {
 	const opened = row?.opened;
 	// A session's row ends when a producer saw it close, or when the
-	// viewer stopped being able to see it — the same two-kinds-of-fact
+	// viewer stopped being able to see it. The same two-kinds-of-fact
 	// split a peer's row has, and the span is the same either way.
 	const ended = firstEnding(row?.closed, row?.unobserved);
 	const start = opened ? explicitBound(opened.t) : implicitBound(0);
@@ -296,13 +296,13 @@ function messageTiming(sent: MessageSent | undefined): TimeSpan {
 	// (arrivalT − t) when a message-sent observation exists,
 	// otherwise fall back to the default. `arrivalT === t` is the
 	// live converter's "flight unobserved" sentinel and lands here
-	// too — a zero flight is unobservable, so it takes the default
+	// too. A zero flight is unobservable, so it takes the default
 	// and the message visibly flies.
 	const flight = sent ? Math.max(0, sent.arrivalT - sent.t) || DEFAULT_FLIGHT_MS : DEFAULT_FLIGHT_MS;
 	return markDerived({ start, duration: explicitBound(flight) });
 }
 
-/** Value equality for the change gate — a re-derived span replaces
+/** Value equality for the change gate. A re-derived span replaces
  *  the stored one only when it moved, so a quiet projection run
  *  keeps the doc object identity (the engine keys layout rebinds on
  *  it). Both sides are derived spans here, so the marker needs no
@@ -325,11 +325,11 @@ function trackFor<T>(
 	return [...out].sort((a, b) => a.t - b.t);
 }
 
-/** The index carries a map per property, so a lookup cannot miss;
+/** The index carries a map per property, so a lookup cannot miss.
  *  this stands in for the one TypeScript still makes us handle. */
 const NO_CHANGES: Map<string, Keyframe<never>[]> = new Map();
 
-/** Value equality for a keyframe track — the change gate for a
+/** Value equality for a keyframe track. The change gate for a
  *  projection that re-derives tracks on every run. Two absent tracks
  *  are equal, so a peer nobody ever restated stays quiet.
  *
@@ -357,7 +357,7 @@ function synthesizePeerDef(
 		profile: joined.profile,
 		...(joined.label !== undefined ? { label: joined.label } : {}),
 		...(joined.designator !== undefined ? { designator: joined.designator } : {}),
-		// NOTE: position deliberately NOT copied from the event.
+		// NOTE: position NOT copied from the event.
 		// Authored positions live on the event payload mutably (the
 		// keyframe-layout system rewrites them for force-directed
 		// layouts), so projecting that value into the entity def
@@ -392,7 +392,7 @@ function synthesizeMessageDef(
 		to: sent.to,
 		...(sent.label !== undefined ? { label: sent.label } : {}),
 		// Flight time is folded into timing.duration by messageTiming.
-		// The wire payload stays on the observation — its one home; the
+		// The wire payload stays on the observation. Its one home; the
 		// def carries identity, not bytes.
 	};
 }
@@ -447,7 +447,7 @@ export function projectFromObservations(
 		}
 	}
 
-	/** Shared span rule: authored wins outright; a missing or derived
+	/** Shared span rule: authored wins outright. A missing or derived
 	 *  span re-derives, replacing only on real change. */
 	const projectSpan = (
 		def: { timing?: TimeSpan | undefined },
@@ -465,7 +465,7 @@ export function projectFromObservations(
 		// its own t, so the peer carries the value it had then and a
 		// replay shows the sequence the live viewer saw. Every property
 		// in `PEER_TRAJECTORY` folds the same way, and the tracks
-		// re-derive on every run — that is how a live annotation lands
+		// re-derive on every run. That is how a live annotation lands
 		// the tick it arrives, and how an observation the author deleted
 		// takes its keyframe with it. Authored edits write the
 		// observations (`authoring/peer.ts`), so they survive the
@@ -499,7 +499,7 @@ export function projectFromObservations(
 			sessionTiming(idx.sessions.get(id)),
 		);
 		// Build the kfs track from observations only when the def
-		// doesn't already carry one — tracks have no provenance marker
+		// doesn't already carry one, tracks have no provenance marker
 		// yet (see module header).
 		const stateTrack = def.keyframes?.state === undefined ? trackFor(idx.stateChanges, id) : undefined;
 		// The endpoint tracks re-derive on every run, the way a peer's

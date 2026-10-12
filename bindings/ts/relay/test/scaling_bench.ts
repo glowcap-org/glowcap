@@ -1,5 +1,5 @@
 // The relay tier's answer to `bench-peer-scaling`: measure what one more relayed
-// connection actually costs the reference relay, then extrapolate to the numbers
+// connection costs the reference relay, then extrapolate to the numbers
 // a real host supports. The core's 500k figure is a property of the sans-io
 // engine (~2 KiB per session); this is the separate, measured figure for the
 // byte-transparent relay in front of it.

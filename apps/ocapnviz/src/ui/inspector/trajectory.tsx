@@ -100,7 +100,7 @@ export function TrajectoryValue(
  *
  *  Both, because the value IS the pair. A row offering only the peer could
  *  not state what a signed handoff proved, and restating the peer rewrote a
- *  proven attachment as one nothing backed — so the recording held a shape
+ *  proven attachment as one nothing backed. So the recording held a shape
  *  Build could not author, and touching the row destroyed it.
  *
  *  The peer picker offers no "nobody": a moment ATTACHES an end, and an end
@@ -174,10 +174,10 @@ const trajectoryEditorStyle: CSSProperties = {
 };
 
 /** The "state another property here" control for a trajectory. One
- *  property is one button that names it; several are a menu, because
+ *  property is one button that names it. Several are a menu, because
  *  a button per property turns into a wall of them as properties are
  *  added. The menu picks and inserts in one gesture and keeps no
- *  selection of its own — there is nothing to remember between
+ *  selection of its own. There is nothing to remember between
  *  insertions. */
 export function TrajectoryInsert<P extends string>(
 	{ properties, describe, onInsert }: {
@@ -246,7 +246,7 @@ export function OptionalTimeRow(
 		note?: ReactNode;
 		/** Resolved value to display when the side is EXPLICIT on
 		 *  `entity.timing`. `null` means the side is implicit (eternal-
-		 *  start or eternal-end) — render the placeholder / set-at-
+		 *  start or eternal-end), render the placeholder / set-at-
 		 *  playhead UI. Single source of truth: the entity's timing,
 		 *  not any observation. */
 		t: number | null;
@@ -258,9 +258,9 @@ export function OptionalTimeRow(
 		max: number;
 		strictMax: boolean;
 		scrubLabel: string;
-		/** Edit-transaction brackets (`EditorBindings` subset) — a time
+		/** Edit-transaction brackets (`EditorBindings` subset), a time
 		 *  scrub becomes one undo step. Required so a call site cannot
-		 *  silently ship unbracketed scrubs; pass the editor
+		 *  silently ship unbracketed scrubs. Pass the editor
 		 *  (undefined outside Build). */
 		editSession: EditBracket | undefined;
 	},
@@ -334,9 +334,9 @@ export function OptionalTimeRow(
 
 /** Small ghost-text indicator rendered under a time row when the
  * user's stored intent has been clamped by an ancestor context.
- * Hides itself when stored equals effective — no noise when there's
+ * Hides itself when stored equals effective, no noise when there's
  * nothing to surface. The `reason` names which parent clamped (e.g.
- * "peer alice", "session phone-speaker") — the side is already
+ * "peer alice", "session phone-speaker"), the side is already
  * implicit from which field the hint sits under.
  *
  * It is a row's `note` rather than a row of its own: a hairline

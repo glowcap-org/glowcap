@@ -1,5 +1,5 @@
 /**
- * Lane bundle — the data layer between the doc/events and the
+ * Lane bundle, the data layer between the doc/events and the
  * Scrubber's lane painter. One `buildLaneBundle` call resolves
  * the visible spans + glyphs + per-entity breakdown for the three
  * categorical lanes (peers / sessions / messages), and a
@@ -7,7 +7,7 @@
  * when nothing material changed.
  *
  * Spans come from the effective-range resolvers (`peerEffective`
- * / `sessionEffective` / `messageEffective`) — i.e. the Behavior
+ * / `sessionEffective` / `messageEffective`), i.e. the Behavior
  * layer's `entity.timing` after cascade-inheritance, NOT raw
  * observations. This lets a clear-bound (e.g.
  * `message.start.explicit=false`) fall through to its parent
@@ -20,7 +20,7 @@
  * the sub-selection focus halo rings, and a keyframe carries no id.
  *
  * Two shapes, and the difference is what the moment says. A DIAMOND
- * is a property taking a value — a session's state, a peer's name or
+ * is a property taking a value, a session's state, a peer's name or
  * flavor, one of its ends attaching to a peer. A TICK is the viewer
  * losing sight of something it had drawn. Same lanes, different
  * claims, so they do not share a glyph.
@@ -71,8 +71,8 @@ export type LaneSpan = {
 	label: string | undefined;
 	/** Per-state color bands within the pill. Painted as plain rects
 	 *  inset by `RADIUS` from each end so the rounded caps keep
-	 *  `color` (the categorical encoding — captpVersion for sessions).
-	 *  Only populated when ≥1 in-range state keyframe exists; absent
+	 *  `color` (the categorical encoding, captpVersion for sessions).
+	 *  Only populated when ≥1 in-range state keyframe exists. Absent
 	 *  for peers, messages, and single-state sessions. */
 	segments?: readonly LaneSegment[];
 };
@@ -85,11 +85,11 @@ export type LaneSegment = {
 
 /**
  * Discrete-moment overlay drawn ON TOP of pills. Spans answer
- * "from when to when?"; glyphs answer "what happened on top?".
+ * "from when to when?". Glyphs answer "what happened on top?".
  *
- *   diamond — 6 px rotated square; "transition / state change"
+ *   diamond, 6 px rotated square, "transition / state change"
  *             (Wireshark + DAW marker vocabulary).
- *   tick    — 1 px vertical line; "this exact moment" (lighter
+ *   tick:    1 px vertical line, "this exact moment" (lighter
  *             weight than a diamond).
  *
  * Cluster-collapse: glyphs in the same 4-px bucket collapse to one
@@ -101,19 +101,19 @@ export type LaneGlyph = {
 	color: string;
 	label: string | undefined;
 	/** Event id this glyph paints. Set on observation-sourced glyphs
-	 *  (`session-state-changed`, `peer-updated`); used by the focus
+	 *  (`session-state-changed`, `peer-updated`). Used by the focus
 	 *  halo to single out the keyframe a sub-selection state machine
 	 *  is parked on. */
 	eventId?: string;
 };
 
 /** Per-category lane contents. `spans` is the flat list used by
- * the collapsed (stacked-summary) render — today's look. `glyphs`
+ * the collapsed (stacked-summary) render, today's look. `glyphs`
  * are the single-moment diamonds: a session's state changes, a
  * peer's renames. `byEntity` is the Flash-grade per-entity
- * breakdown — same data, indexed by
+ * breakdown, same data, indexed by
  * entity id, used by the expanded per-row render. Both are built
- * in one pass; the bundle cache holds them together. */
+ * in one pass. The bundle cache holds them together. */
 export type LaneCategoryBundle = {
 	spans: LaneSpan[];
 	glyphs: LaneGlyph[];
@@ -155,7 +155,7 @@ export function laneBundleColorsFromTheme(theme: Theme): LaneBundleColors {
 	};
 }
 
-// Cache keyed by `doc.entities` identity — entity.timing mutations
+// Cache keyed by `doc.entities` identity, entity.timing mutations
 // always swap the entities object reference (authoring intents
 // return a new doc), so reference equality is sufficient to detect
 // staleness. Glyph contents come from `events`, folded into the
@@ -165,7 +165,7 @@ const laneBundleCache = new WeakMap<
 	Map<string, LaneBundle>
 >();
 
-/** Sentinel for docs with no `entities` field — keeps the WeakMap
+/** Sentinel for docs with no `entities` field, keeps the WeakMap
  *  key non-null when an early-load doc has neither identity nor
  *  observations yet. */
 const EMPTY_ENTITIES: NonNullable<TimelineDocument["entities"]> = {};
@@ -204,10 +204,10 @@ function eventsIdentityKey(events: readonly TimelineEvent[]): string {
  *  iteration and the glyph orphan-suppression filter) AND by
  *  Scrubber (to size the row stack and route gutter hit-tests).
  *  Routing both readers through one function is what guarantees
- *  the hit-test row stack matches the painted row stack — there
+ *  the hit-test row stack matches the painted row stack, there
  *  is no second mirror to drift from. Orphan glyphs (sessionIds
  *  not in `entities.sessions`) still ride the flat collapsed view
- *  via `bundle.sessions.glyphs`; they just don't earn a per-entity
+ *  via `bundle.sessions.glyphs`. They just don't earn a per-entity
  *  row, because a row holding nothing but stray diamonds reads as
  *  a ghost session to the user. */
 export function laneRowEntityIds(
@@ -222,9 +222,9 @@ export function laneRowEntityIds(
 
 /** Build per-state segments for a session pill. Returns `undefined`
  *  when the session stays in a single state across its effective
- *  range — the caller paints the unsegmented pill in the categorical
+ *  range. The caller paints the unsegmented pill in the categorical
  *  (captp) color in that case. Keyframes outside `[startT, endT)`
- *  do not split the bar; the active state at `startT` (via
+ *  do not split the bar. The active state at `startT` (via
  *  `keyframeAt`) seeds the first segment. */
 function buildTrackSegments(
 	track: KeyframeTrack<string> | undefined,
@@ -250,10 +250,10 @@ function buildTrackSegments(
 
 /** What a row in the gutter is called: the name its own pill carries.
  *
- *  The gutter asks the question the pill already answered — what is this
- *  entity called — so it reads that answer rather than deriving a second
+ *  The gutter asks the question the pill already answered, what is this
+ *  entity called, so it reads that answer rather than deriving a second
  *  one. Every row this bundle builds has a span, because a row and a span
- *  come from the same entity; the fallback is for a caller holding an id
+ *  come from the same entity. The fallback is for a caller holding an id
  *  no row was built for, and it says what the app says about any bare
  *  identifier. */
 export function laneRowLabel(
@@ -317,7 +317,7 @@ export function buildLaneBundle(
 		{ spans: LaneSpan[]; glyphs: LaneGlyph[] }
 	>();
 
-	// Single decision point for "which ids get a row" — shared with
+	// Single decision point for "which ids get a row", shared with
 	// Scrubber's gutter hit-test and height math via the same
 	// `laneRowEntityIds` call, so paint and hit-test cannot disagree.
 	const rowIds = laneRowEntityIds(entities, events);
@@ -333,7 +333,7 @@ export function buildLaneBundle(
 		const open = !Number.isFinite(eff.end);
 		const endT = open ? duration : eff.end;
 		// A peer that changes flavor bands its pill at the moment it
-		// changed, the way a session bands by state — the row shows what
+		// changed, the way a session bands by state. The row shows what
 		// it was known as when, not only what it ended up as.
 		const segments = buildTrackSegments(
 			PEER_TRAJECTORY.profile.track(def),
@@ -348,12 +348,12 @@ export function buildLaneBundle(
 			endT,
 			open,
 			// One row covers the peer's whole life, so it carries what the
-			// peer was last known as — the name and flavor a reader is
+			// peer was last known as. The name and flavor a reader is
 			// looking for when either changed partway through.
 			color: hex(colorForProfile(peerProfileAt(doc, peerId, endT))),
 			// The same caption the stage writes under this peer, by the
 			// same rule: a peer with no stated name wears its id, and in a
-			// recording that id is the name it answers to on the wire —
+			// recording that id is the name it answers to on the wire,
 			// long and opaque, so it is shortened rather than allowed to
 			// fill the pill.
 			label: peerLabelText(peerLabelAt(doc, peerId, endT)),
@@ -417,7 +417,7 @@ export function buildLaneBundle(
 	}
 
 	// Glyphs (peer-updated): the moments a peer changed the name it
-	// answers to. Same treatment as the session diamonds below —
+	// answers to. Same treatment as the session diamonds below,
 	// observation-sourced, clamped into the parent's painted span, and
 	// pickable, so a rename can be seen and retimed like any other
 	// moment. A `peer-updated` carrying no label renames nothing and
@@ -456,7 +456,7 @@ export function buildLaneBundle(
 
 	// Glyphs (peer-unobserved / session-unobserved): the moment the viewer
 	// lost sight of a row. A tick, like the identifications, because it is
-	// the same class of fact — something changed about what this viewer can
+	// the same class of fact, something changed about what this viewer can
 	// see, and nothing changed on the network.
 	for (const ev of events) {
 		if (ev.kind !== "peer-unobserved") continue;
@@ -474,7 +474,7 @@ export function buildLaneBundle(
 	}
 
 	// Session-lane glyphs: one pass over one table, because every entry
-	// below is the same thing — a single point on a session's row — and
+	// below is the same thing, a single point on a session's row, and
 	// differs only in what it says and how much weight it carries. A
 	// fourth session glyph is a case here, not a fourth loop.
 	//
@@ -485,18 +485,18 @@ export function buildLaneBundle(
 	// peer is a fact about the session, drawn at the same weight as its
 	// state changing and dragged with the same grip.
 	//
-	// Paint t is the session-clamped t — the same saturating-clamp
+	// Paint t is the session-clamped t, the same saturating-clamp
 	// doctrine `peerEffective`/`sessionEffective`/`messageEffective`
 	// apply to spans, lifted to single moments via `momentEffective`.
 	// The stored observation t stays the source of truth for authoring;
 	// this keeps a glyph inside its pill until the user moves it (drag
 	// clamps via `applyEventDragMove`) or resizes the session. Orphan
-	// glyphs — a sessionId `rowIds.sessions` never declared — ride the
+	// glyphs, a sessionId `rowIds.sessions` never declared, ride the
 	// flat collapsed view but skip the per-entity bucket, because the
 	// row source of truth gave them no row.
 	// The switch is the whole filter. `momentOf` is not consulted: it
 	// answers "does this change the entity", and `session-unobserved`
-	// is painted here without being one — it marks what the feed can
+	// is painted here without being one, it marks what the feed can
 	// see rather than what the session did. Guarding on it would drop
 	// that tick silently.
 	const rowSessionIds = new Set(rowIds.sessions);

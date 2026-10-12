@@ -3,7 +3,7 @@
 // Each test gets a server of its own on a free port and a runtime scope that
 // closes what it opened, because these tests bind real loopback sockets and a
 // leaked one fails whichever test runs next rather than the one that leaked it.
-// All scenarios start the installed Rust server; the build owns that prerequisite.
+// All scenarios start the installed Rust server. The build owns that prerequisite.
 
 import type { Host, Runtime, Session } from "@glowcap/runtime";
 import { Reachability } from "@glowcap/iroh";
@@ -189,7 +189,7 @@ export async function waitForHttp(port: number): Promise<void> {
 
 /** Restart a stateful server on the port it held before. The number comes from
  * the caller's explicit allocation. The one collision seen in practice is our
- * own predecessor's teardown finishing; exactly the
+ * own predecessor's teardown finishing. Exactly the
  * "already in use" refusal retries on a short clock. Any other failure, and
  * exhaustion, stay loud. */
 export async function restartStatefulServer(

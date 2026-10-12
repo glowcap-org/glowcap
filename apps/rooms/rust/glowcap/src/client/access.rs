@@ -4,6 +4,22 @@ use super::*;
 use glowcap::loam::{
 	ControlDescription, ControlPowers, GrantDescription, InventoryPage, IssuePolicy, PolicyValue, UseDescription,
 };
+/// A reply the client parsed once before keeping it. The field stays private,
+/// so `validated` is the only way in and `view` re-reads what it admitted.
+/// That read cannot fail, which is the one `expect` this module keeps.
+macro_rules! validated_reply {
+	($name:ident, $description:ident) => {
+		impl $name {
+			pub(crate) fn validated(reply: Argument) -> Result<Self, Error> {
+				$description::read(&reply)?;
+				Ok(Self(reply))
+			}
+			pub fn view(&self) -> $description<'_> {
+				$description::read(&self.0).expect("a reply `validated` admitted")
+			}
+		}
+	};
+}
 mod mutation;
 mod observation;
 pub use mutation::Mutation;
@@ -22,33 +38,17 @@ impl<D: Clone> Clone for Control<D> {
 	}
 }
 pub struct ControlState(Argument);
-impl ControlState {
-	pub fn view(&self) -> ControlDescription<'_> {
-		ControlDescription::read(&self.0).expect("validated immutable control description")
-	}
-}
+validated_reply!(ControlState, ControlDescription);
 pub struct Inventory(Argument);
+validated_reply!(Inventory, InventoryPage);
 /// The held control's own target, including configured policy while use is
 /// paused. This immutable description contains no use or control capability.
 pub struct InspectedAccess(Argument);
 /// Current use at the held control's immutable exact resource. Inactive use
-/// reveals only its status; the control separately inspects configured terms.
-pub struct UseState(pub(crate) Argument);
-impl UseState {
-	pub fn view(&self) -> UseDescription<'_> {
-		UseDescription::read(&self.0).expect("validated immutable use inspection")
-	}
-}
-impl InspectedAccess {
-	pub fn view(&self) -> GrantDescription<'_> {
-		GrantDescription::read(&self.0).expect("validated immutable access inspection")
-	}
-}
-impl Inventory {
-	pub fn view(&self) -> InventoryPage<'_> {
-		InventoryPage::read(&self.0).expect("validated immutable inventory")
-	}
-}
+/// reveals only its status. The control separately inspects configured terms.
+pub struct UseState(Argument);
+validated_reply!(UseState, UseDescription);
+validated_reply!(InspectedAccess, GrantDescription);
 /// Keep this complete request for exact issuance replay after interruption.
 pub struct Issuance {
 	arguments: Vec<Argument>,
@@ -94,7 +94,7 @@ impl<D: Deadline> Control<D> {
 	}
 	/// The exact control's publication name, independent of any use endpoint.
 	/// Resolve it at this capability's actual home. A local locator cannot name
-	/// a foreign control; private bootstrap controls have no publication.
+	/// a foreign control. Private bootstrap controls have no publication.
 	pub async fn durable_name(&self) -> Result<String, Error> {
 		let reply = self.call("durable-name", &[]).await?;
 		reply
@@ -118,21 +118,15 @@ impl<D: Deadline> Control<D> {
 			.ok_or_else(|| glowcap::loam::refusal("invalid access sequence").into())
 	}
 	pub async fn describe(&self) -> Result<ControlState, Error> {
-		let reply = self.call("describe-control", &[]).await?;
-		ControlDescription::read(&reply)?;
-		Ok(ControlState(reply))
+		ControlState::validated(self.call("describe-control", &[]).await?)
 	}
 	pub async fn inspect(&self) -> Result<InspectedAccess, Error> {
-		let reply = self.call("inspect-access", &[]).await?;
-		GrantDescription::read(&reply)?;
-		Ok(InspectedAccess(reply))
+		InspectedAccess::validated(self.call("inspect-access", &[]).await?)
 	}
 	/// Inspect effective access without obtaining or invoking the resource's use
 	/// capability. This method requires Inspect and an exact-resource ceiling.
 	pub async fn inspect_fixed_access(&self) -> Result<UseState, Error> {
-		let reply = self.call("inspect-fixed-access", &[]).await?;
-		UseDescription::read(&reply)?;
-		Ok(UseState(reply))
+		UseState::validated(self.call("inspect-fixed-access", &[]).await?)
 	}
 	pub async fn inventory(&self, cursor: Option<&[u8]>, limit: u8) -> Result<Inventory, Error> {
 		if !(1..=32).contains(&limit) || cursor.is_some_and(|bytes| bytes.len() != 49) {
@@ -147,8 +141,7 @@ impl<D: Deadline> Control<D> {
 				],
 			)
 			.await?;
-		InventoryPage::read(&reply)?;
-		Ok(Inventory(reply))
+		Inventory::validated(reply)
 	}
 	pub async fn issue(&self, request: &Issuance) -> Result<IssuedAccess, Error> {
 		let reply = self.call("issue-access", &request.arguments).await?;

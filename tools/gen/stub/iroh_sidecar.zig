@@ -13,7 +13,7 @@
 //! of Cargo's machine-local cache. The real sidecar replaces them in
 //! `libglowcap_net_transport_iroh` and every live iroh proof.
 //!
-//! Every body traps: linking these into anything that actually dials iroh is a
+//! Every body traps: linking these into anything that dials iroh is a
 //! build-wiring mistake, and it should fail loud rather than silently no-op.
 
 const msg = "iroh sidecar stub: reflection/test link only; link libglowcap_iroh_sidecar.a to run";

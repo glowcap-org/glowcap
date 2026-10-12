@@ -1,12 +1,22 @@
-//! Incoming files retain their exact source; reads acquire one dependent facade.
+//! Incoming files retain their exact source. Reads acquire one dependent facade.
 use super::*;
 use crate::{abort::Abort, attached::file_display};
-use rooms_glowcap::client::Deadline;
-use std::{cell::RefCell, rc::Rc};
+use rooms_glowcap::client::{Deadline, workspace::Workspace};
+use std::{
+	cell::{OnceCell, RefCell},
+	rc::Rc,
+};
+
+pub(super) struct Selection {
+	pub workspace: Held<Workspace<Platform>>,
+	pub token: String,
+	pub index: usize,
+}
 
 pub(super) struct File {
 	description: serde_json::Value,
-	reader: Ref,
+	reader: OnceCell<Ref>,
+	selection: Option<Selection>,
 }
 pub(super) type Custody = Rc<RefCell<Option<Rc<File>>>>;
 #[wasm_bindgen]
@@ -20,15 +30,30 @@ impl RoomsManagedFile {
 	}
 }
 /// One admitted attachment retains metadata and the actual source/blob guards.
-/// No payload bytes copy until a bounded read crosses the Wasm boundary. Its
-/// dependent reader is created once and rechecks both grants on every read.
-pub(super) fn hold(driver: &Driver, reader: Ref, description: serde_json::Value) -> Result<RoomsManagedFile> {
+/// If byte access was refused, one workspace edge and at most 103 cursor bytes
+/// retain its exact selection for retry without losing the message. Both cases
+/// charge fixed state below. No payload copies until a bounded Wasm read. The
+/// first acquired reader stays installed and rechecks both grants on every read.
+pub(super) fn hold(
+	driver: &Driver,
+	reader: std::result::Result<Ref, Selection>,
+	description: serde_json::Value,
+) -> Result<RoomsManagedFile> {
+	let (reader, selection) = match reader {
+		Ok(reader) => (OnceCell::from(reader), None),
+		Err(selection) => (OnceCell::new(), Some(selection)),
+	};
 	let bytes = size_of::<File>()
 		+ size_of::<RefCell<Option<Rc<File>>>>()
 		+ 4 * size_of::<usize>()
-		+ description.to_string().len();
+		+ description.to_string().len()
+		+ selection.as_ref().map_or(0, |selection| selection.token.len());
 	let file = driver.hold(
-		Rc::new(RefCell::new(Some(Rc::new(File { description, reader })))),
+		Rc::new(RefCell::new(Some(Rc::new(File {
+			description,
+			reader,
+			selection,
+		})))),
 		bytes,
 	)?;
 	Ok(RoomsManagedFile {
@@ -60,12 +85,26 @@ async fn read(environment: &Environment, custody: &Custody, offset: u64, maximum
 		maximum,
 	)
 	.map_err(|e| e.to_string())?;
+	if file.reader.get().is_none() {
+		let selection = file.selection.as_ref().ok_or("File has no source")?;
+		let reader = selection
+			.workspace
+			.activity_file(&selection.token, selection.index)
+			.await
+			.map_err(|e| e.to_string())?;
+		// Concurrent opens may acquire the same exact occurrence. The first
+		// reader keeps it; a later redundant facade drops without replacing it.
+		let _ = file.reader.set(reader);
+	}
+	if custody.borrow().is_none() {
+		return Err("File custody was released during its acquisition".into());
+	}
 	let reply = environment
 		.platform
 		.within(
 			rooms_application::room::authority::REQUEST_TIMEOUT_MS,
 			std::future::IntoFuture::into_future(environment.runtime.host().send(
-				&file.reader,
+				file.reader.get().expect("acquired file reader"),
 				rooms_application::protocol_data::READ,
 				&[Argument::Integer(offset as i64), Argument::Integer(maximum as i64)],
 			)),

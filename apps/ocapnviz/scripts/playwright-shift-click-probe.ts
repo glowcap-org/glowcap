@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-shift-click-probe.ts — Verifies single-entity click
+ * playwright-shift-click-probe.ts: Verifies single-entity click
  * modifiers symmetric with the marquee:
  *
  *   plain click                 → replace selection with [clicked]

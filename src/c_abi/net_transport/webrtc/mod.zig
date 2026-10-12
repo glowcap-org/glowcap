@@ -1,15 +1,15 @@
-//! The WebRTC transport's public C ABI — a host-driven peer boundary for C, the
+//! The WebRTC transport's public C ABI: a host-driven peer boundary for C, the
 //! peer-to-peer DataChannel sibling of the iroh QUIC companion (ADR-0089).
 //!
-//! This is a *separate artifact* from `libglowcap_ocapn` (ADR-0059): it links
+//! This is a separate artifact from `libglowcap_ocapn` (ADR-0059): it links
 //! the Rust webrtc sidecar, so folding it into the pure-Zig core would drag
 //! cargo into every consumer of the protocol library. The artifact
-//! (`libglowcap_net_transport_webrtc`) is a *companion*, not a superset: it
-//! imports only the shared vocabulary leaf (`@import("c_abi_shared")` — codes,
+//! (`libglowcap_net_transport_webrtc`) is a companion, not a superset. It
+//! imports only the shared vocabulary leaf (`@import("c_abi_shared")`: codes,
 //! allocation, the last-error slot), so it exports just the `glowcap_webrtc_*`
 //! family and shares no core symbol with `libglowcap_ocapn`. A consumer links
 //! both libraries (core for the peer surface, this for the transport) and reuses
-//! the shared types by layout, exactly as a C program including both headers
+//! the shared types by layout, as a C program including both headers
 //! does. The core archives never import this file and stay cargo-free.
 //!
 //! Unlike iroh, a WebRTC peer has no dialable address, so there is no
@@ -18,7 +18,7 @@
 //! stable peer-id OPEN/CANDIDATE/READABLE/WRITABLE/CLOSED events, and every
 //! drain or try-I/O call returns immediately.
 //!
-//! Symbol names deliberately avoid the sidecar's own `glowcap_webrtc_sidecar_*`
+//! Symbol names avoid the sidecar's own `glowcap_webrtc_sidecar_*`
 //! exports, so the private byte-level seam and this public ABI share no prefix
 //! and link into one library without colliding.
 //!
@@ -64,7 +64,7 @@ pub export fn glowcap_webrtc_archive_fingerprint() u64 {
 const GlowcapContext = c.GlowcapContext;
 
 /// One WebRTC peer: its `RTCPeerConnection` and single data channel, wrapping
-/// the netlayer resident's byte-fed `Peer`. Owned by the caller; released with
+/// the netlayer resident's byte-fed `Peer`. Owned by the caller. Released with
 /// `glowcap_webrtc_peer_release`.
 pub const GlowcapWebrtcPeer = opaque {};
 pub const GlowcapWebrtcNetlayer = opaque {};
@@ -105,7 +105,7 @@ const GLOWCAP_ERR_CLOSED = c.GLOWCAP_ERR_CLOSED;
 const GLOWCAP_ERR_IO = c.GLOWCAP_ERR_IO;
 
 /// The annotated symbol inventory (crossing semantics per export) the binding
-/// FFI-table generators reflect from — see `symbols.zig`.
+/// FFI-table generators reflect from. See `symbols.zig`.
 pub const symbols = @import("symbols.zig");
 
 const PeerPayload = ownership.PeerPayload;
@@ -125,7 +125,7 @@ fn netlayerFromOpaque(p: ?*GlowcapWebrtcNetlayer) ?*NetlayerPayload {
 
 /// Copy the calling thread's last webrtc-transport error into `out_buf`, the
 /// webrtc sibling of `glowcap_last_error`. Copies at most `cap - 1` bytes and
-/// always NUL-terminates when `cap > 0`; `out_buf == NULL` or `cap == 0` queries
+/// always NUL-terminates when `cap > 0`. `out_buf == NULL` or `cap == 0` queries
 /// the length. Returns the full message length, or 0 when none is set.
 pub export fn glowcap_webrtc_last_error(out_buf: ?[*]u8, cap: usize) usize {
     return c.lastErrorRead(out_buf, cap);
@@ -139,8 +139,8 @@ pub export fn glowcap_webrtc_clear_last_error() void {
 /// One WebRTC endpoint's configuration, filled by the caller and passed to
 /// `glowcap_webrtc_netlayer_new` / `_new_in`.
 ///
-/// **This is the authority for what these settings mean**; the resident and the
-/// sidecar mirror this struct and point here.
+/// This struct is the authority for what these settings mean. The resident and
+/// the sidecar mirror it and point here.
 ///
 /// `ice_servers` is a borrowed array of generic ICE server records. Empty offers
 /// host candidates only, which connects two peers on one network and nothing
@@ -148,7 +148,7 @@ pub export fn glowcap_webrtc_clear_last_error() void {
 /// record has 1-`GLOWCAP_WEBRTC_MAX_ICE_URLS_PER_SERVER` non-empty UTF-8
 /// `stun:`, `stuns:`, `turn:`, or `turns:` URLs. A configuration has at most
 /// `GLOWCAP_WEBRTC_MAX_ICE_SERVERS` records. A deployment crossing NAT names
-/// STUN servers here; restrictive networks can add credentialed TURN records
+/// STUN servers here. Restrictive networks can add credentialed TURN records
 /// from any issuer that supplies URLs plus short-lived username/password
 /// credentials. Credentials are empty unless at least one URL in the record is
 /// TURN, and both username and credential are required for TURN. Provider
@@ -157,15 +157,15 @@ pub export fn glowcap_webrtc_clear_last_error() void {
 ///
 /// `include_loopback_candidates` offers loopback addresses too, so two peers
 /// in one process or on one host can connect with no STUN. It is off
-/// unless asked for: a test wants it and says so, while a deployment neither
+/// unless asked for. A test wants it and says so, while a deployment neither
 /// needs it nor wants to advertise addresses a partner can never reach.
 ///
-/// `worker_threads` sizes this endpoint's runtime; 0 takes the sidecar's
+/// `worker_threads` sizes this endpoint's runtime. 0 takes the sidecar's
 /// default. It is a per-endpoint cost, so a process holding many endpoints, or
 /// one endpoint holding many peers, is the caller that should name it.
 ///
 /// There is no establishment deadline here, unlike the iroh endpoint's
-/// `connect_timeout_ms`, and the difference is deliberate. That sidecar
+/// `connect_timeout_ms`. That sidecar
 /// performs a dial on the caller's behalf and is the only party that can see it
 /// fail, so it must bound it. This one runs a state machine the caller feeds,
 /// and publishes every terminal outcome as a readiness event, including a
@@ -185,7 +185,7 @@ pub const GlowcapWebrtcConfig = extern struct {
 
 /// Create the shared WebRTC runtime and readiness endpoint. Every peer is
 /// created from this netlayer and must be released before the netlayer.
-/// `config` carries the endpoint's settings; a null one is
+/// `config` carries the endpoint's settings. A null one is
 /// `GLOWCAP_ERR_NULL_POINTER`.
 pub export fn glowcap_webrtc_netlayer_new(
     config: ?*const GlowcapWebrtcConfig,
@@ -272,7 +272,7 @@ fn residentInitError(err: webrtc.Resident.InitError) i32 {
     return GLOWCAP_ERR_INVALID_ARGUMENT;
 }
 
-/// Borrow the netlayer's single read-only readiness fd. Register it once; do
+/// Borrow the netlayer's single read-only readiness fd. Register it once. Do
 /// not close it.
 pub export fn glowcap_webrtc_netlayer_readiness_fd(netlayer: ?*GlowcapWebrtcNetlayer) i32 {
     c.lastErrorClear();
@@ -523,7 +523,7 @@ fn candidateInputError(err: error{ NullPointer, SignalTooLarge }, operation: []c
 
 /// Drain the next locally gathered ICE candidate into `(out, cap)` as JSON,
 /// writing its length to `*out_len`. `GLOWCAP_ERR_WOULD_BLOCK` when none is
-/// pending yet; `GLOWCAP_ERR_BUFFER_TOO_SMALL` still writes the required length.
+/// pending yet. `GLOWCAP_ERR_BUFFER_TOO_SMALL` still writes the required length.
 /// `GLOWCAP_ERR_INVALID_ARGUMENT` means the candidate exceeds
 /// `GLOWCAP_WEBRTC_MAX_ICE_CANDIDATE_BYTES`.
 pub export fn glowcap_webrtc_peer_next_local_candidate(peer: ?*GlowcapWebrtcPeer, out: ?[*]u8, cap: usize, out_len: ?*usize) i32 {
@@ -555,7 +555,7 @@ pub export fn glowcap_webrtc_peer_id(peer: ?*GlowcapWebrtcPeer) usize {
     return @backingInt(payload.peer.id());
 }
 
-/// Non-blocking channel-open check. Retry after OPEN or CLOSED readiness;
+/// Non-blocking channel-open check. Retry after OPEN or CLOSED readiness.
 /// `GLOWCAP_ERR_IO` means setup faulted before the channel opened.
 pub export fn glowcap_webrtc_peer_is_open(peer: ?*GlowcapWebrtcPeer) i32 {
     c.lastErrorClear();
@@ -603,7 +603,7 @@ pub export fn glowcap_webrtc_peer_try_send_packet(peer: ?*GlowcapWebrtcPeer, buf
 }
 
 /// Close the channel and connection without releasing the handle, waking any
-/// readiness owner with CLOSED. Idempotent; release still frees the handle.
+/// readiness owner with CLOSED. Idempotent. Release still frees the handle.
 pub export fn glowcap_webrtc_peer_close(peer: ?*GlowcapWebrtcPeer) void {
     const payload = payloadFromOpaque(peer) orelse return;
     payload.peer.close();
@@ -616,7 +616,7 @@ pub export fn glowcap_webrtc_peer_release(peer: ?*GlowcapWebrtcPeer) i32 {
     c.lastErrorClear();
     const payload = payloadFromOpaque(peer) orelse return GLOWCAP_OK;
     if (!payload.provider_claimed) {
-        // tolerant: the driver may already have retired its ownership edge;
+        // tolerant: the driver may already have retired its ownership edge, and
         // the caller's final handle release still owns this reference.
         _ = payload.netlayer.peers.remove(@backingInt(payload.peer.id()));
     }

@@ -1,5 +1,5 @@
 #lang racket/base
-;; glowcap-export-listen.rkt — Goblins client that sends canonical export-side
+;; glowcap-export-listen.rkt: Goblins client that sends canonical export-side
 ;; `op:listen` against a live glowcap object export.
 ;;
 ;; After enliven resolves to a remote object, `(listen provider listener-refr)`

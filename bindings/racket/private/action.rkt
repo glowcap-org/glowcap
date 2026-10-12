@@ -71,8 +71,8 @@
 ;; ── Execute ───────────────────────────────────────────────────────────────────
 ;; Honor one parked action under the host lock: FLUSH/NEED_GIFT_ID run here;
 ;; dial / close / settle / fail park as post-lock fires. Returns updated
-;; `(values touched fires)`. Kind inventory is generated
-;; `host-dispatch-action!` — a new kind fails loud there. Each handler
+;; `(values touched fires)`. The kind inventory is generated, so
+;; `host-dispatch-action!` fails loud on a new kind. Each handler
 ;; returns `(values touched fires)` so the fold stays values-shaped (no box).
 (define (apply-parked-action! m a touched fires)
   (host-dispatch-action!
@@ -100,7 +100,7 @@
       ;; The host condemned the connection mid-pump (local turn budget
       ;; exceeded): drain its queued resource_exhausted abort so the
       ;; post-lock write carries it, then close the transport and release
-      ;; the shell — deferred to the fires, which run after the touched
+      ;; the shell. That work is deferred to the fires, which run after the touched
       ;; writes, once the host lock is released.
       (define c (host-session-for-ptr m (cadr act)))
       (cond
@@ -181,15 +181,15 @@
       (values touched fires)))))
 
 ;; The one loop rule's drain: park via the shared C wrapper until dry, honoring
-;; each arm, and return the `drain-effects` — parked writes and listener fires
-;; — the caller runs with `run-drain-effects!` once the host lock is released.
+;; each arm, and return the `drain-effects` (parked writes and listener fires)
+;; the caller runs with `run-drain-effects!` once the host lock is released.
 ;; The host lock is held. A NEED_GIFT_ID's provide may queue FLUSH legs, so we
 ;; re-park until the queue is empty (same as the pre-wrapper pull loop). FLUSH
 ;; order is action order, which is how the gifter's deposit leaves on the
 ;; exporter session before the give leaves on the serving one (the host queues
 ;; them exporter-first); the per-session FIFO preserves that order across
 ;; threads. SETTLE/FAIL route each vow's outcome to the `session-vow`
-;; awaiting that id — registered at mint under this same lock, so the
+;; awaiting that id (registered at mint under this same lock), so the
 ;; completion always finds its box.
 (define (drain-host-actions! m)
   ;; A loop-adopted host (ADR-0112) has no byte-fed pump: the loop executes

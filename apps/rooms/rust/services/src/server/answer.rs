@@ -17,7 +17,7 @@ pub(super) fn busy() -> String {
 
 /// Defer the current turn and settle it with `work`'s outcome. An answer
 /// whose caller has since closed its session has nobody to reach and is
-/// dropped; one that cannot be delivered to a caller still there is reported.
+/// dropped. One that cannot be delivered to a caller still there is reported.
 pub(super) fn later<F>(state: &State, verb: &'static str, work: F) -> Result<Argument, String>
 where
 	F: Future<Output = Result<Argument, String>> + 'static,

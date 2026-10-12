@@ -3,10 +3,7 @@ use super::*;
 use rooms_application::{content::session::results::Membership, room::membership};
 
 fn key<K>() -> FieldKey<K> {
-	FieldKey::new(
-		NonZeroU64::new(1).expect("result slot"),
-		NonZeroU64::new(1).expect("result generation"),
-	)
+	FieldKey::new(NonZeroU64::MIN, NonZeroU64::MIN)
 }
 fn coordinate<K>(role: custody::Role, key: FieldKey<K>) -> Coordinate {
 	Coordinate {

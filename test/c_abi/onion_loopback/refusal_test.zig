@@ -292,7 +292,7 @@ test "c-abi onion netlayer copies its configuration text" {
 }
 
 /// Answer one dial's handshake and drop the stream. Enough to prove the dial
-/// reached the daemon; the session round trip has its own test.
+/// reached the daemon. The session round trip has its own test.
 fn acceptAndDrop(daemon: *fake.Daemon) anyerror!void {
     const stream = try daemon.acceptDial();
     stream.close(daemon.io);

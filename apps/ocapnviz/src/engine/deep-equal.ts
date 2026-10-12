@@ -1,16 +1,16 @@
 /**
  * Structural equality over the shapes a timeline document is made of.
  *
- * The engine asks "is this the same document?" in three places — a
+ * The engine asks "is this the same document?" in three places, a
  * transaction that changed nothing, an undo round trip, and whether
- * the buffer still says what it was built from — and this is the one
+ * the buffer still says what it was built from, and this is the one
  * answer all three read.
  *
  * It is written out rather than reached for as `JSON.stringify(a) ===
  * JSON.stringify(b)`, which is the same question asked in a way that
  * gets it wrong twice. Text equality makes key ORDER part of the
  * answer, so a peer whose pin was removed and re-added at the same
- * coordinates reads as a changed document; and it builds two whole
+ * coordinates reads as a changed document, and it builds two whole
  * strings to throw away, on a question asked once per frame while the
  * transport runs. This walks and stops at the first difference,
  * allocating nothing.
@@ -18,7 +18,7 @@
  * Valid for JSON-shaped values only: numbers, strings, booleans,
  * `null`, arrays, and plain objects. That is exactly what a
  * `TimelineDocument` is, because Zod parses one out of JSON and the
- * schema admits nothing else — no dates, no maps, no class instances.
+ * schema admits nothing else, no dates, no maps, no class instances.
  * A field whose value could be one of those would need this function
  * to grow a case before it could be compared here.
  *

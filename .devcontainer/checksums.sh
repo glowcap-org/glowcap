@@ -50,14 +50,14 @@ rustup_init_sha256() {
 
 opencode_sha256() {
     glowcap_pick_by_arch opencode_sha256 \
-        "3046e0404fdc60fb80307e7a47824ba07477364178a4d09baa8548496dd6d43b" \
-        "568461b7d4d8c19865c97e9a1102e613049c6039d01fe772154de873c1865840"
+        "c8f888b451f5494a18f858fffb0e0b68f4e4baa9c241761c5f206884f0fa640d" \
+        "f7f2ba59ee8aa94d388f9696575a32d20e71c2ee48def9f80fc693a60fec6c72"
 }
 
 cursor_agent_sha256() {
     glowcap_pick_by_arch cursor_agent_sha256 \
-        "740dd9d6eb5aec36ca90eaedf9fd5e2c489cd674d69b5147b3c2670f02d9776d" \
-        "38d1482c945172926e780206fce8cc51c67dd4f96162bcec680903aa70d80417"
+        "a79726c6e644520e993970be4c45775a6889802b67abe461a677a53219ae28e8" \
+        "785c5f6bf2a60eb1121e27ed8c14f5ee07ed1b5b6692324f2d9a997238245eb5"
 }
 
 uv_sha256() {

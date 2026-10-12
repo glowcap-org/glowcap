@@ -7,7 +7,7 @@ pub use crate::directory::{Shape, Snapshot};
 use alloc::vec::Vec;
 
 /// One atomic baseline. Rooms and live registrations share the discovery
-/// ceiling; `omitted` tells a client to treat the view as truncated rather
+/// ceiling. `omitted` tells a client to treat the view as truncated rather
 /// than mistake a dropped notification for a complete peer set. `rooms` are
 /// the listed rooms the server hosts, in the order it lists them.
 pub(super) fn snapshot<C: Copy + Ord, R: Clone>(

@@ -3,6 +3,8 @@
 //! signaling relay with its timeout, identity across restart, and shutdown.
 use super::*;
 use rooms_platform::HostPlatform;
+mod admission;
+mod admission_pressure;
 mod config;
 mod operations;
 mod receipt_cost;
@@ -54,12 +56,27 @@ async fn start(state: PathBuf, transport: Transport) -> Running {
 }
 
 async fn start_with(state: PathBuf, transport: Transport, asked: Asked) -> Running {
+	start_with_admission(
+		state,
+		transport,
+		asked,
+		rooms_application::admission::Settings::defaults(8192, 1),
+	)
+	.await
+}
+async fn start_with_admission(
+	state: PathBuf,
+	transport: Transport,
+	asked: Asked,
+	admission: rooms_application::admission::Settings,
+) -> Running {
 	let (stop, stopped) = tokio::sync::oneshot::channel();
 	let (ready, announced) = tokio::sync::oneshot::channel();
 	let notices = Rc::new(RefCell::new(Vec::new()));
 	let collected = notices.clone();
 	let task = tokio::task::spawn_local(run(
 		Config {
+			admission,
 			state: Some(state),
 			transport,
 			history: true,
@@ -79,9 +96,14 @@ async fn start_with(state: PathBuf, transport: Transport, asked: Asked) -> Runni
 					ready_now.capabilities.clone(),
 					ready_now.trace.clone(),
 				))
-				.unwrap()
+				.unwrap();
+			Ok(())
 		},
-		Rc::new(move |notice: Notice| collected.borrow_mut().push(notice.to_string())),
+		Rc::new(move |notice: Notice| {
+			if !matches!(notice, Notice::Admission(_)) {
+				collected.borrow_mut().push(notice.to_string());
+			}
+		}),
 	));
 	let (location, capabilities, trace) = announced.await.expect("the directory became ready");
 	Running {
@@ -161,7 +183,7 @@ impl Member {
 			.unwrap();
 		session
 	}
-	/// The listener goes first; the runtime adopted the listener's Host, so
+	/// The listener goes first. The runtime adopted the listener's Host, so
 	/// closing the runtime closes that Host and its loop.
 	async fn close(self) {
 		self.stop_accepting.send(()).unwrap();
@@ -543,6 +565,7 @@ async fn restart() {
 		assert!(matches!(
 			Peer::open(
 				Config {
+					admission: rooms_application::admission::Settings::defaults(8192, 1),
 					state: Some(temp.0.clone()),
 					transport: tcp(),
 					history: false,

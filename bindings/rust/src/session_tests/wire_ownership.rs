@@ -2,9 +2,9 @@
 
 use super::support::*;
 
-// A byte stream wrapper that watches inbound bytes for a needle — the
-// observer half of the wire-observing scenarios, standing where the old raw
-// peer partner scripts stood.
+// A byte stream wrapper that watches inbound bytes for a needle: the
+// observer half of the wire-observing scenarios, standing in for raw
+// peer partner scripts.
 struct Scanning<S> {
 	inner: S,
 	needle: &'static [u8],
@@ -141,7 +141,7 @@ async fn wait_for(signal: &WireSignal, expected: usize, what: &str) {
 // proves both directions on the real wire; keeping the other handles live
 // isolates each release rather than accepting a teardown side effect.
 async fn serve_gc_tracking(server: tcp::Server) {
-	// The public server is intentional: its callbacks run under the native
+	// The public server is used because its callbacks run under the native
 	// driver loop's Host bracket, so this proves turn->actual-Session recovery
 	// rather than only the simpler byte-fed Session bracket.
 	let session = server.accept().await.unwrap();
@@ -237,7 +237,7 @@ async fn gc_tracks_fetch_replies_and_delivered_arguments() {
 
 // The feed-failure choreography (the embedder contract): a garbage frame
 // makes the partner's feed refuse, and the partner still drains its
-// outbound so the typed `op:abort` the core projected reaches this side —
+// outbound so the typed `op:abort` the core projected reaches this side:
 // observed here on the client's own wire through a scanning transport.
 #[tokio::test]
 async fn a_refused_feed_writes_the_typed_abort_for_the_partner() {
@@ -293,8 +293,8 @@ async fn a_refused_feed_writes_the_typed_abort_for_the_partner() {
 }
 
 // The local half of the same choreography: the side whose OWN feed refuses
-// surfaces the typed cause on the error — `Error::abort()` populated with
-// the refusing layer and the projected kind — not just the flat code the
+// surfaces the typed cause on the error, `Error::abort()` populated with
+// the refusing layer and the projected kind, not just the flat code the
 // wire-observing sibling above watches from the partner's side. Split from
 // that test because the refusal must reach a caller: the serve loop's feed
 // error has none, so this feeds the garbage through the pump directly.
@@ -361,12 +361,21 @@ async fn drives_a_host_in_a_context_with_a_custom_allocator() {
 		fn alloc(&self, size: usize, alignment: usize) -> *mut u8 {
 			self.allocs.fetch_add(1, Ordering::Relaxed);
 			let layout = std::alloc::Layout::from_size_align(size, alignment).unwrap();
+			if layout.size() == 0 {
+				return layout.align() as *mut u8;
+			}
+			// SAFETY: `layout` has a nonzero size (checked above) and the valid power-of-two alignment the C side
+			// requested; the returned pointer, or null on failure, goes straight back to the C side, which pairs it with
+			// the `free` below.
 			unsafe { std::alloc::alloc(layout) }
 		}
 		unsafe fn free(&self, ptr: *mut u8, size: usize, alignment: usize) {
 			self.frees.fetch_add(1, Ordering::Relaxed);
 			let layout = std::alloc::Layout::from_size_align(size, alignment).unwrap();
-			// SAFETY: the trait's contract — `ptr` came from this allocator's
+			if layout.size() == 0 {
+				return;
+			}
+			// SAFETY: the trait's contract: `ptr` came from this allocator's
 			// `alloc` under the same size and alignment.
 			unsafe { std::alloc::dealloc(ptr, layout) };
 		}
@@ -417,7 +426,7 @@ async fn drives_a_host_in_a_context_with_a_custom_allocator() {
 			host.await.unwrap();
 		})
 		.await;
-	// The context-backed host actually serviced the conversation.
+	// The context-backed host serviced the conversation.
 	assert!(allocs.load(Ordering::Relaxed) > 0);
 	drop(local);
 	assert_eq!(allocs.load(Ordering::Relaxed), frees.load(Ordering::Relaxed));
@@ -427,5 +436,5 @@ async fn drives_a_host_in_a_context_with_a_custom_allocator() {
 // ordinary conversation it must answer exactly what `send` does and report no
 // exporter. Both reply shapes are covered: a plain value, which names no route
 // at all, and a live far capability, which names a route the host holds but not
-// a *redeemed* one — the partner published it on this very session, so the reply
+// a *redeemed* one: the partner published it on this very session, so the reply
 // already lives where the caller is standing and there is nothing to hand back.

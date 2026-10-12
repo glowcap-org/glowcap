@@ -1,8 +1,8 @@
 // Putting text on the clipboard from a rooms control.
 //
 // `navigator.clipboard` only writes in a secure context, and a hostname that is
-// not localhost over HTTP is not one — `http://workstation.local:38080` is the
-// shape a deployed rooms page actually has. Waiting for that API to refuse also
+// not localhost over HTTP is not one, `http://workstation.local:38080` is the
+// shape a deployed rooms page has. Waiting for that API to refuse also
 // spends the user gesture that `document.execCommand("copy")` needs, and under
 // a modal dialog the document itself is inert, so a textarea appended to `body`
 // cannot take the selection. The older write therefore runs first, from inside

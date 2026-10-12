@@ -4,8 +4,8 @@
  * A message can name an end nothing has attributed: that is what the wire
  * looks like before anything proves who answered, and a recording holds it,
  * so Build has to be able to author it. What an end cannot do is join a
- * SECOND session — two ends claiming one address may be one host twice or an
- * impostor beside an honest one, and nothing has proved which, so a node
+ * SECOND session, two ends claiming one address may be one host twice or an
+ * impostor beside a real one, and nothing has proved which, so a node
  * shared between sessions would be this app asserting they are the same
  * party. The node that IS shared across sessions is the peer, and attributing
  * an end is how it becomes one.
@@ -116,8 +116,8 @@ function accepts(e: Engine, armed: string | null, id: string) {
 }
 
 engineTest("with a loose end armed, only its own session's far end", () => {
-	// The pointer used to read as an invitation over every node on the stage
-	// while the commit refused all but one of them. An end nothing has
+	// The pointer must not read as an invitation over a node the commit would
+	// refuse. An end nothing has
 	// attributed can only talk on the session it is an end of, so that is the
 	// only partner it has.
 	const e = new Engine(looseDoc());
@@ -200,8 +200,8 @@ function cursorOver(
 
 engineTest("the pointer refuses exactly what the click refuses", () => {
 	// These drifted apart once: a node read as a target and the click then
-	// declined it. Both answers come from `twoClickAccepts` now, and this is
-	// the pair that has to agree — asserted against the cursor the app
+	// declined it. Both answers come from `twoClickAccepts`, and this is
+	// the pair that has to agree, asserted against the cursor the app
 	// actually draws, not a second one that merely looks like it.
 	const e = new Engine(looseDoc());
 	const cases: [string | null, string, "takes" | "refuses"][] = [

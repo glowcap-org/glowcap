@@ -5,10 +5,10 @@ This is the core package: it rides ``libglowcap_ocapn`` (the shared value and
 locator vocabulary), ``libglowcap_host`` (the byte-fed multi-session Host),
 and ``libglowcap_driver`` (the stepping driver that adopts that Host). It does
 not choose or load a concrete transport. The raw ``ctypes``
-FFI lives in the internal ``_ffi_*`` modules; this package is the public
+FFI lives in the internal ``_ffi_*`` modules. This package is the public
 surface over it. What you hold is a :class:`Session`: compose a :class:`Runtime`,
 dial with its ``connect`` method, accept through a transport module's
-``listen``, and speak native Python values —
+``listen``, and speak native Python values:
 ``int``/``float``/``bool``/``bytes``/``str``/``list``, plus :class:`Symbol`,
 :class:`Keyword`, :class:`Set`, :class:`Tagged`, :class:`Struct`, and the capability
 :class:`Ref`:
@@ -18,9 +18,9 @@ dial with its ``connect`` method, accept through a transport module's
             greeter = await session.fetch("greeter")
             reply = await session.send(greeter, "greet", ["world"])
 
-The host owns routing, three-party redemption, and gift origination; the
+The host owns routing, three-party redemption, and gift origination. The
 binding moves bytes and honors the host's action queue. A :class:`Host` is the
-CapTP Host those sessions share — one identity and one handoff router — read as
+CapTP Host those sessions share, one identity and one handoff router, read as
 ``server.host`` or transferred into :class:`Runtime`.
 
 The C ABI ships as a set of composable, symbol-disjoint archives (ADR-0059),
@@ -35,22 +35,22 @@ importing one transport never loads another. Compose what you need:
 
 The async :class:`Runtime` / :class:`Session` surface here is transport-neutral.
 Callers explicitly compose a transport's ``provider(config)``
-or ``connector(...)`` with :class:`Runtime`; no locator-shape dispatch or byte
+or ``connector(...)`` with :class:`Runtime`. No locator-shape dispatch or byte
 fallback occurs in this module. A ``tcp``, ``keyed-tcp``, ``noise-tcp``,
-``iroh``, or routed relay connection runs on the driver archive — one stepping
+``iroh``, or routed relay connection runs on the driver archive: one stepping
 loop owns the provider, pumping, and session release, parked on the asyncio
 reactor. A plain TCP application needs this core plus :mod:`glowcap.tcp`. The blocking
 ``glowcap_tcp_*`` frame shuttle
-lives in :mod:`glowcap.tcp`; the socket-free in-process transport in
-:mod:`glowcap.inproc`; the encrypted-QUIC transport in :mod:`glowcap.iroh`.
+lives in :mod:`glowcap.tcp`. The socket-free in-process transport in
+:mod:`glowcap.inproc`. The encrypted-QUIC transport in :mod:`glowcap.iroh`.
 The core never imports one of those modules based on locator shape.
 
 The implementation is split by responsibility across ``_``-private submodules
 (``_errors``, ``_value``, ``_abi_value``, ``_context``, ``_locator``,
 ``_trampoline``, ``_host``, ``_action``, ``_promise``, ``_gc``, ``_dial``,
 ``_loop``, ``_pump``, ``_session``) alongside the per-archive ``_ffi_*``
-loaders; this module is the barrel that re-exports the public surface. Import
-every name from :mod:`glowcap` — the submodule layout is internal.
+loaders. This module is the barrel that re-exports the public surface. Import
+every name from :mod:`glowcap`: the submodule layout is internal.
 """
 
 from __future__ import annotations

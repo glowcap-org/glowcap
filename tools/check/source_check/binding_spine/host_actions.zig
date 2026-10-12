@@ -11,14 +11,14 @@ const containsAsSymbol = util.containsAsSymbol;
 const extractBraceBlock = util.extractBraceBlock;
 
 /// Every `GLOWCAP_HOST_ACTION_*` kind must appear in each binding's host-action
-/// drain. The Zig embedders share one skeleton (`driver_core.drainActions`);
+/// drain. The Zig embedders share one skeleton (`driver_core.drainActions`),
 /// the four language bindings each hand-roll the executor arm set in a named
 /// `action` module (decode/types are generated). Grep-level: the header's
 /// action name must appear as `HOST_ACTION_<NAME>` (or `HOST-ACTION-<NAME>` in
 /// Racket) in the action module. A new kind without a binding arm fails
 /// `zig build source-check`.
 ///
-/// Racket's drain `case` arms use lowercase kebab symbols (`[(close)`, …);
+/// Racket's drain `case` arms use lowercase kebab symbols (`[(close)`, …),
 /// those must appear in `action.rkt` (otherwise a decode-only module still
 /// passes while the drain silently drops the new kind).
 pub fn checkBindingHostActionDrains(
@@ -199,7 +199,7 @@ pub fn checkBindingHostActionDrains(
 
             if (drain.racket_symbol_path) |sym_path| {
                 const contents = sym_contents orelse continue;
-                // `'kebab-name` — hash key in `host-dispatch-action!` handlers.
+                // `'kebab-name`: hash key in `host-dispatch-action!` handlers.
                 if (1 + name.len > symbol_buf.len) {
                     try appendViolation(gpa, violations, "{s}: host-action name `{s}` too long for racket-symbol buffer", .{ header_path, name });
                     continue;
@@ -219,7 +219,7 @@ pub fn checkBindingHostActionDrains(
 
 /// Binding spine Pass 2: each binding keeps a named `action` module for
 /// decode+execute, imports the generated HostAction decode, and does not
-/// hand-roll a kind switch in the Host file. Grep-level — catches silent
+/// hand-roll a kind switch in the Host file. Grep-level, catches silent
 /// deletes and decode drift back into host.*.
 pub fn checkBindingHostActionSpine(
     io: std.Io,
@@ -293,7 +293,7 @@ pub fn checkBindingHostActionSpine(
         "pub async fn dispatch",
         "trait HostActionHandlers",
     });
-    // Generated inventory must stay live — allow(dead_code) on dispatch is a half-land.
+    // Generated inventory must stay live, allow(dead_code) on dispatch is a half-land.
     if (try fileContains(io, gpa, root, "bindings/rust/src/host_action_gen.rs", "#[allow(dead_code)]")) {
         try appendViolation(gpa, violations, "bindings/rust/src/host_action_gen.rs: #[allow(dead_code)] must stay deleted — action.rs must call dispatch", .{});
     }

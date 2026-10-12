@@ -6,14 +6,14 @@
  * and only one of them is frames arriving late:
  *
  *   1. **Frame deltas.** How long between repaints. On an idle machine this
- *      pins to the display's refresh and tells you nothing — see the budget
+ *      pins to the display's refresh and tells you nothing, see the budget
  *      note below.
  *   2. **Advance evenness.** How far the playback clock moved each frame. A
  *      picture can repaint at a perfect 60 Hz and still judder if the time it
  *      is drawn at arrives in uneven steps, and no frame-rate number sees it.
  *   3. **Inclusive cost per function.** Sampled CPU profile, folded so each
  *      call carries what it spent plus everything it called. Self time ranks
- *      leaves; this ranks the decisions that reach them, which is the
+ *      leaves. This ranks the decisions that reach them, which is the
  *      question "what is this frame actually spending on" is asking.
  *
  * Run it against a dev server (`bash dev.sh`) in one of two modes:
@@ -21,7 +21,7 @@
  *     deno run -A scripts/playwright-frame-cost-probe.ts http://127.0.0.1:5173/ - 20 4
  *     deno run -A scripts/playwright-frame-cost-probe.ts http://127.0.0.1:5173/ ws://127.0.0.1:9111/ 40 4
  *
- * `-` plays the default fixture; a `ws:` URL records from a live feed
+ * `-` plays the default fixture. A `ws:` URL records from a live feed
  * (`scripts/fake-viz-endpoint.ts` is a producer to point it at). The last two
  * arguments are the sampling window in seconds and a CPU throttle factor.
  *
@@ -31,7 +31,7 @@
  * would therefore pass on a tree that had doubled the cost of a frame, which
  * is worse than no assertion at all. The throttle is what makes a cost
  * difference visible as a dropped frame, and what it costs in exchange is
- * machine independence — the number it prints is about this machine on this
+ * machine independence, the number it prints is about this machine on this
  * day. So this is an instrument for a measurement you are about to take, not
  * a line anyone can hold. What holds a specific cost is a test that names it:
  * `lane-bundle.test.ts` keeps the timeline's lane stack from rebuilding under

@@ -1,5 +1,5 @@
 /**
- * React binding for the gesture router — one `SurfaceLease` per
+ * React binding for the gesture router, one `SurfaceLease` per
  * gesture surface, held for the surface's lifetime.
  *
  * The hook mints the lease on first render, installs the document
@@ -10,7 +10,7 @@
  * each surface's pointer handlers. React detaches a removed
  * element's handlers before any `pointerup` or
  * `lostpointercapture` can reach them, so a surface removed
- * mid-drag would never run its own teardown — and a claim nobody
+ * mid-drag would never run its own teardown, and a claim nobody
  * gives back makes the root guard swallow every pointer-down on
  * every other surface, which reads to a user as the canvas
  * freezing.
@@ -29,7 +29,7 @@ import {
 export function useGestureSurface(
 	tag: SurfaceTag,
 	/** Called when a gesture this surface holds ends somewhere its
-	 *  own handlers cannot observe. The surface ends its drag here;
+	 *  own handlers cannot observe. The surface ends its drag here.
 	 *  the watch releases the lease straight after, so an
 	 *  implementation that also releases is harmless. Boxed in a
 	 *  ref, so it need not be stable across renders.
@@ -37,7 +37,7 @@ export function useGestureSurface(
 	 *  The `GestureEndReason` says whether the reader let go or the gesture was
 	 *  taken away. A surface that applies each value as it passes through has
 	 *  nothing to revert and ends the same way for both, so most callers here
-	 *  ignore it; a surface holding something back until the release has to ask. */
+	 *  ignore it. A surface holding something back until the release has to ask. */
 	onEnd?: (reason: GestureEndReason) => void,
 ): SurfaceLease {
 	const leaseRef = useRef<SurfaceLease | null>(null);

@@ -1,8 +1,8 @@
 //! The sans-io driver vocabulary: the error set, the signing identities, the
-//! capability and settled-outcome types, and the turn-time `spawnAt` verb — the
+//! capability and settled-outcome types, and the turn-time `spawnAt` verb, the
 //! words every driver embedding shares, none of which touch a socket. The
 //! publish and fetch verbs live on `Served`, the type whose peer binding they
-//! require; `spawnAt` stays free because a behavior handler holds only its
+//! require. `spawnAt` stays free because a behavior handler holds only its
 //! `turn.vat`. The I/O entropy boundary (`drawSessionSecret`) and the transport
 //! surfaces stay above this in the `driver` layer.
 
@@ -23,7 +23,7 @@ pub const Error = error{
     ConnectionClosed,
     /// A `fetch` settled broken: the partner answered the bootstrap fetch with a
     /// break (an unpublished name, a refused handoff). The break reason is
-    /// turn-borrowed and not retained here; a caller that needs it uses
+    /// turn-borrowed and not retained here. A caller that needs it uses
     /// `BlockingSession.fetchSettled`, which returns the reason in caller-owned
     /// memory.
     FetchBroken,
@@ -44,7 +44,7 @@ pub const Error = error{
     /// partner accepted the socket but never spoke. The blocking
     /// `BlockingSession` handshake breaks with this reason when its bounded
     /// `handshake` budget elapses, instead of parking the fiber for the
-    /// connection's life; a host-owned redeem dial reserves it for the same
+    /// connection's life. A host-owned redeem dial reserves it for the same
     /// silent-exporter case (ADR-0081).
     HandshakeTimedOut,
     /// A Runtime or Host finish-close exhausted its explicit grace budget.
@@ -54,13 +54,13 @@ pub const Error = error{
     /// A blocking answer-wait (`settle` / `call` / `fetch`) made no progress
     /// within its caller-set budget: the partner opened a session then stalled
     /// without settling the vow. Bounded via `BlockingSession.settle`. Sibling
-    /// of `HandshakeTimedOut` for post-handshake waits (ADR-0076 follow-up).
+    /// of `HandshakeTimedOut` for post-handshake waits (ADR-0076).
     WaitTimedOut,
     /// A locator named a transport no registered netlayer hosts.
     UnknownTransport,
     /// Two providers registered the same transport symbol with different
     /// designator semantics. A Host admits one meaning per symbol for its
-    /// lifetime; composition is refused before either provider can open a
+    /// lifetime. Composition is refused before either provider can open a
     /// session under an ambiguous locator.
     TransportSemanticsConflict,
     /// A second provider attempted to own a transport symbol already present
@@ -70,7 +70,7 @@ pub const Error = error{
     InvalidTransportName,
     /// `Session.adopt` was asked to combine a `HostRuntime` with a session
     /// minted by another runtime's core Host. Adoption transfers one existing
-    /// runtime/session relationship; it cannot establish a foreign one.
+    /// runtime/session relationship. It cannot establish a foreign one.
     SessionNotOwned,
     /// A runtime wire has already been transferred into an owning `Session`
     /// handle. A second adoption would create duplicate release authority.
@@ -93,13 +93,13 @@ pub const Error = error{
     /// operation may target it.
     SessionClosing,
     /// A Server method that requires its listener or owning runtime was called
-    /// after `Server.close`. Close itself is idempotent; every other operation
+    /// after `Server.close`. Close itself is idempotent. Every other operation
     /// refuses before touching the released runtime lease.
     ServerClosed,
     /// The owning host face was asked to bind a session over a transport that
-    /// reports no pollable fd (inproc by design, a userspace stream). A
-    /// blocking multiplex cannot wait on a stream with no readiness signal;
-    /// the transport must supply a multiplexed resident or use another driver
+    /// reports no pollable fd (inproc, a userspace stream). A
+    /// blocking multiplex cannot wait on a stream with no readiness signal.
+    /// The transport must supply a multiplexed resident or use another driver
     /// whose readiness contract it can satisfy.
     TransportNotPollable,
     /// `callReference` was given a target that is not an eventual-send target:
@@ -126,7 +126,7 @@ pub const Error = error{
     /// A sealed-channel locator (`noise-*`, ADR-0107) reached the borrowing
     /// blocking tier. The core Host runs the sealed channel, and
     /// `BlockingSession` does not stand on one, so nothing here would seal
-    /// the wire; the open is refused rather than speaking cleartext CapTP
+    /// the wire. The open is refused rather than speaking cleartext CapTP
     /// under a sealed name. Dial these through `driver.connect` /
     /// `driver.listen` or any core-Host embedding.
     SealedChannelRequiresHost,
@@ -139,35 +139,35 @@ pub const default_handshake_timeout_ms: i32 = 10_000;
 pub const default_handshake_budget: Budget = .{ .ms = default_handshake_timeout_ms };
 
 /// Shared discovery-posture dial defaults (pkarr / n0 DNS propagation).
-/// Attempts include the first dial; sleeps happen only between transient
+/// Attempts include the first dial. Sleeps happen only between transient
 /// failures. `driver.DialRetry` owns the retry executor above CapTP.
 pub const discovery_retry_ms: u64 = 3_000;
 pub const discovery_max_attempts: u32 = 24;
 
 /// Bound on one synchronous local `Forward` chase in a Host turn or binding
-/// trampoline. The wire path defers each hop onto a fresh turn; local proxy
+/// trampoline. The wire path defers each hop onto a fresh turn. Local proxy
 /// composition needs a finite loop guard.
 pub const max_local_forward_hops: usize = 256;
 
 /// How long a CapTP wait may take. It lives here beside `HandshakeTimedOut`
-/// and `WaitTimedOut`, the two ways a bounded budget ends; the blocking
+/// and `WaitTimedOut`, the two ways a bounded budget ends. The blocking
 /// driver holds the fields, and the byte-fed host tier has no blocking wait
 /// to bound.
 ///
-/// The owning `SessionOptions` gives it no default, and that is the point of
-/// the type there: every other option has a wrong value that costs memory or
+/// The owning `SessionOptions` gives it no default. Every other option has a wrong
+/// value that costs memory or
 /// speed, but a wait budget has a wrong value that costs the process. A
 /// partner can complete the socket connect and then say nothing at all, and
 /// an unbounded wait parks the caller on it forever, so the owning tier asks
 /// the question where it cannot be skipped.
 ///
 /// `unbounded` stays available explicitly because an in-process pair and a
-/// harness that drives both ends genuinely want it. A `.ms` of zero or less
+/// harness that drives both ends want it. A `.ms` of zero or less
 /// is a budget that has already expired: a wait under it times out
 /// immediately, in every build mode, rather than inheriting the OS poll
 /// convention that reads zero or a negative as forever.
 pub const Budget = union(enum) {
-    /// Wait as long as it takes. Right when you control both ends; a hang
+    /// Wait as long as it takes. Right when you control both ends. A hang
     /// against anything that can go silent.
     unbounded,
     /// Give up after this many milliseconds. Zero or less has already
@@ -177,16 +177,16 @@ pub const Budget = union(enum) {
 };
 
 /// What a transport's locator designator means. The model vocabulary owns the
-/// type and exhaustive metadata; runtime residents derive their declarations
+/// type and exhaustive metadata. Runtime residents derive their declarations
 /// from it.
 pub const DesignatorScheme = model.transport.DesignatorScheme;
 
-/// Which hints a locator carries is the netlayer's own business, so there is
-/// deliberately no table here saying who publishes dial addresses. The netlayer
+/// Which hints a locator carries is the netlayer's business, so there is
+/// no table here saying who publishes dial addresses. The netlayer
 /// answers that by materializing its complete listener locator. On the byte-fed
 /// path the embedder owns the transport and answers the same question.
 /// `dial_plan.planAccept` passes that answer through rather than second-guessing
-/// it; a table here would be a second authority for one fact, free to drift from
+/// it. A table here would be a second authority for one fact, free to drift from
 /// the vtable that produces the value.
 /// The locator hint entry name that carries dial addresses when the
 /// designator is a key (`keyed-tcp`, `iroh`). Same literal as
@@ -197,8 +197,8 @@ pub const hint_direct_addresses = model.transport.hint_direct_addresses;
 /// dialable address: a placeholder no partner can reach. A dialer advertises
 /// this because the keyed session's identity is its signing key, not its
 /// address, so a partner verifies the signature over these bytes rather than
-/// dialing them back. Every never-listening dialer signs the one value —
-/// `Identity.ephemeral` and a `Host` that never binds a listener — so the
+/// dialing them back. Every never-listening dialer signs the one value:
+/// `Identity.ephemeral` and a `Host` that never binds a listener, so the
 /// placeholder never drifts between them.
 pub const unreachable_client_designator = "127.0.0.1:0";
 
@@ -212,7 +212,7 @@ pub const Identity = union(enum) {
     /// Draw a fresh random session key at the I/O boundary for this one
     /// session. The ordinary client posture: a dialer that does not itself
     /// listen signs the unreachable-client placeholder as its own designator.
-    /// On accept, the listener's bound designator is still signed — a host is
+    /// On accept, the listener's bound designator is still signed, because a host is
     /// always reachable.
     ephemeral,
     /// Hold `secret` as this caller's *durable* identity and advertise
@@ -268,7 +268,7 @@ pub const PartnerIdentity = struct {
 
     /// How the durable identity in `designator` was authenticated, if at all
     /// (ADR-0097). Session identity, durable identity, and this provenance are
-    /// three separate facts; a caller that needs an authenticated durable peer
+    /// three separate facts. A caller that needs an authenticated durable peer
     /// asks `durableIdentityAuthenticated`, never key equality.
     provenance: DurableProvenance = .unauthenticated,
 
@@ -302,7 +302,7 @@ pub const PartnerIdentity = struct {
 
 /// How a partner's advertised durable identity was authenticated (ADR-0105),
 /// the third fact `PartnerIdentity` reports beside session key and designator.
-/// It answers "what proved this name", never "who is this" — an unauthenticated
+/// It answers "what proved this name", never "who is this". An unauthenticated
 /// partner still has a session key and may still have signed a location.
 ///
 /// `engine.DurableProvenance` is the one definition and
@@ -326,7 +326,7 @@ pub const AcceptIdentity = union(enum) {
 /// The borrowing tier's handle to an eventual result: `actors.Vow`,
 /// re-exported so a consumer holding only the driver vocabulary can name it
 /// without reaching into the actor layer. `BlockingSession.settleVow` drives
-/// it to a `Settled`; the owning tier returns a Host-accounted `driver.Promise`.
+/// it to a `Settled`. The owning tier returns a Host-accounted `driver.Promise`.
 pub const Vow = actors.Vow;
 
 /// A local actor bound to an export position, the borrowing tier's form
@@ -362,12 +362,12 @@ pub const Exported = struct {
 /// to it. This is the turn-time form: a behavior handler holds only its
 /// `turn.vat`, so this is how a running actor mints a new capability mid-turn
 /// (`Served.spawn` is the same operation for a caller that holds the serve
-/// core). The position comes from the session's one export allocator — the
-/// counter that also mints resolver and bootstrap exports — so a spawned actor
+/// core). The position comes from the session's one export allocator, the
+/// counter that also mints resolver and bootstrap exports, so a spawned actor
 /// can never alias a position the session hands out for anything else. The
 /// position is *reserved* here: the partner can address the capability only
-/// once it first marshals onto the wire — typically riding this turn's own
-/// reply — or after an explicit grant through `peer.exportObject` (ADR-0074).
+/// once it first marshals onto the wire (typically riding this turn's own
+/// reply) or after an explicit grant through `peer.exportObject` (ADR-0074).
 /// A peerless vat is refused with the actor layer's own `NotConnected`. An
 /// actor that should have no wire position at all is spawned with `Vat.spawn`,
 /// which mints no export.
@@ -382,7 +382,7 @@ pub fn spawnAt(turn: *actors.Turn, comptime Behavior: type, initial: Behavior) !
 }
 
 /// How a `call` (or `fetchSettled`) settled. Both arms are materialized into
-/// the caller-supplied allocator — typically an arena the caller resets — so
+/// the caller-supplied allocator (typically an arena the caller resets), so
 /// nothing in the result borrows the turn that settled it. A caller that used
 /// a plain allocator instead of an arena frees the result with `deinit`.
 pub const Settled = union(enum) {
@@ -391,8 +391,8 @@ pub const Settled = union(enum) {
     /// The answer fulfilled with a three-party introduction: a signed
     /// `desc:handoff-give` addressed to this session's session key. This
     /// arm surfaces only on the borrowing `BlockingSession` tier, where
-    /// "no router" is the caller's explicit choice; every host-backed tier —
-    /// the owning face (ADR-0090), the Bridge, the bindings — claims the
+    /// "no router" is the caller's choice. Every host-backed tier (the
+    /// owning face (ADR-0090), the Bridge, the bindings) claims the
     /// give and redeems it itself, so its calls settle with the introduced
     /// capability instead. The payload is materialized into the call's
     /// allocator like any other outcome.
@@ -484,7 +484,7 @@ pub const SettleCapture = struct {
 };
 
 /// Wraps a blocking caller's listener so its drive loop can see when the vow
-/// settles. Lives on the waiting verb's stack for that bounded drive;
+/// settles. Lives on the waiting verb's stack for that bounded drive.
 /// `BlockingSession` / `Session` wait through it.
 pub const SettleFlag = struct {
     inner: actors.Listener,
@@ -501,11 +501,11 @@ pub const SettleFlag = struct {
 /// `Session` fetch waits. The listener runs during the settling step with a
 /// turn-borrowed resolution, so it records only the shape and the POD far
 /// ref, never a borrow of the resolution's bytes. The break reason is
-/// deliberately not copied; a caller that needs it uses the settled-outcome
+/// not copied. A caller that needs it uses the settled-outcome
 /// verbs instead.
 pub const FetchCapture = struct {
     /// Position-only capability shapes that remain valid after the listener's
-    /// borrowed settlement returns. A byte-fed peer yields `.far`; a Host fetch
+    /// borrowed settlement returns. A byte-fed peer yields `.far`. A Host fetch
     /// enrolls the same import into Node identity first and yields `.routed`.
     pub const Capability = union(enum) {
         far: model.FarRef,

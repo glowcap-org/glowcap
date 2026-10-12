@@ -1,7 +1,7 @@
 //! Private byte-stream waist below the relay's RFC 6455 state machine.
 //!
-//! A carrier channel owns one pinned implementation. WebSocket owns framing;
-//! clear TCP and TLS own only ordered bytes, readiness, and destruction. The
+//! A carrier channel owns one pinned implementation. WebSocket owns framing.
+//! Clear TCP and TLS own only ordered bytes, readiness, and destruction. The
 //! nonblocking operations are explicit because a TLS read can require a socket
 //! write and a TLS write can require a socket read.
 

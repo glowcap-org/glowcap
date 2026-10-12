@@ -1,4 +1,4 @@
-// Durable share verbs on the whole-archive root. Narrowed facets cannot mint.
+// Durable share verbs on the whole-archive root. Narrowed facets cannot create shares.
 
 import { type Argument, type Behavior } from "@glowcap/runtime";
 import { type ArchiveFacet, type ArchiveFacetIssuer } from "./facet.ts";

@@ -1,5 +1,5 @@
 //! Browser Runtime composition for the Rooms web front. The deployment owns
-//! forwarding authority; locator-authored relay routes stay with the relay
+//! forwarding authority. Locator-authored relay routes stay with the relay
 //! transport, and the directory owner selects WebRTC signaling.
 use crate::{ice, signaling};
 use glowcap::{Connector, DialOrigin, Host, Locator, Runtime, RuntimeConfig, Session, browser};
@@ -11,7 +11,7 @@ use web_sys::Url;
 /// A trusted Rooms web deployment. In particular, its native iroh handshake
 /// authenticates the remote node before forwarding opaque bytes to this page.
 /// Never construct this from a peer-supplied locator hint. The ordinary page
-/// uses deployment(); explicit construction is for an embedding that chooses
+/// uses deployment(). Explicit construction is for an embedding that chooses
 /// its web front as part of application configuration.
 pub struct WebFront(String);
 impl WebFront {
@@ -105,7 +105,7 @@ impl WebFront {
 }
 
 /// Create the page's one Runtime around its already selected Host identity.
-/// Directory selection reads the application's held clients; ICE remains an
+/// Directory selection reads the application's held clients. ICE remains an
 /// application-owned resource whose close is observed at page retirement.
 pub async fn open<D, F>(host: &Host, front: WebFront, select: F, ice: ice::Source) -> glowcap::Result<Runtime>
 where

@@ -1,14 +1,13 @@
 # Architecture
 
-This page explains how glowcap's layers fit together, from the protocol core up
-to the application APIs. These names come up throughout:
+These names come up throughout:
 
 | Name | Meaning |
 | --- | --- |
 | Host | Multi-session CapTP product: one identity, one Vat, one Node, and the sessions under them. An OS hostname is a different word. |
 | Node | Host-owned I/O-free identity, routing state, and handoff router (`engine.Node`). |
 | Vat | Actor container and turn loop. |
-| Port | One actor-layer session projection and ingress into the Vat (`actors.Port`), inside the Host's serving shell. A TCP port is a different word; `GlowcapHostSession` is the Host-registered shell. |
+| Port | One actor-layer session projection and ingress into the Vat (`actors.Port`), inside the Host's serving shell. A TCP port is a different word. `GlowcapHostSession` is the Host-registered shell. |
 | Peer | Local CapTP state machine for that session. In prose, "peer" still means the remote party. |
 | Session | Application-facing one-partner CapTP conversation, backed by a Host-registered shell (`driver_core.HostSession` / `GlowcapHostSession`) and one byte connection. |
 
@@ -30,9 +29,8 @@ process
                 └── Peer: that session's CapTP state
 ```
 
-Creating another Host creates another Node and Vat, so one process can serve
-multiple independent CapTP products. The layers below separate protocol decisions
-from encoding, I/O, and application scheduling.
+The layers below separate protocol decisions from encoding, I/O, and
+application scheduling.
 
 ```text
 application
@@ -46,10 +44,6 @@ application
 
 network I/O enters through net and the driver
 ```
-
-If you are choosing an API, start with the product names and the Host diagram
-above. If you are adding a codec, transport, or binding, start from the layer
-table and work upward.
 
 ## The protocol core
 
@@ -68,9 +62,9 @@ does not open sockets, start tasks, or choose a scheduler.
 Route lists have one owner (`model.route_bundle`). The identity rule sits on
 top (`session.id_route`): every `id` route must prove the durable key the
 locator names. `engine.Node` only schedules bundles those layers already
-admitted; it does not treat `id` as a physical transport.
+admitted. It does not treat `id` as a physical transport.
 
-Session tables decide whether a reference is valid; a codec only encodes and
+Session tables decide whether a reference is valid. A codec only encodes and
 decodes that decision, so changing codecs cannot mint authority or change CapTP
 behavior.
 
@@ -82,23 +76,23 @@ rejects `std.Io`, threads, and platform calls in the portable core
 
 ## From a peer to an application
 
-`engine.Peer` is useful when the application already owns an event loop or is
-embedding glowcap behind another runtime. Most Zig programs start higher.
+Use `engine.Peer` directly when the application already owns an event loop or
+embeds glowcap behind another runtime.
 
 | API | Use it when |
 | --- | --- |
 | `driver.Session` | You want one application-facing session with blocking calls, backed by a connection its `driver.HostRuntime` owns. Handoffs are redeemed before a call returns. |
 | `driver.HostRuntime` | You want one identity across several file-descriptor-backed sessions. |
 | `driver.BlockingSession` | You own the connection and buffers, or your transport has no pollable descriptor (an in-process pipe, or a WebRTC peer you already opened). Values are actor-layer references rather than opaque host capabilities. A call may return a handoff for you to redeem. |
-| `driver_core.Host` | Your runtime feeds bytes and drains actions without letting glowcap own I/O. Native bindings hand this Host to the driver; the browser package feeds it itself. |
+| `driver_core.Host` | Your runtime feeds bytes and drains actions without letting glowcap own I/O. Native bindings hand this Host to the driver. The browser package feeds it itself. |
 
 Consumers reach Host through `driver.core`. The files under `host/` are
-implementation; they are not a second public API.
+implementation. They are not a second public API.
 
 The actor layer sits between the protocol peer and these application APIs.
 `actors.Vat` hosts local objects, turns incoming calls into actor turns, and
 settles their results. It also provides attenuation, revocation, and optional
-snapshots. A snapshot covers local actor state only; it never rewinds a network
+snapshots. A snapshot covers local actor state only. It never rewinds a network
 session. Actor state can use `loam.collections.PersistentMap`, so changing one
 entry does not copy the whole map
 ([ADR-0060](decisions/adr/ADR-0060-vat-local-time-travel.md),
@@ -110,7 +104,7 @@ It applies turn and byte limits per ingress, and it takes one turn at a time
 from each runnable ingress in rotation, keeping first-in-first-out order within
 each one. Queue chunks are reclaimed independently, and the whole Vat keeps at
 most one bounded spare chunk. The actor layer owns this
-admission and scheduling; the standard Host owns one Vat, and each session Port
+admission and scheduling. The standard Host owns one Vat, and each session Port
 supplies its ingress identity but does not own a queue
 ([ADR-0099](decisions/adr/ADR-0099-shared-vat-scheduling.md)).
 
@@ -139,102 +133,36 @@ I/O through the embedding's executor and adds no Host or scheduler of its own.
   described below.
 
 Loam's persistence core does not depend on managed access, the Host, or CapTP
-session state; optional integration modules connect them. The Loam facade
+session state. Optional integration modules connect them. The Loam facade
 offers managed access without requiring resource state for ordinary objects.
 Rooms stores its managed session through Loam on LMDB and IndexedDB. The
 [session guide](rooms/session.md) owns its custody and recovery contract.
-Recursive room, directory and archive resources remain in the
-[resource integration plan](planning/rooms/integration.md). The
-[Loam API plan](planning/loam/api.md) separates record schemas, storage
-encoding, reference restoration, and wire codecs. The
-`libglowcap_loam` C companion includes managed access, with no separate archive
-for it; the [C/Rust guide](loam/c-and-rust.md) gives its current profile.
+The [Loam API](loam/api.md) separates record schemas, storage encoding,
+reference restoration, and wire codecs.
 
 ### Managed access
 
 Managed access is Loam's layer for resources, grants, and the references that
-use and control them. It is split into modules so that each lower layer stays
-usable on its own. The core module imports no protocol or runtime layer and
-creates no actor or Host.
+use and control them. Its modules stack so each lower one works alone:
 
-- **`loam_access_core`** (`glowcap.loam.access.core`) owns resource graphs,
-  scope evaluation, the runtime policy rules, and the local grant lifecycle.
-  - A resource name includes its owner's identity and generation. Owned
-    containment is bounded and has no cycles.
-  - An exact selection and a scope over future descendants narrow by
-    different rules.
-  - Grant edits stay within immutable ceilings. Effective access is the
-    intersection of every current ancestor, and a paused or revoked path is
-    refused.
-  - A prepared write reserves graph scope and keeps its staged grants
-    invisible until an exact completion. An uncertain outcome blocks protected
-    access.
-  - Native opaque use and control references carry authority over one
-    selected grant. Controls limit edits with separate lifecycle powers and
-    management ceilings, using the same evaluator and prepared-write code.
-  - Resident and stored models share revision-checked evaluation and mutation
-    planning.
-- **`loam_access_records`** encodes owners, sparse identity directories,
-  resources, grants, and change events in Syrup.
-- **`loam_access_storage`** loads records in bounded, resumable steps through
-  Loam leases, and stages managed changes in the caller's Store transaction.
-  The existing Store owns commit and recovery.
-  - Each owner header persists the policy descriptor, identity counters,
-    logical revisions, directory roots, and a bounded change history.
-  - One owner batch keeps the ordered grant, resource, content, and control
-    effects of a Store transaction. Separate scoped stamps support later
-    observation.
-  - `access.storage.Capabilities` restores opaque native references from
-    committed use and control descriptors. Each operation owns a bounded Read
-    and checks current authority through the shared evaluator. Descriptors
-    and derived grants join the caller's Store transaction, and Loam's live
-    retention protects held references without pinning their records.
-- **`loam_access_hosting`** (`access.hosting.Service`) supplies managed working
-  sets through the durable attachment's preparation step. It depends on the
-  storage and hosting modules, and neither of those depends on it.
-  - Fixed-resource use endpoints authorize against committed content before
-    invoking the application. Control endpoints stage permitted edits in the
-    attachment's transaction.
-  - Derivation stages the child grant, endpoint, publication, and bounded
-    receipt together. A Host publication reservation stays hidden until the
-    commit is confirmed, and materializing a top-level reply reserves custody
-    outside the Vat callback.
-  - One Host owns publication, Vat dispatch, recovery, and reply settlement.
-  - An access description uses the same admission evaluator and shows only the
-    held endpoint's current access.
-  - A managed content method hands over a stored reference field only through
-    a declared, exact disclosure. A capability value it did not declare fails
-    closed. Runtime facets can require both the invoking and the target
-    authority, and local strong reference fields can be replaced or removed
-    inside the transaction.
+- **`loam_access_core`** evaluates resource graphs, scopes, and grants. It
+  imports no protocol or runtime layer and creates no actor or Host.
+- **`loam_access_records`** encodes owners, resources, grants, and change
+  events in Syrup.
+- **`loam_access_storage`** loads records in bounded steps and stages changes
+  in the caller's Store transaction.
+- **`loam_access_hosting`** serves managed references through the durable
+  attachment.
 
-The [storage plan](planning/loam/access/storage.md) keeps database I/O in
-optional adapters, and record loading, memory budgets, and authority decisions
-in shared Zig code. [Known limitations](boundaries.md#api-gaps) names the
-integration that remains for applications and foreign bindings.
-
-These decision records hold the details:
-
-| Record | Decides |
-| --- | --- |
-| [ADR-0153](decisions/adr/ADR-0153-access-resource-core.md) | Resource structure |
-| [ADR-0154](decisions/adr/ADR-0154-access-local-grant-lifecycle.md) | The grant model |
-| [ADR-0155](decisions/adr/ADR-0155-access-prepared-grant-writes.md) | Preparation and storage completion |
-| [ADR-0156](decisions/adr/ADR-0156-access-native-grant-capabilities.md) | Native capability custody |
-| [ADR-0167](decisions/adr/ADR-0167-managed-owner-storage.md) | The owner storage profile and its costs |
-| [ADR-0168](decisions/adr/ADR-0168-durable-managed-capability-bindings.md) | Operation custody and restoration |
-| [ADR-0169](decisions/adr/ADR-0169-managed-host-turns.md) | Hosted endpoint lifetimes |
-| [ADR-0170](decisions/adr/ADR-0170-durable-facet-derivation.md) | Derivation sequences, receipts, and publication activation |
-| [ADR-0171](decisions/adr/ADR-0171-scoped-access-descriptions.md) | Access description disclosure and snapshots |
-| [ADR-0172](decisions/adr/ADR-0172-explicit-disclosure-of-returned-capabilities.md) | Disclosed replies |
-| [ADR-0173](decisions/adr/ADR-0173-dependent-returned-capabilities-and-reference-edits.md) | Dependent facets and reference edits |
-| [ADR-0179](decisions/adr/ADR-0179-scoped-change-retention-and-observation.md) | Retained batches and observation |
+The [managed access architecture](loam/access-architecture.md) owns the
+contract and its decision records. [Known limitations](boundaries.md#api-gaps)
+names the integration that remains for applications and foreign bindings.
 
 ## Transports and connection loops
 
 The `net` layer turns a byte stream into complete frames. Each byte-stream
-message is a bare negotiated-codec frame inside one outer Syrup byte string;
-the outer length supplies the boundary and the inner codec must consume the
+message is a bare negotiated-codec frame inside one outer Syrup byte string.
+The outer length supplies the boundary and the inner codec must consume the
 body exactly. A transport that already preserves message boundaries hands bare
 frames to the whole-frame API instead. The transport implementations are iroh,
 WebRTC, Noise-sealed TCP, Noise-sealed relay, onion, keyed TCP, keyed relay,
@@ -242,11 +170,11 @@ plain TCP, and in-process pipes
 ([ADR-0110](decisions/adr/ADR-0110-byte-stream-message-envelope.md)).
 
 Inbound frames have a size limit. A frame larger than the current read buffer
-uses one bounded spill buffer rather than forcing every connection to retain a
-maximum-sized buffer. Read buffers are pooled across each completion resident.
-Outbound backpressure stops reads when queued reply bytes cross their limit.
+uses one bounded spill buffer, so no connection retains a maximum-sized buffer.
+Read buffers are pooled across each completion resident. Outbound backpressure
+stops reads when queued reply bytes cross their limit.
 
-The simple blocking pump runs on one fiber. Applications that must keep reading
+The blocking pump runs on one fiber. Applications that must keep reading
 while a partner streams use `Session` or `Server`. Session and HostRuntime
 accept two kinds of provider through one runtime. A stream provider gives each
 connection its own readiness descriptor and nonblocking reads and writes, and
@@ -259,18 +187,17 @@ is the multiplexed case: `iroh.MultiplexedAdapter` drives every connection
 from the endpoint's one readiness descriptor, and the C ABI uses the same
 adapter state. A Server admits connections through the runtime's listener
 lifecycle, and a session it hands out keeps working after the Server is
-destroyed. WebRTC has no socket to poll, so it joins a Host through
-a completion backend once signaling is configured (`zig build webrtc-loop`; redeem via
-`zig build webrtc-redeem`). A bare locator without that authority still
-refuses. Crossed connections, where both peers dial at once, are resolved by
-the host because the choice depends on peer identity rather than transport
-mechanics.
+destroyed. WebRTC has no socket to poll, so it joins a Host through a
+completion backend once signaling is configured (`zig build webrtc-loop`,
+redeem via `zig build webrtc-redeem`). A bare locator without that authority
+refuses. The Host resolves crossed connections, where both peers dial at once,
+because the choice depends on peer identity, not transport mechanics.
 
 The native TCP completion backend binds loopback by default. A service that
 accepts from other hosts constructs `net.Backend` with
 `initWithListenerIp4`, then gives that backend to `TcpLoop.initWithBackend`.
-The backend reports the kernel-bound IPv4 address and resolved port together;
-the embedding remains responsible for publishing a dialable locator when it
+The backend reports the kernel-bound IPv4 address and resolved port together.
+The embedding remains responsible for publishing a dialable locator when it
 binds a wildcard address.
 
 On Linux, `net.Backend` tries io_uring first. If the kernel or host policy
@@ -278,12 +205,10 @@ cannot support glowcap's io_uring backend, it uses epoll with the same bounded
 pool and completion ownership rules. Applications can call
 `net.tcpBackendStatus(&loop)` after constructing a TCP, onion, keyed-relay,
 Noise, or iroh loop. A non-null `fallback_reason` explains why epoll was
-selected. On an iroh loop, this names the wrapped Linux platform layer, not the
-iroh transport. The library does not print it because the embedding owns its
-logs and operator interface. `driver.HostRuntime` does not yet report the
-selection for its own stream stack. The 500,000-session measurement
-used io_uring. Epoll passes the completion-loop behavior tests but has no
-equivalent scale result.
+selected (on an iroh loop, for the wrapped Linux platform layer). The library
+does not print it, because the embedding owns its logs. `driver.HostRuntime`
+does not report the selection for its own stream stack. The 500,000-session
+measurement used io_uring, and epoll has no equivalent scale result.
 [ADR-0152](decisions/adr/ADR-0152-linux-completion-backend-selection.md) records
 the selection boundary and evidence.
 
@@ -309,13 +234,11 @@ amplification are separate decisions:
 | `net.completion.Options.outbound_high_water_bytes` | Pending outbound bytes before one connection's reads park. | 64 KiB |
 | `net.relay.RelayOptions.send_staging_bytes` | One retained masked WebSocket send chunk, including its header. | 4 KiB |
 
-TLS and relay connection footprints, copy-shape pins, and `close_notify`
-delivery live in [known limitations](boundaries.md#browser-reachability) and
-the [ladder](ladder.md).
+[Stability](stability.md) lists the TLS and relay carrier evidence, and the
+[ladder](ladder.md) holds connection footprints.
 
-The completion loop can change admission, pool memory, outbound slack, and
-transport staging independently. `initWithBackendOptions` tunes a backend the
-loop builds; `initWithBackend` accepts only runtime policy because the supplied
+`initWithBackendOptions` tunes a backend the
+loop builds. `initWithBackend` accepts only runtime policy because the supplied
 backend already owns its resource configuration.
 
 `driver.DialRetry` adds reconnect policy above the loop. It classifies
@@ -327,12 +250,12 @@ The protocol core has no reconnect policy.
 CapTP names imports, exports, and answers with integer positions. glowcap keeps
 each namespace in its own hash table:
 
-- direct lookup stays constant-time;
-- a sparse number from an untrusted peer cannot force a giant array;
-- garbage collection removes an answer row before its position can be reused;
+- direct lookup stays constant-time
+- a sparse number from an untrusted peer cannot force a giant array
+- garbage collection removes an answer row before its position can be reused
 - locally minted outbound answers fail closed in `session/answers/pipeline.zig`
-  before their cursor can wrap;
-- imports retain a separate cap because the remote peer chooses their count.
+  before their cursor can wrap
+- imports retain a separate cap because the remote peer chooses their count
 
 Once the session sends the answer to an inbound call, it keeps that answer's
 resolution, because later pipelined messages may still refer to it. These rows
@@ -347,10 +270,9 @@ works out the matching wire descriptor only when it renders a frame.
 A far import's position was chosen by the remote peer, so its row only needs
 two retain counts. The first counts the references the partner granted by
 mentioning it. The second counts how many of those the session itself will
-release, held next to the fire, callback, or shortening closure that will
-spend them. Keeping both on one row means pipelining, settlement, and handoff
-all read the same state, and an application's release can never spend a
-retain the session still needs
+release, held next to the closure that will spend them. With both on one row,
+pipelining, settlement, and handoff read the same state, and an application's
+release can never spend a retain the session still needs
 ([ADR-0146](decisions/adr/ADR-0146-session-held-import-retains.md)).
 
 Recursive values are limited by `SessionLimits.max_nesting_depth`. Session
@@ -368,30 +290,30 @@ position.
 `Frame` owns its bytes. `FrameView` borrows bytes for one bounded call. Session
 state may never retain memory borrowed from an inbound frame.
 
-The codec follows the same rule. `decodeBody` projects a borrowed view;
+The codec follows the same rule. `decodeBody` projects a borrowed view.
 `decodeOwned` creates an owned value when data must survive the frame. Syrup
 frames are byte-aligned, while Cap'n Proto frames require eight-byte alignment.
 `FrameShape` keeps that difference visible.
 
 Production code moves frames by ownership:
 
-- `Frame.initOwned` and `Frame.initExternal` adopt existing storage;
-- `Frame.view` borrows without allocating;
-- `Peer.feedOwned` and `Peer.step` move an owned frame into an event;
-- `Peer.recvBorrowed` makes the one copy required to retain borrowed input;
+- `Frame.initOwned` and `Frame.initExternal` adopt existing storage.
+- `Frame.view` borrows without allocating.
+- `Peer.feedOwned` and `Peer.step` move an owned frame into an event.
+- `Peer.recvBorrowed` makes the one copy required to retain borrowed input.
 - `Peer.sendCopying` names its queueing copy in the API.
 
-A delivered call to a live export makes exactly one owned-frame allocation.
-The allocation and footprint checks under `test/engine/` protect that budget.
-Test fixtures have their own copying helper; production `Frame` has no general
-copy constructor.
+A delivered call to a live export makes one owned-frame allocation. The
+allocation and footprint checks under `test/engine/` protect that budget. Test
+fixtures have a copying helper, and production `Frame` has no general copy
+constructor.
 
 ## C ABI and bindings
 
 The C ABI uses opaque handles, fixed-width result codes, `ptr + len` views,
 caller-supplied callback contexts, and explicit release. Allocation goes
 through `GlowcapContext`. Peer locators and sturdyrefs stay distinct values at
-every public surface: a locator carries transport, designator, and hints; a
+every public surface: a locator carries transport, designator, and hints. A
 sturdyref embeds a peer locator plus swiss bytes.
 
 An owned `GlowcapManagedFrame` moves the native frame owner into opaque words
@@ -402,7 +324,7 @@ Lifecycle, admission, provider composition, protocol state, and failure
 classification remain in `driver_core` or `driver`. The C layer validates ABI
 layout and lossless representation, marshals values, owns opaque-handle and
 event-delivery storage, and projects the Zig result. Bindings add host-language
-resource idioms and drive effects to the native completion barrier; they do not
+resource idioms and drive effects to the native completion barrier. They do not
 retain policy for a background worker or maintain a second state machine.
 
 A failure that can be returned stays in ordinary control flow. When no caller
@@ -422,11 +344,11 @@ install, and a complete program.
 Every separately loaded archive exposes a reflected callable/constant/layout
 fingerprint, including the core, Host, and driver. Binding-projected rows in
 the canonical struct manifests also generate the Rust, TypeScript, Python, and
-Racket layout expectations; C-only rows remain part of archive identity.
-Native binding loaders compare every archive before an ordinary call;
-implementation-only edits do not perturb the contract (ADR-0123).
+Racket layout expectations. C-only rows remain part of archive identity.
+Native binding loaders compare every archive before an ordinary call.
+Implementation-only edits do not perturb the contract (ADR-0123).
 These fingerprints check the public ABI. Archives sharing opaque Host and actor
-owners are built together; private compatibility across different builds is
+owners are built together. Private compatibility across different builds is
 outside that check. Actor callbacks use stable protocol tokens and diagnostic
 text across archive copies, with typed Zig errors local to their compilation
 ([ADR-0059](decisions/adr/ADR-0059-composable-c-abi-archives.md)).
@@ -436,7 +358,7 @@ takes an idle Host and runs the loop. The binding waits on one readiness
 descriptor, arms one runtime-native timer from
 `glowcap_driver_step_wait_ms`, calls `glowcap_driver_step`, and drains one
 event queue. The driver remains the sole authority for which pending operation
-owns the nearest deadline; a binding only projects that duration into its
+owns the nearest deadline. A binding only projects that duration into its
 scheduler. The browser package and any embedder that already owns I/O still
 drive the Host themselves: feed bytes, pump and drain, take outbound frames.
 glowcap does not create a background runtime inside Python, Racket, Rust, or
@@ -459,7 +381,7 @@ The rules for providers:
   refused. Bindings keep no separate registry of providers or credentials.
 - A provider may expose opaque local restoration bytes, read through a
   size query and a caller-supplied buffer. Those bytes never enter the
-  locator, and only that provider package interprets them; the onion package
+  locator, and only that provider package interprets them. The onion package
   stores its Tor service key there.
 - Host and session progress happens only inside a step call, on the one thread
   that drives the loop. A provider may run its own worker threads, but it
@@ -472,12 +394,12 @@ attempt. Bindings tear down only loops and Hosts they minted themselves.
 
 ## Other entry points
 
-The installable `glowcap` command is an application of the public library, not
-another protocol layer. It owns terminal behavior, identity files, MCP stdio,
-room presence, verified product installation, and Rooms deployment. Its
-deployment path shares the installed product inventory with Docker image
-construction, so the image contains a complete immutable product rather than
-checkout output. [The CLI guide](cli.md) covers it.
+The installable `glowcap` command is an application of the public library. It
+owns terminal behavior, identity files, MCP stdio, room presence, verified
+product installation, and Rooms deployment. Its deployment path shares the
+installed product inventory with Docker image construction, so the image holds a
+complete immutable product and no checkout output. [The CLI guide](cli.md)
+covers it.
 
 First-party applications live under [`apps/`](../apps/). Compilable teaching
 programs live under [`examples/`](../examples/README.md). Build checks and code
@@ -486,20 +408,19 @@ generators live under [`tools/`](../tools/README.md).
 Rooms' [Rust application boundary](decisions/adr/ADR-0147-rooms-rust-application-boundary.md)
 places the shared Rooms protocol and application policy above the Zig Host,
 which continues to own CapTP. Rendering and platform I/O remain in adapters.
-The running presentation is TypeScript, and the regular Rooms build checks
-hold the implementation evidence.
+The running presentation is TypeScript.
 
 CapTP and OCapN claims are checked against the upstream OCapN suite, live Goblins
 peers, and the in-tree reference corpus. [Community review](community-review.md)
-states exactly what that evidence covers.
+states what that evidence covers.
 
 ## Loam language boundary
 
 The optional C Loam archive projects persistence and fixed-resource managed
 hosting into the existing Host. The LMDB companion owns exclusive database
 custody and executes submitted effects. Rust supplies typed descriptors,
-callback contexts and joined workers; graph authority and installation remain
+callback contexts and joined workers. Graph authority and installation remain
 in Zig. [ADR-0185](decisions/adr/ADR-0185-loam-c-and-rust-resource-lifecycle.md)
 records release refusal, physical retirement and explicit completion consumption.
-The [usage guide](loam/c-and-rust.md) gives the first
-complete consumer path and its limits.
+The [C/Rust guide](loam/c-and-rust.md) gives the
+consumer path and its limits.

@@ -27,6 +27,7 @@ export const MAX_NAME_VOUCHERS = 8;
 export const NAME_VOUCHER_BYTES = 32;
 export const MAX_ROSTER_SEEN = 512;
 export const MAX_ROOM_MEMBERS = 256;
+export const MAX_ROOM_OFFLINE = 256;
 export const MAX_SESSION_DIRECTORY_ROWS = 128;
 export const MAX_DIRECTORY_DISCOVERY_ROWS = 256;
 export const MAX_ROOM_LINKS = 4096;

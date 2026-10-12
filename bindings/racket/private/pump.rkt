@@ -79,12 +79,12 @@
 (define current-deliver-owner (make-parameter #f))
 
 ;; What one locked drain hands back to run once the host lock releases: the
-;; connections whose outbound was drained, and the deferred fires — settled
-;; vows' listeners, dial executors, condemned-connection closes. Everything
+;; connections whose outbound was drained, and the deferred fires (settled
+;; vows' listeners, dial executors, condemned-connection closes). Everything
 ;; here must run post-lock: a socket write can block, a dial is a connect
 ;; syscall plus a whole keyed handshake, and a listener is application code
 ;; that may pump. When the feed runs under the reader gate,
-;; `current-defer-drain-effects` parks this record until the gate releases —
+;; `current-defer-drain-effects` parks this record until the gate releases:
 ;; writes and fires never share the reader window with a blocking TCP write.
 (struct drain-effects (touched fires resume popped?))
 (define no-drain-effects (drain-effects '() '() #f #f))
@@ -103,7 +103,7 @@
       (and (drain-effects-resume fx) #t)))
 
 ;; When non-#f, a box of `drain-effects`. `with-host-drain` parks writes and
-;; fires into it instead of running them, and does not bump progress — the
+;; fires into it instead of running them, and does not bump progress. The
 ;; reader that set the parameter runs them after releasing the gate. Lives
 ;; here (not session) so `parameterize` sees a real parameter; lazy-require
 ;; would wrap it as a procedure.
@@ -156,7 +156,7 @@
     (when (drain-effects-resume current)
       ;; A native yield is an explicit scheduler boundary. Run its continuation
       ;; in a nested Racket thread: the caller still joins the complete drain,
-      ;; while progress no longer depends on an elapsed-time sleep or immediate
+      ;; while progress does not depend on an elapsed-time sleep or immediate
       ;; re-entry into the FFI callback's scheduler turn.
       (loop (call-in-nested-thread (drain-effects-resume current))))))
 
@@ -178,11 +178,11 @@
    (or (drain-effects-popped? a) (drain-effects-popped? b))))
 
 ;; The one drain choreography every host-driving path shares: run `thunk`
-;; under the host lock — it returns the locked drain's `drain-effects` (most
+;; under the host lock. It returns the locked drain's `drain-effects` (most
 ;; sites end in `drain-host-actions!`; some substitute `no-drain-effects` or a
-;; merged record) plus any extra values — then run those effects (socket
-;; writes, listener fires) after the lock releases, wake every parked pump,
-;; and hand the extra values back to the caller. Under
+;; merged record) plus any extra values. It then runs those effects (socket
+;; writes, listener fires) after the lock releases, wakes every parked pump,
+;; and hands the extra values back to the caller. Under
 ;; `current-defer-drain-effects`, only the merge happens here; the reader
 ;; after-thunk owns effects + bump.
 (define (with-host-drain m thunk #:allow-released? [allow-released? #f])
@@ -239,7 +239,7 @@
 
 ;; The absolute `current-inexact-milliseconds` a bounded pump must not outlive,
 ;; or #f for an unbounded one. A partner that connects and then says nothing
-;; never fails, so no error path ends that wait — only a deadline does, and it
+;; never fails, so no error path ends that wait. Only a deadline does, and it
 ;; has to reach the blocked reader as an event, not a poll. `pump-wake-evt`
 ;; folds the deadline into the wake event every transport's `read-some!`
 ;; already waits on beside its own bytes, so a silent stream still wakes;
@@ -258,7 +258,7 @@
   (and deadline (>= (current-inexact-milliseconds) deadline) #t))
 
 ;; The typed cause of this CapTP session's most recent local dispatch failure, or
-;; #f — the host counterpart of the Zig `Peer.lastAbort`, read through the
+;; #f. It is the host counterpart of the Zig `Peer.lastAbort`, read through the
 ;; shared `GlowcapLastAbort` layout. Feed-refusal owns the reader; Session
 ;; re-exports the name for dogfood/plumbing.
 (define (session-last-abort c)
@@ -367,11 +367,11 @@
 
 ;; Feed freshly read bytes into the host through the core's stream delimiter
 ;; (`glowcap_host_session_feed_bytes`): the session's codec splits each
-;; complete frame off the front — both codecs, both frame shapes, the frame
-;; cap enforced during the scan — and dispatches it (behavior and settle
+;; complete frame off the front (both codecs, both frame shapes, the frame
+;; cap enforced during the scan) and dispatches it (behavior and settle
 ;; callbacks fire inside), then the actions the dispatch queued drain. The
-;; library owns the unconsumed tail — a partial frame straddling two reads
-;; stays buffered in the session — so one call moves the whole read. The serve
+;; library owns the unconsumed tail (a partial frame straddling two reads
+;; stays buffered in the session), so one call moves the whole read. The serve
 ;; loop resumes any handshake-held tail through `resume-feed!`. On a refused
 ;; stream the peer has already projected a typed op:abort; write it so the
 ;; partner hears why, then raise the typed failure carrying the
@@ -381,7 +381,7 @@
   (define m (session-host c))
   (let loop ()
     ;; The refusal is captured under the lock: it parks the abort on the FIFO
-    ;; and marks `c` touched so `run-drain-effects!` writes it — under the
+    ;; and marks `c` touched so `run-drain-effects!` writes it under the
     ;; reader that runs after the gate clears; outside the reader it runs
     ;; before this returns. Then raise.
     (define result
@@ -404,7 +404,7 @@
             [else
              (define captured (capture-feed-refusal c rc))
              ;; Park the abort on the FIFO and mark `c` touched so the shared
-             ;; drain spine writes it — refusal is a flush, not a private exit.
+             ;; drain spine writes it. Refusal is a flush, not a private exit.
              (values (drain-effects (list c) '() #f #t) captured)]))))
     (cond
       [(eq? result 'done) (void)]
@@ -443,7 +443,7 @@
 ;; connection's pending-writes FIFO (`take_outbound` is a host verb). The
 ;; feed returns `c` in `drain-effects.touched` so `run-drain-effects!` writes
 ;; the abort after the lock (and after the reader gate, when deferred).
-;; `raise-feed-refusal` only raises — it never writes.
+;; `raise-feed-refusal` only raises and never writes.
 (define (capture-feed-refusal c rc)
   (define msg (host-last-error))
   (define abort #f)
@@ -485,7 +485,7 @@
   (raise refusal))
 
 ;; The transport reported end of stream: break every far vow still parked here
-;; (their resolutions can never arrive — with the partner's retained abort
+;; (their resolutions can never arrive, with the partner's retained abort
 ;; diagnostic when one was received), classify those settles as closure, and
 ;; wake every parked pump.
 (define (handle-session-eof! c)
@@ -516,7 +516,7 @@
 ;; One reader step. The first step on an open session resumes the frames the
 ;; Host held behind the handshake hello and returns without
 ;; waiting, so the resume's deferred effects run before any park. Every later
-;; step waits on the transport and the wake event together — the host's
+;; step waits on the transport and the wake event together: the host's
 ;; progress, plus the deadline alarm when the pump is bounded. 'woke means
 ;; another thread moved the host or the deadline passed, so the caller
 ;; re-checks its predicate.
@@ -566,7 +566,7 @@
 ;; a partner that both hung up and overran is reported as the closure it is.
 ;;
 ;; Reader contract: under the gate, lock+feed may only queue `drain-effects`.
-;; Clears the gate, then runs writes/fires, then bumps — so a waiter never
+;; Clears the gate, then runs writes/fires, then bumps. A waiter never
 ;; sees a retired generation while the gate is still held, and a blocking
 ;; write never shares the reader window.
 (define (pump-until c done who
@@ -594,8 +594,8 @@
      (lambda ()
        (set-box! (async-connection-reader ac) #f)
        ;; The bump advertises state already committed above (reader cleared,
-       ;; vows settled by the feed). A break — a timeout wrapped around
-       ;; `session-await`, a custodian shutdown — landing between the effects
+       ;; vows settled by the feed). A break (a timeout wrapped around
+       ;; `session-await`, a custodian shutdown) landing between the effects
        ;; and the bump would skip it and strand a waiter spinning on that state.
        ;; The post-thunk fires the bump on a break escape too; effects still run
        ;; first on the normal path, and a spare bump is harmless (waiters

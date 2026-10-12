@@ -60,6 +60,7 @@ Deno.test("attached line projection releases rejected and replaced capability oc
 	const directory = dirId("directory");
 	store.openDir(page.projection, directory, "127.0.0.1:1");
 	const room = store.ensureRoom(page.projection, directory, "general", { persistId: "room-id" });
+	store.setRoomMembership(page.projection, room.key, "joined", "");
 	store.switchTo(page.projection, room.key);
 	const projection = new AttachedLineProjection(
 		(id) => store.convByPersistId(page.projection, id)?.key ?? null,

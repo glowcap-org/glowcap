@@ -1,14 +1,14 @@
 #lang racket/base
-;; glowcap-actor-call.rkt — a Goblins client that calls a glowcap actor.
+;; glowcap-actor-call.rkt: a Goblins client that calls a glowcap actor.
 ;;
 ;; It dials a glowcap listener over TCP, enlivens the actor published behind a
 ;; swiss-num (an OCapN bootstrap fetch), waits for that to resolve to a live
 ;; reference, then sends the actor one positional argument and prints the reply.
 ;;
-;; It deliberately resolves the cap *before* calling it (the nested `on`), so the
+;; It resolves the cap *before* calling it (the nested `on`), so the
 ;; call is an ordinary deliver to a settled reference rather than a pipelined
-;; send. That isolates this proof — "a real Goblins peer can call a glowcap actor
-;; and read its reply" — from promise pipelining, which is its own scenario.
+;; send. That isolates this proof, "a real Goblins peer can call a glowcap actor
+;; and read its reply", from promise pipelining, which is its own scenario.
 ;;
 ;; Usage:
 ;;   racket glowcap-actor-call.rkt <target-port> <swiss-ascii> <message> [local-port]

@@ -33,6 +33,8 @@ pub const Recipient = struct {
     }
 
     pub fn takeFailure(self: *Recipient) []u8 {
+        // Admission commits every recipient with a reason. `RelayRecipient.adopt`
+        // restores it before breaking a recipient, and `deinitAll` checks it first.
         const reason = self.failure_reason orelse unreachable;
         self.failure_reason = null;
         return reason;
@@ -52,7 +54,7 @@ pub const ListenerKey = struct {
 };
 
 /// Armed introducing-session proxy: **one** home `op:listen`, one or more
-/// recipient third-party import rows. On fire the Host lifts once; each
+/// recipient third-party import rows. On fire the Host lifts once. Each
 /// recipient then materializes its independently lowered tree through Node's
 /// bounded Passable transaction. Never N home listens.
 pub const Proxy = struct {
@@ -103,6 +105,7 @@ pub fn commitShortening(
 ) void {
     const source_key: HomeKey = .{ .home = home, .wire_pos = source };
     const target_key: HomeKey = .{ .home = home, .wire_pos = target };
+    // `prepareShortening` refused a missing source root in this same dispatch.
     const source_root = self.proxy_by_source.get(source_key) orelse unreachable;
     if (self.proxy_by_source.get(target_key)) |target_root| {
         if (std.meta.eql(target_root, source_root)) return;

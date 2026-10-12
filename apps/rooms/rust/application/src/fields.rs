@@ -62,7 +62,7 @@ pub fn present<'de, T: Deserialize<'de>, D: Deserializer<'de>>(d: D) -> Result<O
 }
 
 /// JSON records require maps. Serde's derived struct reader also accepts
-/// positional arrays; that is not part of the Rooms JSON contract. Forward
+/// positional arrays. That is not part of the Rooms JSON contract. Forward
 /// the original map access so fields still borrow the source and RawValue
 /// preserves isolated UTF-16 surrogates without an intermediate value tree.
 pub(crate) fn object<'de, T: Deserialize<'de>, D: Deserializer<'de>>(d: D) -> Result<T, D::Error> {
@@ -151,8 +151,8 @@ fn exact_json_u64(raw: &str) -> Option<u64> {
 	Some(value)
 }
 
-/// An object inside a JSON collection. Its representation is exactly `T`;
-/// admission keeps the map-only contract at each nested record boundary.
+/// An object inside a JSON collection. Its representation is exactly `T`.
+/// Admission keeps the map-only contract at each nested record boundary.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub struct Object<T>(pub T);
@@ -213,7 +213,21 @@ impl<const N: usize, const NONEMPTY: bool> Text<N, NONEMPTY> {
 		&self.0
 	}
 }
+/// Empty text is within every bound that admits it, so it needs no check.
+impl<const N: usize> Default for Text<N, false> {
+	fn default() -> Self {
+		Self("".into())
+	}
+}
 impl<T, const N: usize> List<T, N> {
+	/// Keep the items `keep` accepts, in order, and hand back the rest. A subset
+	/// of a bounded list is within the bound, so nothing is re-checked.
+	pub fn partition_out(&mut self, keep: impl FnMut(&T) -> bool) -> alloc::vec::Vec<T> {
+		let (kept, removed): (alloc::vec::Vec<T>, alloc::vec::Vec<T>) =
+			core::mem::take(&mut self.0).into_iter().partition(keep);
+		self.0 = kept;
+		removed
+	}
 	pub fn is_empty(&self) -> bool {
 		self.0.is_empty()
 	}
@@ -276,12 +290,26 @@ impl<T> Nullable<T> {
 #[serde(transparent)]
 pub struct SafeInteger<const POSITIVE: bool = false>(u64);
 impl<const POSITIVE: bool> SafeInteger<POSITIVE> {
+	const fn accepts(value: u64) -> bool {
+		value < (1u64 << 53) && (!POSITIVE || value > 0)
+	}
 	pub fn new(value: u64) -> Option<Self> {
-		(value < (1u64 << 53) && (!POSITIVE || value > 0)).then_some(Self(value))
+		Self::accepts(value).then_some(Self(value))
+	}
+	/// A literal the bound admits, checked when the constant is evaluated.
+	/// Use it for a value written in the source, never for one computed at
+	/// run time, so a value outside the bound fails the build rather than a
+	/// request.
+	pub const fn literal(value: u64) -> Self {
+		assert!(Self::accepts(value), "a SafeInteger literal is outside its bound");
+		Self(value)
 	}
 	pub fn get(self) -> u64 {
 		self.0
 	}
+}
+impl SafeInteger<false> {
+	pub const ZERO: Self = Self::literal(0);
 }
 impl<'de, const POSITIVE: bool> Deserialize<'de> for SafeInteger<POSITIVE> {
 	fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -294,6 +322,20 @@ impl<'de, const POSITIVE: bool> Deserialize<'de> for SafeInteger<POSITIVE> {
 mod tests {
 	use super::{SafeInteger, exact_json_u64};
 	use serde::Deserialize;
+
+	#[test]
+	fn empty_text_is_the_default_within_any_bound() {
+		let text: super::Text<4> = Default::default();
+		assert!(text.text().utf16().next().is_none());
+	}
+
+	#[test]
+	fn a_literal_evaluates_in_a_constant() {
+		const ONE: SafeInteger<true> = SafeInteger::literal(1);
+		assert_eq!(ONE.get(), 1);
+		assert_eq!(SafeInteger::ZERO.get(), 0);
+		assert_eq!(SafeInteger::<false>::literal(7).get(), 7);
+	}
 
 	#[derive(Deserialize)]
 	struct Nested {

@@ -2,9 +2,9 @@
 one owner of the facts -- ``glowcap_host_set_trace`` reports every session's
 open (with the partner's OCapN locator as designator plus transport, the
 Session ID both peers of the session derive, what proved that name, and the codec the
-handshake actually negotiated), every message's verb
+handshake negotiated), every message's verb
 in both directions, and every close. This veneer only stamps time and
-forwards one flat record per fact in the versioned timeline schema; even
+forwards one flat record per fact in the versioned timeline schema. Even
 endpoint labeling belongs to the consumer (ocapnviz resolves src/dst from
 the session-opened it already saw), so nothing here keeps per-session state.
 
@@ -40,8 +40,8 @@ _self_label: Optional[str] = None
 # not an option: the host behind this binding is a glowcap host, and an
 # application naming itself something else would put a claim on the wire that
 # nothing here could stand behind. It is stated rather than left implicit
-# because this schema is not glowcap's alone -- the Goblins conformance peer
-# publishes the same records -- so a consumer cannot read an implementation off
+# because this schema is not glowcap's alone (the Goblins conformance peer
+# publishes the same records), so a consumer cannot read an implementation off
 # the fact that a record arrived, and a host that says nothing is honestly
 # unknown to it. Each of the four bindings states the word itself, because it is
 # a claim about the binding tier rather than a fact the core or the C ABI
@@ -123,7 +123,7 @@ def _captp_version_from_abi(version: int) -> str:
 def _emit(sink: TraceSink, record: dict, owner) -> None:
     """Keep observer failure outside protocol control flow.
 
-    This is especially load-bearing for the ctypes callback: no Python
+    This matters most for the ctypes callback: no Python
     exception may cross a native callback frame. An annotation uses the same
     observer-only contract even though it originates on the application side.
     """
@@ -325,7 +325,7 @@ def _live_hosts_locked() -> list:
 def _current_install(owner):
     """Read the latest configuration for ``owner`` at execution time.
 
-    Scheduled installs deliberately do not capture a sink generation: an older
+    Scheduled installs do not capture a sink generation: an older
     owner-loop callback that runs after uninstall reads the new disabled state
     and therefore cannot restore stale configuration.
     """

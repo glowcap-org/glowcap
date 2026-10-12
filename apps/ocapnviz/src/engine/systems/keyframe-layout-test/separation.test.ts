@@ -1,10 +1,9 @@
 // What a node draws is what is separated.
 //
-// The solver used to keep one constant radius around each node's center,
-// tuned to the body. A node's label is wider than its body — several times
-// wider once it carries a designator — and hangs below it, so a circle sized
-// for the body let labels sit on top of each other and a circle sized for the
-// label spent that width upward too. `nodeFootprint` is the box the solver
+// A node's label is wider than its body, several times wider once it carries a
+// designator, and hangs below it. A constant radius around each node's center,
+// tuned to the body, lets labels sit on top of each other, and one sized for
+// the label spends that width upward too. `nodeFootprint` is the box the solver
 // separates instead, and these hold the two halves of that: nothing drawn
 // overlaps anything else drawn, and the box is the one the renderer draws.
 
@@ -25,7 +24,7 @@ import { layoutTest } from "./harness.ts";
 import type { Vec2 } from "../../world.ts";
 
 /** One session per end, all of them hanging off a single peer, each end
- *  naming something nobody on stage answers to — so every end is an ordinary
+ *  naming something nobody on stage answers to. So every end is an ordinary
  *  solved body rather than a claim leaning on its own edge. */
 function hubDoc(
 	designators: readonly (string | undefined)[],
@@ -154,7 +153,7 @@ function settled(doc: TimelineDocument): Map<string, Vec2> {
 	return new Map(kfs[kfs.length - 1]!.layout);
 }
 
-/** How far into each other two nodes' drawn boxes reach, in world units;
+/** How far into each other two nodes' drawn boxes reach, in world units.
  *  zero or less when they clear. */
 function boxOverlap(
 	a: Vec2,
@@ -180,7 +179,7 @@ layoutTest(
 		// against the authority rather than trusted. A body drawn at one size and
 		// separated at another is a gap no reader could explain.
 		assertEquals(nodeFootprint("", false).above, NODE_RADIUS);
-		// The pill is not mirrored at all — it is read from the same module the
+		// The pill is not mirrored at all. It is read from the same module the
 		// renderer sets the type from, and this is that arithmetic stated once
 		// more from the outside. A padding change in `stage-labels.ts` moves both
 		// sides of this together; a padding change made at either call site moves
@@ -208,7 +207,7 @@ layoutTest(
 	() => {
 		// The two halves of one fact. The stage shortens a long designator before
 		// drawing it, so the room reserved for that end has to be the room the
-		// shortened pill takes — reserving for the whole sixty-four characters
+		// shortened pill takes, reserving for the whole sixty-four characters
 		// would hold a hub's ends a pill's width apart for a label nobody draws,
 		// and the fan would not fit on one ring.
 		const hostId = "9f".repeat(32);
@@ -264,8 +263,8 @@ layoutTest(
 		// And what it must not buy: room for the whole string. Nothing but the
 		// caption differs between these two documents, so a solver measuring
 		// what the stage draws settles them identically. One that measures the
-		// whole caption stands the long pair further apart — for text nobody
-		// writes — and the two pictures come apart.
+		// whole caption stands the long pair further apart, for text nobody
+		// writes, and the two pictures come apart.
 		const asDrawn = settled(pairDoc(drawn));
 		assertEquals(
 			[p0, p1],
@@ -327,7 +326,7 @@ layoutTest(
 		// simply `forceCollide` with a bigger radius. A long display name's pill is
 		// several hundred units across; a circle wide enough to clear it sideways
 		// clears it upward too, so every node ends up demanding its widest
-		// dimension in every direction — the dense-middle, empty-margin picture.
+		// dimension in every direction. The dense-middle, empty-margin picture.
 		// Two nodes wearing wide labels are free to sit one above the other, and
 		// here they do, closer than a circle sized for the label would ever have
 		// let them.
@@ -363,11 +362,11 @@ layoutTest(
 );
 
 layoutTest("a peer's unattributed ends fan around it", () => {
-	// Every node with no region prefix used to seed on the same point, so the
-	// solver started from a pile and broke the tie however its repulsion
-	// happened to: a peer's ends came out gathered on one side of it, with a
-	// wedge of empty canvas opposite. The seed is a phyllotaxis spiral now, so
-	// the ends start apart and stay apart.
+	// Seeding every node with no region prefix on the same point starts the
+	// solver from a pile that its repulsion breaks arbitrarily: a peer's ends
+	// would come out gathered on one side of it, with a wedge of empty canvas
+	// opposite. The seed is a phyllotaxis spiral, so the ends start apart and
+	// stay apart.
 	const at = settled(hubDoc(Array.from({ length: 8 }, () => undefined)));
 	const hub = at.get("hub");
 	assert(hub !== undefined);
@@ -490,7 +489,7 @@ function reordered(doc: TimelineDocument): TimelineDocument {
 layoutTest("the same document lays out identically every time", () => {
 	// Half the contract the whole file is built on: no randomness and no wall
 	// clock, so scrubbing forward and back visits the same pixels. Two runs of
-	// one document is exactly what that catches and no more — a stray
+	// one document is exactly what that catches and no more, a stray
 	// `Math.random` or `Date.now` anywhere in the solve.
 	const doc = () =>
 		hubDoc([
@@ -512,8 +511,8 @@ layoutTest(
 		// be perfectly repeatable and still wrong: the same graph, saved by two
 		// authors who added their peers in different orders, would settle into two
 		// different pictures. Every ordering-sensitive step is sorted for this
-		// reason — the node ids, and the session ids a bundle's lanes are numbered
-		// by — and this is what says so.
+		// reason, the node ids, and the session ids a bundle's lanes are numbered
+		// by, and this is what says so.
 		const doc = hubDoc([
 			undefined,
 			"tcp://198.51.100.4:9001",

@@ -5,21 +5,21 @@
 //! helpers move a charge between those owners without an uncharged or
 //! double-charged interval.
 //!
-//! Session-retained sent-answer resolutions are deliberately outside it. A
-//! stored resolution is durable table state that lives with its answer row —
-//! forever, on a session whose partner sends no `op:gc-answers` — so counting
-//! it here made every long V1.0 session saturate its own waterline after a
-//! few dozen answered calls and stay saturated. The store answers to the
+//! Session-retained sent-answer resolutions sit outside it. A
+//! stored resolution is durable table state that lives with its answer row,
+//! forever, on a session whose partner sends no `op:gc-answers`. Counting it
+//! here would saturate the waterline of every long V1.0 session after a few
+//! dozen answered calls. The store answers to the
 //! session's answer-row and retained-byte caps (`InboundAnswerCapExceeded` and
-//! `RetainedAnswerCapExceeded`); `transferPendingToAnswerStore` is where a
+//! `RetainedAnswerCapExceeded`). `transferPendingToAnswerStore` is where a
 //! settlement's stored share leaves flow accounting and enters that separately
 //! bounded durable owner.
 //!
-//! The waterline gates admission only. A transfer — completing work a
-//! reservation already admitted — always proceeds, because retained state can
+//! The waterline gates admission only. A transfer, completing work a
+//! reservation already admitted, always proceeds, because retained state can
 //! shrink only through completion: a sent answer's stored resolution releases
 //! when its carrier encodes, so a waterline that refused transfers while the
-//! store was saturated deadlocked exactly there, with sixteen concurrently
+//! store was saturated would deadlock, with sixteen concurrently
 //! staged answers holding the budget closed against the encodes that would
 //! have drained them. Memory stays bounded without gating completion: every
 //! staged byte was admitted under the waterline, a completion converts those

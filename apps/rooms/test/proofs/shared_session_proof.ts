@@ -10,6 +10,7 @@ import { startSessionPeer } from "../support/session_peer.ts";
 import { announcedSturdyref } from "../support/standalone_peer.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 import { proveSharedMixedDirect } from "../page/shared_mixed_dm.ts";
+import { proveRoomPresence } from "../page/room_presence.ts";
 import { proveSharedRoomAuthorityRotation } from "../page/shared_room_authority.ts";
 import { proveManagedAccessEditor } from "../page/shared_session_access.ts";
 import { proveSharedSessionMoveLayout } from "../page/shared_session_moves.ts";
@@ -23,11 +24,14 @@ import { ask } from "../../lib/ask.ts";
 import { proveSharedRoomLink } from "../page/shared_room_link.ts";
 import { proveSharedDirectoryRecovery } from "../page/shared_directory_recovery.ts";
 import { proveAttachedSessionHolding, provePrivateRoomHolding } from "../page/holdings.ts";
+import { proveSessionReplacement } from "../page/shared_session_reset.ts";
+import { loginRelay } from "../support/login_relay.ts";
 
 const httpPort = freePort();
 const roomPort = freePort();
 const sessionPort = freePort();
 const foreignPort = freePort();
+const ingress = loginRelay(httpPort);
 const state = await Deno.makeTempDir({ prefix: "glowcap-managed-shared-page-" });
 const serverState = await Deno.makeTempDir({ prefix: "glowcap-managed-shared-server-" });
 let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
@@ -38,7 +42,10 @@ function start() {
 		`--port=${sessionPort}`,
 		"--dial-transports=tcp",
 		"--local-control",
-	], { GLOWCAP_ROOMS_SESSION_RELAY_URL: `ws://127.0.0.1:${httpPort}/relay` });
+	], {
+		GLOWCAP_ROOMS_SESSION_RELAY_URL: `ws://127.0.0.1:${httpPort}/relay`,
+		GLOWCAP_ROOMS_SESSION_RELAY_ALIAS_URL: ingress.relay,
+	});
 }
 async function control(verb: string, named: Record<string, string[]>) {
 	const output = await new Deno.Command(SESSION, {
@@ -128,6 +135,7 @@ try {
 	});
 	await say(second, "One managed member, two views");
 	for (const page of [first, second]) await bubble(page, "One managed member, two views");
+	await proveRoomPresence(browser, httpPort, [first, second]);
 	await proveSharedImage(first, second, png).catch(async (error) => {
 		console.error("SHARED-FILE-FAILURE", error);
 		try {
@@ -209,18 +217,40 @@ try {
 	await bubble(second, "After managed process restart");
 	await proveSharedRoomAuthorityRotation(first);
 	await namedRoomRow(first, "mirror-two").click();
-	await proveSharedMixedDirect(browser, httpPort, [first, second], png);
+	// The native process has no browser cookie. Public ingress must refuse its
+	// upgrade, while the configured alias reaches the same registry internally.
+	const refusal = await fetch(`${ingress.relay.replace("ws:", "http:")}?rendezvous=${"a".repeat(64)}`, {
+		headers: { Upgrade: "websocket" },
+		redirect: "manual",
+		signal: AbortSignal.timeout(5_000),
+	});
+	if (refusal.status !== 302) fail(`login ingress did not refuse the unauthenticated upgrade: ${refusal.status}`);
+	await refusal.body?.cancel();
+	const refusedBeforeDm = ingress.refused;
+	await proveSharedMixedDirect(browser, httpPort, [first, second], png, ingress.origin);
+	if (ingress.refused !== refusedBeforeDm) fail("the shared DM tried the login-protected public relay");
 	await proveManagedAccessEditor(
 		browser,
 		first,
 		httpPort,
 		(await Deno.readTextFile(`${state}/control.sturdyref`)).trim(),
 	);
+	// Destroy only this proof's owned state, as deployment reset session does.
+	await stopOwned(peer);
+	await Deno.remove(state, { recursive: true });
+	await Deno.mkdir(state);
+	peer = start();
+	const replacement = await announcedSturdyref(peer, "ROOMS-SESSION-LISTENING", "replacement managed session");
+	if (replacement === link) fail("reset did not retire the old session capability");
+	await proveSessionReplacement(first, replacement);
 	if (errors.length !== 0) fail(`production page errors: ${JSON.stringify(errors)}`);
-	console.log("Managed process startup, two production pages, shared drafts, files and cold restart passed.");
+	console.log(
+		"Managed process startup, two production pages, shared drafts, files, cold restart and reset recovery passed.",
+	);
 } finally {
 	clearTimeout(deadline);
 	await browser?.close();
+	await ingress.close();
 	await reapOwned();
 	await Deno.remove(state, { recursive: true });
 	await Deno.remove(serverState, { recursive: true });

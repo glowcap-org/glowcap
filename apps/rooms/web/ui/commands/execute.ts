@@ -1,5 +1,6 @@
 // Apply a Rust-interpreted command through session and browser gesture ports.
-// Text formatting reads projections; it cannot manufacture live authority.
+// Text formatting reads projections. It cannot manufacture live authority.
+import * as z from "zod/mini";
 import { applicationModule } from "../application.ts";
 import type { Conv } from "../types.ts";
 import type { CommandOutcome, CommandPowers, CommandResult, HeldDirectory } from "./types.ts";
@@ -27,9 +28,31 @@ import {
 	whoisNotHere,
 } from "../../../lib/text/commands.ts";
 
-export type Effect = { kind: "effect"; op: string; text: string; extra?: string; refusal?: string };
+/** The wire shape of one Rust command gesture. The composer's command plan
+ * embeds the same arm. The schema is the one definition: the type derives
+ * from it. */
+export const EffectSchema = z.object({
+	kind: z.literal("effect"),
+	op: z.string(),
+	text: z.string(),
+	extra: z.optional(z.string()),
+	refusal: z.optional(z.string()),
+});
+export type Effect = z.infer<typeof EffectSchema>;
+
+/** The plan grammar is Rust's. An answer outside it is a defect in the shared
+ * build, never an applicable command. Each variant mirrors one
+ * `CommandOutcome` arm, and the call into `applyCommandPlan` holds the
+ * schema's output to that type at compile time. */
+const CommandPlanSchema = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("say"), text: z.string() }),
+	z.object({ kind: z.literal("action"), text: z.string() }),
+	z.object({ kind: z.literal("refused"), why: z.string() }),
+	EffectSchema,
+]);
+
 export function runCommand(name: string, rest: string, powers: CommandPowers, conv: Conv | null): CommandOutcome {
-	const plan = JSON.parse(
+	const raw: unknown = JSON.parse(
 		applicationModule().interpretSlashCommand(
 			name,
 			rest,
@@ -37,8 +60,12 @@ export function runCommand(name: string, rest: string, powers: CommandPowers, co
 			name === "msg" || name === "invite" ? powers.you() : "",
 			name === "away" && powers.standingHere() !== "",
 		),
-	) as Exclude<CommandOutcome, { kind: "done" }> | Effect;
-	return applyCommandPlan(plan, powers, conv);
+	);
+	const parsed = z.safeParse(CommandPlanSchema, raw);
+	if (!parsed.success) {
+		throw new Error(`the Rooms application answered an invalid command plan:\n${z.prettifyError(parsed.error)}`);
+	}
+	return applyCommandPlan(parsed.data, powers, conv);
 }
 
 export function applyCommandPlan(

@@ -1,4 +1,4 @@
-//! Ban rows: layer purity — the clock seam, the actors layer, the README's C
+//! Ban rows: layer purity, the clock seam, the actors layer, the README's C
 //! verb names, binding policy mirrors, Goblins runtime portability, and
 //! signature-arm reads.
 
@@ -38,7 +38,7 @@ pub const actors_layer_purity: []const Ban = &.{
 };
 
 /// Outbound answer positions are minted only by the Session answer-consequence
-/// owner. Callers reserve one answer or a contiguous span there; they never
+/// owner. Callers reserve one answer or a contiguous span there. They never
 /// advance the cursor by hand and risk wraparound aliasing.
 pub const outbound_answer_cursor_rows: []const Ban = &.{
     .{
@@ -114,7 +114,7 @@ pub const readme_c_verb_names: []const Ban = &.{
 
 /// Discovery-posture dial defaults are shared by native `driver.DialRetry` and
 /// byte-fed binding connectors that see them through the Host C ABI. The values
-/// live in `driver_core`; `driver` owns retry execution and `c_abi_host` only
+/// live in `driver_core`, `driver` owns retry execution and `c_abi_host` only
 /// projects the defaults.
 pub const discovery_dial_budget_rows: []const Ban = &.{
     .{
@@ -448,7 +448,7 @@ pub const uri_format_sizing_rows: []const Ban = &.{
         .why = "Python queries formatted URI size through the C ABI before allocating",
     },
     .{
-        .where = .{ .file = "bindings/rust/src/uri.rs" },
+        .where = .{ .file = "bindings/rust/src/uri/format.rs" },
         .kind = .require,
         .needles = &.{"core::ptr::null_mut(),\n\t\t\t\t0,\n\t\t\t\t&mut cap"},
         .check = "uri-format-sizing",
@@ -471,7 +471,7 @@ pub const uri_format_sizing_rows: []const Ban = &.{
     .{
         .where = .{ .files = &.{
             "bindings/python/glowcap/_locator.py",
-            "bindings/rust/src/uri.rs",
+            "bindings/rust/src/uri/format.rs",
             "bindings/ts/runtime/locator.ts",
             "bindings/racket/private/locator.rkt",
         } },
@@ -497,7 +497,7 @@ pub const uri_format_sizing_rows: []const Ban = &.{
 /// The `rendezvous-relay` hint byte cap is relay route policy, owned by
 /// `src/net/transport/keyed_relay/route.zig` and projected through the relay C
 /// ABI. Bindings that validate a relay URL before I/O consume the generated
-/// mirror; they do not carry their own cap.
+/// mirror. They do not carry their own cap.
 pub const relay_route_hint_cap_rows: []const Ban = &.{
     .{
         .where = .{ .file = "src/net/transport/keyed_relay/route.zig" },
@@ -564,7 +564,7 @@ pub const goblins_runtime_portability: []const Ban = &.{
 /// either arm by name outside the type's own file is therefore a claim about
 /// which codec decoded the frame, which no consumer of a codec-neutral view is
 /// entitled to make, and the arm that is not active panics. `Signature.eql`
-/// answers across arms without allocating; every comparison goes through it.
+/// answers across arms without allocating. Every comparison goes through it.
 pub const signature_arm_reads: []const Ban = &.{
     .{
         .where = .{ .tree = .{

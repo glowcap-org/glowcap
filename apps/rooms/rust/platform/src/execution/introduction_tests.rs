@@ -21,6 +21,9 @@ struct Platform {
 	expire_wait: Rc<Cell<bool>>,
 }
 impl rooms_glowcap::client::Deadline for Platform {
+	fn monotonic_millis(&self) -> u64 {
+		0
+	}
 	async fn within<T>(&self, milliseconds: u64, work: impl Future<Output = T>) -> Option<T> {
 		if milliseconds == policy::WAIT_MS && self.expire_wait.replace(false) {
 			return None;

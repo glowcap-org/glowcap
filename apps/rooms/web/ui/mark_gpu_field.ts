@@ -21,7 +21,7 @@ const STEM_TOP = 1.3;
 const STEM_X = -0.14;
 /* How far the stalk's base dips below the floor at its axis: the depth of
    the ellipse that is a cylinder's bottom rim seen from a little above. The
-   floor's pool projects to the same ellipse; the two move together. */
+   floor's pool projects to the same ellipse. The two move together. */
 const STEM_DIP = 0.06;
 /* And the cap sits over on a tilt, because nothing that grew is level. */
 const TILT = 0.085;
@@ -84,7 +84,7 @@ fn smax(a: f32, b: f32, k: f32) -> f32 {
 /** The five windows, as directions out of the cap's centre. Keeping them as
  * directions is what puts them exactly on the dome at any size the cap has
  * grown to. Four sit on the face of the cap, not its edge, because a dot on
- * the silhouette notches the outline; the fifth is on the back of the dome,
+ * the silhouette notches the outline. The fifth is on the back of the dome,
  * never drawn, and exists for its beam. */
 fn poreDir(i: i32) -> vec3f {
 	if (i == 0) { return normalize(vec3f(-0.28, 0.60, 0.76)); }
@@ -127,7 +127,7 @@ fn poreSize(i: i32) -> f32 {
  * else. Low, so it is a disc on the cap and not a boss with a side, and a
  * gentle dome rather than a steep one: a steep shoulder turned the normal
  * hard at the edge and the outline band caught it as a bright ring round
- * every window. Only the drawn windows are built; the back one only throws.
+ * every window. Only the drawn windows are built. The back one only throws.
  *
  * Returns the height to raise the surface by, and the nearest window's
  * centre closeness in the second channel, which the shading paints the dot
@@ -208,7 +208,7 @@ fn poreWorld(i: i32, g: f32, squash: f32, bob: f32, detail: f32) -> vec3f {
 }
 
 /** Where each beam goes, which is not where its window faces. The windows
- * face the eye, so the cap reads as lit; a beam that left the same way would
+ * face the eye, so the cap reads as lit. A beam that left the same way would
  * come straight at the eye and foreshorten into a haze. The drawn mark's rays
  * live in the picture, up and out to the sides, and so do these. Each has
  * an angle of its own: the small window's beam leaves low and level, under
@@ -230,7 +230,7 @@ fn poreAxis(i: i32, detail: f32) -> vec3f {
 
 /** The stalk: a body of revolution, so its whole profile is one rounded box
  * in the radius-height plane. It bends, with a curve that is zero at the
- * ground so it never slides the foot; it has a belly rather than a waist; it
+ * ground so it never slides the foot. It has a belly rather than a waist. It
  * comes up as a thin shoot and fills out as it rises, and before it has risen
  * at all there is nothing, not a disc of full width lying on the ground. */
 fn stemField(p0: vec3f, grow: f32, detail: f32) -> f32 {
@@ -283,7 +283,7 @@ fn capField(p: vec3f, grow: f32, squash: f32, detail: f32) -> f32 {
 	d = d + 0.07 * exp(-dot(dent, dent) * 3.0) * g;
 
 	// The brim's bulge: a soft swelling that runs round the rim, so the edge is
-	// a rolled lip rather than a thickness. Small on purpose. Any more and the
+	// a rolled lip rather than a thickness. Small. Any more and the
 	// cap wears a tyre; this is the roundness you notice only if it is missing.
 	let rimAt = length(c.xz) / max(r.x, 0.0001);
 	let bulge = exp(-pow((rimAt - 0.9) * 3.2, 2.0)) *
@@ -304,7 +304,7 @@ fn capField(p: vec3f, grow: f32, squash: f32, detail: f32) -> f32 {
 	// A shallow bowl in that underside, so there is an inside for the light
 	// to sit in. It stops well short of the rim, so the brim keeps a lip with
 	// thickness rather than tapering to a blade that the trace cannot find an
-	// honest distance to.
+	// true distance to.
 	let bowl = sdEllipsoid(c + vec3f(0.0, r.y * 0.86, 0.0), r * vec3f(0.84, 0.62, 0.84));
 	d = smax(d, -bowl, 0.14 * fillet);
 	if (d < 0.35 && c.y > -r.y * 0.2) {
@@ -343,7 +343,7 @@ fn mapScene(p0: vec3f, stem: f32, cap: f32, squash: f32, bob: f32, detail: f32) 
 	// A small blend: the cap sits on the stalk, it does not melt into it.
 	//
 	// Each half is kept a hair above zero size so the trace never divides by a
-	// zero radius, which means neither is ever actually empty, and the outline
+	// zero radius, which means neither is ever empty, and the outline
 	// is a band of fixed width on the screen: it paints a speck as readily as
 	// a mushroom. Ungrown, that speck is an amber dot sitting on the floor. So
 	// each half is lifted out of the field until it has started, on its own
@@ -379,7 +379,7 @@ fn normalAt(p: vec3f, stem: f32, cap: f32, sq: f32, bob: f32, det: f32) -> vec3f
  * glowing cap is translucent, and light inside it comes through in
  * proportion to how little of it there is to come through: thin places come
  * out bright, thick places stay dark. Four samples is enough because the
- * answer only has to be monotonic; it feeds an exponential. */
+ * answer only has to be monotonic. It feeds an exponential. */
 fn thickness(p: vec3f, n: vec3f, stem: f32, cap: f32, sq: f32, bob: f32, det: f32) -> f32 {
 	var t = 0.0;
 	for (var i = 1; i <= 4; i = i + 1) {

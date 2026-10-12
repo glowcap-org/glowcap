@@ -47,12 +47,11 @@ export function Unknown(
  *  and the whole row is the click target.
  *
  *  Every row in every one of those lists is this element. What each
- *  kind of row differs by is what it can honestly show — a peer has a
+ *  kind of row differs by is what it can truthfully show, a peer has a
  *  profile swatch, an unattributed end has a claim and no swatch, a
- *  session has a state — so a kind is a pair of slots, not a second
- *  spelling of a row. The three below used to spread one style object
- *  and patch it with the same selected-overlay each, which meant the
- *  row's shape lived in four places and its hover in a fifth.
+ *  session has a state, so a kind is a pair of slots, not a second
+ *  spelling of a row. The three below share one row shape and one hover style,
+ *  so neither lives in more than one place.
  *
  *  The chrome is `.ocv-session-row` in styles.css, all of it: nothing
  *  here sets a border, a surface or a corner, because an inline value
@@ -90,7 +89,7 @@ export function PeerLinkRow(
 		peerLabel: string;
 		peerProfile: string;
 		/** When provided AND not "active", paints the lifecycle chip
-		 * in place of the plain profile meta — so the user sees
+		 * in place of the plain profile meta. So the user sees
 		 * "not yet joined" / "left" without losing the row. Omit or
 		 * pass "active" for the default profile-only meta. */
 		lifecycle?: LifecycleStatus;
@@ -121,13 +120,13 @@ export function PeerLinkRow(
 	);
 }
 
-/** Claim row link — the loose-end sibling of `PeerLinkRow`, and
- *  deliberately the same shape: a session's two ends are two rows in
+/** Claim row link. The loose-end sibling of `PeerLinkRow`, and
+ *  the same shape: a session's two ends are two rows in
  *  one list, and a reader should reach either the same way. It selects
  *  the placeholder the stage draws, so the row and the node are the
  *  same act from two places.
  *
- *  What differs is what it can honestly show. There is no swatch,
+ *  What differs is what it can truthfully show. There is no swatch,
  *  because a profile is something a peer has and this end has not been
  *  attributed to one. The name is the claim, in the mono face every
  *  unproven string wears here, and the meta says plainly that no peer
@@ -155,7 +154,7 @@ export function ClaimLinkRow(
 	);
 }
 
-/** Session row link — extracted from `PeerConnections` and
+/** Session row link, extracted from `PeerConnections` and
  *  `MessageConnections.Carried over` so both surfaces share one
  *  shape. The right-side meta is either the live `state` chip
  *  (active session) or a `LifecycleChip` (off-stage / before /

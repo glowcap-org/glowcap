@@ -20,13 +20,13 @@ the import position therefore aliases those capabilities and can route a later
 send or re-gift to the wrong exporter.
 
 The application cannot repair that ambiguity. Once it holds only `far(7)`, the
-session that gave the reference is precisely the missing fact. Carrying the
+session that gave the reference is the missing fact. Carrying the
 home session in every binding would duplicate a protocol identity decision and
 make language adapters authoritative for routing.
 
 Glowcap also creates a local capability identity when a three-party handoff is
-redeemed. That identity has the same requirement: it must route to the exporter
-session while never becoming a wire import on an unrelated session.
+redeemed. It must route to the exporter session and must not become a wire
+import on an unrelated session.
 
 ## Decision
 
@@ -44,43 +44,43 @@ test converts between them. Every `u64` remains available to a peer as an
 The Node owns both route families:
 
 - `foreign_imports` enrolls a fetched import and keeps the id on the live
-  session import row as its generation proof;
+  session import row as its generation proof
 - `redeemed` owns the temporary route produced by a completed handoff until the
-  Host adopts it into opaque capability identity.
+  Host adopts it into opaque capability identity
 
 An enrollment is prepared before publication. A fresh foreign-import route
 carries rollback authority, so allocation or admission failure removes the map
-row and import-row memo before the caller observes the reference. Ids are never
-reused even after rollback or retirement.
+row and import-row memo before the caller observes the reference. Ids are not
+reused after rollback or retirement.
 
 ### One lowering authority
 
 `Peer.send` calls the Node lowering hook before encoding every outbound
 message. The hook:
 
-- returns ordinary wire references unchanged;
+- returns ordinary wire references unchanged
 - replaces a routed reference with its real wire reference only on its home
-  session;
-- returns `RouteNotLowerable` everywhere else.
+  session
+- returns `RouteNotLowerable` everywhere else
 
-Codecs reject `Reference.routed`. This makes bypassing the Node fail closed and
-keeps target, argument, nested value, and resolution emission on one rule.
+Codecs reject `Reference.routed`. Bypassing the Node therefore fails closed, and
+target, argument, nested value, and resolution emission follow one rule.
 
 Two Host decisions sit above lowering because they may choose a different
 session:
 
 - a send target routes to its recorded home before the message enters that
-  Peer;
+  Peer
 - a capability returned to a third session becomes a signed give (or a
-  promise proxy) using the real exporter-side reference.
+  promise proxy) using the real exporter-side reference
 
-Bindings receive opaque Host capabilities and never inspect
+Bindings receive opaque Host capabilities and do not inspect
 `CapabilityRouteId`, `PeerHandle`, or import positions.
 
 ### Lifetime and GC
 
 The session import row is the generation authority for a fetched route. The row
-stores its current `CapabilityRouteId`; releasing and reusing the same wire
+stores its current `CapabilityRouteId`. Releasing and reusing the same wire
 position cannot revive the previous identity. `removePeer` reclaims all routes
 homed on that peer, and later use fails with `CapabilityRouteUnavailable`.
 
@@ -93,7 +93,7 @@ the import and route live.
 
 - Equal wire positions on different sessions never alias.
 - A stale route cannot acquire a later meaning.
-- No routed identity can leak onto the wire; the codec is a backstop, not the
+- No routed identity can leak onto the wire. The codec is a backstop, not the
   policy owner.
 - Ordinary two-party references take one union-tag branch and no map lookup.
   Routed references use the existing Node map. The representation adds no
@@ -105,15 +105,15 @@ the import and route live.
 
 Recurring Node and Host scenarios prove:
 
-- identical import positions on two sessions route to their respective homes;
+- identical import positions on two sessions route to their respective homes
 - same-home lowering emits the original wire position and cross-home lowering
-  fails closed;
-- prepared enrollment rolls back without publishing authority;
-- partial/final GC and position reuse preserve generation safety;
-- object re-gift and promise proxy paths use the same route identity;
-- old high-band boundaries and `maxInt(u64)` remain valid wire imports.
+  fails closed
+- prepared enrollment rolls back without publishing authority
+- partial/final GC and position reuse preserve generation safety
+- object re-gift and promise proxy paths use the same route identity
+- old high-band boundaries and `maxInt(u64)` remain valid wire imports
 
-The live Goblins handoff/gift matrix proves the resulting wire behavior; it is
+The live Goblins handoff/gift matrix proves the resulting wire behavior. It is
 not the authority for the internal route representation.
 
 ## Rejected alternatives

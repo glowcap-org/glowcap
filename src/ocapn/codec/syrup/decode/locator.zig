@@ -41,8 +41,8 @@ pub fn readLocatorView(bytes: []const u8, cursor: *usize) Error!model.view.PeerL
 
 /// Borrowed find over the lazy dict span: walk `{name value …}` in place and
 /// return the named entry's value borrowing the frame without allocating. An
-/// exotic value under another name is skipped exactly as materialize skips it;
-/// an exotic value under the *searched* name is malformed, because reserved
+/// exotic value under another name is skipped exactly as materialize skips it.
+/// An exotic value under the *searched* name is malformed, because reserved
 /// profile hints carry signed handshake authority.
 fn syrupFindHint(hl: model.view.HintList, name: []const u8) model.view.Error!?model.HintValue {
     const bytes = hl.bytes;
@@ -191,7 +191,7 @@ fn readHintsView(bytes: []const u8, cursor: *usize, limit: usize) Error!model.vi
     return Error.MalformedFrame;
 }
 
-/// Parse hints with allocation; entries are heap-owned. Keys and values are
+/// Parse hints with allocation. Entries are heap-owned. Keys and values are
 /// duped so the result outlives the frame. Free with `model.freeHints`.
 /// Allocation failure propagates as `OutOfMemory`, never as a frame error:
 /// running out of heap is not evidence the partner sent untrusted bytes.

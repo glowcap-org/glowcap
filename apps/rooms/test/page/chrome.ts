@@ -3,7 +3,7 @@
 // Called from the file proof after posting, because that is when both rails
 // are on screen with a room and a roster, and none of these questions are
 // about the files themselves. Settings lives in the rail title while the list
-// is up and on the conversation bar when it is away; the glowcap mark is the
+// is up and on the conversation bar when it is away. The glowcap mark is the
 // same control in both homes.
 
 import type { Page } from "playwright";
@@ -12,10 +12,10 @@ import { fail } from "./harness.ts";
 export async function runChrome(
 	tab: Page,
 ): Promise<(where: string) => Promise<void>> {
-	// The roster's direct-line button used to be revealed on hover while still
-	// holding its place in the row, so every name it sat behind was cut short
+	// The roster's direct-line button must not be revealed on hover while still
+	// holding its place in the row, or every name it sat behind is cut short
 	// with a stretch of empty space beside it. Nothing a reader cannot see may
-	// take width away from a name — which is the invariant, rather than "this
+	// take width away from a name, which is the invariant, rather than "this
 	// particular name fits", a claim any change to the rail's width would make
 	// true again without fixing anything.
 	// Direct children only: those are the flex items the row's width is shared
@@ -70,8 +70,8 @@ export async function runChrome(
 	}
 
 	// The left rail is one column from under the title to above the status line.
-	// Rooms and direct messages used to scroll in their own boxes, so a long
-	// list of one buried the heading of the other. Both lists share the body
+	// Rooms and direct messages do not scroll in their own boxes, or a long
+	// list of one would bury the heading of the other. Both lists share the body
 	// under `.workspace`, and neither list is a scroller of its own.
 	const railScroll = await tab.evaluate(() => {
 		const scrolling = (el: Element) => {
@@ -120,10 +120,10 @@ export async function runChrome(
 	].filter((said) => said !== false);
 	if (broken.length > 0) fail(`the left rail is not one scroller: ${broken.join("; ")}`);
 	// The roster is the same kind of region with no title or foot of its own, so
-	// `.members-body` is the scroller. The heading used to stay pinned while
-	// the names moved in a box of their own, which is the nested scroller the
-	// rooms list used to be. The pane around it is chrome, not a second
-	// scroller — on a phone that chrome is the sheet handle.
+	// `.members-body` is the scroller. The heading must not stay pinned while
+	// the names move in a box of their own, which would be a nested scroller
+	// like the rooms list. The pane around it is chrome, not a second
+	// scroller, on a phone that chrome is the sheet handle.
 	const rosterBroken = [
 		railScroll.rosterPane && "the pane still scrolls around its body",
 		!railScroll.roster && "the roster body does not scroll",
@@ -143,7 +143,7 @@ export async function runChrome(
 	// with the same kind of thing. Their list labels are still set alike, which
 	// is the other half of reading as one surface.
 	//
-	// Row heights are deliberately not compared: a roster row carries its
+	// Row heights are not compared: a roster row carries its
 	// direct-line button in a column of its own, always showing rather than
 	// revealed, so it stands taller than a rail row by that decision rather than
 	// by an oversight.
@@ -164,8 +164,8 @@ export async function runChrome(
 			return [s.fontSize, s.fontWeight, s.letterSpacing, s.textTransform].join(" ");
 		};
 		return {
-			// The roster row is a person lockup — a chip spanning its two lines
-			// of text — so its name column is set by the chip, not by the other
+			// The roster row is a person lockup, a chip spanning its two lines
+			// of text, so its name column is set by the chip, not by the other
 			// rail's mark column. What is held instead is the lockup's own air:
 			// the name starts a hand's width after the chip, every row.
 			lockupAir: rosterName.getBoundingClientRect().left - rosterChip.getBoundingClientRect().right,
@@ -199,16 +199,16 @@ export async function runChrome(
 
 	// Drawing alike is only half of it: the same treatment has to keep meaning the
 	// same thing. A wash under the pointer means "this row opens", and in both
-	// rails it now does — a room row opens the room, a roster row opens what is
+	// rails it does, a room row opens the room, a roster row opens what is
 	// known about that member, which `member_card.ts` presses. So both light, and
 	// both are asked, because "nothing lights up" is also what a broken selector
 	// looks like.
 	//
 	// This asked the opposite while a roster row had nothing to press. It kept
 	// passing through the change that gave it one, because the wash went on the
-	// button and this reads the row around it — a proof still agreeing with a
-	// design it had stopped describing. The row is the button now, so there is
-	// no longer a gap between them for that to hide in.
+	// button and this reads the row around it, a proof still agreeing with a
+	// design it had stopped describing. The row is the button, so there is
+	// no gap between them for that to hide in.
 	const ground = (row: string) =>
 		tab.evaluate((r) => {
 			const el = document.querySelector(r);
@@ -246,7 +246,7 @@ export async function runChrome(
 	// Anything that truncates has to be tall enough for the text it truncates.
 	// An element that clips horizontally for an ellipsis clips vertically too, so
 	// a line box shorter than the font's own metrics takes the descenders off with
-	// it — a `g` loses its tail, and only on the layout where the truncation is
+	// it, a `g` loses its tail, and only on the layout where the truncation is
 	// switched on. The stylesheet cannot be read for this: it depends on the
 	// font's metrics at the size in force, which is why it is measured here.
 	const descendersIntact = async (where: string) => {

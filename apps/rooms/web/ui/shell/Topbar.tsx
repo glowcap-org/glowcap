@@ -54,7 +54,7 @@ function titleOf(conv: Conv | null, home: DirId | null): { name: string; said: s
 		return { name, said: titleLeaveDirectory(name) };
 	}
 	if (conv.type === "room") {
-		// A held room's leave is one-way — there is no name to walk back in by —
+		// A held room's leave is one-way. There is no name to walk back in by,
 		// and the control is where that has to be said, before it is pressed.
 		return {
 			name: conv.id,
@@ -160,11 +160,11 @@ function TopbarPane(
 	const title = titleOf(conv, homeDir);
 	const isRoom = conv?.type === "room";
 	const isDirectory = conv?.type === "directory";
-	// How many people are here now, rather than how many the room has ever seen —
+	// How many people are here now, rather than how many the room has ever seen:
 	// the roster behind this button draws the same distinction in words.
 	const said = titleMembersHere(memberCount);
 	// The title names the thing you are in. A room is a place, so it wears its
-	// hash — or a lock, if it is private, which is the one place a reader can
+	// hash, or a lock, if it is private, which is the one place a reader can
 	// see without leaving that this room is not one anybody can walk into by
 	// name. A directory wears the same glyph the rail already uses for one. A
 	// direct line is a person, so it wears the same chip the rail and the log
@@ -281,7 +281,7 @@ function TopbarPane(
 			{
 				/* Settings travels with the list: in the rail while it is up, and
 				    on this bar when it is away. It sits to the left of standing,
-				    not beside members — that end of the bar is already the roster. */
+				    not beside members. That end of the bar is already the roster. */
 			}
 			{!railShown && <SettingsButton id="settingsBtn" mobile={mobile} settingsOpen={settingsOpen} />}
 			{
@@ -289,7 +289,7 @@ function TopbarPane(
 			    levels, and the only one that belongs to a conversation rather than
 			    to the reader, which is why it is the only one drawn in a header.
 			    Not on a phone, where the header holds a back mark, a name, and two
-			    controls already; the other two levels are reachable there, from the
+			    controls already. The other two levels are reachable there, from the
 			    foot of the rail and from a directory's card. */
 			}
 			{isRoom && conv !== null && !mobile && (

@@ -18,7 +18,7 @@ pub struct Stored {
 
 /// One exclusive pair of durable documents. Dropping an I/O observation must
 /// not cancel admitted work or release its storage lease. A later read must
-/// refuse while either document has pending work; finish_pending observes each
+/// refuse while either document has pending work. `finish_pending` observes each
 /// completion, including an indeterminate write, before recovery can reload.
 /// Implementations validate document roles and bound reads before allocation.
 pub trait Documents: SessionStorage<Error: std::error::Error + 'static> {
@@ -27,8 +27,8 @@ pub trait Documents: SessionStorage<Error: std::error::Error + 'static> {
 	fn finish_pending(&mut self) -> impl Future<Output = [Option<Completion<Self::Error>>; 2]>;
 }
 
-/// One exclusive document with a fixed role. Read bounds apply before allocation;
-/// replacement validates the role's encoding and byte ceiling before admission.
+/// One exclusive document with a fixed role. Read bounds apply before allocation.
+/// Replacement validates the role's encoding and byte ceiling before admission.
 /// Dropping an observer must retain admitted work and its storage lease until
 /// finish_pending observes the actual outcome. Read and replace refuse while an
 /// earlier observation remains pending. Implementations need not suspend.

@@ -1,5 +1,5 @@
 //! Typed live views carried by a shared-session snapshot. They describe remote
-//! state; none of their identifiers grants local mutation authority.
+//! state. None of their identifiers grants local mutation authority.
 use super::{Field, Id, List, Nullable, Presence, SafeInteger, Text};
 use crate::session::fields::present;
 use crate::{
@@ -12,7 +12,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const MAX_MEMBERS: usize = 512;
+pub const MAX_MEMBERS: usize = crate::server::rooms::MAX_ROSTER_SEEN;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

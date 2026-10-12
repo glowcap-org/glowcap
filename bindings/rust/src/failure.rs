@@ -35,7 +35,7 @@ impl AbortDomain {
 
 /// The typed cause of a connection's most recent local dispatch failure, the
 /// safe projection of `glowcap_host_session_last_abort`. The flat `GLOWCAP_ERR_*`
-/// code names the failure family; this names the member: which layer refused,
+/// code names the failure family. This names the member: which layer refused,
 /// the projected `op:abort` kind when one applies, the originating diagnostic,
 /// any failure publishing that terminal abort, and bounded cleanup/consequence
 /// failures that followed the originating error.
@@ -53,7 +53,7 @@ pub struct AbortInfo {
 	pub abort_delivery_error_name: Option<String>,
 	/// First cleanup or consequence failure after the originating error.
 	pub secondary_error_name: Option<String>,
-	/// Number of secondary failures observed; the first name is retained.
+	/// Number of secondary failures observed. The first name is retained.
 	pub secondary_error_count: u32,
 }
 
@@ -79,10 +79,10 @@ pub enum ErrorKind {
 	Codec,
 	/// An internal invariant failed (`GLOWCAP_ERR_INTERNAL`).
 	Internal,
-	/// The session or connection is closed (`GLOWCAP_ERR_CLOSED`); on a blocking
+	/// The session or connection is closed (`GLOWCAP_ERR_CLOSED`). On a blocking
 	/// transport read this is a clean EOF.
 	Closed,
-	/// A transport I/O operation failed (`GLOWCAP_ERR_IO`); the underlying
+	/// A transport I/O operation failed (`GLOWCAP_ERR_IO`). The underlying
 	/// `std::io::Error` message rides [`Error::message`].
 	Io,
 	/// The frame was malformed (`GLOWCAP_ERR_MALFORMED`).
@@ -94,7 +94,7 @@ pub enum ErrorKind {
 	/// e.g. a handoff, sturdy, or broken target where an immediate value is
 	/// required.
 	UnsupportedValue,
-	/// The partner broke a `send`/`fetch` (`GLOWCAP_ERR_BROKEN`); the break
+	/// The partner broke a `send`/`fetch` (`GLOWCAP_ERR_BROKEN`). The break
 	/// reason rides [`Error::message`].
 	Broken,
 	/// A named lookup found nothing (`GLOWCAP_ERR_NOT_FOUND`).
@@ -111,8 +111,8 @@ pub enum ErrorKind {
 	Other(i32),
 }
 
-/// A failed glowcap call. It always carries the negative `GLOWCAP_ERR_*` code;
-/// match its family with [`kind`](Error::kind) rather than the raw integer. When
+/// A failed glowcap call. It always carries the negative `GLOWCAP_ERR_*` code.
+/// Match its family with [`kind`](Error::kind) rather than the raw integer. When
 /// a `send` was broken by the partner it also carries the break reason, so the
 /// reason a partner gave for refusing a call is not lost behind a code.
 /// Cleanup failures retain their own typed `Error` values in observation order
@@ -204,10 +204,10 @@ impl Error {
 	}
 
 	/// The diagnostic message for this failure. For a broken `send` it is the
-	/// partner's break reason; otherwise it is the calling thread's C ABI message
+	/// partner's break reason. Otherwise it is the calling thread's C ABI message
 	/// captured at the moment the failure was raised, so a later fallible call on
 	/// the same thread cannot overwrite it. `None` when neither was set. Borrowed
-	/// from the error; clone it if you need it to outlive the `Error`.
+	/// from the error. Clone it if you need it to outlive the `Error`.
 	pub fn message(&self) -> Option<&str> {
 		self.detail.as_deref()
 	}
@@ -229,8 +229,8 @@ impl Error {
 	}
 
 	/// The typed abort cause the connection recorded when this failure refused
-	/// an inbound frame; `None` for other failures. The flat
-	/// [`code`](Error::code) names the failure family; this names the member.
+	/// an inbound frame. `None` for other failures. The flat
+	/// [`code`](Error::code) names the failure family. This names the member.
 	pub fn abort(&self) -> Option<&AbortInfo> {
 		self.abort.as_deref()
 	}

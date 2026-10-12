@@ -1,5 +1,5 @@
 //! Exact upstream retirement and local alias removal share one receipt commit.
-//! Refusal preserves selection; committed retirement cannot redirect recovery.
+//! Refusal preserves selection. Committed retirement cannot redirect recovery.
 use super::*;
 use rooms_application::{content::permissions::Permission, content::session::workspace};
 
@@ -460,6 +460,15 @@ async fn run_case(scenario: Scenario, mode: &str) {
 					.unwrap();
 				if expected == "unknown" {
 					unknown_reason(&result);
+				} else if expected == "unsent" {
+					let [status, reason] = result.as_list().expect("Host refusal preserves its diagnostic") else {
+						panic!("known absence diagnostic");
+					};
+					assert_eq!(status.as_str(), Some("refused"));
+					let reason = reason.as_str().expect("scalar refusal reason");
+					assert!(
+						!reason.is_empty() && reason.encode_utf16().count() <= custody::MAX_OBSERVATION_REASON_UNITS
+					);
 				} else {
 					assert_eq!(
 						result.as_str(),

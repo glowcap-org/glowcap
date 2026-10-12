@@ -1,5 +1,5 @@
 //! Exact live facts reconciled into durable Rooms intent. A fact carries the
-//! generation or route it observed; obsolete observations do not write state.
+//! generation or route it observed. Obsolete observations do not write state.
 mod room_context;
 pub use super::fields::{Bearer, Field, Id, Text};
 use super::{
@@ -123,7 +123,7 @@ impl Fact {
 			_ => Impact::Realization,
 		}
 	}
-	/// A stable issue subject within this session; it does not carry bearer text.
+	/// A stable issue subject within this session. It does not carry bearer text.
 	pub fn subject(&self) -> (&'static str, &DocumentText) {
 		match self {
 			Self::DirectoryReached { directory, .. } => ("directory-reached", &directory.0),

@@ -1,14 +1,14 @@
 //! Background listen for the non-argv fronts (MCP and the REPL): bind, reply
 //! with the `ocapn://` locator at once, and accept and serve partners on one
-//! background thread — an accept loop must never park the stdio or prompt
+//! background thread. An accept loop must never park the stdio or prompt
 //! loop that carried the command. The thread owns the bound server and every
-//! accepted session; the fronts share only the stop latch, the accepted
+//! accepted session. The fronts share only the stop latch, the accepted
 //! counter, and byte copies written before the thread starts. The process
 //! `gpa` and `Io` are documented threadsafe. Without that the thread could
 //! not use them at all.
 //!
 //! One listener per process context. A second `listen` refuses while one is
-//! held; `close` (which also drops the held session) and process teardown
+//! held. `close` (which also drops the held session) and process teardown
 //! stop the thread through the latch, which the accept wait polls on the
 //! same cadence the argv front polls its signal latch.
 
@@ -41,7 +41,7 @@ pub const Handle = struct {
     gpa: std.mem.Allocator,
     /// The listening transport's residents. They live here rather than on
     /// `start`'s frame because the server borrows one for the accept thread's
-    /// whole life; which one is chosen is `ocapn.listenTarget`'s decision.
+    /// whole life. Which one is chosen is `ocapn.listenTarget`'s decision.
     relay: ?relay_runtime.Provider = null,
     server: *driver.Server,
     thread: std.Thread = undefined,
@@ -52,12 +52,12 @@ pub const Handle = struct {
     once: bool,
     /// Owned copy of the bound locator, for `info` and refusal messages.
     locator: []u8,
-    /// Why the accept loop stopped, when it stopped by itself — a fault's
+    /// Why the accept loop stopped, when it stopped by itself: a fault's
     /// error name, or `served_stop` after a `--once`/`--publish` listener
     /// answered its one partner. Read by the fronts so a listener that is no
     /// longer accepting, for either reason, cannot keep reporting itself as
     /// listening. The bound socket stays held either way, so the locator in
-    /// `info` stays honest.
+    /// `info` stays accurate.
     stop_reason: std.atomic.Value(?[*:0]const u8) = std.atomic.Value(?[*:0]const u8).init(null),
     /// First failure owned by the accept thread. It is read after `join` and
     /// becomes the close operation's primary cause, rather than an info-only
@@ -68,11 +68,11 @@ pub const Handle = struct {
     test_control: TestControl = .{},
 
     /// The benign stop: the one-partner listener served its partner and went
-    /// quiet by design.
+    /// quiet.
     pub const served_stop: [*:0]const u8 = "served its one partner";
 
     /// Test-only control for producing a listener failure on the accept
-    /// thread. The acknowledgement is the synchronization point; tests must
+    /// thread. The acknowledgement is the synchronization point. Tests must
     /// still use `shutdown`/`cmdClose` before observing the failure itself.
     pub const testing = if (zig_builtin.is_test) struct {
         pub fn requestTerminalFailure(handle: *Handle) void {
@@ -170,7 +170,7 @@ fn consumeTestTerminalFailure(handle: *Handle) bool {
 /// The non-argv `listen`: bind now, answer with the locator now, accept in
 /// the background until `close` or teardown. `--once` / `--publish` serve
 /// one partner and then go quiet (the bound socket stays held until the
-/// listener is closed, so the locator in `info` stays honest).
+/// listener is closed, so the locator in `info` stays accurate).
 pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
     if (ctx.background_listener != null) {
         ctx.logErr("a listener is already running (see `info`); `close` it first", .{});
@@ -197,7 +197,7 @@ pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
     const handle = try ctx.gpa.create(Handle);
     handle.relay = null;
     // `errdefer` fires only on an error return, and this verb reports its
-    // refusals as exit codes — a plain `return`. So ownership is tracked with
+    // refusals as exit codes (a plain `return`). So ownership is tracked with
     // a flag and released by `defer`, which covers every exit.
     var handed_over = false;
     defer if (!handed_over) {
@@ -248,7 +248,7 @@ pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
     handle.thread_joined = false;
     handle.server_closed = false;
     handle.thread = try std.Thread.spawn(.{}, acceptLoop, .{handle});
-    // The handle now owns the server and itself; the accept thread is live.
+    // The handle owns the server and itself; the accept thread is live.
     server_owned = false;
     handed_over = true;
     ctx.background_listener = handle;
@@ -316,8 +316,8 @@ fn acceptLoop(handle: *Handle) void {
     }
 }
 
-/// Serve until the partner leaves or the stop latch fires — the background
-/// twin of the argv front's signal-latched serve. A partner drop is quiet; any
+/// Serve until the partner leaves or the stop latch fires. This is the background
+/// twin of the argv front's signal-latched serve. A partner drop is quiet. Any
 /// other step failure is this loop's primary and is stored for `info`.
 fn serveUntilStop(session: *driver.Session, handle: *Handle) ServeOutcome {
     while (!handle.stop.load(.acquire)) {

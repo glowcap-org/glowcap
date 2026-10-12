@@ -2,7 +2,7 @@
  * What to call a session, and what to call one of its ends.
  *
  * A session has no name of its own. Nothing in the document names one, and
- * its id is an OCapN Session ID — sixty-four characters the network chose —
+ * its id is an OCapN Session ID, sixty-four characters the network chose,
  * so the two ends it joins are its name, and "alice · carol" is what a
  * reader recognizes it by.
  *
@@ -14,7 +14,7 @@
  *
  * It takes a document and a moment rather than an engine, because the
  * moment differs by surface and the rule does not. A panel reads at the
- * playhead, so it asks what the session is called now; a timeline row
+ * playhead, so it asks what the session is called now. A timeline row
  * covers a whole life, so it asks what it ended up called.
  *
  * A leaf above the document: it reads the temporal resolvers and nothing
@@ -58,7 +58,7 @@ export const SESSION_PAIR_SEPARATOR = " · ";
  *
  * A peer with no name of its own wears its id (`PEER_TRAJECTORY.label`
  * falls back to it), and in a live recording that id is the peer's
- * designator — sixty-four characters of key for a keyed netlayer. So the
+ * designator, sixty-four characters of key for a keyed netlayer. So the
  * peer arm reports `opaque` too when the name it found is the id, and a
  * caller that renders one end as its own element shortens it the way it
  * shortens a claim.
@@ -82,8 +82,8 @@ export function sessionEndName(
  * What to call a session in one line of text: the pair it joins, at `t`.
  *
  * Every part is shortened, whichever kind of name it turned out to be.
- * This is a phrase that has to fit somewhere — a sentence, an option in a
- * dropdown, a pill on a timeline row — and a sixty-four character word
+ * This is a phrase that has to fit somewhere, a sentence, an option in a
+ * dropdown, a pill on a timeline row, and a sixty-four character word
  * inside one has nowhere to break. `elideIdentifier` leaves anything short
  * alone, so a pair of real names is untouched.
  *

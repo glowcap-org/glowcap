@@ -1,4 +1,4 @@
-//! The deployment keeps the issuer bearer; browsers receive only validated,
+//! The deployment keeps the issuer bearer. Browsers receive only validated,
 //! expiring TURN records. Issuer work is bounded and never falls back silently.
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full, Limited};

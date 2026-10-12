@@ -37,7 +37,7 @@ const connRemoteKey = sidecar.connRemoteKey;
 ///
 /// Construct with `initBound` over a `Resident`'s endpoint, then
 /// `completion.Loop(Backend, DialResolver).initWithBackend`. `initBound` builds
-/// the ordinary platform backend; `initBoundWithPlatform` accepts a configured
+/// the ordinary platform backend. `initBoundWithPlatform` accepts a configured
 /// adapter such as keyed-relay. Iroh and stopper readiness are ordinary
 /// nonblocking recv operations on borrowed descriptors owned by the resident
 /// and wake channel respectively.
@@ -53,7 +53,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             platform: Platform.ConnectTarget,
         };
 
-        /// Sentinel listen handle: not an OS fd; `openListener` returns it after
+        /// Sentinel listen handle: not an OS fd. `openListener` returns it after
         /// arming non-blocking accept on the endpoint.
         pub const listen_fd: Fd = Namespace.fdFromComptimeId(0);
 
@@ -119,7 +119,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
 
         allocator: std.mem.Allocator,
         platform: Platform,
-        /// Borrowed; must outlive the backend.
+        /// Borrowed. Must outlive the backend.
         resident: *Resident,
         endpoint: *CEndpoint,
         readiness_fd: Fd,
@@ -134,7 +134,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         /// count makes admission cumulative and lets completion stay infallible
         /// after sidecar bytes or an event have been consumed.
         ready_reserved: usize = 0,
-        /// Accepted connections waiting for a `submitAccept` to claim them — edge-
+        /// Accepted connections waiting for a `submitAccept` to claim them, edge-
         /// triggered accept can queue several before the loop re-arms.
         accept_stash: std.ArrayList(*CConn) = .empty,
         accept_ud: ?u64 = null,
@@ -146,7 +146,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         /// sidecar request id, making cancellation and retirement addressable.
         pending_dials: std.AutoHashMap(Fd, u64),
         /// Stopper wake polled beside the sidecar readiness fd. Iroh readiness is
-        /// owned by the sidecar; loop-owner cancellation is a separate userspace
+        /// owned by the sidecar. Loop-owner cancellation is a separate userspace
         /// event and should not ride a timeout-polled side channel. The adapter
         /// drains this channel itself after the platform reports readability, so
         /// coalesced nudges cost one owner turn rather than one completion each.
@@ -234,7 +234,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
 
         /// Wake a parked `poll` so owner-thread stop or teardown state can be
         /// observed without timeout polling. Carries no authority and records no
-        /// transport readiness; the next harvest drains the nudge and then observes
+        /// transport readiness. The next harvest drains the nudge and then observes
         /// the state the caller already changed.
         pub fn wake(self: *Self) net.wake_channel.Failure!void {
             try self.wake_failure.check();
@@ -244,7 +244,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             };
         }
 
-        /// An endpoint accepts on its node id; there is nothing to choose.
+        /// An endpoint accepts on its node id. There is nothing to choose.
         pub const ListenTarget = void;
 
         pub fn loopListenTarget(_: u16) ListenTarget {}
@@ -256,8 +256,15 @@ pub fn CompletionBackend(comptime Platform: type) type {
             return listen_fd;
         }
 
+        /// The accept endpoint is enabled when `openListener` returns;
+        /// nothing pends.
+        pub fn listenerPending(self: *const Self, _: Fd) bool {
+            _ = self;
+            return false;
+        }
+
         /// Start an outbound dial in the layer that resolved it. Iroh reserves a
-        /// synthetic handle immediately; delegated targets retain the wrapped
+        /// synthetic handle immediately. Delegated targets retain the wrapped
         /// backend's handle and completion semantics unchanged.
         pub fn startDial(self: *Self, user_data: u64, target: Self.ConnectTarget) !Fd {
             return switch (target) {

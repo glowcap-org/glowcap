@@ -29,10 +29,10 @@ pub(super) type Policy = Directory<u64, Ref>;
 pub(super) type Shared = Rc<RefCell<State>>;
 
 /// Work the serving loop runs on the policies' behalf, outside any turn.
-/// The channel is bounded by `WORK_LIMIT`; a verb whose work cannot be
+/// The channel is bounded by `WORK_LIMIT`. A verb whose work cannot be
 /// queued is refused, so a flood parks at the caller rather than in memory.
 pub(super) enum Work {
-	/// Deliver an offer to its target's signaling inbox; once the target has
+	/// Deliver an offer to its target's signaling inbox. Once the target has
 	/// taken it, tell the originator `accepted`.
 	Offer {
 		id: String,
@@ -66,6 +66,8 @@ struct Connection {
 	session: Session,
 	files: super::files::Capabilities,
 	claimant: Option<String>,
+	subject: super::admission::Subject,
+	data_admitted: bool,
 	operator_id: String,
 	/// The room presence last stated on the live trace for this session:
 	/// the nick of its membership, or none. Stated again only when it
@@ -82,10 +84,11 @@ pub(super) struct SessionFace {
 }
 
 pub(super) struct State {
+	pub admission: super::admission::Admission,
 	pub policy: Policy,
 	pub rooms: Rooms<u64, Ref>,
 	pub irc: super::irc::Runtime,
-	/// The durable authority as last installed; the loop's authority worker
+	/// The durable authority as last installed. The loop's authority worker
 	/// is the one writer.
 	pub authority: Authority,
 	pub authority_writer: super::authority::queue::Handle,
@@ -101,7 +104,7 @@ pub(super) struct State {
 	/// borrows.
 	pub journal: RefCell<Journal>,
 	/// The operator's revision and watchers, moved by every change an
-	/// inventory reads; a cell for the same reason as the journal.
+	/// inventory reads. A cell for the same reason as the journal.
 	pub operator: RefCell<Revision<u64, Ref>>,
 	/// Rooms other directories publish here.
 	pub foreign: Foreign<u64, Ref>,
@@ -146,8 +149,10 @@ impl State {
 		work: mpsc::Sender<Work>,
 		history: Option<mpsc::Sender<Persist>>,
 		report: Report,
+		admission: rooms_application::admission::Settings,
 	) -> Self {
 		Self {
+			admission: super::admission::Admission::new(admission),
 			policy: Policy::default(),
 			rooms,
 			irc: Default::default(),
@@ -224,6 +229,8 @@ impl State {
 		self.connections.insert(
 			id,
 			Connection {
+				subject: super::admission::Subject::new(claimant.as_deref(), id),
+				data_admitted: false,
 				session,
 				files: Default::default(),
 				claimant,
@@ -233,6 +240,15 @@ impl State {
 		);
 		self.changed();
 		id
+	}
+	pub fn admission_context(&self, connection: u64) -> Result<(super::admission::Subject, bool, bool), String> {
+		let held = self.connections.get(&connection).ok_or("caller connection has ended")?;
+		Ok((held.subject, held.claimant.is_some(), held.data_admitted))
+	}
+	pub fn mark_data_admitted(&mut self, connection: u64) {
+		if let Some(held) = self.connections.get_mut(&connection) {
+			held.data_admitted = true;
+		}
 	}
 	pub fn session(&self, connection: u64) -> Option<&Session> {
 		self.connections.get(&connection).map(|held| &held.session)
@@ -344,6 +360,10 @@ impl State {
 	}
 	/// The shared handle actors capture, once the owner is shared.
 	pub fn shared(&self) -> Shared {
+		#[expect(
+			clippy::expect_used,
+			reason = "`share` stores the handle before any actor can call `shared`"
+		)]
 		self.shared
 			.upgrade()
 			.expect("the state is shared for as long as any actor can call it")
@@ -533,7 +553,7 @@ impl State {
 		}
 	}
 	/// Return a capability to the session that imported it. A session that
-	/// has closed already let its imports go; dropping the handle then parks
+	/// has closed already let its imports go. Dropping the handle then parks
 	/// the release for the Host's own cleanup.
 	pub fn give_back(&self, connection: u64, capability: Ref) {
 		match self.connections.get(&connection) {

@@ -3,8 +3,8 @@ import { KNOWN_PROFILES } from "../schema/topology.ts";
 
 /** Per-state segment fill colors for the Scrubber's session pills.
  *  The labels overlaid on segments are painted in white, so each entry
- *  is a deep, saturated tone with luminance well below the white text
- *  — bright themed.positive / themed.warning would wash out the text.
+ *  is a deep, saturated tone with luminance well below the white text.
+ *  Bright themed.positive / themed.warning would wash out the text.
  *  Theme-independent because both themes render white labels on top. */
 const SESSION_STATE_SEGMENT_COLORS: Record<SessionState, number> = {
 	open: 0x047857, // emerald-700
@@ -31,7 +31,7 @@ import type { Theme } from "../ui/tokens.ts";
 /** A color for each profile the schema declares. Typed by
  *  `KNOWN_PROFILES`, so a profile added there without a color fails
  *  the build rather than quietly painting as the fallback. A feed may
- *  still report a profile this build has never heard of — that is
+ *  still report a profile this build has never heard of. That is
  *  what `PROFILE_FALLBACK_COLOR` is for. */
 export const PROFILE_COLORS: Record<typeof KNOWN_PROFILES[number], number> = {
 	glowcap: 0xf59e0b,
@@ -76,7 +76,7 @@ function contrastRatio(a: number, b: number): number {
 /** A glyph tone that stays readable on `fill`: whichever of ink and
  *  paper contrasts with it more. A peer's pill is a categorical
  *  encoding chosen per entity (its profile paints amber, violet, or
- *  slate), so no single glyph color reads on all of them —
+ *  slate), so no single glyph color reads on all of them,
  *  glowcap's amber swallowed a muted grey diamond whole. Compared
  *  rather than split at a luminance threshold, because the slate
  *  fallback sits near the middle and a threshold picks it wrong.
@@ -109,7 +109,7 @@ export type CodecLineStyle = "solid" | "dashed" | "dotted";
 /** The line style each built-in codec is drawn with, said once. The stage edge,
  *  the Inspector's session swatch and the Legend all read it, so the mark in the
  *  key is the mark on the picture. Spelled as CSS names because two of those
- *  three draw a border; the stage reads it as a drawing style. */
+ *  three draw a border. The stage reads it as a drawing style. */
 export const CODEC_LINE_STYLE: Record<BuiltinCodec, CodecLineStyle> = {
 	capnp: "solid",
 	syrup: "dashed",
@@ -132,7 +132,7 @@ export const DASH_PATTERN: readonly [number, number] = [12, 6];
 export const DOT_PATTERN: readonly [number, number] = [2, 6];
 
 /** Light-theme message-in-flight color. The renderer goes through
- * `themedColors().messageInFlight`; the legend cites this token
+ * `themedColors().messageInFlight`. The legend cites this token
  * directly (always rendered against chrome). */
 export const MESSAGE_IN_FLIGHT_COLOR = 0xef4444;
 

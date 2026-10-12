@@ -243,7 +243,7 @@ class _LifecycleMixin(HostMixinBase):
         advance close-relevant state returns: a byte feed, a drained action
         batch, a resolver settle, a close call (escalation), or a session
         release. Over-signaling is harmless because the drivers re-check
-        progress; a missed source is a hang. Binding-internal."""
+        progress. A missed source is a hang. Binding-internal."""
         self._close_activity.set()
 
     def _close_wait_ms(self) -> int:
@@ -262,7 +262,7 @@ class _LifecycleMixin(HostMixinBase):
 
     async def wait_close_wake(self) -> None:
         """Park a close driver until host activity or the nearest native
-        FINISH grace deadline; with no finite deadline pending the driver
+        FINISH grace deadline. With no finite deadline pending the driver
         parks on activity alone. The caller armed the activity event before
         its progress read. Binding-internal: :meth:`_drive_release` and the
         byte-fed session close drive wait through it."""

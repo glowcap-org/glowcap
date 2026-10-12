@@ -1,7 +1,7 @@
 """Internal: distributed GC (ADR-0063), opt-in and off by default. Owns the
 Host-wide :class:`HostGc` state, recursive application-value tracking / verb-head
 ``drain_gc`` choreography, and ``glowcap_host_ref_release``. Session keeps
-``with_gc`` as a thin opt-in; public vow lifetime uses the same Host-owned
+``with_gc`` as a thin opt-in. Public vow lifetime uses the same Host-owned
 finalizer scheduler but is mandatory.
 """
 
@@ -105,8 +105,8 @@ class HostGc:
 
     def track_ref(self, ref: "Ref") -> "Ref":
         # Register one projected capability occurrence for GC. The id is an
-        # opaque Host-scoped identity (ADR-0096) — the application projection
-        # seam scopes tracking, never an id-range branch — and the host
+        # opaque Host-scoped identity (ADR-0096), the application projection
+        # seam scopes tracking, never an id-range branch, and the host
         # resolves it to its home connection and real wire import when the
         # release fires. The finalizer captures only the bare id integer,
         # never the `Ref`, so it cannot resurrect the handle whose death it
@@ -125,9 +125,9 @@ class HostGc:
     def track_argument(self, value: "Argument") -> "Argument":
         """Track every capability occurrence in a native-projected value.
 
-        Containers stay intact; only ``Ref`` leaves receive finalizers. Native
+        Containers stay intact. Only ``Ref`` leaves receive finalizers. Native
         projection minted one Host retain per occurrence, so equal ids in two
-        leaves intentionally receive two independent death rites.
+        leaves receive two independent death rites.
         """
         if isinstance(value, Ref):
             return self.track_ref(value)
@@ -155,7 +155,7 @@ class HostGc:
 
     def _on_capability_dropped(self, token: int) -> None:
         # Runs when the last `Ref` is collected, possibly off the loop thread:
-        # park the id and hop to the loop to drain it — ref_release never
+        # park the id and hop to the loop to drain it: ref_release never
         # runs from a finalizer thread.
         with self._lock:
             h = self._h

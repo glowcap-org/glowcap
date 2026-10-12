@@ -1,5 +1,5 @@
 //! Relay URL admission. Live DNS acquisition is exercised by the resident
-//! loopback in `keyed_relay_test.zig`; these cases pin the bounded grammar.
+//! loopback in `keyed_relay_test.zig`. These cases pin the bounded grammar.
 
 const std = @import("std");
 const glowcap = @import("glowcap");

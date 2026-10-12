@@ -6,13 +6,13 @@
 .draft = false,
 ---
 
-If capabilities are new to you, read [Why OCapN]($link.page('why')) first.
-That page explains why capabilities matter; this one explains how they work. To see where `Session`, `Host`, and
-`Peer` fit, use [modules]($link.page('modules')).
+This page explains how capabilities work. [Why OCapN]($link.page('why'))
+explains why they matter, and [modules]($link.page('modules')) shows where
+`Session`, `Host`, and `Peer` fit.
 
 # A capability is a reference
 
-The whole protocol rests on the ordinary object reference. Code that holds a
+Code that holds a
 reference to an object can call it. Code that was never handed one cannot,
 and there is no way to manufacture one from bytes.
 [CapTP](https://web.archive.org/web/20250114141521/http://erights.org/elib/distrib/captp/) is the protocol that keeps
@@ -21,13 +21,12 @@ this true between two programs on a network.
 [Spritely Goblins](https://spritely.institute/goblins/) is the implementation
 most readers already know, and the peer glowcap checks against.
 
-Most things you would normally build permission infrastructure for turn out
-to be ways of passing references around. Hand one along and you have
-delegated. Wrap one in an object that only forwards some methods, hand out
+Most permission features turn out to be ways of passing references around.
+Hand one along and you have delegated. Wrap one in an object that only forwards some methods, hand out
 the wrapper, and you have attenuated. Cut the wrapper and you have revoked.
 [Why OCapN]($link.page('why')) walks all three with pictures.
 
-[A capability is a reference. Pass it as an argument and the partner can call it; without it there is nothing else to reach for.]($image.siteAsset('diagram-capability.svg'))
+[A capability is a reference. Pass it as an argument and the partner can call it. Without it there is nothing else to reach for.]($image.siteAsset('diagram-capability.svg'))
 
 A call takes two messages. Your side sends a `deliver` message, and you
 immediately hold a promise for the answer. Later, the partner sends back a
@@ -37,8 +36,8 @@ immediately hold a promise for the answer. Later, the partner sends back a
 
 # Getting the first reference: locators and sturdyrefs
 
-References only come from other references, which makes the very first one a
-special problem. That is the locator's job. A locator is an address string:
+References only come from other references, so the first one needs a locator,
+an address string:
 
 ```
 ocapn://<designator>.<transport>
@@ -47,13 +46,12 @@ ocapn://<designator>.<transport>
 The **designator** names the peer: an iroh node id, a public key for Noise
 and keyed transports, a Tor service id, or a `host:port` for testing-only
 `tcp`. Optional `?key=value` **hints** carry routing help, like the socket
-address for a keyed listener. Hints can only help you reach a peer; they
+address for a keyed listener. Hints can only help you reach a peer. They
 carry no authority of their own.
 
 Dialing a locator opens a session. The **bootstrap object** is the one
-capability available at first. You fetch a
-published name from it and get back a live reference. From there you are in
-the reference-passing world and the locator has done its whole job.
+capability available at first. You fetch a published name from it and get
+back a live reference, and from there references come from references.
 
 A **sturdyref** is a locator with a **swiss number** on the end, and it names
 one object. It is a reference you can write down, for example in a config
@@ -61,9 +59,8 @@ file. Redeeming a sturdyref means dialing the peer and fetching that object.
 
 The name you fetch is the swiss number. Anyone who can reach the peer and
 knows the name can fetch the object, so a name is only as private as it is
-hard to guess. The examples publish short names like `"greeter"` to keep them
-readable, and anyone can fetch those. Give anything private a long random
-name.
+hard to guess. The examples use short names like `"greeter"` for readability.
+Give anything private a long random name.
 
 A name can be published for one partner or for everyone. A `Session`
 publication answers only the partner on that session. A Host-wide publication
@@ -85,17 +82,15 @@ names on disk, and restores an object when a peer fetches its name.
 
 [Everything left of the hints is an address, and none of it is authority. Only the swiss number names something you can be given.]($image.siteAsset('diagram-locator.svg'))
 
-> **Swiss number**: holding the string *is* the permission; there is no
+> **Swiss number**: holding the string *is* the permission. There is no
 > permission list and no login. The name comes from the numbered Swiss bank
 > account, where the number alone is the access.
 
 The
 [sturdyref diagrams](https://github.com/jimisaacs/glowcap/blob/main/docs/protocol-diagrams/07-sturdyrefs-and-locators.md)
-go deeper, and [Transports]($link.page('transports')) explains what a netlayer
-is. [Choosing a transport]($link.page('transports/choosing')) lists the ones a
-locator can name. A peer reachable over several transports can carry them
-under one key with the
-[multi-home locator]($link.page('multihome')).
+go deeper. [Transports]($link.page('transports')) explains what a locator can
+name, and a [multi-home locator]($link.page('multihome')) carries several
+transports under one key.
 
 # Promise pipelining
 
@@ -104,12 +99,12 @@ call methods on that promise right away. Those calls travel to the peer and
 queue against the pending answer, so they run the moment it settles, over
 there, without another round trip from you.
 
-The practical effect: you ask a task board for a column, then ask that column
-for a card, and both questions cross the network in one flight. Chapter 06,
+Ask a task board for a column, then ask that column for a card, and both
+questions cross the network in one flight. Chapter 06,
 [pipeline and attenuate](https://github.com/jimisaacs/glowcap/blob/main/examples/zig/06_pipeline_and_attenuate.zig),
-runs exactly that, and the
+runs that, and the
 [promises and pipelining](https://github.com/jimisaacs/glowcap/blob/main/docs/protocol-diagrams/03-promises-and-pipelining.md)
-diagrams draw the flow the code is checked against.
+diagrams draw it.
 
 # Three-party handoff
 
@@ -128,10 +123,10 @@ The handoff runs in four stages:
 
 In glowcap you never handle the gift bytes. When a call's answer is an
 introduction, glowcap redeems it for you, and the call you were already
-waiting on settles as the introduced capability. There is no redeem step to
-write. This holds for the Zig Host, the completion loop, and all four
-bindings. Only the low-level `BlockingSession` hands the gift to you. In the Rooms chat, the _Message_ button is this kind of
-introduction: the room hands you a live reference to the other member.
+waiting on settles as the introduced capability. Only the low-level
+`BlockingSession` hands you the gift instead. In the Rooms chat, the
+**Message** button is this kind of introduction: the room hands you a live
+reference to the other member.
 
 Chapter 02,
 [introduce and redeem](https://github.com/jimisaacs/glowcap/blob/main/examples/zig/02_introduce_and_redeem.zig),
@@ -141,18 +136,15 @@ diagrams draw it.
 
 # Which dialect answers
 
-Two peers have to agree on a CapTP **version** and a **codec** before
-anything else can happen. Each side has a ranked menu of what it can speak.
-Both sides apply the same rule to the two menus, and the most preferred entry
-they share wins. If the menus share nothing, no session opens.
-
-The menus never cross the wire. What each side sends is a signed hello that
-names the version it chose and the optional features it offers.
+Two peers have to agree on a CapTP **version** and a **codec** first. Each side
+has a ranked menu, both apply the same rule to the two menus, and the most
+preferred shared entry wins. If the menus share nothing, no session opens. The
+menus never cross the wire: each side sends a signed hello naming the version
+it chose and the optional features it offers.
 
 [Syrup](https://github.com/ocapn/syrup) and Cap'n Proto are codecs, two ways
-of writing the same message down. Session logic never changes with the codec,
-and
-[Codecs]($link.page('codecs')) weighs the two that ship.
+of writing the same message down. Session logic never changes with the codec.
+[Codecs]($link.page('codecs')) compares them.
 
 [Both peers run the same rule over the two menus and reach the same pick.]($image.siteAsset('diagram-negotiation.svg'))
 
@@ -177,14 +169,14 @@ When your program drops a far reference, distributed garbage collection tells
 the peer with `op:gc-exports` or `op:gc-answers`, and the peer frees the unused
 slot. Rust does this by default for every session on a Host, because `Drop`
 runs at a known point. TypeScript, Python, and Racket release through
-finalizers that run on their own schedule, so you turn it on per session. This covers fetch results, fulfilled far answers, and
-capabilities nested inside delivered arguments. When it is off, table entries
-stay until the session ends. The
+finalizers that run on their own schedule, so you turn it on per session. It
+covers fetch results, fulfilled far answers, and capabilities nested inside
+delivered arguments. When it is off, table entries stay until the session
+ends. The
 [GC](https://github.com/jimisaacs/glowcap/blob/main/docs/protocol-diagrams/05-gc.md)
 diagrams draw it.
 
 The
 [diagram catalog](https://github.com/jimisaacs/glowcap/blob/main/docs/protocol-diagrams/README.md)
-shows the protocol flows in full. [What you can depend on]($link.page('stability'))
-explains the evidence behind them. When you are ready to write a client,
-[Start building]($link.page('start')) takes you through it.
+shows the protocol flows in full. To write a client, go to
+[Start building]($link.page('start')).

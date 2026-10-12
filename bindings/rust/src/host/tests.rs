@@ -400,6 +400,12 @@ fn refused_publication_attaches_panicking_actor_cell_drop() {
 		.unwrap();
 	let entropy = [0u8; Host::DURABLE_ENTROPY_BYTES - 1];
 	let mut swiss = [0u8; crate::abi_constants_gen::HOST_DURABLE_SWISS_LEN];
+	// SAFETY: `register_actor_cell` is called directly with `cell`, the fresh unregistered `ActorCell` that
+	// `actor_cell` just boxed, so nothing else holds it; the closure makes the one `glowcap_host_publish_durable` call
+	// on `host.shared.raw`, the live handle of the `Host` this test owns. `entropy` is one byte short, so
+	// the host refuses the call, and a refusal leaves the cell unregistered for `register_actor_cell` to reclaim;
+	// `swiss` is a local buffer that outlives the call, and `trampoline` and `ctx_free` are the binding's callbacks for
+	// an `ActorCell`.
 	let error = unsafe {
 		register_actor_cell(
 			cell,
@@ -471,6 +477,9 @@ fn a_finite_finish_close_reports_its_timeout_and_a_repeat_observes_it() {
 		let pending = crate::Locator::bare(crate::abi_constants::TRANSPORT_TCP, "127.0.0.1:1");
 		let owned = crate::uri::OwnedLocator::new(&pending).unwrap();
 		let mut ptr = core::ptr::null_mut();
+		// SAFETY: `host.shared.raw()` is the `GlowcapHost` handle of the `Host` this test owns, live until the test
+		// ends; `owned.borrow_view()` is a view into `owned`, a local `OwnedLocator` that outlives the call, and `ptr`
+		// is a local out-parameter the callee fills with a host-owned session handle.
 		check_host(unsafe {
 			ffi::glowcap_host_session_open_dialed_locator(host.shared.raw(), owned.borrow_view().unwrap(), &mut ptr)
 		})

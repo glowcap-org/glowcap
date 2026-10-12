@@ -1,30 +1,30 @@
-//! Architecture gate — checks the layer table against the source tree.
+//! Architecture gate: checks the layer table against the source tree.
 //!
 //! The layer dependency DAG itself is enforced by the compiler: each `src/`
 //! layer is an internal build.zig module with an explicit one-way import table
-//! (`layer_table` in build.zig — ADR-0040, and ADR-0048 for the sibling-codec
-//! modules below the codec layer), so a cross-layer reach is a compile error —
+//! (`layer_table` in build.zig, ADR-0040, and ADR-0048 for the sibling-codec
+//! modules below the codec layer), so a cross-layer reach is a compile error,
 //! a layer cannot even name a file outside its module root. This gate receives
 //! that same table and walks `src/**/*.zig` to hold what the compiler alone
 //! does not:
 //!
-//!   * every granted edge is alive — a layer whose files never `@import` a
+//!   * every granted edge is alive, a layer whose files never `@import` a
 //!     granted module name fails the gate, so the table carries the edges the
-//!     code uses, never a wider silent allowance (ADR-0040);
-//!   * every layer-module import is declared — a claimed file that `@import`s
+//!     code uses, never a wider silent allowance (ADR-0040),
+//!   * every layer-module import is declared, a claimed file that `@import`s
 //!     a layer name outside its row's granted edges fails, so an
 //!     injected-module seam (a module wired outside `graphFromTable`) cannot
-//!     widen the real dependency graph invisibly; the sanctioned injections
-//!     are allowlisted per file in `injected_layer_imports` below;
-//!   * every file belongs to a declared layer — under a module graph an
+//!     widen the real dependency graph invisibly. The sanctioned injections
+//!     are allowlisted per file in `injected_layer_imports` below,
+//!   * every file belongs to a declared layer, under a module graph an
 //!     unwired directory is silently-dead code, so an unclaimed file fails
-//!     loud instead;
+//!     loud instead,
 //!   * core layers (the sync, no-I/O core) carry no `std.Io`, sockets,
-//!     filesystem handles, threads, or schedulers — with the one sanctioned
-//!     GiftRegistry atomic (ADR-0009);
+//!     filesystem handles, threads, or schedulers, with the one sanctioned
+//!     GiftRegistry atomic (ADR-0009),
 //!   * portable code names no platform syscall namespace (`std.os.linux` /
-//!     `std.os.windows`) — only platform-gated backends may;
-//!   * no production module names `std.testing` — test vocabulary and the
+//!     `std.os.windows`), only platform-gated backends may,
+//!   * no production module names `std.testing`, test vocabulary and the
 //!     copy helpers it anchors live under `test/`, never in `src/`.
 //!
 //! Wired as the `zig build arch-check` step and into `zig build check`.
@@ -37,13 +37,13 @@ const Step = Build.Step;
 /// One row of the layer DAG. The authoritative table is `layer_table` in
 /// build.zig: build graphs are generated from it and this gate verifies it.
 pub const LayerSpec = struct {
-    /// Module/import name — internal vocabulary (ADR-0040).
+    /// Module/import name: internal vocabulary (ADR-0040).
     name: []const u8,
     /// The `src/`-relative file set: a directory prefix ending in `/`, or an
     /// exact `.zig` path for a single-file module. The longest matching prefix
     /// claims a file, so a nested module's files never count as its parent's.
     prefix: []const u8,
-    /// The modules this layer may import — the one-way edge table.
+    /// The modules this layer may import, the one-way edge table.
     imports: []const []const u8,
     /// True for the sync, no-I/O core: bans `std.Io`, `std.net`,
     /// `std.fs.File`, `std.Thread`, and (one sanctioned exception) `std.atomic`.
@@ -51,7 +51,7 @@ pub const LayerSpec = struct {
     /// True (the default) for a normal layer materialized into the build graph
     /// by `graphFromTable`. False for an out-of-graph artifact that this gate
     /// still claims (file coverage, edge liveness, and the I/O bans) but that is
-    /// built outside the layer DAG — the iroh C ABI (`c_abi_net_transport_iroh`) links the Rust
+    /// built outside the layer DAG, the iroh C ABI (`c_abi_net_transport_iroh`) links the Rust
     /// sidecar and imports the injected `iroh` resident, neither expressible as a
     /// DAG edge, so it is minted by `irohAbiModule`, not here.
     graph: bool = true,
@@ -183,7 +183,7 @@ pub fn check(
         }
 
         // No-I/O-in-core ban. `std.Io` is the I/O seam, but the core must also
-        // not reach a socket or the filesystem directly — `std.net` and
+        // not reach a socket or the filesystem directly, `std.net` and
         // `std.fs.File` are I/O the adapters own, so a core layer touching them
         // is the same boundary violation by another name.
         const standard = try arch_std.inspect(gpa, contents);
@@ -205,14 +205,14 @@ pub fn check(
         // No-scheduler / no-threading-in-core ban. The Core Boundary
         // (docs/architecture.md) forbids background tasks and hidden schedulers,
         // not only std.Io. `std.Thread` is never allowed in a core layer for
-        // spawning or scheduling, and `std.atomic` is never allowed at all —
+        // spawning or scheduling, and `std.atomic` is never allowed at all,
         // concurrency primitives belong in adapters. One sanctioned exception:
         // `std.Thread.getCurrentId` in the byte-fed Host admission owner
         // asserts the single-owning-thread contract already in prose
-        // (ADR-0072) — affinity
-        // only, never spawn — allowlisted by path so any other core atomic /
-        // Thread still fails loud. (The engine's GiftRegistry carries no lock;
-        // ADR-0056 deleted the prior spinlock, so no atomic is sanctioned there.)
+        // (ADR-0072): affinity
+        // only, never spawn, allowlisted by path so any other core atomic /
+        // Thread still fails loud. (The engine's GiftRegistry carries no lock,
+        // so no atomic is sanctioned there.)
         const allows_thread_id = std.mem.endsWith(u8, file_path, "driver/core/host/admission.zig");
         if (spec.core and !allows_thread_id and standard.thread) {
             try violations.append(gpa, try std.fmt.allocPrint(
@@ -231,7 +231,7 @@ pub fn check(
 
         // Test-vocabulary ban, repo-wide over src/. `std.testing` (and the
         // test/support copy helpers it anchors) belongs under test/, never in
-        // a production module — the memory rule's "copy helpers belong in
+        // a production module: the memory rule's "copy helpers belong in
         // test/support" line, held mechanically. Comment lines are skipped so
         // prose may name the symbol.
         {
@@ -251,7 +251,7 @@ pub fn check(
         }
 
         // Codec-by-name ban. Every byte the engine emits is supposed to go
-        // through `codec.dispatch`, so the negotiated codec decides — except
+        // through `codec.dispatch`, so the negotiated codec decides, except
         // the bytes a signature is defined over, which are Syrup whatever the
         // session negotiated, because a give signed on one session is verified
         // on another that negotiated independently. Those live behind
@@ -306,7 +306,7 @@ pub fn check(
     }
 
     // Dead-edge ban: a granted import no file in the layer names is a silent
-    // standing allowance — the exact hole the one-way tables exist to close.
+    // standing allowance: the exact hole the one-way tables exist to close.
     for (table, live) |spec, row| {
         for (spec.imports, row) |edge, seen| {
             if (!seen) {
@@ -354,7 +354,7 @@ fn renderLayerTable(b: *Build, table: []const LayerSpec) []const u8 {
 /// outside `graphFromTable` with layer imports the claiming layer's row does
 /// not grant. Each row is a declared exception the gate would otherwise
 /// reject, so an injection is visible here instead of silent in a module
-/// constructor. Keep this list to injections that genuinely cannot be a DAG
+/// constructor. Keep this list to injections that cannot be a DAG
 /// edge.
 const injected_layer_imports = [_]struct { path: []const u8, imports: []const []const u8 }{
     // Empty: the iroh resident module imports neither actors nor driver_core;
@@ -376,11 +376,11 @@ fn identByte(c: u8) bool {
 }
 
 /// Whether `name` occurs in `line` as a standalone token, not as a fragment of a
-/// longer identifier — so `model` matches in `model.Foo` but not in `session_mod`.
+/// longer identifier, so `model` matches in `model.Foo` but not in `session_mod`.
 // The scan is line-based, not lexer-aware: a binding named only inside a string
 // literal or a trailing comment still reads as LIVE. That is conservative by
-// design — it can only miss a genuinely-dead edge, never raise a false RED for a
-// binding that is actually used.
+// design. It can only miss a dead edge, never raise a false RED for a
+// binding that is used.
 fn lineHasToken(line: []const u8, name: []const u8) bool {
     var base: usize = 0;
     while (std.mem.indexOfPos(u8, line, base, name)) |pos| {
@@ -395,7 +395,7 @@ fn lineHasToken(line: []const u8, name: []const u8) bool {
 
 /// If the `@import("edge")` at `pos` is the whole right-hand side of a pure
 /// `const X = @import("edge")` (or `pub const X = @import("edge")`) alias, return
-/// the binding identifier `X`; otherwise null (an inline use, or a typed/aliased
+/// the binding identifier `X`. Otherwise null (an inline use, or a typed/aliased
 /// form we treat as a use). The binding comes from the `const X =` form, never
 /// the module name, so `const session_mod = @import("session")` resolves to
 /// `session_mod`, not `session`.
@@ -425,7 +425,7 @@ fn isDiscardOf(trimmed: []const u8, name: []const u8) bool {
 }
 
 /// Whether the private alias `name`, declared on `decl_line`, is referenced as a
-/// token anywhere else in `contents` — outside its own decl line, comment lines,
+/// token anywhere else in `contents`, outside its own decl line, comment lines,
 /// and `_ = name;` discards. This is what separates a live private import from a
 /// dead one laundered by a discard.
 fn bindingUsedOutsideDecl(contents: []const u8, name: []const u8, decl_line: usize) bool {
@@ -446,7 +446,7 @@ fn bindingUsedOutsideDecl(contents: []const u8, name: []const u8, decl_line: usi
 /// A pub re-export (`pub const X = @import("edge")`) or an inline use
 /// (`_ = @import("edge")`, `@import("edge").Field`) is a use. A private
 /// `const X = @import("edge")` alias is live only when `X` is referenced as a
-/// token outside its decl line, comments, and `_ = X;` discards — so an unused
+/// token outside its decl line, comments, and `_ = X;` discards, so an unused
 /// import laundered by a discard reads dead and the dead-edge ban fires.
 fn edgeLiveInFile(gpa: std.mem.Allocator, contents: []const u8, edge: []const u8) !bool {
     const import_expr = try std.fmt.allocPrint(gpa, "@import(\"{s}\")", .{edge});
@@ -461,10 +461,10 @@ fn edgeLiveInFile(gpa: std.mem.Allocator, contents: []const u8, edge: []const u8
         while (std.mem.indexOfPos(u8, line, base, import_expr)) |pos| {
             base = pos + import_expr.len;
             const after = pos + import_expr.len;
-            // `@import("edge").Field` — an inline field/method use.
+            // `@import("edge").Field`: an inline field/method use.
             if (after < line.len and line[after] == '.') return true;
             if (pureAliasBinding(line, pos)) |binding| {
-                // `pub const X = @import("edge")` — the re-export is the use.
+                // `pub const X = @import("edge")`: the re-export is the use.
                 if (std.mem.startsWith(u8, trimmed, "pub ")) return true;
                 if (bindingUsedOutsideDecl(contents, binding, line_no)) return true;
             } else {

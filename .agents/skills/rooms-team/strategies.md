@@ -1,8 +1,8 @@
 # rooms-team — orchestration strategy catalog
 
-Lead chooses the simplest pattern that fits the assignment's dependencies
-and acceptance criteria. Announce the chosen id (or hybrid) in the room; re-choose when the
-mission shape changes. Prefer the simplest pattern that still fits.
+The lead chooses the simplest pattern that fits the assignment's dependencies
+and acceptance criteria, announces the chosen id (or hybrid) in the room, and
+re-chooses when the mission shape changes.
 
 Aliases in parentheses are the same pattern under another common name.
 

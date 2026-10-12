@@ -182,7 +182,7 @@ export async function run(managed: Runtime): Promise<void> {
 	}
 
 	// A RemotePromise is namespaced by its owning Host, not merely its native vow
-	// number. Two Hosts deliberately collide their ids; crossing the handles must
+	// number. Two Hosts collide their ids; crossing the handles must
 	// be refused before FFI while the destination's own promise remains exact.
 	{
 		const server = await tcp.listen("127.0.0.1", 0);
@@ -243,7 +243,7 @@ export async function run(managed: Runtime): Promise<void> {
 
 	// Host ownership, arriving-Port routing: the root is first projected through
 	// one accepted Session, that Port closes, and a sibling invokes it. Its
-	// callback deliberately uses the stale originating Session handle to spawn a
+	// callback uses the stale originating Session handle to spawn a
 	// child; the active Host turn must select turn-spawn before that dead handle is
 	// checked, and the child must ride the sibling's reply.
 	{
@@ -398,8 +398,8 @@ export async function run(managed: Runtime): Promise<void> {
 	}
 
 	// Promise pipelining (ADR-0007), the unawaited-anchor contract: a `send`
-	// handle is a real `Promise`, and an anchor whose far answer *breaks* — even
-	// after its bytes flush on a sibling's tail — never raises an unhandled
+	// handle is a real `Promise`, and an anchor whose far answer *breaks* (even
+	// after its bytes flush on a sibling's tail) never raises an unhandled
 	// rejection, because a handle that is never observed materializes no
 	// rejection (the outcome is recorded, not thrown). This is the property that
 	// lets a pipelining anchor go unawaited safely.

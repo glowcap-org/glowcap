@@ -10,16 +10,16 @@ pub const Label = @import("grant_label.zig").Label;
 pub const Status = enum { active, paused, revoked };
 pub const InitialStatus = enum { active, paused };
 pub const Limits = struct {
-    /// Includes revoked records; slots are never reclaimed by this model.
+    /// Includes revoked records. Slots are never reclaimed by this model.
     capacity: u32,
     max_depth: u16 = 64,
     max_children: u32 = 256,
-    /// Live owner-minted use/control objects; retained aliases share one object.
+    /// Live owner-minted use/control objects. Retained aliases share one object.
     max_capabilities: u32 = 256,
 };
 pub const Version = struct { resources: Revision, grants: Revision };
 /// An owned, allocation-free event for one committed mutation. Policy and
-/// status changes affect the named grant's entire dependent branch; they
+/// status changes affect the named grant's entire dependent branch. They
 /// do not enumerate descendants or disclose their policies. Issuance also
 /// changes the optional parent's child inventory. This trusted model event
 /// must be scoped before hosting delivers it to a remote observer.
@@ -47,7 +47,7 @@ pub const Record = struct {
     label: Label = .{},
     id: GrantId,
     parent: ?GrantId,
-    /// Selections borrow their source; its view or owner defines the lifetime.
+    /// Selections borrow their source. Its view or owner defines the lifetime.
     ceiling: Terms,
     configured: Terms,
     /// This grant's own status. Use effectiveStatus for ancestor effects.

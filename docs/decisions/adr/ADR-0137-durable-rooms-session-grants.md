@@ -21,7 +21,7 @@ that cannot substitute a stronger grant after a lost reply.
 ## Decision
 
 Use shared Loam grant records and exact endpoint publications for session access.
-The managed session owns content and receipts; shared grants own ancestry,
+The managed session owns content and receipts. Shared grants own ancestry,
 ceilings, current policy, suspension and terminal retirement. Store and service
 quotas bound that state. Startup restores bounded owner metadata and discovers
 publications on demand.
@@ -29,13 +29,13 @@ publications on demand.
 Use and management have independent stable names. Use checks current source
 admission on every operation and protected delivery. Inspect, Issue, Edit,
 DelegateControl and lifecycle powers belong to held controls, with independent
-ceilings. Inventory is descriptive, bounded and indexed by direct children;
-it supplies no use or management capability.
+ceilings. Inventory is descriptive, bounded and indexed by direct children.
+It supplies no use or management capability.
 
 Fresh changes compare expected revision. Exact issuance and mutation replay
 recover the original committed receipt before comparing an old revision as a
 new request. Source and returned custody checks still apply. Policy changes
-preserve endpoint identity; revocation cannot make an old endpoint active
+preserve endpoint identity. Revocation cannot make an old endpoint active
 again. Inactive observations disclose status only.
 
 A viewer keeps every power its issuing source can pass on. Editing a newly
@@ -50,5 +50,5 @@ The [executor scenarios](../../../apps/rooms/rust/proofs/src/session_executor.rs
 exercise source loss, saved grants and exact receipt recovery on both stores.
 The [production editor journey](../../../apps/rooms/test/page/shared_session_access.ts)
 checks issue, independent control sharing, conflict recovery, permission changes,
-pause, resume and revoke through actual pages. Indexed inventory and on-demand
+pause, resume and revoke through the pages. Indexed inventory and on-demand
 publication keep ordinary workspace writes independent of a grant-population scan.

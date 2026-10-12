@@ -3,8 +3,8 @@
  *
  * `momentEffective` is the clamp behind two behaviors that must
  * agree: the lane painter draws a diamond at the clamped t, and a
- * drag dispatches the clamped t. When they disagreed — the drag
- * clamping only session state changes — dragging a rename past its
+ * drag dispatches the clamped t. When they disagreed, the drag
+ * clamping only session state changes, dragging a rename past its
  * peer's arrival asked the engine for a move it refuses, once per
  * pointer move, and the gesture answered with a burst of errors.
  */
@@ -93,7 +93,7 @@ Deno.test("a session's state change clamps into its session, the same way", () =
 		{ id: "s3", kind: "session-closed", t: 800, sessionId: "s1" },
 	]);
 	// The session's span is clamped by its peers, which are undeclared
-	// here and therefore eternal — so the session's own edges bound it.
+	// here and therefore eternal. So the session's own edges bound it.
 	assertEquals(momentEffective(doc, "sessions", "s1", 10), 200);
 	assertEquals(momentEffective(doc, "sessions", "s1", 5000), 800);
 });

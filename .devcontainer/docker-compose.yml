@@ -1,9 +1,9 @@
 # Two Docker networks:
-#   glowcap-rooms-net  — shared with the Rooms deployment (apps/rooms/web/deploy).
+#   glowcap-rooms-net: shared with the Rooms deployment (apps/rooms/web/deploy).
 #                Committed and always on: it is how a bot in this dev container
 #                reaches the room's internal CapTP. Fixed name, so both compose
 #                projects converge on one shared network.
-#   egress-net — a worktree-specific outbound bridge by default, or an
+#   egress-net: a worktree-specific outbound bridge by default, or an
 #                operator-selected agent-backend network. Its name lives in
 #                the gitignored .devcontainer/.env, which Compose loads.
 # Setup steps live in networking.md; rebuild/reopen after changing .env.
@@ -49,7 +49,7 @@ services:
       CARGO_BUILD_BUILD_DIR: /home/vscode/.cache/glowcap-dev-zig-work/cargo/{workspace-path-hash}
       CARGO_BUILD_JOBS: 4
     volumes:
-      # Workspace bind — required when using dockerComposeFile.
+      # Workspace bind: required when using dockerComposeFile.
       - ..:/workspaces/glowcap:cached
       # Git records one worktree path in each submodule repository. Mount the
       # checkout at its host path too, so that absolute path resolves on both

@@ -68,7 +68,7 @@
   (values proc (subprocess-pid proc)))
 
 ;; Cap how long a latency/throughput client may sit silent. A wedged CapTP
-;; round-trip used to park `port->lines` forever and stall `bench-site-report`
+;; round-trip parks `port->lines` forever and stalls `bench-site-report`
 ;; with both peers at 0% CPU; fail loud so the orchestrator can kill the server
 ;; and surface the backend/suite/mode instead of looking hung. Full runs finish
 ;; in seconds at n=2000; anything past two minutes is a hang, not a slow bench.

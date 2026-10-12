@@ -1,8 +1,8 @@
 //! Finish waits for every kind of admitted work over fed bytes: a
 //! handshake, a negotiating session's terminal release, an admitted vow, a
-//! named-send chain, and a parked select-or-dial; cancel escalates an
+//! named-send chain, and a parked select-or-dial. Cancel escalates an
 //! in-progress finish, drops queued application turns, and leaves a sibling
-//! session open; and transport packages publish nothing before a conflict.
+//! session open, and transport packages publish nothing before a conflict.
 
 const std = @import("std");
 const glowcap = @import("glowcap");

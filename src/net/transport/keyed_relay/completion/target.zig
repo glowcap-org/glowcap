@@ -24,7 +24,7 @@ pub const LoopConnectTarget = union(enum) {
 };
 
 /// Locator grammar for a relay completion loop. The deployment relay URL is
-/// backend configuration rather than locator identity; a validated route hint
+/// backend configuration rather than locator identity. A validated route hint
 /// may select a different relay for one dial.
 pub const DialResolver = struct {
     pub fn resolve(locator: model.PeerLocator) tcp.Error!LoopConnectTarget {

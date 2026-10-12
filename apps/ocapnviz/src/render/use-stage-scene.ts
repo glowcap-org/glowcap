@@ -2,7 +2,7 @@
  * Mount the Pixi stage scene on the unified canvas and keep it alive.
  *
  * `Stage.tsx` is the React host: refs, wheel, empty-stage gestures, and
- * the marker div. This hook owns the scene graph — viewport, layers,
+ * the marker div. This hook owns the scene graph, viewport, layers,
  * grid, camera port, node-drag, and the ticker that asks `tickStageFrame`
  * for each frame. Camera commands themselves live in
  * `stage-camera-commands.ts`.
@@ -70,7 +70,7 @@ export function useStageScene(args: StageSceneRefs): void {
 		const endpointSprites = new Map<string, EndpointSprite>();
 		const edgeSprites = new Map<string, EdgeSprite>();
 		const messageSprites = new Map<string, MessageSprite>();
-		// Per-tick scratch — owned here, reused each frame to avoid
+		// Per-tick scratch, owned here, reused each frame to avoid
 		// per-frame Map/Set allocations in the hot path.
 		const scratchActivity = new Map<string, PeerActivity>();
 		const scratchPeerIds = new Set<string>();
@@ -88,7 +88,7 @@ export function useStageScene(args: StageSceneRefs): void {
 		// counter-scaled labels at low zoom) so it doesn't leak under
 		// adjacent panels. Note: even for axis-aligned rects, Pixi v8.18
 		// dispatches `container.mask` through `StencilMask` because no
-		// `ScissorMaskPipe` is registered — scissor isn't an option.
+		// `ScissorMaskPipe` is registered, scissor isn't an option.
 		const stageMask = new Graphics();
 		stageScene.addChild(stageMask);
 		stageScene.mask = stageMask;
@@ -108,8 +108,8 @@ export function useStageScene(args: StageSceneRefs): void {
 				events: app.renderer.events,
 			});
 
-			// Both `.drag()` (click-drag pan) and `.wheel()` are removed
-			// — interaction-model § 4.5/8.2: click-drag on empty stage
+			// Both `.drag()` (click-drag pan) and `.wheel()` are removed:
+			// interaction-model § 4.5/8.2: click-drag on empty stage
 			// = rubber-band selection (`use-stage-empty-gestures`); pan
 			// requires Spacebar or the Hand tool; wheel = zoom (via
 			// `useSurfaceWheel` above). `.pinch()` still handles touch
@@ -172,13 +172,13 @@ export function useStageScene(args: StageSceneRefs): void {
 			//
 			//   `hostAffordanceLayer` (HOST coords, above viewport):
 			//     rubber-band selection rect. Painted in screen pixels
-			//     because the user drags screen pixels — converting
+			//     because the user drags screen pixels, converting
 			//     to world coords would jitter the rect at zoom != 1.
 			//
 			//   `worldAffordanceLayer` (WORLD coords, inside viewport):
 			//     armed-peer ring + wire preview. Painted in world
 			//     coords because they anchor to peer positions which
-			//     live in world space — re-anchoring per frame would
+			//     live in world space, re-anchoring per frame would
 			//     duplicate viewport math the viewport already does.
 			//
 			// Both have `eventMode="none"` so they never intercept
@@ -215,9 +215,9 @@ export function useStageScene(args: StageSceneRefs): void {
 
 			// Viewport stays interactive for the peer-drag handlers above
 			// (`globalpointermove`, `pointerup*`). Click-on-empty-stage
-			// (Add Peer placement / deselect) used to fire from
-			// `viewport.on("clicked")`; with `.drag()` removed the FSM
-			// now owns that path: `use-stage-empty-gestures` emits
+			// (Add Peer placement / deselect) does not use
+			// `viewport.on("clicked")`. With `.drag()` removed the FSM
+			// owns that path: `use-stage-empty-gestures` emits
 			// `click(rubber-band)` for no-drag pointerups on empty
 			// stage, which it routes to onCanvasClick
 			// or onSelect(null).
@@ -243,10 +243,10 @@ export function useStageScene(args: StageSceneRefs): void {
 			// session labels in the middle, message labels on top.
 			// Without the split, message labels could be drawn UNDER
 			// peer labels even though message dots draw above peer
-			// bodies — visually confusing. Each sublayer keeps its
+			// bodies, visually confusing. Each sublayer keeps its
 			// own per-entity zIndex ordering inside its category.
 			//
-			// Labels are pure decoration — they overlap peer bodies
+			// Labels are pure decoration, they overlap peer bodies
 			// and session edges and would otherwise consume hit-tests
 			// (rubber-band marquee would refuse to start over a label
 			// rect). `eventMode: "none"` on the parent cascades to
@@ -261,11 +261,11 @@ export function useStageScene(args: StageSceneRefs): void {
 				sessionLabelLayer,
 				messageLabelLayer,
 			);
-			// Per-entity z-ordering — Adobe / Flash convention: top of
+			// Per-entity z-ordering, Adobe / Flash convention: top of
 			// the Timeline gutter row = on top of the Stage canvas.
 			// `renderFrame` reads `doc.rowOrder` each frame and assigns
 			// sprite.zIndex; Pixi's sortableChildren sort runs lazily
-			// only when zIndex actually changes. Each label sublayer
+			// only when zIndex changes. Each label sublayer
 			// sorts its own siblings; cross-category order comes from
 			// the parent `labelLayer`'s addChild order above.
 			edgeLayer.sortableChildren = true;
@@ -277,7 +277,7 @@ export function useStageScene(args: StageSceneRefs): void {
 			// Persistent refs so the small layer-eventMode effect below
 			// can flip whole layers without depending on the heavy
 			// scene-init. `peerLayerRef` enables the hand-tool override
-			// (spaceHeld) to disable peer interaction outright — the
+			// (spaceHeld) to disable peer interaction outright, the
 			// peer body's `pointerdown` stops propagation to claim its
 			// own drag, so without this the viewport never sees the
 			// event for pan when a gesture starts on a peer.
@@ -297,13 +297,13 @@ export function useStageScene(args: StageSceneRefs): void {
 				edgeStrokeBatch.destroy();
 			});
 			// Sprite-hit detection lives in `use-stage-empty-gestures`, which
-			// consults Pixi's own hit-test (`rootBoundary.hitTest`) — the
+			// consults Pixi's own hit-test (`rootBoundary.hitTest`), the
 			// same logic Pixi uses internally to route pointer events.
 			// No layer-level listeners needed: peer sprites stop
 			// propagation to claim peer-drag, so a layer-level handler
 			// would never see them anyway.
 			// World-coord affordance layer (see "Affordance overlays"
-			// block above): two-click tool feedback — the armed-peer
+			// block above): two-click tool feedback, the armed-peer
 			// marching-ants ring + the wire preview from armed peer to
 			// cursor. Sits above messages so the wire reads on top of
 			// in-flight dots (it's the user's active focus); below
@@ -349,8 +349,8 @@ export function useStageScene(args: StageSceneRefs): void {
 			// Region sync. Each frame the registry polls the marker rect;
 			// when it changes we reposition the scene, resize the viewport,
 			// and redraw the mask. Recenter on the world point that was
-			// previously under the canvas center so panel drags don't
-			// strand content. No `renderer.resize` — the unified canvas
+			// under the canvas center so panel drags don't
+			// strand content. No `renderer.resize`. The unified canvas
 			// owns the canvas, only this scene's sub-region changes.
 			let lastSyncedW = 0;
 			let lastSyncedH = 0;
@@ -382,7 +382,7 @@ export function useStageScene(args: StageSceneRefs): void {
 						.clear()
 						.rect(0, 0, rect.width, rect.height)
 						.fill(0xffffff);
-					// Bail any in-flight drag cleanly — world coords survive
+					// Bail any in-flight drag cleanly, world coords survive
 					// a resize but the gesture's bookkeeping is brittle.
 					// Use the bound handler captured at drag-start, not the
 					// current ref, so a region-rect change concurrent with
@@ -419,7 +419,7 @@ export function useStageScene(args: StageSceneRefs): void {
 			cleanups.push(() => viewport.off("pointermove", onViewportPointerMove));
 
 			// Hover set/clear closed over `hoverRef`. `leaveHover` only
-			// clears if WE are the recorded hover — avoids the race where
+			// clears if WE are the recorded hover, avoids the race where
 			// the new sibling's `pointerover` fires before the old one's
 			// `pointerout` and the clear wipes the new hover.
 			const enterHover = (h: StageHover) => {
@@ -438,7 +438,7 @@ export function useStageScene(args: StageSceneRefs): void {
 			/**
 			 * Whether a two-click tool will take the node it is about to pick.
 			 * `cursorFor` is pure over the gesture context and this is a fact about
-			 * the document, so the cursor asks for it; the answer comes from the
+			 * the document, so the cursor asks for it. The answer comes from the
 			 * same `twoClickAccepts` the click path consults.
 			 */
 			const willPick: ToolWillPick = ({ tool, armedNodeId, nodeId }) =>
@@ -468,7 +468,7 @@ export function useStageScene(args: StageSceneRefs): void {
 				};
 			};
 
-			// Stable args object — mutated each tick rather than
+			// Stable args object, mutated each tick rather than
 			// allocated, since `renderFrame` runs at 60 Hz. The
 			// `selection` / `hover` / `colors` / `scale` / `counterScale`
 			// fields are the only ones that change frame to frame.
@@ -568,7 +568,7 @@ export function useStageScene(args: StageSceneRefs): void {
 			app.stage?.removeChild(stageScene);
 			if (!stageScene.destroyed) stageScene.destroy({ children: true });
 		};
-		// `onSelect` is intentionally NOT in this dep array — it's
+		// `onSelect` is NOT in this dep array, it's
 		// read via `onSelectRef` so the entire Pixi scene doesn't
 		// rebuild every time App.handleSelect's identity changes.
 	}, [ctx, engine]);

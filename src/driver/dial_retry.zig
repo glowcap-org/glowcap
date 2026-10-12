@@ -1,4 +1,4 @@
-//! CapTP-honest dial continuity above the completion loop (ADR-0082).
+//! Dial continuity above the completion loop (ADR-0082).
 //!
 //! `DialRetry` owns dial policy and classifies `net.netlayer.DialError`
 //! into transient vs permanent. It retries only transient faults and never
@@ -13,7 +13,7 @@ const net = @import("net");
 
 const DialError = net.netlayer.DialError;
 
-/// Shared discovery-posture dial defaults; retry execution stays in `driver`.
+/// Shared discovery-posture dial defaults. Retry execution stays in `driver`.
 pub const discovery_retry_ms: u64 = driver_core.discovery_retry_ms;
 pub const discovery_max_attempts: u32 = driver_core.discovery_max_attempts;
 
@@ -47,11 +47,11 @@ pub fn isTransient(err: DialError) bool {
 
 /// Continuity core: policy plus dial-retry. Not a Session facade.
 pub const DialOutcome = enum {
-    /// Dial succeeded; caller owns a new session identity.
+    /// Dial succeeded. Caller owns a new session identity.
     ok,
-    /// Transient fault; another attempt will run after sleep.
+    /// Transient fault, another attempt will run after sleep.
     transient_retry,
-    /// Permanent DialError — never retried.
+    /// Permanent DialError, never retried.
     permanent,
     /// Attempt budget exhausted on transient faults.
     exhausted,
@@ -80,9 +80,9 @@ pub const DialRetry = struct {
 
     /// Run `attempt_dial` until it succeeds, a permanent DialError surfaces, or the
     /// attempt budget is exhausted. `sleep_ms` is invoked between transient
-    /// failures (bindings pass their language sleep; Zig tests may no-op).
+    /// failures (bindings pass their language sleep, Zig tests may no-op).
     ///
-    /// On success the caller owns a **new** session over a new connection — never the
+    /// On success the caller owns a **new** session over a new connection, never the
     /// previous Peer tables.
     pub fn dial(
         self: DialRetry,

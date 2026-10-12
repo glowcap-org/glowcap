@@ -7,7 +7,7 @@
 //!
 //! * Each endpoint owns its own tokio runtime behind the opaque handle, so a
 //!   caller needs no async runtime of its own. Evented dial, accept, and stream
-//!   I/O surface through one readiness fd; the explicit blocking resident keeps
+//!   I/O surface through one readiness fd. The explicit blocking resident keeps
 //!   the few `_blocking` calls. The runtime's thread bill is explicit and
 //!   bounded: two worker threads named `glowcap-iroh`.
 //! * The caller chooses the endpoint's reachability when it is created, and
@@ -19,8 +19,8 @@
 //!   tests and same-process embeddings. Enabling relays or a discovery service
 //!   is always the host's explicit decision, never a hidden default.
 //! * One bidirectional QUIC stream carries the whole OCapN session. QUIC bi
-//!   streams are lazy — the acceptor cannot see the stream until the dialer
-//!   writes — which OCapN guarantees, because the dialer sends `op:start-session`
+//!   streams are lazy, the acceptor cannot see the stream until the dialer
+//!   writes, which OCapN guarantees, because the dialer sends `op:start-session`
 //!   first.
 //! * No panic crosses the FFI boundary: every entry point runs under
 //!   `catch_unwind` and maps a panic to the function's error return.
@@ -74,7 +74,7 @@ const ALPN: &[u8] = b"ocapn/glowcap/1";
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// The connection-level idle timeout when the caller names none. What the
-/// setting is for is documented once, on the C ABI's `GlowcapIrohConfig`; this
+/// setting is for is documented once, on the C ABI's `GlowcapIrohConfig`. This
 /// is why the default is what it is.
 ///
 /// iroh sends keep-alives and bounds an individual *path* at fifteen seconds,
@@ -114,20 +114,20 @@ const WORKER_THREADS: usize = 2;
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct GlowcapIrohEndpointConfig {
-	/// One of `GLOWCAP_IROH_REACH_*`. Mandatory; an unknown value is refused.
+	/// One of `GLOWCAP_IROH_REACH_*`. Mandatory. An unknown value is refused.
 	pub reachability: u32,
 	/// Stream-establishment deadline in milliseconds, 0 for the default.
 	pub connect_timeout_ms: u64,
 	/// How long a connection survives with nothing arriving on it, in
 	/// milliseconds, 0 for the default. See `IDLE_TIMEOUT`.
 	pub idle_timeout_ms: u64,
-	/// Worker threads for this endpoint's runtime; 0 takes `WORKER_THREADS`.
+	/// Worker threads for this endpoint's runtime. 0 takes `WORKER_THREADS`.
 	pub worker_threads: u32,
 }
 
 /// Reachability postures, chosen explicitly by the caller, with no default. A
 /// glowcap peer never enables relays or a discovery service as a
-/// hidden implementation detail; the host decides, in the open, how this
+/// hidden implementation detail. The host decides, in the open, how this
 /// endpoint becomes reachable. These values mirror
 /// `GLOWCAP_IROH_REACH_*` in `include/glowcap_iroh_sidecar.h` and the
 /// `Reachability` enum the Zig resident exposes.
@@ -180,7 +180,7 @@ const DIAL_TEXT_BYTES: usize = 256;
 /// (ADR-0057's back-pressure policy). A reader that fills the inbound buffer
 /// stops reading the QUIC stream until the loop drains it, so a slow consumer
 /// applies QUIC flow control to its partner rather than letting the sidecar
-/// buffer without limit; a `conn_try_write` admits only the prefix that fits
+/// buffer without limit. A `conn_try_write` admits only the prefix that fits
 /// under the outbound bound and returns `WOULD_BLOCK` only when no byte can fit.
 /// One largest-admissible CapTP frame fits well within this, so steady traffic
 /// never blocks on it.
@@ -227,8 +227,8 @@ impl From<(usize, u32)> for GlowcapIrohReadyEvent {
 
 /// The process-shared address book backing `REACH_LOCAL_DISCOVERY`. Every
 /// endpoint bound in that mode publishes its own `EndpointAddr` here and
-/// resolves partners from it, so a dial by endpoint id alone — no relay, no
-/// DNS, no caller-supplied address hints — succeeds inside one process. This is
+/// resolves partners from it, so a dial by endpoint id alone, no relay, no
+/// DNS, no caller-supplied address hints, succeeds inside one process. This is
 /// the deterministic, infrastructure-free discovery path: it carries the
 /// `iroh-interop` proof and serves same-process embeddings, never the public
 /// internet (that is `REACH_DISCOVERY`).
@@ -268,11 +268,11 @@ fn publish_local(ep: &Endpoint) {
 
 /// Opaque endpoint handle: the iroh endpoint plus the tokio runtime it runs on.
 /// `readiness` and `accept` are lazily created the first time the event-driven
-/// scale surface (ADR-0057) is used on this endpoint; an endpoint driven only
+/// scale surface (ADR-0057) is used on this endpoint. An endpoint driven only
 /// through the blocking calls never allocates them.
 pub struct GlowcapIrohEndpoint {
-	/// The deadline every bi-stream establishment on this endpoint rides — the
-	/// dial's `connect` + `open_bi` and each `accept_bi` — so a partner that
+	/// The deadline every bi-stream establishment on this endpoint rides, the
+	/// dial's `connect` + `open_bi` and each `accept_bi`, so a partner that
 	/// stalls mid-handshake cannot park a thread forever. Configured per
 	/// endpoint (`connect_timeout_ms`, 0 = the `CONNECT_TIMEOUT` default).
 	connect_timeout: std::time::Duration,
@@ -280,7 +280,7 @@ pub struct GlowcapIrohEndpoint {
 	accept: OnceLock<Arc<AcceptState>>,
 	dials: OnceLock<Arc<DialState>>,
 	/// Terminal ownership for non-blocking writers. Completed tasks retain no
-	/// endpoint row; release waits only on the active count and claims failure.
+	/// endpoint row. Release waits only on the active count and claims failure.
 	writers: Arc<TaskBarrier>,
 	next_conn_id: AtomicUsize,
 	// Rust drops fields in declaration order. The endpoint, discovery services,
@@ -291,7 +291,7 @@ pub struct GlowcapIrohEndpoint {
 
 /// Opaque connection handle: one QUIC connection carrying one bidirectional
 /// stream. `send` and `recv` are independently locked so the two directions
-/// never serialize against each other; they are `Option` because
+/// never serialize against each other. They are `Option` because
 /// `conn_set_nonblocking` moves the streams out to the reader/writer tasks,
 /// after which the blocking calls refuse (the connection is owned by the loop).
 /// `nb` holds the non-blocking state once that transition happens.
@@ -376,14 +376,14 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_new(
 		};
 		if let Ok(timeout) = iroh::endpoint::IdleTimeout::try_from(idle) {
 			// Keep-alives are not a second knob, because the two are one
-			// decision. An idle timeout is only honest if packets are still
+			// decision. An idle timeout only makes sense if packets are still
 			// expected to arrive on a connection nobody is using, and that is
 			// what a keep-alive provides. Exposing both would let a caller set
 			// a timeout shorter than its own heartbeat and drop connections
 			// whose peers are alive and answering.
 			//
-			// So the caller states the one thing it means — how fast a dead
-			// peer should be noticed — and the heartbeat follows it: iroh's
+			// So the caller states the one thing it means, how fast a dead
+			// peer should be noticed, and the heartbeat follows it: iroh's
 			// five-second default, or a third of the timeout when the caller
 			// asked for something tighter. A third leaves two heartbeats free
 			// to go missing before a live connection is wrongly declared dead.
@@ -440,10 +440,10 @@ fn write_str(s: &str, out: *mut u8, out_cap: usize) -> isize {
 	bytes.len() as isize
 }
 
-/// Write the endpoint's id — its Ed25519 public key, the dialable designator —
+/// Write the endpoint's id, its Ed25519 public key, the dialable designator,
 /// into `out` as lowercase hex (64 bytes; iroh's canonical string form, which
 /// its parser accepts alongside base32). Returns the complete byte count and
-/// copies only when `out_cap` is large enough. Borrows the handle; writes no
+/// copies only when `out_cap` is large enough. Borrows the handle. Writes no
 /// terminator.
 ///
 /// # Safety
@@ -456,6 +456,9 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_node_id(
 	out_cap: usize,
 ) -> isize {
 	let result = catch_unwind(AssertUnwindSafe(|| {
+		// SAFETY: the `# Safety` contract requires `ep` to be a live endpoint handle from
+		// `glowcap_iroh_sidecar_endpoint_new` that the caller does not free during the call; this function does not
+		// check for null, so the contract is the only guard. The shared borrow ends with this closure.
 		let ep = unsafe { &*ep };
 		write_str(&ep.ep.id().to_string(), out, out_cap)
 	}));
@@ -465,10 +468,10 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_node_id(
 /// Write the endpoint's directly dialable socket addresses into `out` as a
 /// comma-separated UTF-8 list (e.g. `127.0.0.1:5000,[::1]:5001`). Bound
 /// wildcard addresses are reported as their loopback form, so the list is
-/// dialable on the local host; concretely discovered addresses are included
+/// dialable on the local host. Concretely discovered addresses are included
 /// as-is. This is the hint string a partner passes to either connect surface.
 /// Returns the complete byte count and copies only when `out_cap` is large
-/// enough. Borrows the handle; writes no terminator.
+/// enough. Borrows the handle. Writes no terminator.
 ///
 /// # Safety
 /// `ep` must be live, and `out` must be writable for `out_cap` bytes when the
@@ -480,6 +483,8 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_direct_addrs(
 	out_cap: usize,
 ) -> isize {
 	let result = catch_unwind(AssertUnwindSafe(|| {
+		// SAFETY: as `glowcap_iroh_sidecar_endpoint_node_id` above, `ep` is the live endpoint handle the `# Safety`
+		// contract requires, with no null check in this function; the shared borrow ends with this closure.
 		let ep = unsafe { &*ep };
 		let joined = dialable_addrs(&ep.ep)
 			.iter()
@@ -493,14 +498,19 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_direct_addrs(
 
 /// Close the endpoint without releasing its handle: an in-flight bounded accept
 /// returns null, subsequent dials fail, and queued connection closes are
-/// delivered. Idempotent. Borrows the handle; the handle stays valid until
+/// delivered. Idempotent. Borrows the handle. The handle stays valid until
 /// `glowcap_iroh_sidecar_endpoint_free`.
 ///
 /// # Safety
 /// `ep` must be null or a live endpoint handle.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_close(ep: *mut GlowcapIrohEndpoint) {
+	if ep.is_null() {
+		return;
+	}
 	let _ = catch_unwind(AssertUnwindSafe(|| {
+		// SAFETY: `ep` is non-null (checked above), and the caller's contract makes it a live endpoint handle
+		// borrowed for this call; closing only cancels dials and spawns the endpoint close, leaving the handle valid.
 		let ep = unsafe { &*ep };
 		if let Some(dials) = ep.dials.get() {
 			dials.cancel_all();
@@ -523,6 +533,10 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_free(ep: *mut GlowcapIroh
 		return 0;
 	}
 	teardown_status(|| {
+		// SAFETY: `ep` is non-null (checked above) and, per this function's `# Safety` contract, an owned endpoint
+		// handle that `glowcap_iroh_sidecar_endpoint_new` boxed with `Box::into_raw` and that has not been freed, with
+		// every connection minted from it already released; this takes back that one allocation and `ep` is not used
+		// again.
 		let handle = unsafe { Box::from_raw(ep) };
 		if let Some(dials) = handle.dials.get() {
 			dials.cancel_all();

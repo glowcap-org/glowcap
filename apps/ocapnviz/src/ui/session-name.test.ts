@@ -12,7 +12,7 @@ import { TimelineDocument } from "../engine/timeline.ts";
 import { sessionEndName, sessionPairName } from "./session-name.ts";
 
 /** Engine construction runs d3-force, whose timer Deno's sanitizer
- *  flags; same workaround as the other engine-constructing tests. */
+ *  flags. Same workaround as the other engine-constructing tests. */
 function engineTest(name: string, fn: () => void): void {
 	Deno.test({ name, sanitizeOps: false, sanitizeResources: false, fn });
 }

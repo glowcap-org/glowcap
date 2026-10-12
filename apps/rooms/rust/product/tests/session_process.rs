@@ -1,4 +1,5 @@
 //! Exercise the executable's loader, CLI, custody, banner and signal barrier.
+#![cfg(test)]
 use std::{
 	io::{BufRead, BufReader},
 	path::PathBuf,
@@ -30,7 +31,11 @@ impl Process {
 				.unwrap()
 				.success()
 		);
-		assert!(self.wait().success(), "session signal shutdown failed");
+		assert_eq!(
+			self.wait().success(),
+			name != "-KILL",
+			"unexpected session shutdown status"
+		);
 	}
 }
 impl Drop for Process {
@@ -73,9 +78,9 @@ fn session_peer_executable_custody_restart_and_signals() {
 	for transport in ["tcp", "iroh"] {
 		let state = temp.0.join(transport);
 		let mut identity = None;
-		let mut swiss = None;
+		let mut publication = None;
 		let mut receipt_base = None;
-		for signal in ["-TERM", "-INT"] {
+		for signal in ["-TERM", "-KILL", "-INT"] {
 			let mut cmd = command();
 			cmd.arg(format!("--state={}", state.display()))
 				.arg(format!("--transport={transport}"));
@@ -87,10 +92,13 @@ fn session_peer_executable_custody_restart_and_signals() {
 			let (sender, receiver) = mpsc::sync_channel(1);
 			let reader = std::thread::spawn(move || {
 				let mut line = String::new();
-				BufReader::new(stdout).read_line(&mut line).unwrap();
-				let _ = sender.send(line);
+				let mut reader = BufReader::new(stdout);
+				reader.read_line(&mut line).unwrap();
+				let mut management = String::new();
+				reader.read_line(&mut management).unwrap();
+				let _ = sender.send((line, management));
 			});
-			let line = receiver
+			let (line, management) = receiver
 				.recv_timeout(Duration::from_secs(8))
 				.expect("session ready deadline");
 			reader.join().unwrap();
@@ -99,11 +107,21 @@ fn session_peer_executable_custody_restart_and_signals() {
 				.strip_prefix("ROOMS-SESSION-LISTENING ")
 				.expect("session authority banner");
 			let parsed = glowcap::parse_sturdyref(link, glowcap::CaptpVersion::V1_0).unwrap();
-			if let Some(previous) = &swiss {
-				assert_eq!(&parsed.swissnum, previous);
+			if let Some((designator, swiss)) = &publication {
+				assert_eq!(&parsed.swissnum, swiss);
+				if transport == "iroh" {
+					assert_eq!(
+						&parsed.locator.designator, designator,
+						"restart replaced the session's iroh identity"
+					);
+				}
 			}
-			swiss = Some(parsed.swissnum);
+			publication = Some((parsed.locator.designator, parsed.swissnum));
 			let management_link = std::fs::read_to_string(state.join("control.sturdyref")).unwrap();
+			assert_eq!(
+				management.trim().strip_prefix("ROOMS-SESSION-MANAGEMENT "),
+				Some(management_link.trim())
+			);
 			receipt_base = Some(client::exercise(link, management_link.trim(), receipt_base));
 			let bytes = std::fs::read(state.join("rooms-bootstrap")).unwrap();
 			if let Some(previous) = &identity {
@@ -131,7 +149,31 @@ fn session_peer_executable_custody_restart_and_signals() {
 				!contender.wait().success(),
 				"a second process acquired live session custody"
 			);
-			client::shutdown_with_live_observer(link, || process.signal(signal));
+			let ready = command()
+				.arg(format!("--check-ready={}", state.join("workspace.sturdyref").display()))
+				.output()
+				.unwrap();
+			assert!(
+				ready.status.success(),
+				"a refused contender removed the running peer's readiness"
+			);
+			assert_eq!(String::from_utf8(ready.stdout).unwrap().trim(), link);
+			assert_eq!(
+				std::fs::read_to_string(state.join("control.sturdyref")).unwrap(),
+				management_link
+			);
+			if signal == "-KILL" {
+				// A killed QUIC peer cannot send a close packet. Crash recovery
+				// checks retained custody; graceful signals also fence observers.
+				process.signal(signal);
+			} else {
+				client::shutdown_with_live_observer(link, || process.signal(signal));
+			}
+			// A crash leaves ordinary filesystem mirrors behind; the next
+			// exclusive owner clears them. Deployment readiness uses a tmpfs.
+			if signal == "-KILL" {
+				continue;
+			}
 			assert!(!state.join("workspace.sturdyref").exists());
 			assert!(!state.join("control.sturdyref").exists());
 			let stopped = command()

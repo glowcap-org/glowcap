@@ -5,10 +5,11 @@
 //! choreography belongs to the parent `driver_loop` module.
 
 use core::ffi::{c_int, c_void};
-use std::cell::Cell;
+use std::cell::{Ref, RefCell};
 use std::marker::PhantomData;
 use std::rc::Rc;
 
+use super::handle::{LoopHandle, Released};
 use crate::driver_event::{LoopEvent, decode as decode_event};
 use crate::sys::GlowcapTransportProvider;
 use crate::sys::driver::{self as ffi, GlowcapDriverEvent, GlowcapDriverLoop, GlowcapDriverOptions};
@@ -16,25 +17,30 @@ use crate::sys::{self, host as ffi_host};
 use crate::uri::OwnedLocator;
 use crate::{ContextInner, Error, Locator, PendingWork, Result};
 
-/// One archive-owned provider package. Registration acquires the package lease;
-/// the driver releases it after every copied callback and transport handle.
+/// One archive-owned provider package. Registration acquires the package lease.
+/// The driver releases it after every copied callback and transport handle.
 pub struct ProviderPackage<'owner> {
 	pub(crate) package: GlowcapTransportProvider,
 	pub(crate) _owner: PhantomData<&'owner ()>,
 }
 
-/// One stepping native loop over one multi-session host.
+/// One stepping native loop over one multi-session host. The handle slot is
+/// empty once a release consumed the loop or a refused release moved it to
+/// the finalizer. Every verb refuses on an empty slot instead of touching a
+/// released loop.
 pub struct DriverLoop {
-	raw: *mut GlowcapDriverLoop,
+	handle: RefCell<Option<LoopHandle>>,
 	host: *mut ffi_host::GlowcapHost,
-	released: Cell<bool>,
 	_context: Option<Rc<ContextInner>>,
 }
 
-/// One release attempt, including whether native ownership was consumed.
-pub(super) struct ReleaseOutcome {
-	pub consumed: bool,
-	pub result: Result<()>,
+/// One release attempt on a `DriverLoop`.
+pub(super) enum ReleaseOutcome {
+	/// Native ownership is gone, with the release's own outcome. A loop whose
+	/// handle had already left the slot reports `Consumed(Ok(()))`.
+	Consumed(Result<()>),
+	/// The driver refused before consuming. The loop is still live.
+	Refused(Error),
 }
 
 /// Native loop construction policy. `wire_buffer_bytes` is retained per
@@ -86,16 +92,20 @@ fn check(rc: c_int) -> Result<()> {
 
 impl DriverLoop {
 	/// Create a loop over a fresh host. `seed` is the host constructor's
-	/// 64-byte contract (durable identity, then a fresh session-key root);
+	/// 64-byte contract (durable identity, then a fresh session-key root).
 	/// `options` owns the retained wire-buffer size and three positive wait bounds.
 	pub fn open(seed: &[u8; 64], options: DriverLoopOptions) -> Result<Self> {
 		let context = Rc::new(ContextInner::new()?);
 		crate::require_archive_fingerprint(
 			"host",
+			// SAFETY: this fingerprint query takes no arguments and returns a constant.
 			unsafe { ffi_host::glowcap_host_archive_fingerprint() },
 			sys::HOST_ARCHIVE_FINGERPRINT,
 		)?;
 		let mut host: *mut ffi_host::GlowcapHost = core::ptr::null_mut();
+		// SAFETY: `context.raw` is the allocator context the `Rc<ContextInner>` keeps live for this call; `seed` is a
+		// borrowed 64-byte array whose pointer and length stay live for the call and the callee copies it; `host` is an
+		// out-parameter the callee fills.
 		crate::host::check_host(unsafe {
 			ffi_host::glowcap_host_new_in(
 				context.raw,
@@ -116,6 +126,8 @@ impl DriverLoop {
 				Ok(loop_)
 			}
 			Err(primary) => {
+				// SAFETY: `host` is the handle `glowcap_host_new_in` just wrote and this function still owns, because
+				// `take_host` failed and left Host ownership unchanged; it is released exactly once here.
 				let cleanup_rc = unsafe { ffi_host::glowcap_host_release(host) };
 				let cleanup = crate::host::check_host(cleanup_rc);
 				if !crate::lifecycle::release_consumed(cleanup_rc) {
@@ -132,18 +144,36 @@ impl DriverLoop {
 	pub(crate) fn take_host(host: *mut ffi_host::GlowcapHost, options: DriverLoopOptions) -> Result<Self> {
 		crate::require_archive_fingerprint(
 			"driver",
+			// SAFETY: this fingerprint query takes no arguments and returns a constant.
 			unsafe { ffi::glowcap_driver_archive_fingerprint() },
 			sys::DRIVER_ARCHIVE_FINGERPRINT,
 		)?;
 		let mut raw: *mut GlowcapDriverLoop = core::ptr::null_mut();
 		let options = options.to_c();
+		// SAFETY: `host` is the quiescent Host handle the caller transfers and a failed take leaves with the caller;
+		// `options` is a local `GlowcapDriverOptions` borrowed for the call; `raw` is an out-parameter the callee
+		// fills.
 		check(unsafe { ffi::glowcap_driver_take_host(host, &options, &mut raw) })?;
+		// SAFETY: `raw` is the loop `glowcap_driver_take_host` just wrote on success, and this `DriverLoop` becomes its
+		// only owner.
+		let handle = unsafe { LoopHandle::adopt(raw) }
+			.ok_or_else(|| Error::with_detail(sys::ERR_INTERNAL, "driver take_host returned no loop".to_string()))?;
 		Ok(Self {
-			raw,
+			handle: RefCell::new(Some(handle)),
 			host,
-			released: Cell::new(false),
 			_context: None,
 		})
+	}
+
+	/// Borrow the live loop, or refuse because a release already consumed it
+	/// or moved it to the finalizer.
+	fn live(&self) -> Result<Ref<'_, LoopHandle>> {
+		let slot = self
+			.handle
+			.try_borrow()
+			.map_err(|_| Error::with_detail(sys::ERR_INVALID_ARGUMENT, "driver loop is being released".to_string()))?;
+		Ref::filter_map(slot, Option::as_ref)
+			.map_err(|_| Error::with_detail(sys::ERR_INVALID_ARGUMENT, "driver loop already released".to_string()))
 	}
 
 	pub(super) fn retained_context(&self) -> Option<Rc<ContextInner>> {
@@ -151,7 +181,7 @@ impl DriverLoop {
 	}
 
 	/// The wrapped `GlowcapHost` handle for application verbs. Never release
-	/// it separately; dropping the loop releases both.
+	/// it separately. Dropping the loop releases both.
 	pub fn host(&self) -> *mut ffi_host::GlowcapHost {
 		self.host
 	}
@@ -159,30 +189,39 @@ impl DriverLoop {
 	/// Install one provider package. Native registration retains its callback
 	/// context before publication and releases it during loop teardown.
 	pub fn add_provider(&self, provider: ProviderPackage<'_>) -> Result<()> {
-		crate::driver_failure::add_provider(self.raw, &provider.package)
+		self.live()?.add_provider(&provider.package)
 	}
 
 	/// Report whether the native provider registry owns `transport`.
 	pub fn has_transport(&self, transport: &str) -> Result<bool> {
+		let handle = self.live()?;
 		let mut present = 0u8;
+		// SAFETY: `handle` borrows this `DriverLoop`'s live `LoopHandle`, so the loop is unreleased for this call;
+		// `transport` is a borrowed `str` whose pointer and length stay live for the call; `present` is an
+		// out-parameter the callee writes.
 		check(unsafe {
-			ffi::glowcap_driver_has_transport(self.raw, transport.as_ptr(), transport.len(), &mut present)
+			ffi::glowcap_driver_has_transport(handle.as_ptr(), transport.as_ptr(), transport.len(), &mut present)
 		})?;
 		Ok(present != 0)
 	}
 
-	/// Begin a nonblocking dial. A refusal before admission returns directly;
-	/// after admission the outcome arrives as an `Opened`/`OpenFailed` event.
+	/// Begin a nonblocking dial. A refusal before admission returns directly.
+	/// After admission the outcome arrives as an `Opened`/`OpenFailed` event.
 	pub fn dial(&self, locator: &Locator, options: Option<&[u8]>) -> Result<u64> {
+		let handle = self.live()?;
 		let owned = OwnedLocator::new(locator)?;
 		let operation_options = options.map(|data| ffi::GlowcapTransportOperationOptions {
 			data: data.as_ptr().cast::<c_void>(),
 			size: data.len(),
 		});
 		let mut operation_id = 0u64;
+		// SAFETY: `handle` borrows this `DriverLoop`'s live `LoopHandle`, so the loop is unreleased for this call;
+		// `owned` keeps the locator view alive past this statement, `operation_options` (when `Some`) points at
+		// `options`, which is borrowed for the whole call and which the callee reads only during the call, and
+		// `operation_id` is an out-parameter the callee writes.
 		check(unsafe {
 			ffi::glowcap_driver_dial(
-				self.raw,
+				handle.as_ptr(),
 				owned.borrow_view()?,
 				operation_options
 					.as_ref()
@@ -193,12 +232,16 @@ impl DriverLoop {
 		Ok(operation_id)
 	}
 
-	/// Bind one listener; accepted sessions arrive as `Accepted` events.
+	/// Bind one listener. Accepted sessions arrive as `Accepted` events.
 	pub fn listen(&self, transport: &str, designator: &str) -> Result<u64> {
+		let handle = self.live()?;
 		let mut listener = 0u64;
+		// SAFETY: `handle` borrows this `DriverLoop`'s live `LoopHandle`, so the loop is unreleased for this call;
+		// `transport` and `designator` are borrowed `str`s whose pointers and lengths stay live for the call;
+		// `listener` is an out-parameter the callee writes.
 		check(unsafe {
 			ffi::glowcap_driver_listen(
-				self.raw,
+				handle.as_ptr(),
 				transport.as_ptr(),
 				transport.len(),
 				designator.as_ptr(),
@@ -212,16 +255,30 @@ impl DriverLoop {
 
 	/// Copy the listener's complete typed OCapN locator.
 	pub fn listener_locator(&self, listener: u64) -> Result<Locator> {
+		let handle = self.live()?;
+		// SAFETY: `GlowcapLocatorView` is a plain C struct of integers and null pointers; all-zero is a valid value,
+		// and the callee fills it before it is read.
 		let mut view: sys::GlowcapLocatorView = unsafe { core::mem::zeroed() };
-		check(unsafe { ffi::glowcap_driver_listener_locator(self.raw, listener, &mut view) })?;
+		// SAFETY: `handle` borrows this `DriverLoop`'s live `LoopHandle`, so the loop is unreleased for this call;
+		// `view` is an out-parameter the callee fills with a copy of the listener's locator.
+		check(unsafe { ffi::glowcap_driver_listener_locator(handle.as_ptr(), listener, &mut view) })?;
 		OwnedLocator::clone_view(&view)?.value()
 	}
 
 	/// Copy opaque provider-owned listener state.
 	pub fn listener_restoration_state(&self, listener: u64) -> Result<Vec<u8>> {
+		let handle = self.live()?;
 		let mut needed = 0usize;
+		// SAFETY: `handle` borrows this `DriverLoop`'s live `LoopHandle`, so the loop is unreleased for this call; the
+		// null buffer with length zero asks only for the needed size, which the callee writes to `needed`.
 		let rc = unsafe {
-			ffi::glowcap_driver_listener_restoration_state(self.raw, listener, core::ptr::null_mut(), 0, &mut needed)
+			ffi::glowcap_driver_listener_restoration_state(
+				handle.as_ptr(),
+				listener,
+				core::ptr::null_mut(),
+				0,
+				&mut needed,
+			)
 		};
 		if rc != sys::OK && rc != sys::ERR_BUFFER_TOO_SMALL {
 			check(rc)?;
@@ -231,9 +288,12 @@ impl DriverLoop {
 		}
 		let mut state = vec![0u8; needed];
 		let mut copied = 0usize;
+		// SAFETY: `handle` borrows this `DriverLoop`'s live `LoopHandle`, so the loop is unreleased for this call;
+		// `state` is a live `Vec` of exactly `state.len()` writable bytes that the callee fills during the call;
+		// `copied` is an out-parameter the callee writes.
 		check(unsafe {
 			ffi::glowcap_driver_listener_restoration_state(
-				self.raw,
+				handle.as_ptr(),
 				listener,
 				state.as_mut_ptr(),
 				state.len(),
@@ -251,39 +311,61 @@ impl DriverLoop {
 
 	/// Replace this listener's advertised locator through its native owner.
 	pub fn advertise_listener(&self, listener: u64, locator: &Locator) -> Result<()> {
+		let handle = self.live()?;
 		let owned = OwnedLocator::new(locator)?;
-		check(unsafe { ffi::glowcap_driver_listener_advertise(self.raw, listener, owned.borrow_view()?) })
+		// SAFETY: `handle` borrows this `DriverLoop`'s live `LoopHandle`, so the loop is unreleased for this call;
+		// `owned` is a live `OwnedLocator`, so `borrow_view()` returns a view that stays valid through this statement
+		// and the callee reads only during the call.
+		check(unsafe { ffi::glowcap_driver_listener_advertise(handle.as_ptr(), listener, owned.borrow_view()?) })
 	}
 
 	/// Select this active listener's locator as the Host's acceptable location.
 	pub fn select_listener(&self, listener: u64) -> Result<()> {
-		check(unsafe { ffi::glowcap_driver_listener_select(self.raw, listener) })
+		let handle = self.live()?;
+		// SAFETY: `handle` borrows this `DriverLoop`'s live `LoopHandle`, so the loop is unreleased for this call
+		check(unsafe { ffi::glowcap_driver_listener_select(handle.as_ptr(), listener) })
 	}
 
 	/// Stop one listener while preserving already committed events.
 	pub fn close_listener(&self, listener: u64) -> Result<bool> {
-		crate::driver_failure::close_listener(self.raw, listener)
+		self.live()?.close_listener(listener)
 	}
 
 	pub(crate) fn claim_reference_exporter(
 		&self,
 		reference: &sys::GlowcapReference,
 	) -> Result<Option<*mut ffi_host::GlowcapHostSession>> {
+		let handle = self.live()?;
 		let mut session = core::ptr::null_mut();
-		check(unsafe { ffi::glowcap_driver_claim_reference_exporter(self.raw, reference, &mut session) })?;
+		// SAFETY: `handle` borrows this `DriverLoop`'s live `LoopHandle`, so the loop is unreleased for this call;
+		// `reference` is a borrowed `GlowcapReference` that stays live for the call; `session` is an out-parameter the
+		// callee writes.
+		check(unsafe { ffi::glowcap_driver_claim_reference_exporter(handle.as_ptr(), reference, &mut session) })?;
 		Ok((!session.is_null()).then_some(session))
 	}
 
-	/// The one descriptor to park on. Owned by the loop; never close it.
+	pub(crate) fn claim_exporter_session(&self, session: *mut ffi_host::GlowcapHostSession) -> Result<()> {
+		let handle = self.live()?;
+		// SAFETY: `handle` borrows this `DriverLoop`'s live `LoopHandle`, so the loop is unreleased for this call;
+		// `session` is a Host session handle the caller passes for the Host this loop wraps.
+		check(unsafe { ffi::glowcap_driver_claim_exporter_session(handle.as_ptr(), session) })
+	}
+
+	/// The one descriptor to park on. Owned by the loop. Never close it.
 	pub fn readiness_fd(&self) -> Result<i32> {
+		let handle = self.live()?;
 		let mut fd: c_int = -1;
-		check(unsafe { ffi::glowcap_driver_readiness_fd(self.raw, &mut fd) })?;
+		// SAFETY: `handle` borrows this `DriverLoop`'s live `LoopHandle`, so the loop is unreleased for this call; `fd`
+		// is an out-parameter the callee writes; the descriptor stays owned by the loop.
+		check(unsafe { ffi::glowcap_driver_readiness_fd(handle.as_ptr(), &mut fd) })?;
 		Ok(fd)
 	}
 
 	/// One step plus a drain of the event queue into owned events.
 	pub fn step(&self, timeout_ms: i32) -> Result<Option<Vec<LoopEvent>>> {
-		let rc = unsafe { ffi::glowcap_driver_step(self.raw, timeout_ms) };
+		let handle = self.live()?;
+		// SAFETY: `handle` borrows this `DriverLoop`'s live `LoopHandle`, so the loop is unreleased for this call
+		let rc = unsafe { ffi::glowcap_driver_step(handle.as_ptr(), timeout_ms) };
 		if rc == sys::WOULD_BLOCK {
 			return Ok(None);
 		}
@@ -292,10 +374,15 @@ impl DriverLoop {
 	}
 
 	pub(super) fn drain_events(&self) -> Result<Vec<LoopEvent>> {
+		let handle = self.live()?;
 		let mut out = Vec::new();
 		loop {
+			// SAFETY: `GlowcapDriverEvent` is a plain C struct of integers and null pointers; all-zero is a valid
+			// value, and the callee fills it before it is read.
 			let mut event: GlowcapDriverEvent = unsafe { core::mem::zeroed() };
-			let rc = unsafe { ffi::glowcap_driver_next_event(self.raw, &mut event) };
+			// SAFETY: `handle` borrows this `DriverLoop`'s live `LoopHandle`, so the loop is unreleased for this call;
+			// `event` is an out-parameter the callee fills.
+			let rc = unsafe { ffi::glowcap_driver_next_event(handle.as_ptr(), &mut event) };
 			if rc == sys::WOULD_BLOCK {
 				return Ok(out);
 			}
@@ -305,11 +392,17 @@ impl DriverLoop {
 	}
 
 	pub(super) fn session_release(&self, session: *mut ffi_host::GlowcapHostSession) -> Result<()> {
-		check(unsafe { ffi::glowcap_driver_session_release(self.raw, session) })
+		let handle = self.live()?;
+		// SAFETY: `handle` borrows this `DriverLoop`'s live `LoopHandle`, so the loop is unreleased for this call;
+		// `session` is a Host session handle the caller passes for the Host this loop wraps.
+		check(unsafe { ffi::glowcap_driver_session_release(handle.as_ptr(), session) })
 	}
 
 	pub(super) fn session_serve(&self, session: *mut ffi_host::GlowcapHostSession) -> Result<()> {
-		check(unsafe { ffi::glowcap_driver_session_serve(self.raw, session) })
+		let handle = self.live()?;
+		// SAFETY: `handle` borrows this `DriverLoop`'s live `LoopHandle`, so the loop is unreleased for this call;
+		// `session` is a Host session handle the caller passes for the Host this loop wraps.
+		check(unsafe { ffi::glowcap_driver_session_serve(handle.as_ptr(), session) })
 	}
 
 	pub(super) fn begin_session_close(
@@ -317,13 +410,21 @@ impl DriverLoop {
 		session: *mut ffi_host::GlowcapHostSession,
 		pending: PendingWork,
 	) -> Result<()> {
+		let handle = self.live()?;
 		let options = pending.to_ffi()?;
-		check(unsafe { ffi::glowcap_driver_session_close(self.raw, session, &options) })
+		// SAFETY: `handle` borrows this `DriverLoop`'s live `LoopHandle`, so the loop is unreleased for this call;
+		// `session` is a Host session handle the caller passes for the Host this loop wraps; `options` is a local
+		// `GlowcapCloseOptions` borrowed for the call.
+		check(unsafe { ffi::glowcap_driver_session_close(handle.as_ptr(), session, &options) })
 	}
 
 	pub(super) fn session_lifecycle_state(&self, session: *mut ffi_host::GlowcapHostSession) -> Result<(bool, i32)> {
+		let handle = self.live()?;
 		let mut lifecycle = 0;
-		let rc = unsafe { ffi::glowcap_driver_session_lifecycle_state(self.raw, session, &mut lifecycle) };
+		// SAFETY: `handle` borrows this `DriverLoop`'s live `LoopHandle`, so the loop is unreleased for this call;
+		// `session` is a Host session handle the caller passes for the Host this loop wraps; `lifecycle` is an
+		// out-parameter the callee writes.
+		let rc = unsafe { ffi::glowcap_driver_session_lifecycle_state(handle.as_ptr(), session, &mut lifecycle) };
 		if rc != sys::OK && rc != sys::ERR_TIMEOUT {
 			check(rc)?;
 		}
@@ -331,21 +432,31 @@ impl DriverLoop {
 	}
 
 	pub fn wake(&self) -> Result<()> {
-		check(unsafe { ffi::glowcap_driver_wake(self.raw) })
+		let handle = self.live()?;
+		// SAFETY: `handle` borrows this `DriverLoop`'s live `LoopHandle`, so the loop is unreleased for this call
+		check(unsafe { ffi::glowcap_driver_wake(handle.as_ptr()) })
 	}
 
 	pub fn detach_thread(&self) -> Result<()> {
-		check(unsafe { ffi::glowcap_driver_detach_thread(self.raw) })
+		let handle = self.live()?;
+		// SAFETY: `handle` borrows this `DriverLoop`'s live `LoopHandle`, so the loop is unreleased for this call
+		check(unsafe { ffi::glowcap_driver_detach_thread(handle.as_ptr()) })
 	}
 
 	pub(super) fn begin_close(&self, pending: PendingWork) -> Result<()> {
+		let handle = self.live()?;
 		let options = pending.to_ffi()?;
-		check(unsafe { ffi::glowcap_driver_close(self.raw, &options) })
+		// SAFETY: `handle` borrows this `DriverLoop`'s live `LoopHandle`, so the loop is unreleased for this call;
+		// `options` is a local `GlowcapCloseOptions` borrowed for the call.
+		check(unsafe { ffi::glowcap_driver_close(handle.as_ptr(), &options) })
 	}
 
 	pub(super) fn lifecycle_state(&self) -> Result<(bool, i32)> {
+		let handle = self.live()?;
 		let mut lifecycle = 0;
-		let rc = unsafe { ffi::glowcap_driver_lifecycle_state(self.raw, &mut lifecycle) };
+		// SAFETY: `handle` borrows this `DriverLoop`'s live `LoopHandle`, so the loop is unreleased for this call;
+		// `lifecycle` is an out-parameter the callee writes.
+		let rc = unsafe { ffi::glowcap_driver_lifecycle_state(handle.as_ptr(), &mut lifecycle) };
 		if rc != sys::OK && rc != sys::ERR_TIMEOUT {
 			check(rc)?;
 		}
@@ -353,44 +464,54 @@ impl DriverLoop {
 	}
 
 	pub(super) fn step_wait(&self) -> Result<Option<std::time::Duration>> {
+		let handle = self.live()?;
 		let mut wait_ms: i32 = -1;
-		check(unsafe { ffi::glowcap_driver_step_wait_ms(self.raw, &mut wait_ms) })?;
+		// SAFETY: `handle` borrows this `DriverLoop`'s live `LoopHandle`, so the loop is unreleased for this call;
+		// `wait_ms` is an out-parameter the callee writes.
+		check(unsafe { ffi::glowcap_driver_step_wait_ms(handle.as_ptr(), &mut wait_ms) })?;
 		Ok((wait_ms >= 0).then(|| std::time::Duration::from_millis(wait_ms as u64)))
 	}
 
 	pub(super) fn release(&self) -> ReleaseOutcome {
-		if self.released.get() {
-			return ReleaseOutcome {
-				consumed: true,
-				result: Ok(()),
-			};
-		}
-		let (code, result) = crate::driver_failure::release(self.raw);
-		let consumed = if crate::lifecycle::release_consumed(code) {
-			self.released.set(true);
-			true
-		} else {
-			false
+		let Ok(mut slot) = self.handle.try_borrow_mut() else {
+			return ReleaseOutcome::Refused(Error::with_detail(
+				sys::ERR_INVALID_ARGUMENT,
+				"driver loop is in use".to_string(),
+			));
 		};
-		ReleaseOutcome { consumed, result }
-	}
-
-	/// Transfer a refused release to a durable retry owner.
-	pub(super) fn transfer_refused(&self) -> (*mut GlowcapDriverLoop, Option<Rc<ContextInner>>) {
-		debug_assert!(!self.released.get());
-		self.released.set(true);
-		(self.raw, self.retained_context())
-	}
-
-	/// Release from a last-owner path. A refusal transfers the raw loop and its
-	/// allocator policy to the recurring finalizer owner.
-	pub(super) fn release_or_defer(&self) -> Result<()> {
-		let release = self.release();
-		if !release.consumed {
-			let (raw, context) = self.transfer_refused();
-			crate::finalizer::park_driver(raw, context, release.result.is_err());
+		let Some(handle) = slot.take() else {
+			return ReleaseOutcome::Consumed(Ok(()));
+		};
+		match handle.release() {
+			Released::Consumed(result) => ReleaseOutcome::Consumed(result),
+			Released::Refused { handle, error } => {
+				*slot = Some(handle);
+				ReleaseOutcome::Refused(error)
+			}
 		}
-		release.result
+	}
+
+	/// Move a still-live loop out for a durable retry owner, with the
+	/// allocator policy it was created under. `None` when nothing is left to
+	/// transfer, or when a verb still borrows the loop. The slot then keeps
+	/// the handle for the next release attempt.
+	pub(super) fn transfer_refused(&self) -> Option<(LoopHandle, Option<Rc<ContextInner>>)> {
+		let handle = self.handle.try_borrow_mut().ok()?.take()?;
+		Some((handle, self.retained_context()))
+	}
+
+	/// Release from a last-owner path. A refusal transfers the live loop and
+	/// its allocator policy to the recurring finalizer owner.
+	pub(super) fn release_or_defer(&self) -> Result<()> {
+		match self.release() {
+			ReleaseOutcome::Consumed(result) => result,
+			ReleaseOutcome::Refused(error) => {
+				if let Some((handle, context)) = self.transfer_refused() {
+					crate::finalizer::park_driver(handle, context, true);
+				}
+				Err(error)
+			}
+		}
 	}
 }
 

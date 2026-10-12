@@ -9,7 +9,7 @@
  *   2. Answering twice does not answer twice. Escape and a click on the same
  *      button can both fire, and the second must be nothing.
  *   3. A second question does not stack. `confirm` was synchronous so this could
- *      not arise; a promise can, and the safe answer for a guard is no.
+ *      not arise. A promise can, and the safe answer for a guard is no.
  *   4. Listeners are woken when the question appears and when it goes, because a
  *      dialog that stayed up after being answered would hold the app inert.
  *
@@ -95,8 +95,8 @@ Deno.test("answering twice answers once", async () => {
 });
 
 Deno.test("a second question while one is up is refused, not queued", async () => {
-	// Unreachable through the UI — the dialog marks the rest of the app inert and
-	// swallows keystrokes — so this pins the answer for the case that is a caller
+	// Unreachable through the UI, the dialog marks the rest of the app inert and
+	// swallows keystrokes, so this pins the answer for the case that is a caller
 	// bug: refuse, because the act not happening is the safe outcome for a guard,
 	// and nobody is asked two questions at once.
 	_resetConfirmForTesting();

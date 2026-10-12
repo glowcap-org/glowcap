@@ -1,7 +1,7 @@
 // The driver archive's TypeScript face (ADR-0112): `DriverLoop` parks the
 // runtime on the loop's one readiness descriptor, steps with a zero timeout on
 // the JavaScript thread when it signals or when a Host verb kicks, and drains
-// the one event queue — dial outcomes into promises, accepted sessions into a
+// the one event queue: dial outcomes into promises, accepted sessions into a
 // queue, completions into the adopted wrapper Host's vow table.
 //
 // This tier owns generic dial/listen/event lifecycle. Transport archives
@@ -10,7 +10,7 @@
 // Parking: the readiness descriptor is a kernel readiness set (epoll/kqueue),
 // which no runtime socket wrapper can read as a stream, so the park is one
 // off-thread `poll(2)` on a dup of it through the runtime's nonblocking FFI.
-// That is why this tier needs `ffi.offloadsBlockingCalls()` — a runtime whose
+// That is why this tier needs `ffi.offloadsBlockingCalls()`: a runtime whose
 // FFI stays on the JavaScript thread (Bun's, the wasm adapter's) cannot park,
 // and callers fail closed instead of selecting a second listener or dial path.
 // Every step runs synchronously on the JavaScript thread because behavior
@@ -52,9 +52,9 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 
 	/** The server-shaped close (ADR-0112): stop accepting now, release the
 	 * unclaimed queue, and close the loop once the last application-owned
-	 * session is gone — sessions already yielded (or dialed on this loop's
-	 * Host) remain open until their owners close them, exactly the byte-fed
-	 * server's contract. Resolves at the eventual native release barrier. */
+	 * session is gone. Sessions already yielded (or dialed on this loop's
+	 * Host) remain open until their owners close them, as the byte-fed
+	 * server contract requires. Resolves at the eventual native release barrier. */
 	requestClose(): Promise<void> {
 		if (this._terminalFailure != null) {
 			this._wrapper.drainParkedReleases();

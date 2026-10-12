@@ -14,10 +14,7 @@ pub(super) fn mint(
 	args: &[Argument],
 ) -> Result<Argument, String> {
 	if minter != MembershipKind::Participant {
-		return Err(format!(
-			"{}: an observer membership cannot invite",
-			FailureCode::ReadOnlyMembership.wire()
-		));
+		return Err(FailureCode::ReadOnlyMembership.line("an observer membership cannot invite"));
 	}
 	let kind = match args {
 		[Argument::String(kind)] => MembershipKind::parse(kind),
@@ -48,6 +45,12 @@ pub(super) fn mint(
 			let session = current_session()
 				.map_err(|e| e.to_string())?
 				.ok_or("an invitation claim needs a calling session")?;
+			{
+				let mut state = shared.borrow_mut();
+				let (caller, _) = super::super::rooms::caller(&mut state)?;
+				state.ingress(caller)?;
+				state.admit_work(caller, rooms_application::admission::Class::Read, 1)?;
+			}
 			claim.borrow_mut().claim(receipt)?;
 			session
 				.spawn_owned(rooms::gated_entrance(

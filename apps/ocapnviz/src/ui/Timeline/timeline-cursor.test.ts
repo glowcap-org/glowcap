@@ -2,7 +2,7 @@
  * The Timeline's cursors, read the way the app reads them: a pointer
  * position becomes a `Hit`, and the hit becomes `cursorFor`'s answer.
  *
- * These pin the wiring rather than the rule — `interactions/cursor.test.ts`
+ * These pin the wiring rather than the rule, `interactions/cursor.test.ts`
  * owns the rule's own table. What can break here is the half this module
  * adds: a zone that names the wrong surface, a zone that names none, and the
  * precedence between them. Each case below was validated by breaking the
@@ -150,7 +150,7 @@ function gestureCtx(
 
 /** A row stack taller than the host, which is the only condition under which
  *  the fold exists. The shared helper collapses every category, so it yields
- *  three rows whatever the document holds; this expands `peers` so each one
+ *  three rows whatever the document holds. This expands `peers` so each one
  *  gets a row of its own. */
 function tallRows(events: readonly TimelineEvent[]): RowDescriptor[] {
 	const peers = new Set<string>();
@@ -227,7 +227,7 @@ Deno.test("a row scrolled into view is pointed at where it is drawn", () => {
 
 Deno.test("the ruler band still scrubs when rows are scrolled under it", () => {
 	// The other side of the same split. The ruler is drawn at the bottom of the
-	// host, so a press there scrubs — and a scrolled row stack now has rows whose
+	// host, so a press there scrubs, and a scrolled row stack now has rows whose
 	// layout y sits under that band. Answering the band test in layout space
 	// would let one of them take the press.
 	const events = TALL_EVENTS;
@@ -321,7 +321,7 @@ Deno.test("the scrub zone is the ruler band and the dead space above it", () => 
 	assertEquals(hoverAt(152, 100).hit?.surface, "timeline-ruler");
 	assertEquals(cursorAt(152, 100), "ew-resize");
 	// With one short row, everything below it and above the band is the dead
-	// space that scrubs too — the same press, so the same cursor.
+	// space that scrubs too. The same press, so the same cursor.
 	const rows: RowDescriptor[] = [
 		{ kind: "category-collapsed", category: "peers", y: 0, height: 30 },
 	];
@@ -380,7 +380,7 @@ Deno.test("the Timeline draws Space and Hand, and no build tool", () => {
 Deno.test("a modifier over a lane previews the same edit under any tool", () => {
 	// The other half of the same defect. These hosts never read the active tool
 	// on the way to a click, so a Shift-click on a pill adds to the selection
-	// whichever tool is chosen — and the cursor has to say so. Gating the
+	// whichever tool is chosen, and the cursor has to say so. Gating the
 	// preview on Select alone would leave the promise missing in Build mode,
 	// which is the same disagreement between pointer and click read backwards.
 	const events = makePeer("alice", 0, 1000);
@@ -411,7 +411,7 @@ Deno.test("a pill reads pointer, and its edge handle reads col-resize", () => {
 
 Deno.test("an authored span is a pill that no observation names", () => {
 	// The engine retimes it by entity rather than by event, so the hit carries
-	// no event id — and the pointer picks it exactly like any other pill.
+	// no event id, and the pointer picks it exactly like any other pill.
 	const doc = docFor([], {
 		peers: {
 			carol: {
@@ -522,7 +522,7 @@ Deno.test("the overview's gutter holds one control, the all-rows eyeball", () =>
 	});
 	assertEquals(overviewCursor(24), "pointer");
 	// Beside it, and with no callback wired at all, there is nothing to point
-	// at — an eyeball nobody painted must not answer for its pixels.
+	// at. An eyeball nobody painted must not answer for its pixels.
 	assertEquals(overviewAt(60), null);
 	assertEquals(overviewAt(24, { hasEye: false }), null);
 	assertEquals(overviewCursor(60), "default");
@@ -540,7 +540,7 @@ Deno.test("the window's ends are grips, and the rest of the strip pans", () => {
 	assertEquals(overviewCursor(endPx), "ew-resize");
 
 	// Inside the window, and outside it: one surface, because the press pans
-	// the window either way — from outside it jumps there first.
+	// the window either way, from outside it jumps there first.
 	const inside = (startPx + endPx) / 2;
 	const outside = endPx + 40;
 	assertEquals(overviewAt(inside)?.surface, "timeline-overview");

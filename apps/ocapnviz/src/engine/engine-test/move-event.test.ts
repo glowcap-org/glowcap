@@ -67,7 +67,7 @@ engineTest(
 	() => {
 		const e = new Engine(structuredClone(doc));
 		// e3 (session-opened) is at t=0; e6 (state-changed) wants
-		// to go to t=-1 — should also reject negative t.
+		// to go to t=-1, should also reject negative t.
 		e.dispatch({
 			kind: "move-event",
 			move: { kind: "translate", eventId: "e6", newT: -100 },

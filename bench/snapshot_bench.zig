@@ -17,15 +17,15 @@
 //!      by refcount copies no state bytes, so snapshot time grows with the object
 //!      count and stays flat as the bytes-per-object grow.
 //!   2. **Restore** rebuilds the live heap from a snapshot after every actor has
-//!      diverged. glowcap frees the rewound copies eagerly (no collector); the
+//!      diverged. glowcap frees the rewound copies eagerly (no collector). The
 //!      Goblins analog leaves that cleanup to its GC, measured with the
 //!      difference named rather than hidden.
-//!   3. **Divergence** — mutating structured state while a snapshot is
-//!      outstanding, the workload that actually motivates time-travel. A glowcap
-//!      *mutable* actor pays a copy-on-write of its whole state, O(N); a glowcap
+//!   3. **Divergence**: mutating structured state while a snapshot is
+//!      outstanding, the workload that motivates time-travel. A glowcap
+//!      *mutable* actor pays a copy-on-write of its whole state, O(N). A glowcap
 //!      *persistent* actor (`become` + `PersistentMap`) path-copies, O(log N),
 //!      the same shape as Goblins' immutable `bcom`. For large structured state
-//!      the functional flavors win; glowcap offers both, so an actor that never
+//!      the functional flavors win, glowcap offers both, so an actor that never
 //!      snapshots pays nothing.
 //!
 //! Run `zig build bench-snapshot` for the full run (writes a report under

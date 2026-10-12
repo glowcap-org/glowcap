@@ -75,7 +75,7 @@ test "wire-shaped callback: a foreign-session reply breaks one vow, not the sess
     try pumpToQuiescence(allocator, &hosts, &.{g_to_e}, &dials);
     const raw = try made.require();
 
-    // This deliberately stays below the owning Host-value boundary: the raw
+    // This stays below the owning Host-value boundary: the raw
     // actor replies with a position from another session. With no Host identity
     // carrying its home, the gifter intercept declines it.
     const r_to_g = try openPair(allocator, &recipient, &gifter, "127.0.0.1:7622", &dials);
@@ -132,7 +132,7 @@ test "listen: a host vow settles on the partner's notification, and is spent onc
 
     // Listening on it asks the partner how it settles. CapTP answers a listen
     // on an already-settled capability at once, so the notification comes back
-    // naming the same object — proof the round trip ran, not that a promise
+    // naming the same object, proof the round trip ran, not that a promise
     // stayed pending.
     var settled = CapturedRef{};
     const vow = try client.listenTo(pair.a, held);
@@ -191,7 +191,7 @@ test "listen: an unsettled listen vow breaks when its session goes" {
 }
 
 /// A behavior that defers its answer onto a resolver vow (ADR-0102) and
-/// parks the resolver id for the test body — the stand-in for a worker that
+/// parks the resolver id for the test body, the stand-in for a worker that
 /// completes off-turn.
 const Deferring = struct {
     host: *Host,
@@ -478,8 +478,8 @@ test "core host: a served tell cannot mint resolver authority" {
 test "core host: the action-queue ceiling covers parked enlivens, a fresh session, and every vow with no drain between" {
     // The reservation ceiling has one owner (`Host.reserveActions`), and this
     // is what it is for: pile up every class of already-promised notification
-    // at once — two parked select-or-dial enlivens, a session minted after
-    // them, and live vows on top — with no action drain in between to relieve
+    // at once, two parked select-or-dial enlivens, a session minted after
+    // them, and live vows on top, with no action drain in between to relieve
     // the queue. Every settle must still land, because each was reserved
     // before its promise existed.
     const allocator = std.testing.allocator;
@@ -503,7 +503,7 @@ test "core host: the action-queue ceiling covers parked enlivens, a fresh sessio
     try std.testing.expect(parked_one != parked_two);
 
     // A live vow on the open session, and a session minted while both
-    // enlivens are still parked — the mint reserves the two notifications its
+    // enlivens are still parked, the mint reserves the two notifications its
     // own session owes without disturbing what the parked pair already hold.
     var fetched = CapturedRef{};
     try client.vowOn(try client.fetch(pair.a, "widget"), .{ .ctx = &fetched, .func = CapturedRef.record });

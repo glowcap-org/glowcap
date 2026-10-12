@@ -1,5 +1,5 @@
 //! Bounded custody of durable room-authority changes. Accepted jobs belong
-//! to this writer; callers can observe completion but cannot cancel the write.
+//! to this writer. Callers can observe completion but cannot cancel the write.
 use super::super::{
 	answer::busy,
 	document::ServerState,

@@ -1,5 +1,5 @@
 // Partner identity vocabulary shared by Session and trace projection. This
-// leaf is internal module structure; session.ts intentionally re-exports only
+// leaf is internal module structure; session.ts re-exports only
 // the consumer-facing declarations.
 
 import { DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT, DURABLE_PROVENANCE_UNAUTHENTICATED, INTERNAL } from "@glowcap/abi";

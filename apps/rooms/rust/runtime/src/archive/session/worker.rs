@@ -147,16 +147,13 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 				Command::BlobReader(digest, answer) => {
 					let result = match self.local_ready().await {
 						Ok(()) => {
-							self.backend
-								.blob_reader(
-									rooms_application::archive::Facet::new(
-										Filter::default(),
-										rooms_application::archive::Access::Read,
-									)
-									.unwrap(),
-									digest,
-								)
-								.await
+							match rooms_application::archive::Facet::new(
+								Filter::default(),
+								rooms_application::archive::Access::Read,
+							) {
+								Ok(facet) => self.backend.blob_reader(facet, digest).await,
+								Err(error) => Err(Error::invalid_by(error)),
+							}
 						}
 						Err(e) => Err(e),
 					};

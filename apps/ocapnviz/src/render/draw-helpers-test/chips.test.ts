@@ -5,7 +5,7 @@
  * `SESSION_BUNDLE_SPACING` apart ACROSS the corridor. A chip is around
  * a hundred units wide and twenty tall, so thirty of separation clears
  * the height and not the width: a bundle running up the page stacked
- * its chips on top of one another. Each chip now also walks ALONG the
+ * its chips on top of one another. Each chip also walks ALONG the
  * corridor by however far out of the middle its lane rides, which puts
  * the separation on the axis with room for it.
  */
@@ -46,7 +46,7 @@ function laneChips(
  *  glowcap-next` is the widest of the four codec-and-version pairs, so it is
  *  the pair that has to clear.
  *
- *  Read through `pillSize` on purpose: raising `EDGE_CHIP_LABEL.fontPx` or its
+ *  Read through `pillSize`: raising `EDGE_CHIP_LABEL.fontPx` or its
  *  padding grows the chips this file separates, and the angle sweep below then
  *  fails on the stride that no longer clears them, instead of passing over
  *  chips that now overlap on screen. */
@@ -84,7 +84,7 @@ Deno.test("a pair of chips clears at every corridor angle", () => {
 	// width, so the chips landed on top of one another. Every angle is
 	// checked because a fix that only worked on one axis would be the same bug
 	// rotated, and because the two separations are at right angles and partly
-	// cancel on the page — the shallow angles are where the first attempt at
+	// cancel on the page. The shallow angles are where the first attempt at
 	// this still collided.
 	//
 	// At 100% zoom, which is the only zoom a world-unit stride and a
@@ -133,7 +133,7 @@ Deno.test("a big bundle keeps its chips on their own wire, and apart", () => {
 	// The walk is bounded, so a bundle wide enough to want more of the edge than
 	// there is does not fling a chip past the node it runs to. Bounded by a
 	// curve that keeps rising rather than by a limit, so two lanes past the
-	// bound still land in two places — a clamp would stack exactly the chips
+	// bound still land in two places. A clamp would stack exactly the chips
 	// this exists to separate.
 	const a = { x: -400, y: 0 };
 	const b = { x: 400, y: 0 };

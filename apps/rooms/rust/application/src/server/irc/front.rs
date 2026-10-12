@@ -1,5 +1,5 @@
-//! IRC presentation of Rooms. Names here are reversible display aliases;
-//! possession of the Rooms capability remains the authority to act.
+//! IRC presentation of Rooms. Names here are reversible display aliases.
+//! Possession of the Rooms capability remains the authority to act.
 mod names;
 use super::protocol::{self, Error};
 use alloc::{format, string::String, vec::Vec};
@@ -12,7 +12,7 @@ pub const PROJECTED_NAMES: usize = 2048;
 pub fn member_prefix(nick: &str, server: &str) -> String {
 	format!("{nick}!rooms@{server}")
 }
-/// Shorten explanatory text on a UTF-8 boundary; never shorten chat content.
+/// Shorten explanatory text on a UTF-8 boundary. Never shorten chat content.
 /// The fixed frame overhead is measured once by the authoritative encoder.
 pub fn explanation(command: &str, leading: &[&str], prefix: &str, text: &str) -> Result<Vec<u8>, Error> {
 	let safe: String = text.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();

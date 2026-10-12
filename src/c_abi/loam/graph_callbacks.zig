@@ -7,7 +7,7 @@ const graph = common.access.hosting.graph;
 
 /// Graph contribution to call_bytes, including this seam's candidate and
 /// payload copies and prepared requirement/reference/invocation projections. Other call
-/// owners remain separate; the query allocates nothing and admits no work.
+/// owners remain separate. The query allocates nothing and admits no work.
 pub fn glowcap_loam_graph_call_size_bound(pages: usize, payload_bytes: usize, fields: usize, out_bytes: ?*usize) callconv(.c) i32 {
     common.shared.lastErrorClear();
     const out = out_bytes orelse return common.shared.GLOWCAP_ERR_NULL_POINTER;
@@ -57,7 +57,7 @@ pub fn freeSpec(gpa: std.mem.Allocator, spec: graph.Spec) void {
     gpa.free(spec.requirement_verbs);
 }
 
-/// POD child descriptors copy into the retained arena; payloads borrow its
+/// POD child descriptors copy into the retained arena. Payloads borrow its
 /// already prepared snapshot. No page bytes are duplicated at projection.
 pub fn project(arena: std.mem.Allocator, snapshot: ?graph.Snapshot) ![]const c.GlowcapLoamPage {
     const prepared = snapshot orelse return &.{};
@@ -95,7 +95,7 @@ pub fn disclose(raw: ?*c.GlowcapLoamCall, page: ?*const c.GlowcapLoamPageHandle,
 }
 
 /// Foreign payloads and field buffers die at callback return. This one copy
-/// charges both payloads and candidate spines to the retained call arena; shared
+/// charges both payloads and candidate spines to the retained call arena. Shared
 /// shape validation and capture remain the authority. No second heap owner or
 /// transaction engine is introduced at the ABI boundary.
 pub fn replaceCopying(raw: ?*c.GlowcapLoamCall, bytes: ?[*]const u8, len: usize, input: ?[*]const c.GlowcapLoamPageReplacement, count: usize) !void {

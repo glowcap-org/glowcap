@@ -94,7 +94,7 @@ impl Database {
 		self.identity(EPOCH, entropy).await
 	}
 	/// Atomically fence old recorders and optionally erase content. Source and
-	/// revision high-water mark survive; abandoning observation changes no effect.
+	/// revision high-water mark survive. Abandoning observation changes no effect.
 	pub async fn set_retention_epoch(&self, epoch: DocumentText, erase: bool) -> Result<(), Error> {
 		if !valid(&epoch) {
 			return Err(Error::Invalid("invalid history retention identity"));

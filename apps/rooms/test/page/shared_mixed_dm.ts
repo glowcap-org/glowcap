@@ -4,15 +4,18 @@ import { Buffer } from "node:buffer";
 import type { Browser, Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { awaitBubble, fail, openDmTo } from "./harness.ts";
+import { namedDirectRow } from "../support/conversation_row.ts";
 
 export async function proveSharedMixedDirect(
 	browser: Browser,
 	httpPort: number,
 	attached: readonly [Page, Page],
 	png: Uint8Array,
+	ordinaryOrigin = `http://127.0.0.1:${httpPort}`,
 ): Promise<void> {
 	const [first] = attached;
 	const context = await browser.newContext();
+	await context.addCookies([{ name: "proof_login", value: "yes", url: ordinaryOrigin }]);
 	const ordinary = await context.newPage();
 	ordinary.on("pageerror", (error) => console.error(`ORDINARY-PAGE-ERROR: ${error.message}`));
 	ordinary.on("console", (message) => {
@@ -20,7 +23,7 @@ export async function proveSharedMixedDirect(
 			console.error(`ORDINARY-CONSOLE-${message.type()}: ${message.text()}`);
 		}
 	});
-	await ordinary.goto(`http://127.0.0.1:${httpPort}/`);
+	await ordinary.goto(`${ordinaryOrigin}/`);
 	await establishLocalSession(ordinary);
 	await ordinary.fill("#nick", "ordinary-member");
 	await ordinary.fill("#room", "mirror-two");
@@ -92,6 +95,12 @@ export async function proveSharedMixedDirect(
 		await renderedImage(page, "ordinary-to-shared.png", "an attached browser received an empty image");
 	}
 	await context.close();
+	for (const page of attached) {
+		await namedDirectRow(page, "ordinary-member").locator(".closed-mark").waitFor({ timeout: 30_000 })
+			.catch(() => fail("the disconnected browser's DM did not close automatically"));
+		if (await page.locator("#line").isEnabled()) fail("the closed DM still permits sending");
+		await awaitBubble(page, "ordinary browser replied to the shared member", "closed attached browser");
+	}
 }
 
 async function typingShown(page: Page, name: string, refusal: string): Promise<void> {

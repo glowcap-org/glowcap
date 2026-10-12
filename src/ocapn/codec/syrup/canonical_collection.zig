@@ -1,7 +1,7 @@
 //! Canonical Syrup ordering for unordered encoded collections.
 //!
 //! A caller supplies the element writer. The count pass sums elements without
-//! scratch because canonical ordering is a permutation; the fill pass encodes
+//! scratch because canonical ordering is a permutation. The fill pass encodes
 //! each element once, sorts the encoded bytes, optionally refuses adjacent
 //! duplicates, and emits the sorted byte strings.
 

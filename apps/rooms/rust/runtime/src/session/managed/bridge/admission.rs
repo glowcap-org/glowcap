@@ -82,7 +82,7 @@ pub(in crate::session::managed) fn references(
 			record
 				.custody
 				.session_access(witness.source)
-				.expect("validated witness")
+				.ok_or_else(|| loam::refusal("original bridge source custody is absent"))?
 				.reference,
 		)?]);
 	}
@@ -145,7 +145,7 @@ pub(in crate::session::managed) fn reapplication(call: &mut Call<'_>, input: Inv
 	let source = record
 		.custody
 		.session_access(witness.source)
-		.expect("validated witness")
+		.ok_or_else(|| loam::refusal("original bridge source custody is absent"))?
 		.reference
 		.resolve(call, input)?;
 	if source != call.source()? || !witness.applied || witness.access.is_none() {
@@ -205,6 +205,12 @@ pub(in crate::session::managed) fn admit<P: Tasks + Deadline + Clone + 'static>(
 		.find(|row| row.operation == request.operation)
 	{
 		content::receipts::authenticate(call, input, &metadata, &request.operation, &source)?;
+		owner.admission.borrow_mut().work(
+			call,
+			rooms_application::admission::Class::Read,
+			None,
+			owner.platform.monotonic_millis(),
+		)?;
 		let receipt = effects::inspect(
 			&metadata.effects,
 			&request.operation,
@@ -212,10 +218,16 @@ pub(in crate::session::managed) fn admit<P: Tasks + Deadline + Clone + 'static>(
 			&intent,
 		)
 		.map_err(|_| loam::refusal("original public bridge intent required"))?
-		.expect("selected receipt");
+		.ok_or_else(|| loam::refusal("original bridge receipt is absent"))?;
 		return Ok(content::receipts::status(
 			receipt,
-			owner.running(request.operation.text().as_str().expect("scalar operation")),
+			owner.running(
+				request
+					.operation
+					.text()
+					.as_str()
+					.ok_or_else(|| loam::refusal("invalid bridge operation"))?,
+			),
 		));
 	}
 	if request.base.get() != input.content_revision {
@@ -224,6 +236,12 @@ pub(in crate::session::managed) fn admit<P: Tasks + Deadline + Clone + 'static>(
 	if !request.selected(&metadata.intent) {
 		return Err(loam::refusal("original bridge seat or continuing access changed"));
 	}
+	owner.admission.borrow_mut().work(
+		call,
+		rooms_application::admission::Class::Create,
+		None,
+		owner.platform.monotonic_millis(),
+	)?;
 	let credentials = owner
 		.credentials
 		.borrow()
@@ -258,10 +276,17 @@ pub(in crate::session::managed) fn admit<P: Tasks + Deadline + Clone + 'static>(
 		let original_source = record
 			.custody
 			.session_access(witness.source)
-			.expect("validated witness")
+			.ok_or_else(|| loam::refusal("original bridge source custody is absent"))?
 			.reference
 			.resolve(call, input)?;
-		let original_access = resolve(&record, witness.access.expect("continuing access"), call, input)?;
+		let original_access = resolve(
+			&record,
+			witness
+				.access
+				.ok_or_else(|| loam::refusal("original bridge continuing access is absent"))?,
+			call,
+			input,
+		)?;
 		if source != original_source || targets.get(1) != Some(&original_access) {
 			return Err(loam::refusal("original bridge source and continuing access required"));
 		}
@@ -305,7 +330,7 @@ pub(in crate::session::managed) fn admit<P: Tasks + Deadline + Clone + 'static>(
 			.transpose()?;
 		record
 			.custody
-			.set_next_identity(SafeInteger::new(id.get() + 1).unwrap_or_else(|| SafeInteger::new(0).unwrap()));
+			.set_next_identity(SafeInteger::new(id.get() + 1).unwrap_or(SafeInteger::ZERO));
 		owner.next_line.set(id.get() + 1);
 		record
 			.bridges
@@ -323,7 +348,14 @@ pub(in crate::session::managed) fn admit<P: Tasks + Deadline + Clone + 'static>(
 			.map_err(|_| loam::refusal("bridge witnesses are full"))?;
 		value
 	};
-	let seat = Seat::reserve(owner, request.operation.text().as_str().expect("scalar operation"))?;
+	let seat = Seat::reserve(
+		owner,
+		request
+			.operation
+			.text()
+			.as_str()
+			.ok_or_else(|| loam::refusal("invalid bridge operation"))?,
+	)?;
 	let (reservation, pending) = call.reserve_continuation_copying(&targets)?;
 	let source = reservation.source()?;
 	let retained = coordinates

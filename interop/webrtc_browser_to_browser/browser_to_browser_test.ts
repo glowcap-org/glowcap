@@ -1,4 +1,4 @@
-// The WebRTC browser-to-browser proof (ADR-0089 phase 6). Two real headless
+// The WebRTC browser-to-browser proof (ADR-0089). Two real headless
 // Chromium contexts each run `@glowcap/web` (the wasm Host) and `@glowcap/webrtc`
 // (`RtcPeer`). They exchange signaling through this harness's WebSocket relay,
 // bring up a direct DataChannel between the two browsers, and hold a keyed OCapN

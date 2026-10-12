@@ -1,13 +1,12 @@
-// The directory: the one object a rooms peer fetches by name, and everything it
+// The directory: the object a rooms peer fetches by name, and everything it
 // answers.
 //
 // Rooms are opened and entered here, names are registered here, and the
-// introduction that opens a direct line is asked for here — but the directory
+// introduction that opens a direct line is asked for here. The directory
 // carries none of the conversation. It hands out references and then steps out,
-// which is why so much of this file is about arranging a meeting rather than
-// relaying anything: an inbox minted for one peer, a handoff redeemed by
-// dialing that peer, WebRTC signaling routed between two members who cannot
-// dial each other at all.
+// so most of this file arranges a meeting instead of relaying anything: an
+// inbox created for one peer, a handoff redeemed by dialing that peer, WebRTC
+// signaling routed between two members who cannot dial each other at all.
 
 import { Ref, retainCleanupFailures, retainSecondaryFailure } from "@glowcap/runtime";
 import type { Session } from "@glowcap/runtime";
@@ -47,41 +46,41 @@ import { claimRedeemWithin, RedeemRouteCoordinator } from "./redeem_routes.ts";
 import { claimCapabilityWithin } from "./capability_cleanup.ts";
 
 // How long `introduceVia` waits for the peer to offer an inbox for us after the
-// directory has asked them for one. Bounded, because the peer may never answer.
+// directory has asked them for one. Bounded because the peer may never answer.
 const INTRODUCIBLE_TIMEOUT_MS = 10_000;
 
 // ── Which directory a redeem rides (ADR-0089) ──────────────────────────────
 //
-// A `webrtc` locator carries a designator and nothing else — no address, and no
-// word about where the peer can be signaled — so the connector redeeming an
-// introduction cannot say which directory vouched for the peer it is dialing.
-// It asks the signaling authority, and a tab that joined somebody else's
-// directory holds more than one: its own page's, opened at boot, and the one it
-// went to. Signaling through the wrong one reaches nobody, because the offer
-// names a designator that directory never registered — and it tells a room that
-// has nothing to do with this conversation who the reader is trying to reach,
-// and hands it an SDP describing where they are.
+// A `webrtc` locator carries a designator and nothing else: no address, and no
+// word about where the peer can be signaled. The connector redeeming an
+// introduction therefore cannot say which directory vouched for the peer it is
+// dialing, so it asks the signaling authority. A tab that joined somebody
+// else's directory holds more than one: its page's, opened at boot, and the one
+// it went to. Signaling through the wrong one reaches nobody, because the offer
+// names a designator that directory never registered. It also tells a room
+// that has nothing to do with this conversation who the reader is trying to
+// reach, and hands it an SDP describing where they are.
 //
-// So the redeem says which directory it rides, here, and the authority in
-// `signaling.ts` reads it. Two redeems in flight through *different* directories
+// So the redeem says which directory it rides here, and the authority in
+// `signaling.ts` reads it. Two redeems in flight through different directories
 // would leave that unanswerable, so the second one waits. Redeems through the
-// same directory share one active batch; once another directory is queued, new
+// same directory share one active batch. Once another directory is queued, new
 // work waits behind it so a busy room cannot starve every other one.
 const redeemRoutes = new RedeemRouteCoordinator<Directory>(MAX_DM_INBOXES, REQUEST_TIMEOUT_MS);
 
 /** The directory whose redeem is in flight, or null when none is or the answer
  * would be a guess. Read by the WebRTC signaling authority to route one
- * exchange; every other caller has a directory in hand already. */
+ * exchange. Every other caller has a directory in hand already. */
 export function signalingRoute(): Directory | null {
 	return redeemRoutes.current();
 }
 
-/** The directory of rooms: the server's one published object. Connect to it,
- * then `open` a new room or `enter` an existing one, each returns a reference
- * to that room. Both mirror the wire: `open` rejects if the name is taken,
+/** The directory of rooms: the server's published object. Connect to it,
+ * then `open` a new room or `enter` an existing one. Each returns a reference
+ * to that room. Both mirror the wire: `open` rejects if the name is taken, and
  * `enter` rejects if there is no such room. `list` and `watch` are discovery:
  * the rooms that have people in them, as a snapshot or a live feed. The
- * directory owns the connection; close it with `close` when the session ends. */
+ * directory owns the connection, and `close` ends it when the session ends. */
 export class Directory {
 	readonly session: Session;
 	#directory: Ref;
@@ -97,7 +96,7 @@ export class Directory {
 	readonly #introducible = new Map<string, (() => void)[]>();
 	#introducibleWaiterCount = 0;
 	// Peers whose `introducible` arrived with nobody parked on it. The notify
-	// dispatches synchronously inside the inbound feed while our own refusal
+	// dispatches synchronously inside the inbound feed while our refusal
 	// surfaces as a promise rejection on a later microtask, so the wakeup can
 	// reach us before the caller it is for.
 	readonly #introducibleSeen = new Set<string>();
@@ -156,8 +155,8 @@ export class Directory {
 			this.session.release(ref);
 			this.#localRefs.delete(ref);
 		} catch (error) {
-			// The Directory remains the explicit owner and retries at close. A
-			// successful remote adoption is not turned into a false operation failure.
+			// The Directory remains the owner and retries at close. A successful
+			// remote adoption is not turned into a false operation failure.
 			this.#localRefs.add(ref);
 			this.#retainedFailure = this.#retainedFailure === null
 				? error
@@ -168,7 +167,7 @@ export class Directory {
 	/** Create a new room and return a reference to it.
 	 *
 	 * A public room takes the name, so this rejects if that name is taken. A
-	 * private one takes nothing: it is not listed, cannot be entered by name, and
+	 * private one takes nothing. It is not listed, cannot be entered by name, and
 	 * is reached only by holding the reference this answers with or one passed on
 	 * from it with `invite`. Two of them may share a label, and neither reader
 	 * learns of the other's. */
@@ -183,8 +182,8 @@ export class Directory {
 	}
 
 	/** Create a room with its separate, passable management capability. The
-	 * two-stage bootstrap settles persistence before exposing either sturdyref;
-	 * baseline `open` remains room-only. */
+	 * two-stage bootstrap settles persistence before exposing either sturdyref.
+	 * Baseline `open` is room-only. */
 	openManaged(
 		name: string,
 		options: { policy?: RoomPolicy; roomId?: string } = {},
@@ -234,7 +233,7 @@ export class Directory {
 		) as Promise<Ref>;
 	}
 
-	/** Return the exact generation advertised by this wrapper's rich discovery verbs. */
+	/** Return the generation advertised by this wrapper's rich discovery verbs. */
 	enterPublication(id: string): Promise<Ref> {
 		return ask(
 			this.session,
@@ -245,9 +244,9 @@ export class Directory {
 		) as Promise<Ref>;
 	}
 
-	/** The stable room sturdyref this directory minted. The room Host authors
+	/** The stable room sturdyref this directory created. The room Host authors
 	 * both its durable authority and the location current for this session, so a
-	 * client cannot accidentally splice that authority onto one stale route. */
+	 * client cannot splice that authority onto a stale route. */
 	async link(name: string): Promise<string> {
 		const sturdyref = await ask(
 			this.session,
@@ -359,8 +358,8 @@ export class Directory {
 	}
 
 	/** A single-use proof that the caller holds this directory's registered
-	 * name, for a `subscribe` arriving on another connection; null when this
-	 * directory minted no name capability. Each voucher redeems once, and only
+	 * name, for a `subscribe` arriving on another connection. Null when this
+	 * directory created no name capability. Each voucher redeems once, and only
 	 * while the registration stands. */
 	async nameVoucher(): Promise<Uint8Array | null> {
 		return await this.#registration.nameVoucher();
@@ -372,10 +371,10 @@ export class Directory {
 	 * directly. The reference we get back therefore talks to the member over our
 	 * own connection, not through the directory.
 	 *
-	 * `register` first: the directory reads the asker's name off its own
+	 * `register` first. The directory reads the asker's name off its
 	 * registration, never from the message, so an unregistered caller has no name
-	 * an inbox could have been minted for. Rejects if no member with that nick is
-	 * registered. */
+	 * an inbox could have been created for. Rejects if no member with that nick
+	 * is registered. */
 	async introduce(nick: string, registrationId: string): Promise<Ref> {
 		return (await this.introduceVia(nick, registrationId)).dm;
 	}
@@ -383,11 +382,11 @@ export class Directory {
 	/** Introduce us to a member, returning both the member's `dm` reference and
 	 * the direct `Session` the redeem dialed to reach it (`via`). Hosting a reply
 	 * inbox on `via` and sending the DM over `via` lets the member answer us back
-	 * over that same connection — the bidirectional completion of the
-	 * introduction, which is the only way a member can reach a caller (a browser,
-	 * say) that cannot itself be dialed. `via` is null only if the reply named no
-	 * fresh redeem. Requires a `register`, like `introduce`. Rejects if no member
-	 * with that nick is registered. */
+	 * over that same connection. That completes the introduction, and it is the
+	 * only way a member can reach a caller (a browser, say) that cannot itself be
+	 * dialed. `via` is null only if the reply named no fresh redeem. Requires a
+	 * `register`, like `introduce`. Rejects if no member with that nick is
+	 * registered. */
 	async introduceVia(
 		nick: string,
 		expectedRegistrationId?: string,
@@ -403,11 +402,11 @@ export class Directory {
 		// First contact with this peer: the directory has just asked them for an
 		// inbox for us. Wait for the offer to land, then ask again.
 		//
-		// Twice, because a wakeup recorded before we asked may be spent: the
+		// Twice, because a wakeup recorded before we asked may be spent. The
 		// directory drops a member's offers whenever either name changes hands, so
 		// an `introducible` we banked can name an inbox that no longer exists. A
-		// retry refused again therefore waits for a fresh notify rather than
-		// reporting failure on the strength of an old one.
+		// retry refused again therefore waits for a fresh notify and does not
+		// report failure on the strength of an old one.
 		for (let attempt = 0; attempt < 2; attempt += 1) {
 			await this.#awaitIntroducible(nick, registrationId, opening, attempt === 0);
 			try {
@@ -453,7 +452,7 @@ export class Directory {
 			(via ?? this.session).release(reply);
 		} catch (error) {
 			// Before close, preserve the cleanup refusal for its owning barrier. Once
-			// close has begun, native session retirement is the remaining authority.
+			// close has begun, session retirement is the remaining authority.
 			if (this.#closePromise === null) {
 				this.#retainedFailure = this.#retainedFailure === null
 					? error
@@ -481,7 +480,7 @@ export class Directory {
 	}
 
 	/** Wait for `nick` to offer us an inbox. `useBanked` spends a wakeup that
-	 * arrived before this call; the retry pass passes false, so it waits for a
+	 * arrived before this call. The retry pass passes false, so it waits for a
 	 * fresh one. */
 	#awaitIntroducible(nick: string, registrationId: string, opening: string, useBanked: boolean): Promise<void> {
 		const key = JSON.stringify([registrationId, opening]);

@@ -36,7 +36,7 @@ const kindIcon: Record<ToastKind, IconName> = {
 };
 
 /** The notice itself, without the stack or the timer. The catalog draws this
- * in place; the live stack wraps it with a slot that can leave. */
+ * in place. The live stack wraps it with a slot that can leave. */
 export function ToastCard(
 	{ kind, text, onDismiss, onExpand }: {
 		kind: ToastKind;

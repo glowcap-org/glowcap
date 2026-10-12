@@ -2,7 +2,7 @@
  * Where the camera is allowed to go, and where a document asks it to start.
  *
  * Two separate things live here because they answer to each other. The bounds
- * say what a camera may do at all; the document's initial view is one position
+ * say what a camera may do at all. The document's initial view is one position
  * inside those bounds, so a document that stored a scale the bounds later
  * narrowed has to be clamped rather than trusted.
  *
@@ -15,10 +15,10 @@
  * The floor stops the viewport degenerating, where world units get small enough
  * that pan and hit-testing lose their footing.
  *
- * The ceiling sits far past any use anyone has for it — one node filling the
- * viewport many times over — so it refuses nothing a reader wants. What it buys is
+ * The ceiling sits far past any use anyone has for it, one node filling the
+ * viewport many times over, so it refuses nothing a reader wants. What it buys is
  * that the scale has two ends. A control that steps can say when a step would not
- * move, and a control that scrubs has something to scrub between; both of those
+ * move, and a control that scrubs has something to scrub between. Both of those
  * are one-sided while one end is open.
  *
  * # The view a document carries
@@ -29,7 +29,7 @@
  * controls' home button goes.
  *
  * Looking around does not set it. Panning and zooming are reading, so they change
- * no document and record no history; what the camera does instead is report where
+ * no document and record no history. What the camera does instead is report where
  * it came to rest (`StageCamera.publishSettledView`), and the document panel's
  * Opens-at row offers to record that with a press
  * (`Engine.setOpeningView`). Setting it is then an ordinary undoable edit, which
@@ -124,7 +124,7 @@ export function canStepIn(zoom: number): boolean {
 	return steppedStageZoom(zoom, false) > clampStageZoom(zoom);
 }
 
-/** A rectangle in world units — what the stage has actually drawn. */
+/** A rectangle in world units, what the stage has drawn. */
 export type ContentBounds = {
 	x: number;
 	y: number;
@@ -136,7 +136,7 @@ export type ContentBounds = {
  * The rectangle covering all of `rects`, or null when none have extent.
  *
  * Empty rectangles (zero width and height) are skipped. An empty Pixi
- * container reports bounds at the origin, which is a real point — folding
+ * container reports bounds at the origin, which is a real point, folding
  * one in stretches the fit back to `(0, 0)`. The shared edge-stroke batch
  * under `edgeLayer` is always present, so this skip is what keeps fit from
  * answering the empty batch instead of the drawn peers.
@@ -171,10 +171,10 @@ export function unionBounds(
  * center is the content's own center. Padding is screen pixels because it is
  * breathing room for a reader rather than a fact about the world.
  *
- * Content with no extent in an axis cannot ask that axis for a scale — a single
+ * Content with no extent in an axis cannot ask that axis for a scale, a single
  * node, or a row of nodes at one y, would divide by zero and fit at infinity.
  * Such an axis is skipped, and content with no extent at all keeps the default
- * scale and simply centers, which is the most that can be said about it.
+ * scale and centers, which is the most that can be said about it.
  *
  * A viewport too small to hold the padding is a viewport mid-layout, and the
  * answer is the default view rather than a negative scale.
@@ -213,7 +213,7 @@ export function fitStageView(
  *
  * Null for anything that is not a number, so the caller can leave the camera
  * where it is rather than guess. Zero and negatives are not scales at all, and a
- * number below the floor is clamped rather than refused — a reader who asks for
+ * number below the floor is clamped rather than refused. A reader who asks for
  * more than the camera has goes as far as it goes.
  */
 export function parseStageZoom(text: string): number | null {

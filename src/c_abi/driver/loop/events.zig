@@ -21,7 +21,7 @@ const GLOWCAP_ERR_INVALID_ARGUMENT = shared.GLOWCAP_ERR_INVALID_ARGUMENT;
 const GLOWCAP_ERR_WOULD_BLOCK = shared.GLOWCAP_ERR_WOULD_BLOCK;
 const instanceFrom = Internal.instanceFrom;
 
-/// One queued loop event, in owned form; projection to C happens at pop.
+/// One queued loop event, in owned form. Projection to C happens at pop.
 pub const OwnedEvent = union(enum) {
     opened: struct { operation_id: u64, session: SessionEventRef },
     open_failed: struct { operation_id: u64, failure: FailureProjection },
@@ -162,9 +162,9 @@ pub fn releaseSinkEvent(ctx: *anyopaque) void {
 }
 
 /// The close observer: a wire the pump closes queues a SESSION_CLOSED event.
-/// Clean EOF carries GLOWCAP_OK and no message; a fault carries the stable
+/// Clean EOF carries GLOWCAP_OK and no message. A fault carries the stable
 /// driver classification plus its concrete Zig error name. Wire adoption
-/// reserved this event before the session could become visible; a releasing
+/// reserved this event before the session could become visible. A releasing
 /// loop gives that seat back unpublished.
 pub fn observeClose(
     ctx: *anyopaque,
@@ -182,7 +182,7 @@ pub fn observeClose(
     } });
 }
 
-/// An open finished its handshake inside a step; queue OPENED under its
+/// An open finished its handshake inside a step. Queue OPENED under its
 /// operation id. Admission reserved the queue slot, so this callback cannot
 /// allocate after the session commits.
 pub fn openSucceeded(ctx: *anyopaque, tag: u64, session: *driver_core.HostSession) !void {
@@ -208,8 +208,8 @@ pub fn openFailedEvent(ctx: *anyopaque, tag: u64, failure: driver.OperationFailu
     });
 }
 
-/// The accept observer's opened arm: an admitted accept finished its handshake;
-/// queue the ACCEPTED event under its listener id. The accept step reserved
+/// The accept observer's opened arm: an admitted accept finished its handshake.
+/// Queue the ACCEPTED event under its listener id. The accept step reserved
 /// the queue slot before admitting the connection.
 pub fn acceptOpened(ctx: *anyopaque, tag: u64, session: *driver_core.HostSession) !void {
     const inst: *Instance = @ptrCast(@alignCast(ctx));
@@ -238,9 +238,9 @@ pub fn acceptFailed(ctx: *anyopaque, tag: u64, failure: driver.OperationFailure)
 
 /// Pop the oldest loop event into `out`, or `GLOWCAP_ERR_WOULD_BLOCK` when
 /// none is pending (drain in a loop until that code). Borrowed views in the
-/// popped event — an OPEN_FAILED error name, a COMPLETION action's bytes and
-/// children — stay valid until the next call. Completion payloads are freed
-/// then; error names are static.
+/// popped event (an OPEN_FAILED error name, a COMPLETION action's bytes and
+/// children) stay valid until the next call. Completion payloads are freed
+/// then. Error names are static.
 pub export fn glowcap_driver_next_event(raw: ?*c.GlowcapDriverLoop, out: ?*c.GlowcapDriverEvent) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;

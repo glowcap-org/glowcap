@@ -2,7 +2,7 @@
 //!
 //! `Session` owns the export, import, answer, handshake, pipelining, GC,
 //! handoff, and sturdyref tables for one direct conversation. `recordSend` and
-//! `recordRecv*` are the validate-then-apply state-machine entries; codecs and
+//! `recordRecv*` are the validate-then-apply state-machine entries. Codecs and
 //! adapters only move bytes.
 //!
 //! The layout favors O(1) position lookups and short-lived receive scratch.
@@ -58,14 +58,14 @@ pub const Error = @import("errors.zig").Error;
 /// The fixed bootstrap export position installed when a session reaches `open`
 /// (ADR-0006). An inbound `op:deliver` to `<desc:export 0>` with method
 /// `'fetch` is the bootstrap-fetch entry point. The initiator side lives in
-/// `engine.fetch`; the inbound-`'fetch` responder lives in `engine.bootstrap`,
+/// `engine.fetch`. The inbound-`'fetch` responder lives in `engine.bootstrap`,
 /// not the session.
 ///
 /// Position 0 is pinned outside wire-delta GC in both directions: it is never
 /// retained by send-side export accounting, an inbound
 /// `op:gc-exports` naming it is a no-op skip (`checkGcExportDecrement` /
 /// `applyGcExportDecrement`), and an outbound one is refused
-/// (`validateSend`). The bootstrap export therefore lives exactly as long as
+/// (`validateSend`). The bootstrap export therefore lives as long as
 /// the session.
 pub const BOOTSTRAP_POSITION: u64 = 0;
 
@@ -76,7 +76,7 @@ pub const BOOTSTRAP_POSITION: u64 = 0;
 /// The outbound half is version-neutral (`resolver_export.zig`): both profiles
 /// receive answer and listener notifications through resolver callbacks. The
 /// inbound half is V1.0's alone because only V1.0 advertises a resolver in an
-/// answered `op:deliver`; next follows every answered operation with
+/// answered `op:deliver`. Next follows every answered operation with
 /// `op:listen` instead.
 ///
 /// These are not folded onto the answer rows: the inbound resolver is installed
@@ -85,7 +85,7 @@ pub const BOOTSTRAP_POSITION: u64 = 0;
 /// Keeping them as O(1) integer-keyed maps preserves that lifecycle.
 ///
 /// A resolver export is an ordinary export minted by the session's own
-/// allocator (`allocateExport`); it shares the one export namespace with the
+/// allocator (`allocateExport`). It shares the one export namespace with the
 /// actor and bootstrap exports, and collision is impossible because the
 /// session is the single minter.
 ///
@@ -116,11 +116,11 @@ pub const State = enum {
 };
 
 /// Resource bounds a session enforces against a partner. Defined in
-/// `limits.zig`; aliased here so call sites keep reading `session.SessionLimits`.
+/// `limits.zig`. Aliased here so call sites keep reading `session.SessionLimits`.
 pub const SessionLimits = limits.SessionLimits;
 
 /// Which answer table an install targets. Inbound rows and detached accepted
-/// consequences share `SessionLimits.max_inbound_answers`; outbound rows are
+/// consequences share `SessionLimits.max_inbound_answers`. Outbound rows are
 /// positions we allocate ourselves, bounded by our own sends, so they carry no
 /// cap.
 pub const AnswerDirection = answer_lifecycle.Direction;
@@ -163,7 +163,7 @@ pub const Session = struct {
     /// settles it.
     captp_version: model.CaptpVersion,
     /// The wire codec negotiated for this direct session. The
-    /// authoritative record of the codec choice; the engine's codec-dispatch
+    /// authoritative record of the codec choice. The engine's codec-dispatch
     /// boundary (`codec.dispatch`) reads it to route each frame, and every event
     /// the session produces is tagged with it. Defaults to `.syrup` for the
     /// non-negotiating constructors.
@@ -172,13 +172,13 @@ pub const Session = struct {
     /// inputs `engine.negotiation.settle` reads to produce the active profile
     /// above. Both are a whole `model.Preference` rather than loose fields,
     /// because they are the same kind of thing and every reader wants them
-    /// whole — a decomposed side would be rebuilt at each use site.
+    /// whole, a decomposed side would be rebuilt at each use site.
     ///
     /// Kept beside the active values rather than folded into them because
     /// they answer a different question. The active pair is a property of the
-    /// two peers; these are properties of one peer each, and they are what
+    /// two peers. These are properties of one peer each, and they are what
     /// answers "why is this session on the baseline". The hello advertises
-    /// `preferred`, but the transport may lower what it actually signs; both
+    /// `preferred`, but the transport may lower what it signs. Both
     /// facts survive the settle that overwrites the active values, including
     /// `features`.
     preferred: model.Preference,
@@ -186,7 +186,7 @@ pub const Session = struct {
     /// baseline until that half is sent.
     local_preference: model.Preference = model.Preference.baseline,
     /// The partner's, or the baseline before its hello has arrived. The
-    /// session records the claim; the engine decides with it.
+    /// session records the claim. The engine decides with it.
     partner_preference: model.Preference = model.Preference.baseline,
     /// Whether this partner is known to be glowcap before our hello states a
     /// preference, which on onion is the licence to state one at all
@@ -227,7 +227,7 @@ pub const Session = struct {
     /// and interned third-party host designators. Churned rows stay on the gpa.
     key_arena: std.heap.ArenaAllocator,
     /// Per-turn arena for recv validation and temporary owned fallbacks. Recv
-    /// entry points reset it; apply dupes anything session-lived onto `allocator`.
+    /// entry points reset it. Apply dupes anything session-lived onto `allocator`.
     recv_scratch: std.heap.ArenaAllocator,
     exports: ExportTable,
     imports: ImportTable,
@@ -235,21 +235,21 @@ pub const Session = struct {
     outbound_answers: OutboundAnswerTable,
     /// Lazy store for notification obligations whose partner-owned
     /// pipelining name has been GC'd and may already have been reused. Null in
-    /// the steady state; rows are keyed by the session's monotonic row stamp.
+    /// the steady state. Rows are keyed by the session's monotonic row stamp.
     detached_inbound_answers: ?*answers.DetachedAnswerStore = null,
     /// Owned bytes in resolutions retained by sent inbound-answer rows. This
-    /// durable store has its own Session limit; transient outbound flow
+    /// durable store has its own Session limit. Transient outbound flow
     /// accounting ends when a settlement moves here. Answer GC, local-promise
     /// retirement, and teardown release the exact charge.
     retained_sent_answer_bytes: usize = 0,
     /// Promises imported from a third party via handoff (ADR-0009), keyed by
     /// import position for O(1) lookup. Host designators are interned in
-    /// `key_arena`; each row owns its listen cell and stored relayed resolution.
+    /// `key_arena`. Each row owns its listen cell and stored relayed resolution.
     imported_promises: std.AutoHashMapUnmanaged(model.ImportPosition, ImportedPromise),
     /// Session-wide monotonic source for every store-row identity stamp a
     /// queued fire carrier checks at encode: `AnswerCell.row_id` and
     /// `PromiseListenCell.row_id`. One counter for all (not per-row seeds) so no
-    /// two row instances ever share a value — a carrier stamped against a row
+    /// two row instances ever share a value, a carrier stamped against a row
     /// since released and re-registered at the same position must miss, never
     /// false-match.
     store_stamp_counter: u64 = 0,
@@ -258,8 +258,8 @@ pub const Session = struct {
     /// Whether the partner's `op:start-session` half has been observed.
     handshake_remote_received: bool,
     /// The partner's session public key, learned from its `op:start-session`. The
-    /// session keeps it as opaque bytes in `key_arena` (it runs no crypto); an
-    /// embedder reads it to verify the partner's signatures — for example, the
+    /// session keeps it as opaque bytes in `key_arena` (it runs no crypto). An
+    /// embedder reads it to verify the partner's signatures, for example, the
     /// gifter's `desc:handoff-give` when this is a gifter-to-exporter session
     /// (ADR-0009). Empty until the partner's handshake half arrives with a key.
     partner_session_key: []const u8 = &.{},
@@ -273,10 +273,10 @@ pub const Session = struct {
     local_session_key: []const u8 = &.{},
     /// The partner's location designator from its `op:start-session`. When
     /// `partner_acceptable_location_raw` is set, this is a view into that
-    /// buffer; otherwise a designator-only arena dupe (owned-message apply).
+    /// buffer. Otherwise a designator-only arena dupe (owned-message apply).
     /// Empty until the handshake half arrives.
     partner_designator: []const u8 = &.{},
-    /// The partner's verbatim `<ocapn-peer ...>` location-record bytes, exactly as
+    /// The partner's verbatim `<ocapn-peer ...>` location-record bytes, as
     /// they arrived on its `op:start-session`. Sole owner of peer-location
     /// content on the decode path (`partner_designator` views into it). A gifter
     /// embeds these in a `desc:handoff-give`'s exporter-location so a peer
@@ -287,7 +287,7 @@ pub const Session = struct {
     /// The resolver-export link (ADR-0010, ADR-0095): a resolver-export
     /// position bound to the outbound answer-pos it settles. An inbound
     /// deliver to that export is the partner settling the answer
-    /// (`answerForResolverExport`, forward, per inbound deliver); a
+    /// (`answerForResolverExport`, forward, per inbound deliver). A
     /// fully-released answer retires that purpose on the `op:gc-answers` path
     /// by its answer side. The tombstone remains until any racing callback and
     /// the partner's export mention are concluded. One `BiMap` holds both
@@ -304,14 +304,14 @@ pub const Session = struct {
     /// (ADR-0012 dedup).
     /// FIFO-evicting (cap `max_sturdyref_cache_entries`), with inline row links
     /// preserving insertion order through dense removal. Owns each swissnum on
-    /// the gpa — freed precisely on eviction.
+    /// the gpa, freed on eviction.
     sturdyref_cache: std.ArrayList(SturdyrefCacheEntry),
     /// Side index for `sturdyref_cache`: swissnum to dense row index, O(1) lookup.
-    /// Keys are the same owned slices the ArrayList rows hold (one owner); kept
+    /// Keys are the same owned slices the ArrayList rows hold (one owner). Kept
     /// in lockstep on insert and FIFO eviction (`sturdyref_cache.zig`).
     sturdyref_cache_index: std.StringHashMapUnmanaged(usize),
     /// In-flight sturdyref enlivens, mapping a swissnum to its outstanding answer
-    /// (ADR-0012 dedup). O(1) lookup; rows are removed on completion, so swissnum
+    /// (ADR-0012 dedup). O(1) lookup. Rows are removed on completion, so swissnum
     /// keys are gpa-owned and freed on removal.
     pending_enlivens: std.StringHashMapUnmanaged(model.AnswerPosition),
     /// Reverse index for `pending_enlivens`: answer to the same owned swissnum
@@ -319,7 +319,7 @@ pub const Session = struct {
     /// removal (`sturdyref_cache.zig`).
     pending_enliven_by_answer: std.AutoHashMapUnmanaged(model.AnswerPosition, []const u8),
     /// The swissnum-to-export registry the inbound-`'fetch` responder consults
-    /// (ADR-0006). Keys live in `key_arena`; O(1) lookup. Never removed.
+    /// (ADR-0006). Keys live in `key_arena`, O(1) lookup. Never removed.
     bootstrap: std.StringHashMapUnmanaged(model.ExportPosition),
 
     /// Maximum receive scratch retained after a turn. The footprint and
@@ -334,8 +334,8 @@ pub const Session = struct {
     pub const initWith = lifecycle.initWith;
     pub const deinit = lifecycle.deinit;
 
-    /// The version-neutral resolver-export link lives in `resolver_export.zig`;
-    /// these aliases keep the call sites reading as ordinary `Session` methods
+    /// The version-neutral resolver-export link lives in `resolver_export.zig`.
+    /// These aliases keep the call sites reading as ordinary `Session` methods
     /// while the bodies sit beside the link they operate on. The field itself
     /// stays on `Session`.
     pub const nominateResolverExport = resolver_export.nominateResolverExport;
@@ -367,7 +367,7 @@ pub const Session = struct {
     pub const rewriteShortenedMessage = shortening.rewriteMessage;
     pub const rewriteShortenedResolution = shortening.rewriteResolution;
 
-    /// V1.0 resolver-callback translation lives in `v1_0.zig`; these aliases keep
+    /// V1.0 resolver-callback translation lives in `v1_0.zig`. These aliases keep
     /// the call sites reading as ordinary `Session` methods while the bodies sit
     /// beside the rest of the V1.0 bridge. The resolver-link fields they operate
     /// on stay on `Session`.
@@ -404,7 +404,7 @@ pub const Session = struct {
 
     pub const recordSentResolutionTarget = protocol.recordSentResolutionTarget;
 
-    /// The `op:start-session` handshake state lives in `handshake.zig`; these
+    /// The `op:start-session` handshake state lives in `handshake.zig`. These
     /// aliases keep the call sites reading as ordinary `Session` methods. The
     /// handshake fields they operate on stay on `Session`.
     pub const handshakeComplete = handshake.handshakeComplete;
@@ -419,8 +419,8 @@ pub const Session = struct {
 
     pub const close = protocol.close;
 
-    /// Import/export namespace operations live together in `positions.zig`;
-    /// these aliases preserve Session as the deliberate public method index.
+    /// Import/export namespace operations live together in `positions.zig`.
+    /// These aliases preserve Session as the deliberate public method index.
     pub const admitExportPositionForMarshal = positions.admitExportPositionForMarshal;
     pub const validateExportPositionForMarshal = positions.validateExportPositionForMarshal;
     pub const registerExport = positions.registerExport;

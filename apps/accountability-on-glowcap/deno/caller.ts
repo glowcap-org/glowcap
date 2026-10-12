@@ -119,7 +119,7 @@ async function main(): Promise<void> {
 	);
 }
 
-/** Run an invocation expecting a broken promise; the reason, or null if it settled. */
+/** Run an invocation expecting a broken promise. The reason, or null if it settled. */
 async function refusal(send: () => Promise<unknown>): Promise<string | null> {
 	try {
 		await send();

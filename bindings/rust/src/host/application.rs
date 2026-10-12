@@ -24,7 +24,7 @@ impl Host {
 	/// The Host retains it until its Rust wrapper is dropped. Store application
 	/// data here, not a Host/session owner that would form a reference cycle.
 	/// No protocol state or native lifecycle hook is created. Initializers may
-	/// initialize other types; recursive initialization of T returns an error.
+	/// initialize other types. Recursive initialization of T returns an error.
 	pub fn application_state<T: 'static>(&self, make: impl FnOnce() -> T) -> Result<Rc<T>> {
 		self.shared.guard_handle()?;
 		let states = &self.shared.applications;

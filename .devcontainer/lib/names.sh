@@ -61,7 +61,7 @@ glowcap_devcontainer_validate_session_designator() {
     fi
 }
 
-# The default deliberately preserves the container-shaped session name used by
+# The default preserves the container-shaped session name used by
 # existing launchers. An explicit designator creates another tmux session while
 # retaining the worktree container as the shared execution identity.
 glowcap_devcontainer_tmux_session_name() {

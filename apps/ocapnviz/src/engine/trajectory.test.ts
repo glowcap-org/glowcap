@@ -5,7 +5,7 @@
  * knowledge of what changes about a peer, and about a session, lives
  * here and nowhere else. Each one reads a property through its table
  * rather than by name, so a new property joins them by appearing in
- * `PEER_PROPERTIES` or `SESSION_PROPERTIES` — and a consumer that
+ * `PEER_PROPERTIES` or `SESSION_PROPERTIES`, and a consumer that
  * hardcoded `label` or `state` behind the table's back fails them.
  */
 
@@ -37,11 +37,11 @@ const update = (fields: Partial<PeerUpdate> = {}): PeerUpdate => ({
 
 /** A value the property will accept, asked of the property itself.
  *
- * A free-text property takes any string; a property that picks from a
+ * A free-text property takes any string. A property that picks from a
  * closed set takes one of the values it declares, and writing outside
  * that set is a caller bug the table refuses rather than stores. These
  * tests are generic over the table, so they have to ask it what a
- * valid value is instead of assuming every property is free text —
+ * valid value is instead of assuming every property is free text,
  * which also makes them prove that what `editor.options` offers is
  * exactly what the storage half accepts. `nth` picks a second
  * distinct value where a case needs one. */
@@ -83,7 +83,7 @@ Deno.test("a property round-trips through write, read, and clear", () => {
 			null,
 			`${property}: clear un-states it`,
 		);
-		// Clearing leaves the observation itself intact — one moment can
+		// Clearing leaves the observation itself intact. One moment can
 		// state several properties, and only this one goes.
 		assertEquals(spec.clear(stated).t, blank.t);
 		assertEquals(spec.clear(stated).peerId, blank.peerId);
@@ -141,7 +141,7 @@ const sessionDef = (over: Partial<SessionDefinition> = {}) =>
 	}) as SessionDefinition;
 
 /** A value the session property will accept. A state picks one of
- *  its declared options; an end takes a peer id, which the table
+ *  its declared options. An end takes a peer id, which the table
  *  cannot enumerate because the peers are the document's. */
 function sampleSessionValue(property: string, nth = 0): SessionValue {
 	const spec = SESSION_TRAJECTORY[property as keyof typeof SESSION_TRAJECTORY];
@@ -184,7 +184,7 @@ Deno.test("a session property round-trips through observation and read", () => {
 		);
 		// The moment belongs to ONE session and one property. Reading it
 		// as another session's, or as another property's, must come back
-		// empty — this is what lets one predicate address a moment.
+		// empty. This is what lets one predicate address a moment.
 		assertEquals(
 			spec.read(ev, "other"),
 			null,
@@ -234,7 +234,7 @@ Deno.test("a session property reads its track and its genesis", () => {
 Deno.test("only a definition-durable property carries withTrack", () => {
 	// `withTrack` is how a property's authored track lands on the
 	// definition, and a property whose track the projection re-derives
-	// from the observations must NOT have one — a track stored beside
+	// from the observations must NOT have one. A track stored beside
 	// the observation would be a second copy of a derived fact. The
 	// ends are derived; the state is authored.
 	assert(
@@ -291,7 +291,7 @@ Deno.test("an end's row resolves its peers against the document", () => {
 	assertEquals(sessionRowDisplay("state", peers), SESSION_TRAJECTORY.state);
 });
 
-/** A document whose only content is the moments listed — the shape a
+/** A document whose only content is the moments listed. The shape a
  *  session's trajectory is read out of. Each moment is one
  *  observation, which is what gives it a name. */
 function momentDoc(
@@ -424,7 +424,7 @@ Deno.test("a closed-set property refuses a value it never declared", () => {
 	// The other half of `sampleValue`'s contract, and it needs its own case:
 	// every test above writes values the table itself offered, so none of them
 	// would notice if a closed property quietly stored whatever it was handed.
-	// A stored undeclared value would not surface here at all — it would
+	// A stored undeclared value would not surface here at all, it would
 	// surface later, as a document whose keyframe track fails to parse.
 	//
 	// Only the CLOSED pickers. A profile's options are the well-known
@@ -471,7 +471,7 @@ Deno.test("a closed-set property refuses a value it never declared", () => {
 // the property's own `write` will not take, so these check the round
 // trip rather than the values.
 
-/** A peer the document knows by id and says nothing else about —
+/** A peer the document knows by id and says nothing else about,
  *  what build mode makes when you add one. */
 const bareDoc = {
 	version: 1,

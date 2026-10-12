@@ -1,5 +1,5 @@
 //! One private data family retains sender and bridge origins beyond receipts.
-//! Both families refer to typed custody; workspace exports contain neither.
+//! Both families refer to typed custody. Workspace exports contain neither.
 use super::{Custody, Error, References, pages};
 use crate::{content::session, fields::List};
 use alloc::vec::Vec;

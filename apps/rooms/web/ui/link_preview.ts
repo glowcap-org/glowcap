@@ -79,7 +79,7 @@ export function previewSelection(text: string, urls: readonly string[]): readonl
 
 /** Preserve intent and completed effects only while the same normalized target
  * remains in the draft. Removing and later re-adding a URL creates a new
- * offered intent; unrelated edits cannot resurrect a removed preview. */
+ * offered intent. Unrelated edits cannot resurrect a removed preview. */
 export function reconcileDraftPreviews(
 	current: readonly DraftPreview[],
 	text: string,

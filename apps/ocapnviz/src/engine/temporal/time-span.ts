@@ -1,7 +1,7 @@
 /**
- * TimeSpan — `(start, duration)` storage for every temporal entity
+ * TimeSpan, `(start, duration)` storage for every temporal entity
  * (peer, session, message). End is derived as `start + duration` and
- * is NEVER stored. This is the only authoritative shape; all other
+ * is NEVER stored. This is the only authoritative shape. All other
  * representations (engine, scrubber, inspector) read through the
  * resolvers in sibling modules.
  *
@@ -10,17 +10,17 @@
  * Every entity has three coexisting views of its placement, in
  * strictly increasing constraint:
  *
- *   1. **stored**     — this module. Per-axis Bound = (value, explicit).
+ *   1. **stored**:     this module. Per-axis Bound = (value, explicit).
  *                       What undo records, what serializes.
- *   2. **intrinsic**  — `inheritance.ts`. Layer 1 with implicit axes
+ *   2. **intrinsic**:  `inheritance.ts`. Layer 1 with implicit axes
  *                       filled in from the parent's intrinsic. "What
  *                       this entity wants."
- *   3. **effective**  — `effective.ts`. Layer 2 clamped by the
+ *   3. **effective**:  `effective.ts`. Layer 2 clamped by the
  *                       parent's effective context. "What the system
  *                       actually paints."
  *
  * Layer 1 is the only one in the doc. Layers 2 and 3 are pure
- * derivations. Constraints never write back; the user's intent is
+ * derivations. Constraints never write back. The user's intent is
  * preserved even when a parent boundary hides it.
  *
  * # Parent chain
@@ -37,7 +37,7 @@
  *   - zero-duration is legal (point-in-time entity)
  *   - end is never stored. Gestures pick their own end-semantics at
  *     the intent layer (rigid move keeps duration, right-resize keeps
- *     start, etc); see `authoring/moves.ts` and the gesture-shaped
+ *     start, etc). See `authoring/moves.ts` and the gesture-shaped
  *     rewrites at the bottom of this module.
  *
  * # Gesture rewrites (`translateSpan` / `setSpanEndAt` /
@@ -47,13 +47,13 @@
  * and write both axes explicit. Reason: a positive user gesture pins
  * both ends ("this span lives here, with this duration"). Leaving an
  * axis implicit lets `intrinsicOf` fall back to parent-inheritance,
- * which during a drag manifests as the pill silently resizing —
+ * which during a drag manifests as the pill silently resizing,
  * the original bug these helpers were carved out to fix.
  *
  * # Design rationale
  *
- * The design rationale (why three layers, not two; why split intent
- * from constraint; why storage is `(start, duration)`) lives in
+ * The design rationale (why three layers, not two, why split intent
+ * from constraint. Why storage is `(start, duration)`) lives in
  * `docs/temporal-model.md`. That file is reference, not spec. The
  * spec is this module and its siblings.
  */
@@ -67,9 +67,9 @@ export type TimeSpan = {
 	 *  observations (`projectFromObservations`), absent when a user
 	 *  authored it. Derived spans are re-derived whenever the entity's
 	 *  observations grow (a live feed's late-arriving `peer-left` /
-	 *  `session-closed` must land); authored spans are never touched
+	 *  `session-closed` must land). Authored spans are never touched
 	 *  by projection. Every authoring op in this module strips the
-	 *  flag, so an edit — even one that re-states the derived value —
+	 *  flag, so an edit, even one that re-states the derived value,
 	 *  promotes the span to authored. (`| undefined` matches the zod
 	 *  schema's `.optional()` inference under
 	 *  `exactOptionalPropertyTypes`.) */
@@ -77,7 +77,7 @@ export type TimeSpan = {
 };
 
 /** Mark a span as projection-derived. Only `projectFromObservations`
- *  calls this; see `TimeSpan.derived`. */
+ *  calls this. See `TimeSpan.derived`. */
 export const markDerived = (v: TimeSpan): TimeSpan => ({
 	start: v.start,
 	duration: v.duration,
@@ -92,12 +92,12 @@ export const asAuthored = (v: TimeSpan): TimeSpan =>
 
 /** True when the span is projection-owned (see `TimeSpan.derived`).
  *  No-op guards consult this: re-stating a derived value IS a real
- *  change, because it changes the span's authority, not its value —
+ *  change, because it changes the span's authority, not its value,
  *  the same rule as pinning a peer at its current layout position. */
 export const isDerived = (v: TimeSpan): boolean => v.derived === true;
 
 /* ------------------------------------------------------------------ *
- * Authoring ops — return a new TimeSpan. Do NOT consult context;
+ * Authoring ops, return a new TimeSpan. Do NOT consult context;
  * that's the resolver's job. Engine wiring lives in `authoring/*.ts`.
  * ------------------------------------------------------------------ */
 
@@ -126,7 +126,7 @@ export function clearDuration(v: TimeSpan): TimeSpan {
 	};
 }
 
-/** Sugar — set end by computing duration from the entity's
+/** Sugar, set end by computing duration from the entity's
  *  currently-resolved intrinsic start. Caller MUST pass that
  *  resolved start (this module can't ask context). */
 export function setEnd(
@@ -141,7 +141,7 @@ export function clearEnd(v: TimeSpan): TimeSpan {
 	return clearDuration(v);
 }
 
-/** Rigid move — change start, leave duration untouched. Caller
+/** Rigid move, change start, leave duration untouched. Caller
  *  passes the resolved start to compute the new start absolutely. */
 export function moveBy(
 	v: TimeSpan,
@@ -155,7 +155,7 @@ export function moveBy(
 export const resize = setDuration;
 
 /* ------------------------------------------------------------------ *
- * Gesture-shaped span rewrites — used by move-event to translate the
+ * Gesture-shaped span rewrites, used by move-event to translate the
  * user's drag intent into an entity.timing patch. These take the
  * pre-move *resolved* (effective) bounds rather than the raw span
  * values, because resolved bounds reflect what the renderer actually
@@ -167,11 +167,11 @@ export const resize = setDuration;
  *  because the gesture pins start AND end ("this span lives here,
  *  with this duration"). Leaving either implicit lets `intrinsicOf`
  *  fall back to parent-inheritance, which manifests as the pill
- *  appearing to resize during a drag — the original bug this helper
+ *  appearing to resize during a drag. The original bug this helper
  *  was carved out to fix.
  *
  *  Open span (no finite resolved end): duration stays as-is. There
- *  is no user-stated end to pin against; the pill keeps trailing to
+ *  is no user-stated end to pin against. The pill keeps trailing to
  *  doc.duration which is the only sensible visual. */
 export function translateSpan(
 	span: TimeSpan,
@@ -212,10 +212,10 @@ export function setSpanEndAt(
 }
 
 /** Left-edge resize: pin start to `newStartT`, keep the resolved end.
- *  Counterpart of `setSpanEndAt`; same explicit-both reasoning.
+ *  Counterpart of `setSpanEndAt`. Same explicit-both reasoning.
  *
  *  Open span (no finite resolved end): duration stays as-is.
- *  Mirrors `translateSpan`'s open-span branch — the user did not
+ *  Mirrors `translateSpan`'s open-span branch. The user did not
  *  state an end, so pinning duration explicitly would convert an
  *  open pill into one with `duration = Infinity`, which then paints
  *  past the doc and confuses every downstream resolver. */

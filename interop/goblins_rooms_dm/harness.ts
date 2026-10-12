@@ -40,8 +40,8 @@
 // `GLOWCAP_RELAY_TCP_PEERS` and the iroh arm lists nothing.
 //
 // Runs as `zig build goblins-rooms-dm` (and `goblins-rooms-dm-iroh`); needs
-// deno, racket with the `goblins` collection, a Playwright Chromium, and — for
-// the iroh arm — the iroh sidecar from cargo.
+// deno, racket with the `goblins` collection, a Playwright Chromium, and, for
+// the iroh arm, the iroh sidecar from cargo.
 
 import { type Browser, chromium, type Page } from "playwright";
 
@@ -117,7 +117,7 @@ async function waitForLocator(port: number): Promise<string> {
 }
 
 /** Every line the vat has printed. It narrates what it hears one line at a time,
- * so its stdout is where this harness reads what a Goblins vat actually saw. */
+ * so its stdout is where this harness reads what a Goblins vat saw. */
 const vatLines: string[] = [];
 const vatErrors: string[] = [];
 function vatSaid(pattern: RegExp): boolean {
@@ -456,8 +456,8 @@ try {
 		fail(`the direct session reached the timeline with no session id: ${sharedId}`);
 	}
 
-	// And the room is off its path. The vat holds two sessions — one to the room,
-	// one to the tab — and this is the other one: its far end is not the room's
+	// And the room is off its path. The vat holds two sessions, one to the room,
+	// one to the tab, and this is the other one: its far end is not the room's
 	// designator. That is the headline of a direct message stated in the picture
 	// rather than only in the delivery.
 	const roomDesignator = roomsLocator(roomLocator).designator;

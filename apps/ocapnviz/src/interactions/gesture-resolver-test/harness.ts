@@ -8,7 +8,7 @@ function assertNever(x: never): never {
 	throw new Error(`unhandled discriminant: ${JSON.stringify(x)}`);
 }
 
-/** All surface ids — used by exhaustive-switch totality tests. */
+/** All surface ids, used by exhaustive-switch totality tests. */
 export const ALL_SURFACES: ReadonlySet<SurfaceId> = new Set<SurfaceId>([
 	"stage-empty",
 	"stage-peer",
@@ -27,7 +27,7 @@ export const ALL_SURFACES: ReadonlySet<SurfaceId> = new Set<SurfaceId>([
 	"timeline-gutter-label",
 ]);
 
-/** All tools — used by exhaustive-switch totality tests. */
+/** All tools, used by exhaustive-switch totality tests. */
 export const ALL_TOOLS: readonly BuilderTool[] = [
 	"select",
 	"hand",
@@ -37,7 +37,7 @@ export const ALL_TOOLS: readonly BuilderTool[] = [
 ];
 
 /** Construct a minimal valid `Hit` for a given surface id. Test
- *  helper — production code uses surface-specific hit-testers. */
+ *  helper, production code uses surface-specific hit-testers. */
 export function dummyHit(
 	surface: SurfaceId,
 	refs?: {

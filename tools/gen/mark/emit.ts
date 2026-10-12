@@ -89,7 +89,7 @@ ${paths(trace)}
  * geometry: a wide soft wash for the light that spreads through the cap, a
  * tight bright one for the bloom right at each lamp, and the lamp itself on
  * top. The wash and the tight pass are clipped to the mushroom, which is what
- * makes this an inner glow rather than a halo; only a low unclipped pass
+ * makes this an inner glow rather than a halo. Only a low unclipped pass
  * carries the little that reaches past the brim. The wide radius is the
  * shader's own halo, a twentieth of the frame's height, so the light spreads
  * the same distance in both readings. */

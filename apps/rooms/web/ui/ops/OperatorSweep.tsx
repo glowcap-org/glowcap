@@ -5,7 +5,7 @@
 // exactly the rows that should go, pressing once should not mean pressing
 // three thousand times.
 //
-// It is deliberately not one call. The directory retires a bounded batch and
+// It is not one call. The directory retires a bounded batch and
 // answers how many still match, so the turn stays short, the number the reader
 // watches is the directory's own, and Stop is real rather than a cancel button
 // over an act that already left. A sweep that meets a refusal on one row keeps
@@ -23,7 +23,7 @@ import type { OperatorReferenceKind } from "../../../lib/operator.ts";
 import { useOperatorActivity } from "./operator_activity.tsx";
 import { refusalText } from "../../../lib/text/failure.ts";
 
-/** How many rows one call retires. The directory bounds this too; asking for
+/** How many rows one call retires. The directory bounds this too. Asking for
  * its whole allowance keeps the number of round trips down while leaving each
  * turn short. */
 const batch = 256;

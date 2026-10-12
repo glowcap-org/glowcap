@@ -1,7 +1,7 @@
 //! Caller-driven Peer ingress, turn progression, stream framing, and events.
 //!
 //! No scheduler lives here: each call advances bounded explicit work. Inbound
-//! failures use the fail-closed projection; deferred allocator and outbound
+//! failures use the fail-closed projection. Deferred allocator and outbound
 //! pressure retain their carriers for retry and do not blame the partner.
 
 const std = @import("std");
@@ -12,6 +12,7 @@ const engine = @import("../mod.zig");
 const events = @import("../events.zig");
 const inbound = @import("../inbound.zig");
 const outbound = @import("../outbound.zig");
+const outbound_drain = @import("../outbound/drain.zig");
 const failures = @import("failures.zig");
 const handoffs = @import("handoffs.zig");
 const settlement = @import("settlement.zig");
@@ -26,8 +27,14 @@ pub fn hasEvent(self: *const Peer) bool {
 
 /// Transfer an owned inbound frame into the next step, consuming it on every
 /// outcome: queued on success, released here on failure.
+/// An over-cap frame is refused immediately with a typed abort.
 pub fn feedOwned(self: *Peer, frame: foundation.Frame) !void {
     var owned = frame;
+    inbound.checkFrameSize(self, owned.bytes().len) catch |err| {
+        owned.deinit();
+        inbound.emitAbortForError(self, err);
+        return err;
+    };
     self.inbound.push(self.allocator, owned) catch |err| {
         owned.deinit();
         return err;
@@ -62,7 +69,7 @@ pub fn step(self: *Peer) !events.StepOutcome {
     // session discards rows instead, so it never waits.
     if (self.blockedOnStaging() and !self.sessionIsClosed()) return .idle;
     if (self.pending_send.peek() != null) {
-        outbound.stepPending(self) catch |err| {
+        outbound_drain.stepPending(self) catch |err| {
             failures.projectDeferredStepFailure(self, err);
             return err;
         };
@@ -112,7 +119,12 @@ pub fn ownedFrameFromView(
 
 /// Dispatch a borrowed inbound frame. The transient bytes are materialized once
 /// into an owned frame because the surfaced event outlives this call.
+/// An over-cap frame is refused before allocation or copying.
 pub fn recvBorrowed(self: *Peer, frame: foundation.FrameView) !void {
+    inbound.checkFrameSize(self, frame.bytes.len) catch |err| {
+        inbound.emitAbortForError(self, err);
+        return err;
+    };
     const owned = try ownedFrameFromView(self.allocator, frame);
     try inbound.dispatchOwnedFrame(self, owned);
 }
@@ -120,7 +132,7 @@ pub fn recvBorrowed(self: *Peer, frame: foundation.FrameView) !void {
 /// Validate and dispatch one complete transport packet.
 ///
 /// Message-framed transports carry exactly one bare codec frame per packet. The
-/// active codec/profile remains the boundary authority; extra bytes, partial
+/// active codec/profile remains the boundary authority. Extra bytes, partial
 /// frames, malformed frames, and oversized frames all fail before authority
 /// moves. The borrowed packet is materialized once into the owned frame retained
 /// by surfaced events.
@@ -169,20 +181,20 @@ pub fn recvPacket(self: *Peer, packet: []const u8) !void {
 
 /// Outcome of framing one message off a byte-stream prefix.
 pub const RecvStream = union(enum) {
-    /// One frame applied; the caller may discard the first `consumed` bytes.
+    /// One frame applied. The caller may discard the first `consumed` bytes.
     consumed: usize,
-    /// The prefix holds only part of a frame; append bytes and retry.
+    /// The prefix holds only part of a frame. Append bytes and retry.
     incomplete,
 };
 
 /// Frame, decode, validate, and apply one message from borrowed stream bytes.
 /// The active codec remains the sole frame-boundary authority. A resumable scan
 /// only withholds decoder work while every available byte is consumed and the
-/// frame is still open; it never reports a boundary itself.
+/// frame is still open. It never reports a boundary itself.
 ///
 /// This single stream entry point fails closed at `max_frame_bytes`, preventing
 /// an incomplete untrusted frame from growing its consumer without
-/// end. Malformed and oversized frames project typed aborts and close; an
+/// end. Malformed and oversized frames project typed aborts and close. An
 /// incomplete prefix changes no state.
 ///
 /// Successive calls describe one stream: storage may grow or move, but byte

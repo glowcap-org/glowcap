@@ -23,7 +23,7 @@ pub enum Relay<C, R> {
 
 /// An offer the directory admitted. The adapter delivers `offer` to the
 /// target's signaling inbox and, once that delivery is accepted, tells the
-/// originator `accepted` on its reply; ICE waits behind that order.
+/// originator `accepted` on its reply. ICE waits behind that order.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Offered<C, R> {
 	pub id: String,
@@ -148,7 +148,7 @@ impl<C: Copy + Ord, R: Clone> Exchanges<C, R> {
 	pub fn contains(&self, id: &str) -> bool {
 		self.rows.contains_key(id)
 	}
-	/// The originator retires its own exchange; nothing is told.
+	/// The originator retires its own exchange. Nothing is told.
 	/// Every exchange in flight, oldest first.
 	pub fn faces(&self) -> impl Iterator<Item = ExchangeFace<C>> + '_ {
 		self.order.iter().filter_map(|id| {
@@ -187,7 +187,7 @@ impl<C: Copy + Ord, R: Clone> Exchanges<C, R> {
 			.filter_map(|id| self.drop(id, Some("the member is no longer registered".into())))
 			.collect()
 	}
-	/// Exchanges a closing connection originated; nobody is left to tell.
+	/// Exchanges a closing connection originated. Nobody is left to tell.
 	pub fn drop_originated_by(&mut self, connection: C) -> Vec<Dropped<C, R>> {
 		let ids: Vec<String> = self
 			.rows

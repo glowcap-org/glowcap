@@ -1,6 +1,6 @@
 //! Product advice for opening an existing shared session. Unknown diagnostics
-//! retain their original meaning; these recognizers grant no retry authority.
-use crate::failure::FailureCode;
+//! retain their original meaning. These recognizers grant no retry authority.
+use crate::failure::{Failure, FailureCode};
 use alloc::{format, string::String};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
@@ -15,6 +15,10 @@ pub struct Advice {
 
 fn advice(code: FailureCode) -> Advice {
 	let definition = code.definition();
+	#[expect(
+		clippy::expect_used,
+		reason = "every definition `advice` is asked for carries a repair action; `FailureCode::definition` is the table"
+	)]
 	Advice {
 		code: definition.code.wire(),
 		subject: definition.subject,
@@ -55,6 +59,13 @@ pub fn directory(reason: &str) -> Option<&'static str> {
 }
 
 pub fn attachment(reason: &str) -> Option<Advice> {
+	// The browser's own restoration timeouts carry this code in their line;
+	// the binding's `RestorationFailed` kind arrives as its rendered name.
+	if Failure::parse(reason).is_some_and(|failure| failure.code == FailureCode::SessionRestorationFailed)
+		|| reason == "glowcap error -12: RestorationFailed"
+	{
+		return Some(advice(FailureCode::SessionRestorationFailed));
+	}
 	match connection_failure(reason) {
 		Some(ConnectionFailure::Unreachable) => {
 			return Some(advice(FailureCode::SessionUnreachable));
@@ -85,8 +96,8 @@ pub fn attachment(reason: &str) -> Option<Advice> {
 }
 
 /// Explain why one saved operations credential could not be redeemed. The
-/// capability id selects the exact server token that repairs this intent;
-/// unknown failures stay verbatim in the runtime issue ledger.
+/// capability id selects the exact server token that repairs this intent.
+/// Unknown failures stay verbatim in the runtime issue ledger.
 pub fn operations(capability: &str, reason: &str) -> Option<String> {
 	if !reason.contains("unknown swissnum") {
 		return None;
@@ -122,6 +133,15 @@ mod tests {
 			),
 			("host: NetworkUnreachable", "could not be reached"),
 			("broken promise: unknown swissnum", "does not know this capability"),
+			("glowcap error -12: RestorationFailed", "could not be restored"),
+			(
+				"session-restoration-failed: Saved workspace connection timed out",
+				"attach its new session link",
+			),
+			(
+				"session-restoration-failed: Saved management connection timed out",
+				"could not be restored",
+			),
 			("peer did not finish the OCapN handshake", "compatible code"),
 		] {
 			let advice = attachment(reason).unwrap();

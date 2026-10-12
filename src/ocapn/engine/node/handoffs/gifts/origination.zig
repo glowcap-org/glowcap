@@ -16,7 +16,7 @@ const PeerHandle = @import("../../../peer_handle.zig").PeerHandle;
 
 /// Claim an application answer only when its fulfilled capability is homed on
 /// another connection. Entropy is requested only after the answer is known to
-/// need a gift; false leaves the ordinary resolution path untouched. Foreign
+/// need a gift. `false` leaves the ordinary resolution path untouched. Foreign
 /// promise routes remain proxy-owned and are not gifted here.
 pub fn interceptFulfilledRoute(
     self: *Node,
@@ -54,7 +54,7 @@ fn routeNeedsGift(self: *Node, peer_handle: PeerHandle, route_id: model.Capabili
 /// Complete a live entropy request by depositing on the exporter and resolving
 /// the claimed recipient answer, or by completing one delayed inline-Passable
 /// occurrence. The two independent sessions may deliver either half first.
-/// Unknown tickets stay idempotent even for malformed bytes; a live ticket
+/// Unknown tickets stay idempotent even for malformed bytes. A live ticket
 /// refuses malformed entropy before reserving consequences or consuming the
 /// row, so the host can retry it.
 pub fn provideGiftId(self: *Node, ticket: u64, gift_id: []const u8) !void {
@@ -63,6 +63,7 @@ pub fn provideGiftId(self: *Node, ticket: u64, gift_id: []const u8) !void {
     // Reserve the largest consequence before consuming the ticket. From this
     // commit point the handoff either queues both flushes or settles broken.
     try actions.reserve(self, 2);
+    // `contains` held above, and `reserve` touches no ticket.
     const pending = tickets.take(self, ticket) orelse unreachable;
     switch (pending.dest) {
         .inline_gift => |staged| {
@@ -101,13 +102,14 @@ pub fn provideGiftId(self: *Node, ticket: u64, gift_id: []const u8) !void {
 }
 
 /// Terminalize a live entropy request the embedder could not answer. The
-/// destination must settle rather than leaving authority parked forever;
-/// unknown or already-retired tickets remain idempotent no-ops.
+/// destination must settle rather than leaving authority parked forever.
+/// Unknown or already-retired tickets remain idempotent no-ops.
 pub fn giftIdFailed(self: *Node, ticket: u64) !void {
     if (!tickets.contains(self, ticket)) return;
     // Direct embedders may report before popping the request, so acquire the
     // terminal action seat independently of queue cursor state.
     try actions.reserve(self, 1);
+    // `contains` held above, and `reserve` touches no ticket.
     const pending = tickets.take(self, ticket) orelse unreachable;
     switch (pending.dest) {
         .answer => |answer| failAnswerReserved(

@@ -3,7 +3,8 @@
 // custody states, so this panel names both instead of calling configuration a
 // capability or pretending durable text is harmless metadata.
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Said } from "../Said.tsx";
 import { Button } from "../Button.tsx";
 import { CopyField } from "../Copy.tsx";
 import type { ArchiveTargetView } from "../archive_model.ts";
@@ -44,15 +45,38 @@ export function Holdings({ archiveTarget }: { archiveTarget: ArchiveTargetView }
 	// button was the one control here that said nothing at all: the press
 	// landed, the wait was silent, and a reader with a slow directory had no
 	// reason not to press it again. The refusal already had somewhere to go.
+	const openingRef = useRef<string | null>(null);
+	const mounted = useRef(true);
+	useEffect(() => {
+		mounted.current = true;
+		return () => {
+			mounted.current = false;
+		};
+	}, []);
+	const active = useRoomsState((state) => state.activeKey);
+	const settingsOpen = useRoomsState((state) => state.settingsOpen);
+	const settingsRef = useRef(settingsOpen);
+	settingsRef.current = settingsOpen;
+	const activeRef = useRef(active);
+	activeRef.current = active;
 	const [opening, setOpening] = useState<string | null>(null);
+	const [refused, setRefused] = useState<{ key: string; why: string } | null>(null);
 	const openRoomControls = (room: RoomConv) => {
-		if (opening !== null) return;
+		if (openingRef.current !== null) return;
+		openingRef.current = room.key;
 		setOpening(room.key);
+		setRefused(null);
 		void session.openConv(room.key).then(() => {
+			if (!mounted.current || !settingsRef.current || activeRef.current !== room.key) return;
 			browser.closeSettings();
 			browser.aboutConversation("capabilities");
-		}, (cause) => browser.toast("failure", refusalText(cause)))
-			.finally(() => setOpening(null));
+		}, (cause) => {
+			if (mounted.current && settingsRef.current) setRefused({ key: room.key, why: refusalText(cause) });
+		})
+			.finally(() => {
+				openingRef.current = null;
+				if (mounted.current) setOpening(null);
+			});
 	};
 
 	return (
@@ -105,6 +129,7 @@ export function Holdings({ archiveTarget }: { archiveTarget: ArchiveTargetView }
 										</Button>
 									</div>
 								</div>
+								{refused?.key === room.key && <Said kind="failure">{refused.why}</Said>}
 							</li>
 						))}
 					</ul>

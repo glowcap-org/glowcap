@@ -5,9 +5,9 @@ symbol-disjoint from the core ``libglowcap_ocapn``: it carries the
 ``glowcap_onion_*`` family plus its own thread-local last-error
 (``glowcap_onion_last_error`` / ``_clear``). It reaches a Tor daemon the
 deployment already runs, over that daemon's SOCKS endpoint to dial and its
-control endpoint to host; glowcap starts none. This module loads only that
+control endpoint to host. glowcap starts none. This module loads only that
 archive, reusing the shared ``Structure`` types from :mod:`glowcap._ffi_ocapn` by
-layout. Nothing here is public; :mod:`glowcap.onion` is the ergonomic surface
+layout. Nothing here is public. :mod:`glowcap.onion` is the ergonomic surface
 over it.
 """
 

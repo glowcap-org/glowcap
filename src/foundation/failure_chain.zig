@@ -22,14 +22,14 @@ pub const FailureChain = struct {
     cause: anyerror,
     /// Optional stable name supplied by a boundary that cannot preserve the
     /// originating Zig error identity. The bytes must be static or owned by
-    /// the boundary for as long as any projection of this chain can survive;
-    /// copying the value deliberately does not copy text.
+    /// the boundary for as long as any projection of this chain can survive.
+    /// Copying the value does not copy text.
     cause_name: ?[]const u8 = null,
     classification: ?Classification = null,
     secondary_cause: ?anyerror = null,
     secondary_cause_name: ?[]const u8 = null,
     secondary_classification: ?Classification = null,
-    /// Number of failures after `cause`. The first is named above; saturation
+    /// Number of failures after `cause`. The first is named above. Saturation
     /// is an explicit indication that the bounded record saw still more.
     secondary_count: u16 = 0,
 
@@ -78,7 +78,7 @@ pub const FailureChain = struct {
     }
 
     /// Append a later failure chain without replacing this chain's cause or
-    /// first secondary. `later.cause` is one consequence; its own secondary
+    /// first secondary. `later.cause` is one consequence. Its own secondary
     /// count is added because those failures happened too.
     pub fn noteChain(self: *FailureChain, later: FailureChain) void {
         if (later.classification) |classification|

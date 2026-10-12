@@ -2,7 +2,7 @@
 //! handle family returns every byte it took: build a `GlowcapContext` from
 //! `spec()`, drive the `*_new_in` twins through it, and assert `balanced()`
 //! after the releases. The testing allocator underneath catches
-//! use-after-free and size/alignment mismatches; the counters catch a leak
+//! use-after-free and size/alignment mismatches. The counters catch a leak
 //! that never crossed back.
 
 const std = @import("std");

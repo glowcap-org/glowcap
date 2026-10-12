@@ -33,7 +33,7 @@ pub fn record(target: *?AbortInfo, cause: anyerror) void {
 }
 
 /// Replace the current record with one exact bounded causal chain. Boundary-
-/// supplied primary names remain diagnostic identity; the Zig cause continues
+/// supplied primary names remain diagnostic identity. The Zig cause continues
 /// to own protocol classification.
 pub fn recordChain(target: *?AbortInfo, chain: foundation.FailureChain) void {
     var info = fromCause(chain.cause, chain.primaryName());

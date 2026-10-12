@@ -20,8 +20,8 @@ import { BLOB_CHUNK } from "../limits.ts";
 import { preserveArchiveLineChronology } from "./chronology.ts";
 
 /** Whole-archive resident record ceiling. Least recently revised records
- * leave first. A held reference is authority to use the archive, not to grow
- * its host without limit. */
+ * leave first. A held reference is authority to use the archive and not to
+ * grow its host without limit. */
 import { MAX_ARCHIVE_RECORDS } from "./limits.ts";
 export { MAX_ARCHIVE_RECORDS } from "./limits.ts";
 
@@ -38,9 +38,9 @@ export function archiveRecordKey(record: ArchiveRecord): string {
 }
 
 /** The bounded, storage-independent archive index. A durable adapter owns when
- * a revision becomes committed; this type owns what that revision means once
- * committed. Keeping replacement, eviction, and ordered reads here gives the
- * browser, memory, and file backends one semantic authority. */
+ * a revision becomes committed, and this type owns what that revision means
+ * once committed. Replacement, eviction, and ordered reads live here so the
+ * browser, memory, and file backends share one semantic authority. */
 export class ArchiveIndex {
 	readonly #capacity: number;
 	readonly #byKey = new Map<string, RevisedArchiveRecord>();
@@ -69,10 +69,10 @@ export class ArchiveIndex {
 		this.#byRevision.clear();
 	}
 
-	/** Restore one compacted snapshot. Records cross this storage seam by owned
-	 * transfer: wire and disk adapters validate before calling, and the index
-	 * retains the immutable object without cloning it. Entries may have gaps
-	 * because replaced and evicted records are absent, but must be strictly
+	/** Restore one compacted snapshot. Records cross this storage boundary by
+	 * owned transfer: wire and disk adapters validate before calling, and the
+	 * index retains the immutable object without cloning it. Entries may have
+	 * gaps because replaced and evicted records are absent, but must be strictly
 	 * ordered and no newer than the snapshot's high-water revision. */
 	restore(revision: number, entries: readonly RevisedArchiveRecord[]): void {
 		if (!Number.isSafeInteger(revision) || revision < 0) {
@@ -101,12 +101,12 @@ export class ArchiveIndex {
 		this.#revision = revision;
 	}
 
-	/** Apply exactly the next committed revision. The storage adapter transfers
-	 * one already-validated immutable record after committing it. A first record
-	 * is retained directly; replacing a line canonicalizes its chronology to the
-	 * immutable first occurrence. The returned record is no longer
-	 * reachable after the transition, so byte-owning adapters can retire their
-	 * dependent content under the same policy. */
+	/** Apply the next committed revision. The storage adapter transfers one
+	 * already-validated immutable record after committing it. A first record is
+	 * retained directly, and replacing a line canonicalizes its chronology to
+	 * the immutable first occurrence. The returned record is no longer reachable
+	 * after the transition, so byte-owning adapters can retire their dependent
+	 * content under the same policy. */
 	apply(revision: number, record: ArchiveRecord): ArchiveRecord | null {
 		if (!Number.isSafeInteger(revision) || revision !== this.#revision + 1) {
 			throw new Error("archive revision is not the next revision");
@@ -169,8 +169,8 @@ export class ArchiveIndex {
 			records.push(entry);
 			next = revision;
 		}
-		// No matching record remains. Advancing over non-matches is safe; a later
-		// matching put receives a greater revision and will still be returned.
+		// No matching record remains. Advancing over non-matches is safe, and a
+		// later matching put receives a greater revision and is still returned.
 		if (!more) next = this.#revision;
 		return { next, more, records };
 	}

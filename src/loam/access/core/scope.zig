@@ -57,7 +57,7 @@ pub const Scope = union(enum) {
     }
 
     /// Evaluate narrowing at this graph revision. Re-evaluate after graph
-    /// changes; the result must not be cached as authority across a reparent.
+    /// changes. The result must not be cached as authority across a reparent.
     pub fn isSubsetOf(self: Scope, graph: *ResourceView, parent: Scope) Error!bool {
         try self.validate(graph);
         try parent.validate(graph);

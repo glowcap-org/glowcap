@@ -1,7 +1,7 @@
 //! The transports one HostRuntime serves, as one value (ADR-0193).
 //!
 //! First-party stream symbols run on one `net.StreamStack` resident the
-//! runtime builds and owns as a provider package; residents the caller owns
+//! runtime builds and owns as a provider package. Residents the caller owns
 //! (iroh, WebRTC) register beside it. Nothing is on by default: a symbol the
 //! value does not name is refused as an unknown transport.
 
@@ -28,7 +28,7 @@ pub const Transports = struct {
     relay: ?RelayOptions = null,
     /// Tor's endpoints for `onion`.
     onion: ?OnionConfig = null,
-    /// The switchboard `inproc` dials and listens through; borrowed for the
+    /// The switchboard `inproc` dials and listens through. Borrowed for the
     /// runtime's life.
     inproc: ?*net.inproc_completion.Exchange = null,
     /// Residents the caller owns and keeps stable for the runtime's life.

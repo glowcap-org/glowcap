@@ -109,7 +109,7 @@ pub fn cloneArgumentSlice(allocator: std.mem.Allocator, items: []const model.Arg
 /// Requested payload bytes an owned clone of `items` allocates, excluding
 /// allocator metadata and alignment padding. Queue admission uses this before
 /// cloning, so a refused actor message mutates no queue and allocates nothing.
-/// The walk mirrors `cloneArgumentSlice`/`freeArgumentSlice` exhaustively; a new
+/// The walk mirrors `cloneArgumentSlice`/`freeArgumentSlice` exhaustively. A new
 /// heap-carrying model arm must state its charge here or fail to compile.
 pub fn measureArgumentSliceOwnedBytes(items: []const model.Argument) model.view.ProjectError!usize {
     var total: usize = 0;
@@ -129,7 +129,7 @@ pub fn measureReferenceOwnedBytes(reference: model.Reference) model.view.Project
 
 /// Requested payload bytes an owned `Message` retains, excluding allocator
 /// metadata and alignment padding.  Engine outbound admission calls this once
-/// when a message enters its staged queue; the charge travels with that queue
+/// when a message enters its staged queue. The charge travels with that queue
 /// row until encoding, so later admission checks never rescan the payload.
 pub fn measureMessageOwnedBytes(message: model.Message) model.view.ProjectError!usize {
     var total: usize = @sizeOf(model.Message);
@@ -301,9 +301,9 @@ pub fn freeResolution(allocator: std.mem.Allocator, resolution: model.Resolution
 }
 
 /// Copy an owned resolution into a second durable store (a session import row).
-/// The fire owner keeps `resolution`; the caller moves the return into
+/// The fire owner keeps `resolution`. The caller moves the return into
 /// `recordRelayedResolution` or frees it. Named for the introducing-session
-/// proxy's one-home-listen → N recipient stores path — not a free-floating
+/// proxy's one-home-listen → N recipient stores path, not a free-floating
 /// fan-out API (see memory.md).
 pub fn materializeResolutionForStore(allocator: std.mem.Allocator, resolution: model.Resolution) model.view.Error!model.Resolution {
     return model.view.Resolution.fromOwned(&resolution).toOwned(allocator);

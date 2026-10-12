@@ -18,11 +18,11 @@ export const NEW_DOCUMENT_DURATION_MS = 10_000;
  * An empty document to start from.
  *
  * Says nothing about itself, because a title the reader did not write is a title
- * they have to notice and delete; the panel shows the id as a placeholder until
+ * they have to notice and delete. The panel shows the id as a placeholder until
  * they name it. There is no recording layer and no entity, so every surface reads
  * it as the empty document it is rather than as a document that failed to load.
  *
- * `id` is the one field that cannot be empty — it names the download and stands
+ * `id` is the one field that cannot be empty. It names the download and stands
  * in for the title until there is one.
  */
 export function newDocument(id = "untitled"): TimelineDocument {

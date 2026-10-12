@@ -68,9 +68,9 @@ impl DocumentFile {
 		self.pending = Some(Pending::Read(tokio::task::spawn_blocking(move || {
 			atomic::read(&directory.path().join(filename(document)), document)
 		})));
-		match self.finish_pending().await.expect("owned read") {
-			Completion::Read(result) => result,
-			Completion::Write(_) => unreachable!("one document operation"),
+		match self.finish_pending().await {
+			Some(Completion::Read(result)) => result,
+			_ => Err(StorageError::Worker("document read did not complete as a read".into())),
 		}
 	}
 	/// The bounded encoded buffer moves into the disk worker without a copy.
@@ -81,9 +81,11 @@ impl DocumentFile {
 			.map_err(|e| WriteFailure::Unchanged(e.into()))?;
 		let (directory, document) = (self.directory.clone(), self.document);
 		self.start_write(move || atomic::replace(&directory, document, &bytes));
-		match self.finish_pending().await.expect("owned write") {
-			Completion::Write(result) => result,
-			Completion::Read(_) => unreachable!("one document operation"),
+		match self.finish_pending().await {
+			Some(Completion::Write(result)) => result,
+			_ => Err(WriteFailure::Indeterminate(StorageError::Worker(
+				"document write did not complete as a write".into(),
+			))),
 		}
 	}
 	fn start_write(&mut self, work: impl FnOnce() -> Result<(), WriteFailure<StorageError>> + Send + 'static) {

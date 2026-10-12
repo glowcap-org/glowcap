@@ -7,7 +7,7 @@
  * With nothing to do the button stays put and inert, saying why,
  * rather than disappearing and taking the reader's knowledge that the
  * command exists with it. And a command that cannot be taken back asks
- * before it runs, while one that can does not — the difference between
+ * before it runs, while one that can does not. The difference between
  * "Discard all" and its two neighbours.
  *
  * Neither the button nor the row has hooks, so both can be called as

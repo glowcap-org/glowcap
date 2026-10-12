@@ -139,7 +139,7 @@ test "cacophony XK vector: both roles, all messages, byte for byte" {
     resp_keys.recv.deinit();
 }
 
-/// A fresh deterministic handshake pair for the unit tests below; the seeds
+/// A fresh deterministic handshake pair for the unit tests below. The seeds
 /// only need to be distinct, not secret.
 const Fixture = struct {
     init_static: crypto.X25519KeyMaterial,
@@ -229,7 +229,7 @@ test "a recorded third message replayed at a fresh responder is refused" {
     const msg3 = try dialer.writeMessage("", &msg3_buf);
 
     // A second session at the same responder identity uses a fresh ephemeral,
-    // so the recorded closer no longer matches any key it derived.
+    // so the recorded closer does not match any key it derived.
     var replay_target = fixture.responder(0x42, "p");
     _ = try replay_target.readMessage(msg1, &scratch);
     var replay_msg2: [256]u8 = undefined;
@@ -318,7 +318,7 @@ test "rekey preserves the nonce and keeps both directions in agreement" {
     const sealed = try sender.encrypt("", "after rekey", &sealed_buf);
     const opened = try receiver.decrypt("", sealed, &open_buf);
     try std.testing.expectEqualStrings("after rekey", opened);
-    // The pre-rekey key no longer opens what the rekeyed key seals.
+    // The pre-rekey key does not open what the rekeyed key seals.
     var stale_out: [64]u8 = undefined;
     try std.testing.expectError(
         noise.NoiseError.DecryptFailed,

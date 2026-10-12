@@ -57,8 +57,14 @@ impl<K> Serialize for FieldKey<K> {
 impl<'de, K> Deserialize<'de> for FieldKey<K> {
 	fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
 		let bytes = Hex::<16>::deserialize(d)?.0;
-		let slot = NonZeroU64::new(u64::from_be_bytes(bytes[..8].try_into().expect("fixed slot")));
-		let generation = NonZeroU64::new(u64::from_be_bytes(bytes[8..].try_into().expect("fixed generation")));
+		let half = |half: &[u8]| -> Result<Option<NonZeroU64>, D::Error> {
+			let half: [u8; 8] = half
+				.try_into()
+				.map_err(|_| D::Error::custom("a custody key is two eight-byte halves"))?;
+			Ok(NonZeroU64::new(u64::from_be_bytes(half)))
+		};
+		let slot = half(&bytes[..8])?;
+		let generation = half(&bytes[8..])?;
 		match (slot, generation) {
 			(Some(slot), Some(generation)) => Ok(Self::new(slot, generation)),
 			_ => Err(D::Error::custom("nonzero custody slot and generation")),
@@ -92,10 +98,14 @@ macro_rules! custody {
 		#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 		#[serde(rename_all = "camelCase")]
 		pub enum Role { $($kind,)* }
-		impl Role { pub const ALL: &'static [Self] = &[$(Self::$kind,)*]; }
+		impl Role {
+			pub const ALL: &'static [Self] = &[$(Self::$kind,)*];
+			/// This role's position in `ALL`, which lists the roles in declaration order.
+			pub const fn index(self) -> usize { self as usize }
+		}
 		pub struct Custody<R: References> { count: usize, next_identity: crate::fields::SafeInteger, $($field: List<Held<$kind, R::$kind>, MAX_FIELDS_PER_ROLE>,)* }
 		impl<R: References> Default for Custody<R> {
-			fn default() -> Self { Self { count: 0, next_identity: crate::fields::SafeInteger::new(1).expect("initial line identity"), $($field: List::new(alloc::vec::Vec::new()).expect("empty field table"),)* } }
+			fn default() -> Self { Self { count: 0, next_identity: crate::fields::SafeInteger::literal(1), $($field: List::default(),)* } }
 		}
 		impl<R: References> Custody<R> {
 			pub fn next_identity(&self) -> crate::fields::SafeInteger { self.next_identity }
@@ -137,7 +147,8 @@ macro_rules! custody {
 			fn eq(&self, other: &Self) -> bool {
 				match (self, other) {
 					(Self::Unresolved, Self::Unresolved) | (Self::KnownAbsent, Self::KnownAbsent) => true,
-					(Self::Unknown { reason: left }, Self::Unknown { reason: right }) => left == right,
+					(Self::Unknown { reason: left }, Self::Unknown { reason: right })
+					| (Self::Refused { reason: left }, Self::Refused { reason: right }) => left == right,
 					(Self::Committed { result: left, retained: left_fields }, Self::Committed { result: right, retained: right_fields }) =>
 						left == right && left_fields.as_slice() == right_fields.as_slice(),
 					_ => false,
@@ -221,7 +232,7 @@ impl Role {
 }
 
 /// A record's typed field coordinate. Hosting supplies the corresponding held
-/// reference separately; decoding these bytes cannot restore authority.
+/// reference separately. Decoding these bytes cannot restore authority.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Coordinate {
@@ -251,7 +262,7 @@ pub struct EffectReceipt<R: References> {
 	/// Exported intent cannot supply this sender provenance.
 	pub outgoing: Option<super::outgoing::Update>,
 	/// Scalar contact provenance captured at introduction admission. One bounded
-	/// registration and opening identity survive in the receipt; coordinates stay inline.
+	/// registration and opening identity survive in the receipt. Coordinates stay inline.
 	/// Recovery cannot replace it with a subsequently selected registration.
 	pub introduction: Option<super::workspace::Introduction>,
 	pub canonical_intent: Text<262144, true>,
@@ -272,9 +283,26 @@ pub enum Outcome<R: References> {
 		reason: Text<MAX_OBSERVATION_REASON_UNITS, true>,
 	},
 	KnownAbsent,
+	/// Host admission or a validated Rooms refusal proves no dispatch and retains
+	/// its diagnostic. It neither admits a retry nor queues a future mutation.
+	Refused {
+		reason: Text<MAX_OBSERVATION_REASON_UNITS, true>,
+	},
 	Committed {
 		result: Text<32768>,
 		retained: List<RetainedField<R>, MAX_RESULT_FIELDS>,
 	},
 }
 pub type EffectReceipts<R> = List<EffectReceipt<R>, MAX_EFFECTS>;
+
+#[cfg(test)]
+mod role_order {
+	use super::Role;
+
+	#[test]
+	fn a_role_indexes_its_own_row_in_all() {
+		for (index, role) in Role::ALL.iter().enumerate() {
+			assert_eq!(role.index(), index);
+		}
+	}
+}

@@ -2,17 +2,17 @@
 //!
 //! This is the encode half of the Syrup codec. It owns `encodeMessage` and
 //! `encodeMessageForProfile` plus the message, argument, and reference writers
-//! beneath them. Signing records and locator records live in `signing.zig`;
-//! canonical set/struct ordering lives in `canonical_collection.zig`. The shared
-//! errors live in `shared`; this file builds bytes and holds no session
+//! beneath them. Signing records and locator records live in `signing.zig`.
+//! Canonical set/struct ordering lives in `canonical_collection.zig`. The shared
+//! errors live in `shared`. This file builds bytes and holds no session
 //! authority. The decode half is `decode`.
 //!
 //! Every entry point renders measure-then-fill: one non-allocating length pass
-//! over the message, then a single exact allocation filled in place — one
+//! over the message, then a single exact allocation filled in place, one
 //! allocation per encode, zero growth reallocs, zero shrink
 //! (`test/codec/encode_budget_test.zig` pins both). Both passes run the same
 //! generic walker parameterized on a sink that either counts or writes, so the
-//! measured length and the emitted bytes cannot drift; the fill sink ratifies
+//! measured length and the emitted bytes cannot drift. The fill sink ratifies
 //! that agreement with a bounds check that is live in every build mode, because
 //! an overrun would be an out-of-bounds write, not just a wrong answer.
 
@@ -65,7 +65,7 @@ pub fn encodeMessageForProfile(
 }
 
 /// The one message-level walk both passes share. `allocator` feeds only the
-/// canonical-collection emit scratch; the measure pass never touches it.
+/// canonical-collection emit scratch. The measure pass never touches it.
 fn writeMessage(
     sink: anytype,
     allocator: std.mem.Allocator,
@@ -242,9 +242,9 @@ fn writeArgument(allocator: std.mem.Allocator, sink: anytype, arg: model.Argumen
             try writeSymbol(sink, keyword);
             try endRecord(sink);
         },
-        // An `<error message>` in argument position — symmetric with the decoder,
+        // An `<error message>` in argument position, symmetric with the decoder,
         // which reads this record back into `.@"error"` (`readNeutralArgument`).
-        // The load-bearing case is a V1.0 resolver-callback `break`
+        // The main case is a V1.0 resolver-callback `break`
         // resolution, which ships its `model.BreakReason` as a deliver argument.
         .@"error" => |err| try writeError(sink, err),
         .big_integer => |big| try writeBigInteger(sink, big),
@@ -308,7 +308,7 @@ fn writeHandoff(allocator: std.mem.Allocator, sink: anytype, handoff: model.Hand
 fn writeTargetReference(allocator: std.mem.Allocator, sink: anytype, reference: model.Reference) !void {
     // A target is the partner's export or an answer, never one of our own nears,
     // and never a sturdyref: you enliven a sturdyref (a bootstrap fetch), you do
-    // not deliver to one. Cap'n Proto carries a sturdy target; Syrup deliberately
+    // not deliver to one. Cap'n Proto carries a sturdy target; Syrup
     // refuses it (the ADR-0003 dialect boundary the codec-equivalence test names).
     if (reference == .near or reference == .sturdy) return Error.UnsupportedReference;
     return writePayloadReference(allocator, sink, reference);
@@ -340,7 +340,7 @@ fn writePayloadReference(allocator: std.mem.Allocator, sink: anytype, reference:
         // A sturdyref rides argument / fulfill position as `<ocapn-sturdyref
         // <ocapn-peer …> swissnum>`, the exact grammar the decoder reads back
         // (`readNeutralArgument`), so a Syrup-decoded sturdyref argument
-        // re-encodes and round-trips like its Cap'n Proto twin — including
+        // re-encodes and round-trips like its Cap'n Proto twin, including
         // hint entries via `writePeerLocatorRecord`. A sturdyref *deliver
         // target* never reaches here: `writeTargetReference` refuses it first.
         .sturdy => |sturdy| {

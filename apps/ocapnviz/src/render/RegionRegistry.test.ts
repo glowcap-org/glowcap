@@ -91,8 +91,8 @@ Deno.test("a replaced element keeps the region, and the old disposer takes nothi
 
 Deno.test("a layout that has not moved is not rebuilt", () => {
 	// `poll` runs on every frame of every scene and the usual answer is that
-	// nothing changed, so the unchanged case must cost nothing: it used to build a
-	// rect per region per frame in order to compare it, and throw it away. Holding
+	// nothing changed, so the unchanged case must cost nothing: it must not
+	// build a rect per region per frame to compare and throw away. Holding
 	// the same object is the observable form of that.
 	const regions = new RegionRegistry();
 	const el = elementAt(at(1, 2)) as HTMLElement & {

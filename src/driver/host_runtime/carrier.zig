@@ -46,7 +46,7 @@ fn armCarrierCloseDeadline(self: *HostRuntime, wire: *Wire, deadline_ms: i64) vo
 }
 
 /// Clear one wire's carrier-close deadline. The cached nearest may now be
-/// early; it is re-derived by the walk it wakes, and cleared outright once no
+/// early. It is re-derived by the walk it wakes, and cleared outright once no
 /// wire holds a deadline.
 fn clearCarrierCloseDeadline(self: *HostRuntime, wire: *Wire) void {
     if (wire.carrier_close_deadline_ms == null) return;
@@ -75,8 +75,8 @@ pub fn releaseCloseEvent(self: *HostRuntime) void {
     }
 }
 
-/// Free one wire's transport and buffers. The caller owns the `wires` row;
-/// the resident routing row leaves here with the link it routes. A freed
+/// Free one wire's transport and buffers. The caller owns the `wires` row.
+/// The resident routing row leaves here with the link it routes. A freed
 /// wire's carrier has completed, so its close seat is already consumed.
 pub fn freeWire(self: *HostRuntime, wire: *Wire) void {
     std.debug.assert(wire.carrierClosed());
@@ -132,7 +132,7 @@ fn unlinkRetiringWire(self: *HostRuntime, wire: *Wire) void {
 /// A resident package stays the asynchronous owner of a carrier close and is
 /// joined in the deinit barrier. After fail-stop the runtime drains no actions and polls no resident, so
 /// a closing session's carrier would never report. Force each one closed as
-/// teardown does, carrying the runtime's terminal cause; a resident's package
+/// teardown does, carrying the runtime's terminal cause. A resident's package
 /// release joins the physical operation.
 pub fn forceClosingCarriers(self: *HostRuntime, cause: OperationFailure) void {
     var wires = self.wires.valueIterator();

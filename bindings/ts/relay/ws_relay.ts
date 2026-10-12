@@ -9,6 +9,7 @@
 // ADR-0088) can be the far side of another socket's relay.
 
 import { type ByteSink, type ByteSource, relayBytes, type RelayChannel, type RelayConfig } from "./relay.ts";
+import type { Timer } from "../runtime/timer.ts";
 import {
 	type WebSocketByteChannel,
 	webSocketChannel as byteWebSocketChannel,
@@ -47,7 +48,7 @@ export function relayFailureLogger(
 	interface FailureWindow {
 		count: number;
 		intervalMs: number;
-		timer: ReturnType<typeof setTimeout>;
+		timer: Timer | null;
 	}
 	const seen = new Map<string, FailureWindow>();
 	const schedule = (line: string, entry: FailureWindow): void => {
@@ -79,7 +80,7 @@ export function relayFailureLogger(
 		const entry: FailureWindow = {
 			count: 0,
 			intervalMs: initialWindowMs,
-			timer: undefined as unknown as ReturnType<typeof setTimeout>,
+			timer: null,
 		};
 		seen.set(line, entry);
 		schedule(line, entry);
@@ -191,7 +192,7 @@ export async function webSocketRelay(
  * side of another socket's `webSocketRelay`. This is the cold-dial rendezvous
  * far leg (ADR-0088): a browser that cannot be dialed holds an inbound socket
  * at the relay, and a dialer naming its identity is relayed onto this channel.
- * Byte-transparent like every relay leg — the keyed session runs end to end
+ * Byte-transparent like every relay leg: the keyed session runs end to end
  * between the two sockets and the relay parses nothing.
  */
 export function webSocketChannel(

@@ -4,8 +4,8 @@
 # compiler through this script, so the version and SHA-256 authority stays in
 # pins.sh + checksums.sh. ZIG_INSTALL_DIR overrides the /opt/zig prefix for
 # runners without root; the /usr/local/bin symlink is laid only for the
-# default prefix. Alone among the installers this one runs anywhere — the
-# release workflow uses it on macOS runners — so it carries no devcontainer
+# default prefix. Alone among the installers this one runs anywhere, the
+# release workflow uses it on macOS runners, so it carries no devcontainer
 # guard and stays portable to macOS (bash 3.2, shasum, bsdtar).
 set -euo pipefail
 

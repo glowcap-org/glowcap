@@ -18,6 +18,8 @@ import { railFilterLabel } from "../../../lib/text/controls.ts";
 import {
 	filterChangeSaid,
 	filterChooseSaid,
+	filterCount,
+	filterCountSaid,
 	filterNothingToChoose,
 	filterShowEverything,
 } from "../../../lib/text/rail.ts";
@@ -34,19 +36,6 @@ import {
 	setTyped,
 	toggleChoice,
 } from "./filter.ts";
-
-/** How much of the rail is on screen, as the two numbers alone. The heading has
- * room for these and not for a sentence. */
-function countSaid(shown: number, total: number): string {
-	return shown + " of " + total;
-}
-
-/** The same fact written out, for what the heading announces to a reader who
- * is given the name rather than the badge. One producer for the numbers, so
- * what is seen and what is said cannot come to differ. */
-function countSentence(shown: number, total: number): string {
-	return countSaid(shown, total) + " shown";
-}
 
 /** A question whose answers are whatever the reader types. */
 function TypedAsk(
@@ -159,12 +148,12 @@ export function RailFilter(
 				aria-controls="railFilterPanel"
 				// Both halves are said out loud, because a reader using the
 				// accessible name is given no punctuation to tell them apart.
-				aria-label={asked ? filterChangeSaid(title, countSentence(shown, total)) : filterChooseSaid(title)}
+				aria-label={asked ? filterChangeSaid(title, filterCountSaid(shown, total)) : filterChooseSaid(title)}
 				onClick={() => setOpen((was) => !was)}
 			>
 				<span className="rail-filter-title">{title}</span>
 				<Icon name="filter" size={12} />
-				{asked && <span className="rail-filter-count">{countSaid(shown, total)}</span>}
+				{asked && <span className="rail-filter-count">{filterCount(shown, total)}</span>}
 			</button>
 			{open && (
 				<MenuLayer holder={holder} anchor={anchor} layer={layer}>

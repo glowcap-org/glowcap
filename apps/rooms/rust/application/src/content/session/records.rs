@@ -73,7 +73,7 @@ pub struct Page<'a, R: References> {
 	pub fields: Vec<Retained<'a, R>>,
 }
 /// Hosting restores exact strong fields before providing this input. The codec
-/// checks role, slot, generation and count; it never looks up a publication.
+/// checks role, slot, generation and count. It never looks up a publication.
 pub struct RestoredPage<R: References> {
 	pub payload: Vec<u8>,
 	pub fields: Vec<RetainedField<R>>,
@@ -225,7 +225,7 @@ pub fn encode_custody<R: References>(custody: &Custody<R>) -> Result<Vec<Page<'_
 			return Err(Error::Capacity);
 		}
 		output.push(Page {
-			payload: payloads.into_iter().next().expect("one field page"),
+			payload: payloads.into_iter().next().ok_or(Error::Capacity)?,
 			fields: held,
 		});
 		if fields.peek().is_none() {

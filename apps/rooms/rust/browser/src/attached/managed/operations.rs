@@ -33,7 +33,7 @@ impl RoomsManagedOperationsAcquisition {
 #[wasm_bindgen]
 impl RoomsManagedWorkspace {
 	/// Fetch every bounded import once. Up to six refused entries own diagnostic
-	/// JSON projections until JS receives them; those copies preserve each cause
+	/// JSON projections until JS receives them. Those copies preserve each cause
 	/// after the job and its successful temporary occurrences have retired.
 	#[wasm_bindgen(js_name = prepareOperationsAcquisition)]
 	pub fn prepare_operations_acquisition(

@@ -1,7 +1,7 @@
 // A picture on the stage: fitted, or at actual size with native scrolling.
 //
 // Two sizes are enough. Fitted shows the whole picture, as large as the stage
-// allows and never larger than the file; actual size is one file pixel per
+// allows and never larger than the file. Actual size is one file pixel per
 // CSS pixel, scrolled natively when it runs past the stage. Clicking the
 // picture toggles between the two around the point clicked, the bar's zoom
 // button does the same without a pointer, and clicking the stage around the
@@ -17,10 +17,10 @@ export function ViewerImage(
 		/** Actual size (scrolling) rather than fitted. Owned by the viewer, so
 		 * the bar's zoom button and this stage cannot disagree. */
 		actual: boolean;
-		/** Whether the file has more pixels than the fitted stage shows — the
+		/** Whether the file has more pixels than the fitted stage shows: the
 		 * one condition under which actual size is a different picture. */
 		oversized: boolean;
-		/** Report `oversized`, measured here because the stage is here; the
+		/** Report `oversized`, measured here because the stage is here. The
 		 * viewer keeps the answer beside the button that depends on it. */
 		onMeasure: (oversized: boolean) => void;
 		/** How much width this stage's own scrollbar takes, measured for the

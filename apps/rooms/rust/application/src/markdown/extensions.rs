@@ -1,5 +1,5 @@
 //! Rooms inline vocabulary layered over Markdown's inert projection. Mentions
-//! enter only through text nodes; spoilers reconcile across sibling nodes so
+//! enter only through text nodes. Spoilers reconcile across sibling nodes so
 //! their delimiters can contain ordinary Markdown without entering code or
 //! destinations.
 use super::{MAX_NODES, Node};
@@ -12,7 +12,7 @@ pub(super) fn extensions(text: &str, count: &mut usize) -> Result<Vec<Node>, ()>
 }
 
 /// Pair spoiler delimiters after Markdown children have been projected. This
-/// is deliberately scoped to one parent: a delimiter cannot reach out of a
+/// is scoped to one parent: a delimiter cannot reach out of a
 /// paragraph, emphasis span, or link and change the meaning of its sibling.
 pub(super) fn spoilers(nodes: Vec<Node>, count: &mut usize) -> Result<Vec<Node>, ()> {
 	let mut visible = Vec::new();

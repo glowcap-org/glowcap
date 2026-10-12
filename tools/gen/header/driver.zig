@@ -34,6 +34,7 @@ const emitted_fn_names = [_][]const u8{
     "glowcap_driver_wake",
     "glowcap_driver_next_event",
     "glowcap_driver_claim_reference_exporter",
+    "glowcap_driver_claim_exporter_session",
     "glowcap_driver_session_close",
     "glowcap_driver_session_lifecycle_state",
     "glowcap_driver_session_serve",
@@ -49,6 +50,7 @@ const Spec = struct {
         .{ .name = "GLOWCAP_DRIVER_OPTIONS_ABI_VERSION", .doc = "GlowcapDriverOptions.abi_version." },
         .{ .name = "GLOWCAP_DRIVER_FAILURE_ABI_VERSION", .doc = "GlowcapDriverFailure.abi_version." },
         .{ .name = "GLOWCAP_DRIVER_MAX_WAIT_MS", .doc = "Largest handshake_ms or settle_ms value." },
+        .{ .name = "GLOWCAP_DRIVER_WAIT_UNBOUNDED", .doc = "GlowcapDriverOptions wait value with no deadline. SECURITY.md asks deployments to set a finite one." },
         .{ .name = "GLOWCAP_DRIVER_DEFAULT_WIRE_BUFFER_BYTES", .doc = "Default GlowcapDriverOptions.wire_buffer_bytes." },
         .{ .name = "GLOWCAP_DRIVER_DEFAULT_MAX_PENDING_OPENS", .doc = "Default GlowcapDriverOptions.max_pending_opens." },
         .{ .name = "GLOWCAP_DRIVER_DEFAULT_HANDSHAKE_MS", .doc = "Default GlowcapDriverOptions.handshake_ms." },
@@ -83,6 +85,7 @@ comptime {
     std.debug.assert(cd.GLOWCAP_DRIVER_EVENT_LISTENER_FAILED == 6);
     std.debug.assert(cd.GLOWCAP_DRIVER_ADOPT_DIALED == 0);
     std.debug.assert(cd.GLOWCAP_DRIVER_ADOPT_ACCEPTED == 1);
+    std.debug.assert(cd.GLOWCAP_DRIVER_WAIT_UNBOUNDED == 0);
     std.debug.assert(cd.GLOWCAP_CLOSE_GRACE_UNSPECIFIED == 0);
     std.debug.assert(cd.GLOWCAP_CLOSE_GRACE_FINITE == 1);
     std.debug.assert(cd.GLOWCAP_CLOSE_GRACE_UNBOUNDED == 2);
@@ -117,6 +120,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         "GLOWCAP_DRIVER_OPTIONS_ABI_VERSION",
         "GLOWCAP_DRIVER_FAILURE_ABI_VERSION",
         "GLOWCAP_DRIVER_MAX_WAIT_MS",
+        "GLOWCAP_DRIVER_WAIT_UNBOUNDED",
         "GLOWCAP_DRIVER_DEFAULT_WIRE_BUFFER_BYTES",
         "GLOWCAP_DRIVER_DEFAULT_MAX_PENDING_OPENS",
         "GLOWCAP_DRIVER_DEFAULT_HANDSHAKE_MS",
@@ -203,7 +207,8 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try E.emitFn(&b, gpa, "glowcap_driver_detach_thread", &.{"loop"}, "End the current thread's exclusive claim at a quiescent handoff boundary.");
     try E.emitFn(&b, gpa, "glowcap_driver_wake", &.{"loop"}, "Wake a parked loop from any thread.");
     try E.emitFn(&b, gpa, "glowcap_driver_next_event", &.{ "loop", "out" }, "Pop one event, or GLOWCAP_ERR_WOULD_BLOCK. Borrowed views last until the\nnext pop.");
-    try E.emitFn(&b, gpa, "glowcap_driver_claim_reference_exporter", &.{ "loop", "reference", "out_session" }, "Resolve a live remote capability's exporter session and ensure the loop's one\napplication-owned handle claims it before returning. A local, stale, foreign-Host,\nor closed-session capability writes NULL. Repeated calls return the same handle.");
+    try E.emitFn(&b, gpa, "glowcap_driver_claim_reference_exporter", &.{ "loop", "reference", "out_session" }, "Resolve a live remote capability's exporter session and ensure the loop's one\napplication-owned handle claims it before returning. A local, stale, foreign-Host,\nor closed-session capability writes NULL. Repeated calls return the same handle.\nCallback-safe: claiming performs no I/O or callback dispatch.");
+    try E.emitFn(&b, gpa, "glowcap_driver_claim_exporter_session", &.{ "loop", "session" }, "Claim the loop's single application handle for a borrowed exporter session.\nThe pointer must still be live and belong to this loop. Repeated claims are\nidempotent. Callback-safe: claiming performs no I/O or callback dispatch.\nRelease a claimed handle only once, through glowcap_driver_session_release.");
     try E.emitFn(&b, gpa, "glowcap_driver_session_close", &.{ "loop", "session", "options" }, "Seal one loop-owned session's application admission and begin or escalate its\nnonblocking close barrier. Continue stepping until\nglowcap_driver_session_lifecycle_state reports GLOWCAP_LIFECYCLE_CLOSED. This\ncloses without releasing the session handle.");
     try E.emitFn(&b, gpa, "glowcap_driver_session_lifecycle_state", &.{ "loop", "session", "out_state" }, "Write one loop-owned session's GLOWCAP_LIFECYCLE_* phase. CLOSED means the\ntransport is closed while the handle remains valid for explicit release. A finite\nfinish grace expiry returns GLOWCAP_ERR_TIMEOUT together with CLOSED.");
     try E.emitFn(&b, gpa, "glowcap_driver_session_serve", &.{ "loop", "session" }, "Begin delivering this session's inbound application frames: the embedder has\nfinished its post-open setup (publishes, spawns), so a partner's pipelined\nfirst frames can no longer outrun the objects they name. A session surfaced\nby an OPENED or ACCEPTED event holds its inbound until this call; handshake\nframes were never held, and early bytes wait unread and replay in order now.\nReplaying resident bytes may invoke GlowcapHostBehavior synchronously before\nthis call returns; binding runtimes must install their Host delivery context\nfirst. Idempotent.");

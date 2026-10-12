@@ -11,8 +11,8 @@ paths:
 # glowcap — Tests and Conformance
 
 Every test names its layer, the authority that decides "correct," and what a
-failure means. A test you cannot place on this map has an unclear boundary; fix
-the test.
+failure means. A test that fits nowhere on this map has an unclear boundary;
+fix the test.
 
 ## Vocabulary
 
@@ -35,6 +35,10 @@ implementation as the authority in prose.
 
 ## Discipline
 
+- A proof that reads rendered prose does so through the catalog or a marker
+  the catalog owns. Rewording user-visible text means sweeping the test page
+  helpers for the old wording in the same change, or the mismatch reads as a
+  flake.
 - Every deterministic non-Zig test process has an owner-calibrated
   process-group deadline of at most 30 s; Zig tests get `--test-timeout 30s`
   per test. Browser proofs use the `browser_proof` posture, an orchestrator
@@ -45,10 +49,14 @@ implementation as the authority in prose.
   it claims to cover and confirming the search finds each. Its header records
   what it caught and which states it does not reach
   (`test/net/fuzz_test.zig` is the worked example).
+- An assertion whose expected value can be empty passes vacuously: a
+  contains-check against an unset variable asserts nothing. Read expected
+  values from a loader that is proven to have the data, and fail on an empty
+  expectation instead of comparing with it.
 - Tests that dial name a finite budget ([captp-waits](captp-waits.md)).
 - Before deleting a test file with its subject, read every scenario in it and
-  move each one that exercises a surviving surface: a file is named for what
-  it was filed under, not for everything it proves.
+  move each one that exercises a surviving surface: a file's name does not list
+  everything it proves.
 
 ## Placement
 

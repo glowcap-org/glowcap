@@ -38,7 +38,7 @@ export function archivedAttachmentsMatch(
 }
 
 /** Learn archive content identity without replacing live transfer or display
- * custody. A known conflicting digest is a real replacement; a lost view has
+ * custody. A known conflicting digest is a real replacement. A lost view has
  * no custody to preserve and must likewise be rematerialized if durable bytes
  * later appear. */
 export function adoptableArchiveDigests(

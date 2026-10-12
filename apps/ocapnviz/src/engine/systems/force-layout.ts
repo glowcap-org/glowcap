@@ -1,7 +1,7 @@
 /**
  * One d3-force convergence for a topology snapshot.
  *
- * `stage-topology.ts` owns who stands at a moment; `layout-eras.ts` owns the
+ * `stage-topology.ts` owns who stands at a moment, `layout-eras.ts` owns the
  * era list and when to anneal. This module owns the anneal: region seeds,
  * charge/link/center, footprint separation, and
  * leaning claims onto the resulting edges. Determinism comes from seeding
@@ -45,7 +45,7 @@ export type ForceLayoutConfig = {
  * vocabulary so the renderer places peers whose id begins with
  * `<region>-` (e.g.
  * `us-east-alice`) on a left-to-right Mercator-ish layout. Lookup
- * is longest-prefix match — `us-east-alice` resolves to `us-east`,
+ * is longest-prefix match, `us-east-alice` resolves to `us-east`,
  * `us-alice` falls back to the `us` continental rollup, `alice`
  * lands on `default` (origin).
  */
@@ -93,7 +93,7 @@ function parseRegion(peerId: string): string {
 	return "default";
 }
 
-/** Centroid for a peer's region; `(0, 0)` if no prefix matches. */
+/** Centroid for a peer's region, `(0, 0)` if no prefix matches. */
 function regionCentroid(peerId: string): Vec2 {
 	return REGION_CENTROIDS[parseRegion(peerId)] ?? REGION_CENTROIDS.default!;
 }
@@ -111,7 +111,7 @@ function regionCentroid(peerId: string): Vec2 {
  * A claim is not one of the bodies solved here: its session's link is solved
  * as if the end were already at the peer it names, and `placeClaims` sits it
  * on the resulting edge afterwards (see `CLAIM_LEAN`). A loose end that is NOT
- * a claim — nothing named, or a name nobody on stage answers to — is an
+ * a claim, nothing named, or a name nobody on stage answers to, is an
  * ordinary body, solved with link, charge and collision like any peer.
  */
 export function runForce(
@@ -140,7 +140,7 @@ export function runForce(
 
 	// Every body is a pin: the arrangement is the pins, and `placeClaims` still
 	// leans claims onto edges. Running the simulation would spend
-	// `config.iterations` ticks moving nothing — the cost that made multi-select
+	// `config.iterations` ticks moving nothing. The cost that made multi-select
 	// drags on an all-pinned Build document (kids masterpiece and kin) stall.
 	if (bodyIds.every((id) => pins.has(id))) {
 		for (const id of bodyIds) {
@@ -193,8 +193,8 @@ export function runForce(
 
 	// A claim's link is solved against the peer it names, so the edge pulls on
 	// that peer exactly as it will once the claim is attributed. A link whose
-	// two ends solve to the same node — a session claiming to be the peer at
-	// its own other end — is dropped, the same as any self-link.
+	// two ends solve to the same node, a session claiming to be the peer at
+	// its own other end, is dropped, the same as any self-link.
 	const links: SimLink[] = sessionLinks.flatMap((s) => {
 		const a = solvedNode(s.a);
 		const b = solvedNode(s.b);
@@ -280,12 +280,13 @@ const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
  * as far out as eight nodes need, without the first seven having been told
  * how many would follow.
  *
- * The seed decides more than where the solver starts. Every node with no
- * region prefix used to seed on the same point, so the whole graph began as
- * one pile and the arrangement the solver found was whatever its repulsion
- * happened to break that tie into. A peer's session ends came out at radii
- * between a fifth and a whole link distance from it, gathered to one side,
- * because nothing in the starting state distinguished one end from another.
+ * The seed decides more than where the solver starts. Seeding every node with
+ * no region prefix on one point starts the graph as one pile, and the
+ * arrangement the solver finds is whatever its repulsion happens to break that
+ * tie into. A peer's session ends would come out at radii between a fifth and a
+ * whole link distance from it, gathered to one side, because nothing in the
+ * starting state distinguishes one end from another. Each such node gets its
+ * own seed point instead.
  */
 function regionAwareSeed(
 	peerId: string,
@@ -314,8 +315,8 @@ function regionAwareSeed(
  *
  * The push runs along the line between the two nodes, and goes exactly as far
  * as the nearer edge of the box needs. Pushing instead along whichever axis
- * overlaps least — the textbook minimum-translation answer, and the cheaper
- * motion — settles each pair with one coordinate exactly equal, so a graph
+ * overlaps least, the textbook minimum-translation answer, and the cheaper
+ * motion, settles each pair with one coordinate exactly equal, so a graph
  * comes out on a grid of shared columns and rows. Along the center line the
  * same boxes clear without that.
  *
@@ -341,7 +342,7 @@ export function forceFootprints(
 			const ba = mine[i]!;
 			const aFixed = a.fx !== undefined && a.fx !== null;
 			// d3 integrates position as x + vx, so separate where the nodes are
-			// about to be rather than where they were — the same prediction
+			// about to be rather than where they were. The same prediction
 			// `forceCollide` makes, and what keeps the push from oscillating.
 			const ax = (a.x ?? 0) + (a.vx ?? 0);
 			const ay = (a.y ?? 0) + (a.vy ?? 0);
@@ -373,7 +374,7 @@ export function forceFootprints(
 					// it is scaled here to the distance along itself at which the
 					// nearer box edge clears, and `push` below applies it whole. Growing
 					// a separation of nothing is what a multiplier does with a pile,
-					// which is nothing — and at index zero the ray runs along x, where
+					// which is nothing, and at index zero the ray runs along x, where
 					// the multiplier came out exactly one and the pair never moved.
 					const angle = i * GOLDEN_ANGLE;
 					const ux = Math.cos(angle);
@@ -415,5 +416,5 @@ export function forceFootprints(
 
 /** How much of a measured overlap one pass removes. Below one so a node
  *  caught between two others settles between them instead of ringing back
- *  and forth; the tick count is far more than enough to converge from here. */
+ *  and forth. The tick count is far more than enough to converge from here. */
 const FOOTPRINT_SEPARATION_STRENGTH = 0.7;

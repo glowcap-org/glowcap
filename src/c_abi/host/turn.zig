@@ -23,7 +23,7 @@ const GLOWCAP_ERR_NULL_POINTER = shared.GLOWCAP_ERR_NULL_POINTER;
 
 /// Borrow the session whose Port delivered this callback turn. Trusted local
 /// owning delivery succeeds with a null session. The returned nonnull
-/// handle is Host-owned and valid for the same lifetime as that session; the
+/// handle is Host-owned and valid for the same lifetime as that session. The
 /// caller must not release it. This is a projection of authority already held
 /// by the turn, not a second session lookup or routing decision.
 pub fn glowcap_host_turn_session(
@@ -42,7 +42,7 @@ pub fn glowcap_host_turn_session(
 /// `*out_resolver_id` receives the one-shot settle authority used by
 /// glowcap_host_resolver_fulfill / _break. All rows and the forward listener
 /// are reserved before publication, so refusal leaves no live resolver and no
-/// forwarded effect. The behavior returns normally after success; its return
+/// forwarded effect. The behavior returns normally after success. Its return
 /// value resolves nothing once the turn is deferred.
 pub fn glowcap_host_turn_defer(
     turn: ?*GlowcapHostTurn,
@@ -56,7 +56,7 @@ pub fn glowcap_host_turn_defer(
     return GLOWCAP_OK;
 }
 
-/// Defer an answered call; a tell succeeds with zero and creates no resolver.
+/// Defer an answered call. A tell succeeds with zero and creates no resolver.
 /// Nonzero IDs carry the same one-shot authority as glowcap_host_turn_defer.
 /// Refusal zeros the output and leaves the current turn unchanged.
 pub fn glowcap_host_turn_defer_if_answer(
@@ -76,13 +76,13 @@ pub fn glowcap_host_turn_defer_if_answer(
 }
 
 /// From inside a behavior callback, forward this turn's call to `target` and
-/// let this object's own answer settle on the forwarded result — the
+/// let this object's own answer settle on the forwarded result, the
 /// caretaker/attenuator primitive. `target` is an opaque Host-scoped
-/// capability; the Host resolves local and remote delivery itself (and refuses
+/// capability. The Host resolves local and remote delivery itself (and refuses
 /// stale or foreign-Host identities rather than reading them as wire names).
 /// In an eventual or wire-served turn the real answer rides the forwarded vow and
-/// `*out_reply` gets a void placeholder; pass your behavior's own `out_reply`
-/// and return `GLOWCAP_OK`. The written reply is BORROWED — valid until the
+/// `*out_reply` gets a void placeholder. Pass your behavior's own `out_reply`
+/// and return `GLOWCAP_OK`. The written reply is BORROWED, valid until the
 /// next turn verb or drive on this host.
 pub fn glowcap_host_turn_forward(
     turn: ?*GlowcapHostTurn,
@@ -112,7 +112,7 @@ pub fn glowcap_host_turn_forward(
 
 /// From inside a behavior callback, eventual-send to `target` and mint a host
 /// vow for the answer. Trusted local callbacks use the target's actual local
-/// or foreign home; wire callbacks use their Session routing. Local public
+/// or foreign home. Wire callbacks use their Session routing. Local public
 /// vows settle through Host actions and support release, without a wire
 /// pipeline or raw wire listener. Delivery commits with the enclosing turn.
 pub fn glowcap_host_turn_send(
@@ -139,7 +139,7 @@ pub fn glowcap_host_turn_send(
     return GLOWCAP_OK;
 }
 
-/// From inside a behavior callback, fire-and-forget eventual-send —
+/// From inside a behavior callback, fire-and-forget eventual-send:
 /// `glowcap_host_turn_send` with no answer and no vow.
 pub fn glowcap_host_turn_tell(
     turn: ?*GlowcapHostTurn,
@@ -167,7 +167,7 @@ pub fn glowcap_host_turn_tell(
 /// create its first projection on the Port that delivered this turn. This is
 /// how a served factory mints the capability it replies with (a task board's
 /// `create`, a caretaker wrapping a target), the turn-time form of
-/// `glowcap_host_session_spawn`. Same `free` contract; `*out_ref` receives the
+/// `glowcap_host_session_spawn`. Same `free` contract. `*out_ref` receives the
 /// opaque Host-scoped capability.
 pub fn glowcap_host_turn_spawn(
     turn: ?*GlowcapHostTurn,
@@ -189,9 +189,9 @@ pub fn glowcap_host_turn_spawn(
 }
 
 /// From inside a behavior callback, break this turn's own answer with
-/// `message` — how a behavior refuses with a diagnostic, since a non-OK
+/// `message`, how a behavior refuses with a diagnostic, since a non-OK
 /// return settles the answer broken with only a generic reason. A wire answer
-/// breaks inside this call; a local eventual answer breaks when the turn
+/// breaks inside this call. A local eventual answer breaks when the turn
 /// unwinds. A no-answer tell breaks nothing. Leave
 /// `out_reply` untouched and return `GLOWCAP_OK` from the behavior, whose
 /// return value then resolves nothing. `message` is borrowed and copied.

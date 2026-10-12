@@ -59,7 +59,7 @@ export function railRooms(tab: Page): Promise<{ name: string; locked: boolean; h
  *
  * `marked` is whether the row draws a glyph rather than the plain `#`, which is
  * every access except the open one: a private room draws its lock and a
- * moderated one its observer. So this is not only "the private one" — a room
+ * moderated one its observer. So this is not only "the private one", a room
  * whose access was changed to moderated is marked too, and asking for the
  * unmarked row would look past it. */
 export async function openRailRoom(tab: Page, name: string, marked: boolean): Promise<void> {

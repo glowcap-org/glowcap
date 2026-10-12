@@ -5,7 +5,7 @@ const Ban = bans.Ban;
 const Where = bans.Where;
 
 /// Runtime-local fallback journals use the same bounded diagnostic schema as a
-/// Context journal. The C ABI owns those default caps; generated mirrors carry
+/// Context journal. The C ABI owns those default caps, generated mirrors carry
 /// them into every binding.
 pub const runtime_failure_journal_rows: []const Ban = &.{
     .{
@@ -131,11 +131,11 @@ pub const nonfatal_release_paths: []const Ban = &.{
         .why = "Rust retries only pre-commit Host release refusal at the next finalizer-safe boundary",
     },
     .{
-        .where = .{ .file = "bindings/rust/src/driver_loop/native.rs" },
+        .where = .{ .file = "bindings/rust/src/driver_loop/handle.rs" },
         .kind = .require,
         .needles = &.{"if crate::lifecycle::release_consumed(code) {"},
         .check = "nonfatal-release-paths",
-        .why = "Rust retires the driver wrapper after every consumed native teardown outcome",
+        .why = "Rust gives the loop handle back only when the driver refused to consume it",
     },
     .{
         .where = .{ .file = "bindings/rust/src/lifecycle.rs" },
@@ -322,7 +322,7 @@ pub const nonfatal_release_paths: []const Ban = &.{
 };
 
 /// A binding async surface reports admission failure through the same result
-/// its caller already observes; synchronous task admission is not discarded.
+/// its caller already observes, synchronous task admission is not discarded.
 pub const binding_failure_surface: []const Ban = &.{
     .{
         .where = .{ .file = "bindings/rust/src/session_shared.rs" },

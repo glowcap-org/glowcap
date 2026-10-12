@@ -1,10 +1,8 @@
 # Finding and publishing the C archives
 
-The bindings are not published yet. In a checkout, run `zig build`; the
+The bindings are not published yet. In a checkout, run `zig build`. The
 bindings find the resulting libraries under `zig-out/lib`.
 
-Bindings look up archives in the order below. The release switch is the last
-section.
 The machine-readable contract is
 [`c-abi-resolve.json`](c-abi-resolve.json), as decided in
 [ADR-0077](../docs/decisions/adr/ADR-0077-publishable-c-abi-resolve.md).
@@ -13,42 +11,42 @@ The machine-readable contract is
 
 Every binding uses the same order:
 
-1. `GLOWCAP_LIB_DIR`, when set;
-2. the versioned download cache;
-3. `zig-out/lib` when running from a checkout;
+1. `GLOWCAP_LIB_DIR`, when set
+2. the versioned download cache
+3. `zig-out/lib` when running from a checkout
 4. the operating system's library search on Unix.
 
-Windows does not use a bare DLL name because its search order can load a
+Windows does not use a bare DLL name, because its search order can load a
 library from an unintended directory. Use `GLOWCAP_LIB_DIR` or a populated
 cache there.
 
 Rust resolves its static libraries at build time. TypeScript, Python, and
-Racket resolve shared libraries when they load. iroh remains a separate
+Racket resolve shared libraries when they load. iroh is a separate
 library in both cases.
 
 ### Download behavior
 
-`releases_published` in `c-abi-resolve.json` is currently false. A cold cache
+`releases_published` in `c-abi-resolve.json` is false. A cold cache
 therefore does not contact the network unless `GLOWCAP_DOWNLOAD=1` is set.
-After releases are enabled, `GLOWCAP_SKIP_DOWNLOAD=1` disables fetching.
+Once releases are enabled, `GLOWCAP_SKIP_DOWNLOAD=1` disables fetching.
 
 Downloads require HTTPS and a matching entry in `SHA256SUMS`. Extraction
-accepts regular files under `lib/` only; links and path traversal are refused.
+accepts regular files under `lib/` only. Links and path traversal are refused.
 `GLOWCAP_STRICT=1` turns a network or tool failure into a hard error instead of
 continuing to the local fallbacks.
 
 `GLOWCAP_RELEASE_BASE_URL` points at a different release host.
-`GLOWCAP_ALLOW_INSECURE=1` permits HTTP for a controlled test mirror; normal
+`GLOWCAP_ALLOW_INSECURE=1` permits HTTP for a controlled test mirror. Normal
 loads reject it.
 
-The cache root is chosen from `GLOWCAP_CACHE_DIR`, then `XDG_CACHE_HOME`, then
+The cache root comes from `GLOWCAP_CACHE_DIR`, then `XDG_CACHE_HOME`, then
 the platform's user cache directory. The ABI version and normalized target
 select the directory underneath it.
 
 Target names match `zig build release-pack`, such as `x86_64-linux` and
 `aarch64-macos`. The normalization rules live in
 [`../tools/c-abi/c-abi-host-aliases.json`](../tools/c-abi/c-abi-host-aliases.json).
-Rust begins with `CARGO_CFG_TARGET_ARCH` and `CARGO_CFG_TARGET_OS`; the other
+Rust begins with `CARGO_CFG_TARGET_ARCH` and `CARGO_CFG_TARGET_OS`. The other
 bindings normalize common aliases such as `amd64`, `arm64`, and `darwin`.
 
 Linux and macOS are the current packaging targets. Windows needs
@@ -66,30 +64,30 @@ This writes checksummed archives for the current target under
 **Replacing the output.** The tarball and checksums replace the contents of
 that directory as one unit, so keep downloads somewhere else. If the build
 fails in a way it handles, it restores the previous contents. If restoring
-fails too, the error names the staging directory it kept. This protects
-against a failed process, not against power loss.
+fails too, the error names the staging directory it kept. Power loss is not
+handled.
 
 **Build requirements.**
 
 - `release-pack` refuses Debug mode, so a bare invocation cannot publish
-  development binaries by accident. Other explicit Release modes are still
-  available, for an embedding that documents a size or speed choice.
-- It requires baseline CPU instructions, and a build that matches the running
-  host's OS, architecture, and ABI. A package named only by its architecture
-  must not quietly depend on extra CPU features of the machine that built it.
+  development binaries. Other Release modes are available for an embedding
+  that documents a size or speed choice.
+- It requires baseline CPU instructions and a build that matches the running
+  host's OS, architecture, and ABI, so a package named by its architecture
+  does not depend on CPU features of the machine that built it.
 
 **What goes in.** The archive table in `build.zig` is the release manifest.
 Packaging copies only those libraries and their public headers, by name, so
-leftover files in `zig-out` cannot add another target or an internal
-artifact. Each tarball also carries the repository's `PROVENANCE.md` and its
-license files. The tarballs contain regular files, not library symlinks.
+leftover files in `zig-out` cannot add a target or an internal artifact. Each
+tarball also carries the repository's `PROVENANCE.md` and its license files. The
+tarballs contain regular files and no library symlinks.
 
 **What it checks.** Before returning, the step extracts the tarball outside
 the checkout. It then builds and runs:
 
-- one C program for every self-contained static archive;
+- one C program for every self-contained static archive
 - one C program across the packaged shared libraries, which also loads the
-  iroh companion through them.
+  iroh companion through them
 
 It also compares the extracted `PROVENANCE.md` byte for byte with the one in
 the source tree.
@@ -99,10 +97,10 @@ for CLI and Rooms users. It includes private runtimes, prepared browser assets,
 and individual/team skills without C development archives or headers.
 The same release matrix builds and verifies both products.
 
-The optional native relay archive is self-contained: its pinned, namespaced
-Mbed TLS client is linked privately into `libglowcap_net_transport_relay` and
-is not a second runtime library for a binding to discover or distribute.
-Packages that omit the relay archive acquire no TLS artifact or dependency.
+The optional relay archive is self-contained: its pinned, namespaced Mbed TLS
+client is linked privately into `libglowcap_net_transport_relay`, so a binding
+discovers and distributes no second runtime library. Packages that omit the
+relay archive carry no TLS artifact or dependency.
 
 The release workflow uses the same archive set. A manual workflow run builds
 artifacts without publishing a GitHub release.
@@ -110,8 +108,8 @@ artifacts without publishing a GitHub release.
 ## Publishing C archives: publication and enablement checklist
 
 `releases_published` controls whether consumers try the hosted archive URL. It
-does not authorize the release workflow to create those archives. Do not
-change it until the corresponding assets can be downloaded and verified.
+does not authorize the release workflow to create those archives. Change it
+only after the assets can be downloaded and verified.
 
 1. Run `zig build -Doptimize=ReleaseSafe release-pack -Dcpu=baseline` for every published
    target.

@@ -1,9 +1,9 @@
 /**
- * A session's trajectory, as rows a reader can edit — every moment the
+ * A session's trajectory, as rows a reader can edit. Every moment the
  * session changed state or an end attached to a peer.
  *
  * It lives in its own module because two panels list these moments and they
- * list different ones. The session panel shows the whole trajectory; the
+ * list different ones. The session panel shows the whole trajectory. The
  * panel for one unattributed end shows that end's own attachments and
  * nothing else, since the state the session is in and what happens at its
  * other end are not that end's facts. Both are the same question asked with
@@ -31,8 +31,8 @@ import { OptionalTimeRow, TrajectoryInsert, TrajectoryValue } from "./trajectory
 /** What the "state a property here" control offers at `t`, and the value each
  *  offer would insert.
  *
- *  A new moment arrives saying something true — what the session already
- *  carries at the playhead — so the author edits a real value rather than
+ *  A new moment arrives saying something true, what the session already
+ *  carries at the playhead, so the author edits a real value rather than
  *  filling in a blank. It is the property's whole value, not the word that
  *  names it: an insert over an end a signed handoff attributed restates that
  *  attribution, where offering the peer alone would have the new moment
@@ -97,8 +97,8 @@ export function SessionMoments(
 	const moments = sessionTrajectoryRows(engine.doc, sessionId)
 		.filter((m) => shown.has(m.property));
 	// What bounds a row is its own property's neighbours. Another property's
-	// moment at some other instant is not a constraint on this one — the tracks
-	// are read separately — and the moment beside it in ITS track is. Grouped
+	// moment at some other instant is not a constraint on this one, the tracks
+	// are read separately, and the moment beside it in ITS track is. Grouped
 	// over the whole trajectory, not over `moments`, so an end's panel bounds
 	// its rows against every attachment on that end even while showing a subset.
 	const byProperty = new Map<SessionProperty, typeof moments>();

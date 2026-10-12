@@ -9,7 +9,7 @@
 //!
 //! What this cannot prove is that a real Tor accepts these bytes. The byte
 //! expectations live in `onion_socks5_test.zig` and `onion_control_test.zig`,
-//! pinned against the two reference implementations; `zig build onion-interop`
+//! pinned against the two reference implementations. `zig build onion-interop`
 //! and `zig build goblins-onion` are the opt-in live Tor proofs.
 
 const std = @import("std");
@@ -107,7 +107,7 @@ fn fakeSocksServe(
     // forms; using the uncommon one here proves the live handshake consumes its
     // length byte and payload before handing the stream to CapTP.
     //
-    // Deliberately not flushed. The session's first write carries it, so the
+    // Not flushed. The session's first write carries it, so the
     // reply and this peer's hello reach the client in one segment. That is the
     // hazard the resident's shared reader exists for: a handshake reading through
     // its own throwaway buffer would take the hello off the socket with the reply

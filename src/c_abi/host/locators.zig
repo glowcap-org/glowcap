@@ -12,7 +12,7 @@ const c = @import("mod.zig");
 const common = @import("common.zig");
 
 /// Derive the canonical key designator (exactly 64 lowercase hex digits) from
-/// a 32-byte Ed25519 durable-identity seed — the public half represented by
+/// a 32-byte Ed25519 durable-identity seed, the public half represented by
 /// the first half of `glowcap_host_new`'s 64-byte input. Session signing keys
 /// derive from that input's fresh second half instead. Writes 64 bytes into
 /// `out` (`out_len` must be at least 64). A keyed-tcp listener uses this so its

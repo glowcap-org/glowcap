@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-axis-lock-probe.ts — Adobe / Macromedia shift-axis-lock
+ * playwright-axis-lock-probe.ts: Adobe / Macromedia shift-axis-lock
  * on peer drag. Verifies all six subtleties:
  *
  *   1. Plain drag: peer follows cursor (no constraint).
@@ -90,7 +90,7 @@ async function peerPositions(): Promise<PeerPos[]> {
 	});
 }
 
-// pick the first peer to drag — coords are read from the live ECS
+// pick the first peer to drag, coords are read from the live ECS
 const before = await peerPositions();
 if (before.length === 0) {
 	console.log("FAIL — no peers visible to drag");
@@ -166,7 +166,7 @@ async function resetLeadTo(wx: number, wy: number) {
 type Test = { name: string; ok: boolean; detail: string };
 const results: Test[] = [];
 
-// (1) Plain drag — no constraint.
+// (1) Plain drag, no constraint.
 {
 	await dragPeer({
 		fromSx: lead.sx,
@@ -186,7 +186,7 @@ const results: Test[] = [];
 	await resetLeadTo(lead.wx, lead.wy);
 }
 
-// (2) Shift-drag dominant-X — Y stays.
+// (2) Shift-drag dominant-X, Y stays.
 {
 	await dragPeer({
 		fromSx: lead.sx,
@@ -207,7 +207,7 @@ const results: Test[] = [];
 	await resetLeadTo(lead.wx, lead.wy);
 }
 
-// (3) Shift-drag dominant-Y — X stays.
+// (3) Shift-drag dominant-Y, X stays.
 {
 	await dragPeer({
 		fromSx: lead.sx,
@@ -228,7 +228,7 @@ const results: Test[] = [];
 	await resetLeadTo(lead.wx, lead.wy);
 }
 
-// (5) Mid-drag press of Shift — engages axis-lock from ORIGIN
+// (5) Mid-drag press of Shift, engages axis-lock from ORIGIN
 //     (not from press-position). Adobe Photoshop Move-tool
 //     convention: pressing shift snaps the object to the
 //     origin's axis-locked position, then constrains further
@@ -255,7 +255,7 @@ const results: Test[] = [];
 	await resetLeadTo(lead.wx, lead.wy);
 }
 
-// (6) Mid-drag release of Shift — restores free motion. Adobe
+// (6) Mid-drag release of Shift, restores free motion. Adobe
 //     convention: when shift releases, the peer JUMPS to the
 //     cursor's actual position (because target = cursor +
 //     pickupOffset reasserts). The cursor has been moving
@@ -285,7 +285,7 @@ const results: Test[] = [];
 	await resetLeadTo(lead.wx, lead.wy);
 }
 
-// (7) Group axis-lock — shift+drag on a selected peer should
+// (7) Group axis-lock, shift+drag on a selected peer should
 //     translate every selected peer parallel to the same locked
 //     axis. Select all peers first (Cmd-A), then shift+drag
 //     the lead; every peer's Y stays put, X shifts uniformly.

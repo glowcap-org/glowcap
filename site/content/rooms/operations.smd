@@ -27,38 +27,36 @@ GLOWCAP_ROOMS_STATE=/var/lib/glowcap/rooms \
 
 To host it, install the complete glowcap product and Docker with Compose. The
 deployment runs the page, an iroh room server, one durable session service, and
-a PostgreSQL database for kept room lines. The product image contains the
-glowcap and Rooms runtimes, prepared browser assets, skills, and iroh library.
-It has no checkout or compiler and mounts no build output at runtime. The
-database is reached only over the stack's private network. Its password is
-stored in the deployment state directory and passed as a Docker secret.
+a PostgreSQL database for kept room lines. The image holds the glowcap and
+Rooms runtimes, browser assets, skills, and iroh library, with no checkout or
+compiler. The database is reachable only on the stack's private network, and
+its password is passed as a Docker secret.
 
 ```sh
-zig build rooms-deploy-prep -Doptimize=ReleaseSafe -Dcpu=baseline
-glowcap apps rooms deployment up --build "$PWD/zig-out/product"
+./glowcap apps rooms deployment up
 ```
 
-The first `up` resolves and saves an immutable image ID, creates the shared
-network and database secret, refreshes the managed Compose file, waits for
-health, and prints the room locator and capabilities. Later starts reuse that
-image. To select a tag, digest, or local image explicitly, pass `--image`.
-The default image is the versioned GHCR name derived from the installed CLI;
-this repository does not claim that the image has been published.
+From a Linux checkout, this builds the current source with `rooms-release`
+(ReleaseSafe, baseline CPU) into an image. The first `up` saves that image,
+creates the network and database secret, writes the Compose file, waits for
+health, and prints the room locator and capabilities. Later starts keep the
+same image. Pass `--image` to choose a tag, digest, or local image. Without it,
+the CLI names a versioned GHCR image, which has not been published yet.
 
-Deployment state lives in `glowcap/rooms-deployment` under `$XDG_STATE_HOME`, or
-under `$HOME/.local/state` when that is unset or empty. Pass `--dir` to select another
-configuration directory. It selects credentials and configuration, not another
-stack: container, network, and volume names are fixed per Docker daemon. Keep
-operator settings in `docker-compose.override.yml`, which `up` preserves.
+Deployment state lives in `glowcap/rooms-deployment` under `$XDG_STATE_HOME`,
+or under `$HOME/.local/state` when that is unset or empty. `--dir` picks
+another configuration directory, but not another stack: container, network,
+and volume names are fixed per Docker daemon. Keep your own settings in
+`docker-compose.override.yml`, which `up` preserves.
 
 The example override publishes the page on host loopback. Put an HTTPS reverse
 proxy or private network in front of it for broader access. A loopback HTTP
 address does not restrict the separately authenticated iroh directory.
 
-The deployment front also has `doctor`, `status`, `logs`, `down`, and `reset`.
-`doctor` is read-only. `down` keeps data. `reset` names a custody unit and
-confirms before destroying it. Mutating commands lock the configuration
-directory until they exit.
+The deployment command also has `doctor`, `status`, `logs`, `down`, and
+`reset`. `doctor` is read-only. `down` keeps data. `reset` takes the part to
+wipe, such as `session` or `directory`, says what will be lost, and asks
+first. Commands that change state lock the configuration directory.
 
 On a tailnet, Tailscale Serve can terminate HTTPS and forward the local
 Rooms port. For a public server, use the container guide and an ordinary
@@ -84,9 +82,9 @@ of quietly minting a new one.
 # Make sessions reachable
 
 The web server carries bytes between a session on the page and the room
-server over a WebSocket on the same address as the page. A rendezvous route
-lets another peer call that session through the relay. The encrypted connection is still
-between the two peers: the relay forwards bytes and holds nothing of theirs.
+server over a WebSocket on the page's own address. A rendezvous route lets
+another peer call that session through the relay. The encrypted connection is
+still between the two peers.
 
 Direct messages over WebRTC need ICE servers. STUN helps two peers find a
 direct route, and TURN carries the traffic when a network will not allow
@@ -109,33 +107,30 @@ glowcap apps rooms session serve --dir=.local/.state/rooms
 ```
 
 The command prints a workspace link. Open it from the Session tab in Settings.
-The service keeps the rooms, conversations, drafts, saved capabilities and
-history choices in that workspace. Attaching opens the service's workspace;
-it does not copy the browser's previous session into it. Reloading or opening
-it on another device restores the same committed intent.
+The service keeps the rooms, conversations, drafts, saved capabilities, and
+history choices. Attaching does not copy the browser's previous session into
+it. Every device that opens the link sees the same rooms, conversations, and
+drafts.
 
 Management is separate. Its link is in `control.sturdyref` in the state
 directory. Hold that link in **Session access** to create access for a person
-or device, change its permissions, pause it or revoke it. The new workspace
-link grants only the use you select. You keep its management control and can
-share a separately limited management link. Reading history and files have
-their own permissions.
+or device, change its permissions, pause it, or revoke it. The new link grants
+only the use you select, and you can share a separately limited management
+link. Reading history and reading files are separate permissions.
 
-What a link may do is checked in the session every time it is used, never
-written into the link itself. So you can narrow a link, give it the earlier
-messages or take them away, and pause it while someone is holding it, and
-the link never changes. Someone holding a paused link is told that it is
-paused and why. Revoking a link cuts off every open connection using it,
-and it stays revoked after the service restarts.
+The session checks what a link may do each time it is used, so you can narrow
+a link, add or remove earlier messages, or pause it while someone holds it,
+without changing the link. A paused link says it is paused and why. Revoking
+a link cuts off every open connection using it, and it stays revoked after a
+restart.
 
 # Keep the data directory together
 
 Only one process may use a Rooms data directory at a time. Copy or restore
 it as a whole. It holds the server's saved state, the record of unfinished
 work, its identity, the randomness it publishes with, bridge settings, and
-the credentials meant to persist. A partial copy would pair old settings
-with a new identity, and the server cannot repair that, so never copy a
-piece of it.
+saved credentials. A partial copy can pair old settings with a new identity,
+which the server cannot repair.
 
 The session and archive services have data directories of their own, with
 the same rule: one process, copied as a whole, and stop the service before
@@ -156,29 +151,27 @@ History on the server follows the limits you set. History in a session or
 an archive follows what each member chose. A shared archive link can be
 read without letting the reader write to it or administer it.
 
-Whether history lives in files or in PostgreSQL, the same limits per room
-and per line apply. A write is acknowledged before Rooms treats it as saved.
-A last record that was cut short is repaired when the journal shows what
-came before it, and damage that cannot be put in order safely stops
-recovery rather than guessing.
+Files and PostgreSQL apply the same limits per room and per line. A write
+counts as saved only once it is acknowledged. A cut-short last record is
+repaired when the log shows what came before it. Damage that cannot be put in
+order safely stops recovery rather than guessing.
 
 # Hand out admin links
 
-Diagnostics, listener administration, peering, moderation, IRC settings, and
-the live wire view are each a separate thing you can hold. Starting the
-server with one of those features enabled mints a secret for it, and knowing
-the web address alone gives you none of them. Paste a secret into the
-Holdings tab in Settings and the matching page appears under `/ops`.
+Diagnostics, listener administration, peering, IRC, the operator page, and
+the live wire view each have their own secret, minted when the server starts
+with that feature on. The web address alone gives you none of them. Paste a
+secret into the Holdings tab in Settings and the matching page appears under
+`/ops`.
 
 [The server page under /ops, opened with the admin secret. It lists what the admin can change: room links, registered names, live connections, and the references each one holds, with a remove or disconnect button beside every row.]($image.siteAsset('rooms-operations-dark.webp'))
 
 [The server page under /ops, opened with the admin secret. It lists what the admin can change: room links, registered names, live connections, and the references each one holds, with a remove or disconnect button beside every row.]($image.siteAsset('rooms-operations-light.webp'))
 
-The live wire view sends what happens on the wire to ocapnviz. A server can
-show full room traffic. A person's direct messages show only who talked to
-whom, when, which call it was, and how many bytes, never the bytes
-themselves, because the other person never agreed to let a viewer read
-their messages.
+The live wire view sends wire traffic to ocapnviz. A server can show full room
+traffic. For a person's direct messages it shows only who talked to whom,
+when, which call, and how many bytes, because the other person never agreed to
+let a viewer read them.
 
 The full
 [operating guide](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/operating.md)
@@ -192,9 +185,9 @@ after it was ready, and a cleanup that also failed. Docker restarts services
 according to its Compose policy, while `status` and `logs` show the current
 state and reason.
 
-Your session follows the same rule. A request still in progress
-stays marked in progress, a known refusal offers the next step for that
-code, and a request nobody can confirm is never shown as cleanly undone.
+Your session does the same. A request still in progress stays marked in
+progress, a known refusal offers the next step, and a request nobody can
+confirm is never shown as cleanly undone.
 
 # Check a deployment
 

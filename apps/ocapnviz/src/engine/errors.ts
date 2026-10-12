@@ -3,7 +3,7 @@
  *
  * Every user-visible error originates here. UI surfaces (inline field,
  * toast, modal) read the same shape and pick a presentation by context.
- * `recovery` is mandatory — never ship an error a user can't act on.
+ * `recovery` is mandatory, never ship an error a user can't act on.
  */
 
 export type EngineErrorCode =
@@ -78,8 +78,8 @@ export function importError(detail: string, recovery: string): EngineError {
 }
 
 /** The title every unexpected failure wears. Its own constant because two
- *  surfaces show it — the bus-fed modal, and the React error boundary, which
- *  trips before the bus has an error to read — and a heading spelled twice is
+ *  surfaces show it, the bus-fed modal, and the React error boundary, which
+ *  trips before the bus has an error to read, and a heading spelled twice is
  *  a heading that drifts. */
 export const INTERNAL_ERROR_TITLE = "Unexpected error";
 

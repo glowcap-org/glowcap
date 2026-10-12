@@ -15,7 +15,7 @@ const expectFileContains = util.expectFileContains;
 /// compile time (`#[cfg(feature = "iroh")]`); the other three defer the import
 /// by hand, so this keeps that convention a build-checked invariant rather than
 /// trusting three hand-written import sites. The rooms production relay is out
-/// of scope — it links the full stack deliberately.
+/// of scope, it links the full stack.
 pub fn checkReferenceRelayIrohLazy(
     io: std.Io,
     gpa: std.mem.Allocator,

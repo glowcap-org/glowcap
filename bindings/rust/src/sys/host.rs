@@ -7,14 +7,14 @@
 //! `crate::trampoline`, and `crate::session`.
 //!
 //! Callback discipline: the ONE native *behavior* callback in the whole
-//! binding — the shared trampoline (`crate::trampoline`) — fires synchronously
+//! binding, the shared trampoline (`crate::trampoline`), fires synchronously
 //! on the thread executing the enclosing `glowcap_host_*` call. Settlements
 //! carry no callback at all: they ride the action queue as SETTLE/FAIL and the
 //! drain routes them by vow id (`crate::host`). Sync park arms for
 //! `glowcap_host_pump_drain` are a separate, short-lived callback family owned
 //! by `crate::action` for the duration of each C drain. `fetch`/`enliven`/
 //! `send` and the `vow_*` verbs each mint a host vow whose id lands in the
-//! trailing out-param; the outcome arrives as that vow's SETTLE/FAIL action.
+//! trailing out-param. The outcome arrives as that vow's SETTLE/FAIL action.
 use core::ffi::{c_int, c_uchar, c_uint, c_void};
 
 use super::layouts_gen::*;
@@ -113,32 +113,32 @@ pub type GlowcapHostBehavior = unsafe extern "C" fn(
 
 /// Release a hosted object's ctx when the object is torn down
 /// (`GlowcapHostCtxFree`). Runs exactly once per registration that took
-/// ownership; must call no `glowcap_host_*` function.
+/// ownership. Must call no `glowcap_host_*` function.
 pub type GlowcapHostCtxFree = unsafe extern "C" fn(ctx: *mut c_void);
 
-/// One embedder effect popped from `glowcap_host_next_action` — hand-mirrored
+/// One embedder effect popped from `glowcap_host_next_action`: hand-mirrored
 /// field-for-field from `GlowcapHostAction` in `include/glowcap_host.h`, the
 /// same standing gap the Racket and Python FFIs carry: Rust has no layout
 /// generator, so a C-side struct change must be swept here by hand (the const
 /// assert block below fails the build when this mirror and its documented
-/// layout disagree). `kind` selects the live fields; every popped byte view
+/// layout disagree). `kind` selects the live fields. Every popped byte view
 /// and `value`'s sub-structure are host-owned and valid until the NEXT
 /// `glowcap_host_next_action` call.
 #[repr(C)]
 pub struct GlowcapHostAction {
 	/// A `GLOWCAP_HOST_ACTION_*` value.
 	pub kind: c_uint,
-	/// DIAL: the report-back handle; SETTLE/FAIL: the vow that settled.
+	/// DIAL: the report-back handle. SETTLE/FAIL: the vow that settled.
 	pub ticket: u64,
 	/// DIAL/CANCEL_DIAL: the concrete route within the logical dial.
 	pub route_index: usize,
 	pub session: *mut GlowcapHostSession,
-	/// SETTLE: the fulfilled value; zeroed otherwise.
+	/// SETTLE: the fulfilled value. Zeroed otherwise.
 	pub value: GlowcapArgument,
-	/// FAIL: the break reason; NULL otherwise.
+	/// FAIL: the break reason. NULL otherwise.
 	pub message: *const c_uchar,
 	pub message_len: usize,
-	/// CLOSE: `OK` or `TIMEOUT`; FAIL: `BROKEN` or `CLOSED`.
+	/// CLOSE: `OK` or `TIMEOUT`. FAIL: `BROKEN` or `CLOSED`.
 	pub result: c_int,
 }
 
@@ -163,7 +163,7 @@ const _: () = {
 };
 
 /// One shared arm callback for `GlowcapHostPumpHooks` (flush, close,
-/// need_gift_id, complete for SETTLE/FAIL, dial). Sync only — bindings park
+/// need_gift_id, complete for SETTLE/FAIL, dial). Sync only: bindings park
 /// decoded actions and await after `glowcap_host_pump_drain` returns.
 pub type GlowcapHostPumpArmFn = unsafe extern "C" fn(
 	ctx: *mut c_void,
@@ -174,7 +174,7 @@ pub type GlowcapHostPumpArmFn = unsafe extern "C" fn(
 
 /// Opt-in embedder hooks for `glowcap_host_pump_drain` (ADR-0072 fifth
 /// amendment). NULL arm pointers skip that kind. Hand-mirrored from
-/// `glowcap_host.h`; the const assert block below pins the LP64 layout.
+/// `glowcap_host.h`. The const assert block below pins the LP64 layout.
 #[repr(C)]
 pub struct GlowcapHostPumpHooks {
 	pub ctx: *mut c_void,
@@ -213,7 +213,7 @@ const _: () = {
 /// the location designator it signed, and the verbatim `<ocapn-peer>` record
 /// those came from. The engine checks the handshake signature before it writes
 /// any of these bytes, so a success means the whole record was proved. Views
-/// are session-owned and live until the session is released; `designator` and
+/// are session-owned and live until the session is released. `designator` and
 /// `locator_record` are null when the partner's location carried none.
 #[repr(C)]
 pub struct GlowcapPartnerIdentity {
@@ -229,7 +229,7 @@ pub struct GlowcapPartnerIdentity {
 }
 
 /// One live-trace fact (`glowcap_host_set_trace`). `kind` selects the live
-/// fields; string views are borrowed for the callback only.
+/// fields. String views are borrowed for the callback only.
 #[repr(C)]
 pub struct GlowcapTraceEvent {
 	pub kind: u32,
@@ -240,7 +240,7 @@ pub struct GlowcapTraceEvent {
 	pub provenance: u32,
 	pub codec: u32,
 	pub captp_version: u32,
-	/// SESSION_OPEN: the partner's OCapN Designator. Half a name on its own —
+	/// SESSION_OPEN: the partner's OCapN Designator. Half a name on its own:
 	/// the spec needs a designator and a transport together to tell two
 	/// locations apart, so `transport` travels beside it.
 	pub designator: *const c_uchar,
@@ -265,11 +265,11 @@ pub struct GlowcapTraceEvent {
 	pub digest: [c_uchar; TRACE_DIGEST_BYTES as usize],
 }
 
-// This struct had no layout assertions while every sibling above had them,
-// so when the ABI moved to designator/transport/provenance/session_id the
-// declaration here kept the old field set and still compiled — a silent
-// misread of every trace fact, which no gate could see. Rust cannot check a
-// declaration it is never told to check; these are that instruction.
+// Layout assertions guard this struct as they guard its siblings above. A
+// declaration that drifts from the C field set (designator, transport,
+// provenance, session_id) still compiles and silently misreads every trace
+// fact. Rust cannot check a declaration it is never told to check, so these
+// assertions are that instruction.
 const _: () = {
 	use core::mem::{offset_of, size_of};
 	assert!(size_of::<GlowcapTraceEvent>() == GLOWCAP_TRACE_EVENT_SIZE);

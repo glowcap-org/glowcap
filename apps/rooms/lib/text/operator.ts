@@ -1,13 +1,12 @@
-// The Rooms operator pane: the inventories a directory operator can change,
-// and what each act on them leaves standing.
+// The Rooms operator page: the lists a directory operator can change, and what
+// each act on them leaves standing.
 //
-// Operator copy, so precision beats plainness here as it does in `ops.ts`: a
-// reader on this pane is deciding whether to retire a session, a name, a
-// room, or a whole authority class, and the sentence under the act says
-// exactly what goes and what stays. Moved here verbatim from the pane so the
-// product's voice can be read in one place.
+// Operator copy, so precision beats plainness here as it does in `ops.ts`. A
+// reader is deciding whether to retire a session, a name, a room, or a whole
+// authority class, and the sentence under the act says what goes and what
+// stays.
 
-/** What one reset scope is about, the act, its full name, and its effect. */
+/** One reset scope: what it is about, the act, its full name, and its effect. */
 export interface OperatorReset {
 	readonly subject: string;
 	/** The act, offered with an ellipsis and committed in full. */
@@ -70,7 +69,7 @@ export const operatorProofBridge = "through the bridge";
 
 export const operatorLoadMore = "Load more";
 export const operatorLead =
-	"This tab holds the Rooms operator capability. Its inventories are the state it can change, not roles inferred from a nickname or room membership.";
+	"This tab holds the Rooms operator capability. Its lists show what it can change, not roles inferred from a nickname or room membership.";
 
 /** Room access: the durable entry links. */
 export const operatorLinksTitle = "Room access";
@@ -127,7 +126,7 @@ export const operatorRoomsLead =
 	"Each row is an application owner the directory can retire as one transaction. Local rooms release membership capabilities, peered rooms release their retained room reference, and IRC rooms part through the bridge that owns their sockets.";
 export const operatorRoomsEmpty = "No room owners are live.";
 export const operatorUnnamedPrivateRoom = "Unnamed private room";
-/** The act and its effect for one room owner, by what kind of owner it is. */
+/** The act and its effect for one room owner, by kind of owner. */
 export function operatorRoomRemoveAct(kind: string): { action: string; effect: string } {
 	switch (kind) {
 		case "peered":
@@ -186,15 +185,15 @@ export const operatorModeratorRevokeEffect =
 	"Every old copy stops moderating this room immediately, including references already in use.";
 export const operatorModeratorRevoke = "Revoke old moderator capability";
 
-/** Directory trouble: the diagnostics journal. */
+/** Directory trouble: the failures diagnostics reports. */
 export const operatorTroubleTitle = "Directory trouble";
 export const operatorTroubleLead =
-	"The same bounded process journal diagnostics reports. Clearing acknowledges these rows. It changes no room, session, or retained history.";
+	"The recent failures that diagnostics reports. Clearing removes these rows. It changes no room, session, or saved history.";
 export const operatorTroubleEmpty = "The directory has reported no trouble.";
-export const operatorTroubleClearAsk = "Clear journal…";
+export const operatorTroubleClearAsk = "Clear the list…";
 export const operatorTroubleClearEffect =
 	"Every current diagnostic row is acknowledged and removed. New failures will still be recorded.";
-export const operatorTroubleClear = "Clear trouble journal";
+export const operatorTroubleClear = "Clear directory trouble";
 
 /** Reset and recovery. */
 export const operatorResetTitle = "Reset and recovery";

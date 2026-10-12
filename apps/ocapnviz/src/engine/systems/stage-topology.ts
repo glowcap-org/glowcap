@@ -2,7 +2,7 @@
  * Who stands on the stage at a moment.
  *
  * An era is a statement about `t`, not about everything that had happened by
- * then. `layout-eras.ts` owns the era list; `KeyframeLayoutSystem` applies it
+ * then. `layout-eras.ts` owns the era list, `KeyframeLayoutSystem` applies it
  * at `t`. This module owns the moments the walk stops at, and the
  * nodes and session links standing at each one. The world materializer asks a
  * narrower question of the same document (effective ranges only). Membership
@@ -33,11 +33,11 @@ export type StandingSession = { id: string; a: string; b: string };
  * depends on which kind of entity it is. An entity an observation ANNOUNCES is
  * stated by its observations: a join and the peer-left or peer-unobserved that
  * ends its row, an open and the close or session-unobserved that ends its own.
- * An entity only the DOCUMENT declares — one authored in Build, which simply
- * is — has no observations at all, so its declared timing states both. Without
+ * An entity only the DOCUMENT declares, one authored in Build, which simply
+ * is, has no observations at all, so its declared timing states both. Without
  * that second half a Build-authored entity reached no era, so its position
- * fell back to the origin and every unattributed end piled on the same spot;
- * with it, an entity timed to a window arrives when the window opens and
+ * fell back to the origin and every unattributed end piled on the same spot.
+ * With it, an entity timed to a window arrives when the window opens and
  * leaves when it closes, exactly as an observed one does.
  *
  * One stream, so one moment cannot be reached twice. When the seed of the
@@ -114,9 +114,9 @@ export function topologyChanges(doc: TimelineDocument): TopologyChange[] {
  * `materializeWorldAt` asks of every session before drawing it. It has to be
  * the same question: a session is one lane of its pair's bundle, so a session
  * the world draws and the layout does not means the two count that bundle
- * differently — and a claim placed on a lane of a two-lane bundle sits off the
+ * differently, and a claim placed on a lane of a two-lane bundle sits off the
  * arc drawn along a one-lane one. The observations say when the topology
- * changed; the ranges say what is standing there, and only one of them can be
+ * changed. The ranges say what is standing there, and only one of them can be
  * the authority on the second question.
  */
 function sessionsOnStageAt(
@@ -140,11 +140,11 @@ function sessionsOnStageAt(
 /**
  * The session links standing at `t`.
  *
- * Two conditions, and both were in the old fold: the walk has to have reached
- * the session, and the session's own range has to hold `t`. Reached is what the
- * accumulating map used to carry, and it is not the same question as the range,
+ * Two conditions: the walk has to have reached
+ * the session, and the session's own range has to hold `t`. Reached is what an
+ * accumulating map carries, and it is not the same question as the range,
  * because a document whose observations have not been projected resolves a
- * session's start to an implicit zero — so a session opened at t=100 would
+ * session's start to an implicit zero. So a session opened at t=100 would
  * otherwise stand at t=0 as well, and the era before it would already show its
  * link.
  *
@@ -174,24 +174,24 @@ export function linksStandingAt(
  * `sessionsOnStageAt` asks them of the links: an era has to describe the moment
  * it is stamped at rather than everything that had happened by then.
  *
- * Not quite the same question, though, and the difference is a trade rather than
- * an oversight. This asks reached AND standing; the world asks only standing
- * (`world-materializer.ts`). So a peer whose authored timing starts before the
- * observation that announces it is on stage, with no entry in the era covering
- * that gap, and `update` leaves it wherever it was. Reached is what makes an
- * unprojected document behave, and the fold this replaced carried the same gap.
+ * Not quite the same question, though, and the difference is a trade rather
+ * than an oversight. This asks reached AND standing. The world asks only
+ * standing (`world-materializer.ts`). So a peer whose authored timing starts
+ * before the observation that announces it is on stage, with no entry in the
+ * era covering that gap, and `update` leaves it wherever it was. Reached is
+ * what makes an unprojected document behave.
  *
- * It used to be a set folded forward across the walk, and a session's departure
- * did not remove the ends it had added — `peer-out` only reaches an id a
- * `peer-joined` or a declared peer named, and a loose end's stage id is neither.
- * So a session that opened and closed left its end in the node set of every
- * later era, as a free body with charge and a footprint, seeded at the origin
- * with nothing standing there. A live room that opens a session every few
- * seconds accumulated one such body per session for as long as anyone watched,
- * piling them at the center of the picture and pushing every real peer outward
- * a little further each time. Deriving the set from the moment is what makes an
- * era a statement about that moment, and it is also what lets two eras be
- * compared at all: while the set grew forever, no two of them were ever equal.
+ * A set folded forward across the
+ * walk would not drop the ends a session added when it departed: `peer-out`
+ * only reaches an id a `peer-joined` or a declared peer named, and a loose
+ * end's stage id is neither. So a session that opened and closed would leave
+ * its end in the node set of every later era, as a free body with charge and a
+ * footprint, seeded at the origin with nothing standing there. A live room that
+ * opens a session every few seconds would accumulate one such body per session
+ * for as long as anyone watched, piling them at the center of the picture and
+ * pushing every real peer outward a little further each time. Deriving the set
+ * from the moment makes an era a statement about that moment, and it is what
+ * lets two eras be compared at all.
  */
 export function nodesStandingAt(
 	doc: TimelineDocument,

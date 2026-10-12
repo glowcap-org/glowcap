@@ -1,6 +1,6 @@
 //! Pure dial planning and Host-owned dial lookup for the C ABI Host subject.
 //!
-//! Bindings ask this one Zig authority which byte connector to use; this leaf
+//! Bindings ask this one Zig authority which byte connector to use. This leaf
 //! only projects borrowed plans and capability homing facts into C views.
 
 const driver_core = @import("driver_core");

@@ -3,7 +3,7 @@ id: ADR-0161
 status: accepted
 date: 2026-09-14
 tags: [loam, access, persistence, architecture]
-decision: "Make Loam glowcap's optional persistence foundation with an included managed access extension; keep graph persistence independent of resource policy and integrate execution through the existing Host and Vat."
+decision: "Make Loam glowcap's optional persistence foundation with an included managed access extension. Keep graph persistence independent of resource policy and integrate execution through the existing Host and Vat."
 supersedes: []
 superseded_by: []
 amends: [ADR-0153, ADR-0157, ADR-0159]
@@ -17,14 +17,14 @@ amended_by: [ADR-0162]
 Capability applications need durable objects and references even when they do
 not use managed resources. Applications with editable sharing also need common
 scope, grant, delegation, and lifecycle semantics. Providing both within glowcap
-can remove repeated application machinery while preserving optional costs.
+removes repeated application machinery and keeps the costs optional.
 
 ## Decision
 
 Loam is glowcap's graph persistence and bounded-residency foundation. Resource
 access lifecycle management is its included managed access extension at `src/loam/access/`,
 exposed through `glowcap.loam.access`. Loam works without instantiated managed access state.
-The planned C companion is libglowcap_loam; managed access requires no separate archive.
+The planned C companion is libglowcap_loam. Managed access requires no separate archive.
 
 Loam core owns typed records, edges, retention, bounded leases, and transaction
 and recovery state. Managed access owns resource relationships, policies, current-authority
@@ -40,12 +40,12 @@ persistence, and local persistence requires no network session.
 Application schemas, storage formats, and wire codecs remain separate
 contracts. Reuse encoding primitives without coupling disk identity to CapTP
 session tables or a connection codec. Host integration preserves exact stored
-capability authority; a record codec never selects the authority to restore.
+capability authority. A record codec never selects the authority to restore.
 
-The [Loam architecture](../../planning/loam/architecture.md) and
-[API contract](../../planning/loam/api.md) own implementation boundaries.
-The [managed access architecture](../../planning/loam/access/architecture.md) and
-[API contract](../../planning/loam/access/api.md) own resource-management semantics.
+The [Loam architecture](../../loam/architecture.md) and
+[API contract](../../loam/api.md) own implementation boundaries.
+The [managed access architecture](../../loam/access-architecture.md) and
+[API contract](../../loam/access-api.md) own resource-management semantics.
 The research plan continues to require comparative physical-store evidence.
 
 ## Implementation and verification

@@ -3,8 +3,8 @@
 //! peer-and-buffers scaffold, the `--port=` flag contract, loop-thread
 //! runners, and the fetch-call-assert client bracket.
 //!
-//! Each driver keeps its scenario — topology, narration, and per-step
-//! assertions stay local — and imports only the plumbing every driver
+//! Each driver keeps its scenario, topology, narration, and per-step
+//! assertions stay local, and imports only the plumbing every driver
 //! re-rolled. The wait helpers are `test/support/wait.zig` itself, handed to
 //! this module by `build.zig` as the `support_wait` import and re-exported
 //! here, so the fail-loud vocabulary has one owner across both trees.
@@ -55,7 +55,7 @@ pub fn StaticReplyBehavior(comptime verb: []const u8, comptime reply: []const u8
 /// An actor a live Goblins peer calls, for a driver whose partner invokes a cap
 /// **positionally**: `(<- actor "world")` carries no method symbol, so the first
 /// argument is the name rather than the verb. `template` is a format string with
-/// one `{s}` for that name; the reply is built on `turn.arena`, the per-turn
+/// one `{s}` for that name. The reply is built on `turn.arena`, the per-turn
 /// allocator the vat reclaims. A partner that names a verb wants
 /// `StaticReplyActor` instead.
 pub fn PositionalReplyActor(comptime template: []const u8) type {
@@ -80,7 +80,7 @@ pub const untilFlag = wait.untilFlag;
 
 /// `net.tcp.connect` with a bounded retry on `ConnectionRefused`: a spawned
 /// host's readiness line can race its listener's actual bind, so the first
-/// dial may land in the gap. Any other error fails immediately; refusal past
+/// dial may land in the gap. Any other error fails immediately, refusal past
 /// the deadline fails with the refusal.
 pub fn tcpConnectRetry(
     io: std.Io,
@@ -130,7 +130,7 @@ pub const PortFlagOptions = struct {
 
 /// The interop drivers' one-flag argv contract: an optional `--port=N`
 /// (last one wins), any `opts.tolerated` flag the driver reads itself, and
-/// nothing else. Returns `default` when the flag is absent; a port outside
+/// nothing else. Returns `default` when the flag is absent. A port outside
 /// `1..opts.max` or an unknown argument prints a diagnostic under `prefix`
 /// and fails typed.
 pub fn parsePortFlag(
@@ -176,7 +176,7 @@ pub fn hasFlag(minimal_args: anytype, flag: []const u8) bool {
 
 /// A caller-owned negotiating peer with its frame-capped read and write
 /// buffers, the setup every driver-side dial and accept shares. The scaffold
-/// owns the buffers and the peer; `deinit` releases both.
+/// owns the buffers and the peer, `deinit` releases both.
 pub const PeerScaffold = struct {
     peer: engine.Peer,
     read_buf: []u8,
@@ -211,7 +211,7 @@ pub const PeerScaffold = struct {
 };
 
 /// Call `target` on the blocking session and require a fulfilled string reply
-/// equal to `expected`; a mismatch, break, or give is `error.WrongReply`. The
+/// equal to `expected`. A mismatch, break, or give is `error.WrongReply`. The
 /// settle materializes into a throwaway arena, so the caller keeps no reply
 /// ownership to manage.
 pub fn expectStringReply(

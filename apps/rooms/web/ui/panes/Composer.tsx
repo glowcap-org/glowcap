@@ -1,3 +1,5 @@
+import { ActionFeedback, useActionCooldown } from "../ActionFeedback.tsx";
+import { PRESENTATION, useProgress } from "../presentation.ts";
 // The band at the foot of the message column: what other members are typing,
 // the formatting hint, the emoji tray, and the field itself.
 //
@@ -7,7 +9,7 @@
 // is inside this component. With one owner they are ordinary writes. With the
 // draft held locally they would each need a handle reaching in.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef } from "react";
 import {
 	composerAttach,
 	composerAttachedFiles,
@@ -32,6 +34,7 @@ import {
 } from "../../../lib/text/controls.ts";
 import { useCoarsePointer, useConversationMembers, useDismissOnClickOutside } from "../hooks.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
+import { composerReducer, initialComposerState } from "./composer_state.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { actionRefusal } from "../error_text.ts";
 import {
@@ -51,6 +54,7 @@ import { Button } from "../Button.tsx";
 import { kindOf } from "../media.ts";
 import { FileChip, KEYBOARD_SETTLE_MS, useTypingSignal } from "../composer/bits.tsx";
 import { ComposerStatus } from "../composer/status.tsx";
+import { DraftSync } from "../composer/DraftSync.tsx";
 import { markerFor, wrapSelection } from "../composer/keys.ts";
 import { useOpenModal } from "../modal.ts";
 import { composerHintFormatting } from "../../../lib/text/writing.ts";
@@ -92,7 +96,7 @@ export function Composer(
 		draftKeeping: readonly AttachmentView[] | undefined;
 		liveRooms: LiveRooms;
 		/** Names this directory says are reachable for a direct message. What a
-		 * command whose target is somebody to bring in — `/invite`, `/msg` —
+		 * command whose target is somebody to bring in (`/invite`, `/msg`)
 		 * completes against, since those want the people the members list omits. */
 		reachable: ReadonlySet<string>;
 		mobile: boolean;
@@ -117,25 +121,21 @@ export function Composer(
 	const filePick = useRef<HTMLInputElement>(null);
 	// Two pieces of state nothing outside this band ever reads, so they stay here:
 	// whether the tray is open, and whether the field holds the caret.
-	const [emojiOpen, setEmojiOpen] = useState(false);
-	const closeEmoji = useCallback(() => setEmojiOpen(false), []);
-	const [focused, setFocused] = useState(false);
-	const [recoveringRoom, setRecoveringRoom] = useState(false);
+	const closeEmoji = useCallback(() => dispatch({ kind: "tray", open: false }), []);
 	// Inline completion. The caret is tracked as state so the trigger under it
 	// is a plain derivation; Escape remembers which trigger it dismissed (by
 	// its start index), so the list stays down until a new token begins.
-	const [caret, setCaret] = useState(0);
-	const [picked, setPicked] = useState(0);
-	const [dismissedAt, setDismissedAt] = useState<number | null>(null);
+
 	// Last submitted line currently sitting in the field because Up recalled it.
 	// Down restores empty while this still matches; any other edit drops it.
-	const [recalled, setRecalled] = useState<string | null>(null);
+	const [state, dispatch] = useReducer(composerReducer, initialComposerState);
+	const { emojiOpen, focused, recovering: recoveringRoom, caret, picked, dismissedAt, recalled } = state;
 	const trigger = focused && enabled ? commandArgTrigger(draft, caret) ?? triggerAt(draft, caret) : null;
 	const candidates = composerCandidates(trigger, dismissedAt, conv, draft, reachable, nick, members, liveRooms);
 	const listOpen = candidates.length > 0;
 	// Where the selection really is. The list is derived from the roster and the
-	// live rooms, so it can shrink under a reader mid-token — somebody leaves
-	// while an `@` is half-typed, which is ordinary rather than exotic — while the
+	// live rooms, so it can shrink under a reader mid-token (somebody leaves
+	// while an `@` is half-typed, which is ordinary rather than exotic) while the
 	// index they had arrowed to is separate state that knew nothing about it.
 	// Clamped here rather than repaired in an effect, so there is never a render
 	// in which the selection points past the end: out of range, Enter read an
@@ -144,12 +144,11 @@ export function Composer(
 	// A new token, a new list: reset the pick and forget the dismissal.
 	const triggerId = trigger === null ? null : `${trigger.kind}:${trigger.start}`;
 	useEffect(() => {
-		setPicked(0);
-		if (trigger === null) setDismissedAt(null);
+		dispatch({ kind: "token", id: triggerId });
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on token identity, not the object
 	}, [triggerId]);
 	useEffect(() => {
-		if (recalled !== null && draft !== recalled) setRecalled(null);
+		if (recalled !== null && draft !== recalled) dispatch({ kind: "recalled", line: null });
 	}, [draft, recalled]);
 	// Keep the picked row on screen. The command list is every command this
 	// conversation can run and the box holds eight and a half rows, so the arrows
@@ -162,12 +161,12 @@ export function Composer(
 		if (!listOpen) return;
 		document.getElementById(`complete-${pick}`)?.scrollIntoView({ block: "nearest" });
 	}, [listOpen, pick]);
-	const syncCaret = (box: HTMLTextAreaElement) => setCaret(box.selectionStart ?? 0);
+	const syncCaret = (box: HTMLTextAreaElement) => dispatch({ kind: "caret", caret: box.selectionStart ?? 0 });
 	const accept = (candidate: Candidate) => {
 		if (trigger === null) return;
 		const next = acceptCompletion(draft, trigger, caret, candidate);
 		session.setDraft(next.text);
-		setCaret(next.caret);
+		dispatch({ kind: "caret", caret: next.caret });
 		const box = field.current;
 		queueMicrotask(() => {
 			if (!box) return;
@@ -180,20 +179,25 @@ export function Composer(
 	// button's job.
 	const coarse = useCoarsePointer();
 	const roomWaiting = conv?.type === "room" && conv.membership !== "joined";
+	const joiningProgress = useProgress(
+		conv?.type === "room" && conv.membership === "joining",
+		PRESENTATION.connection,
+		conv?.key,
+	);
 	const recoverRoom = () => {
 		if (conv?.type !== "room" || recoveringRoom) return;
 		if (conv.held && conv.linkToken == null) {
 			browser.aboutConversation("capabilities");
 			return;
 		}
-		setRecoveringRoom(true);
+		dispatch({ kind: "recovering", held: true });
 		void actionRefusal(() => session.recoverRoom(conv.key)).then((refused) => {
 			if (refused !== "") browser.toast("failure", refused);
-		}).finally(() => setRecoveringRoom(false));
+		}).finally(() => dispatch({ kind: "recovering", held: false }));
 	};
 
 	// Rooms and direct lines both carry an ephemeral typing level. Every way of
-	// stopping — sending, going idle, blurring, switching away, closing the tab —
+	// stopping (sending, going idle, blurring, switching away, closing the tab)
 	// is this one condition going false.
 	useTypingSignal(
 		enabled && focused && conv !== null && (conv.type !== "dm" || conv.line === "live") &&
@@ -209,7 +213,7 @@ export function Composer(
 	// reader has moved on to another field, such as naming a new room; taking
 	// the caret then would close that field under their typing.
 	useEffect(() => {
-		setEmojiOpen(false);
+		dispatch({ kind: "tray", open: false });
 		if (mobile || !enabled) return;
 		const held = document.activeElement;
 		if (
@@ -220,12 +224,12 @@ export function Composer(
 	}, [conv?.key, mobile, enabled]);
 
 	useEffect(() => {
-		setRecalled(null);
+		dispatch({ kind: "recalled", line: null });
 	}, [conv?.key]);
 
 	// Pressing Edit hands the words over; this hands the caret over with them, at
 	// the end of what is being rewritten. Without it the field fills up while the
-	// focus stays on the mark that was pressed — and that mark is gone the moment
+	// focus stays on the mark that was pressed, and that mark is gone the moment
 	// the menu closes, so the focus lands on nothing and a reader has to click
 	// into their own sentence before they can change it. On a phone too: the
 	// keyboard coming up is what was asked for here, unlike arriving at a
@@ -254,13 +258,13 @@ export function Composer(
 
 	const capSaid = lineCapSaid(conv, draft);
 	// Changing a file line can send with an empty field and no new files: removing
-	// every file with no caption left is a real instruction — it takes the line
+	// every file with no caption left is a real instruction. It takes the line
 	// down. So a file-line change is always sendable; `draftKeeping` is what says
 	// this is one.
 	const canSend = draft.trim() !== "" || draftFiles.length > 0 || draftKeeping !== undefined;
 	// Editing a file line down to no files and no caption leaves nothing for the
-	// message to be, so sending takes it back. That is a real thing to want — it
-	// is how the last file comes off a message that was only ever its files — but
+	// message to be, so sending takes it back. That is a real thing to want, it
+	// is how the last file comes off a message that was only ever its files, but
 	// it must not arrive as a surprise: the bar above says what will happen and
 	// the control below stops calling itself Send.
 	const emptiesLine = draftKeeping !== undefined && draftKeeping.length === 0 && draftFiles.length === 0 &&
@@ -280,6 +284,7 @@ export function Composer(
 	// placeholder is hidden by whatever the reader had already typed, and a
 	// reason that disappears behind their own draft is a field that has gone
 	// quiet on them. The accessible name below carries it either way.
+	const sendCooldown = useActionCooldown(`send:${conv?.key ?? ""}`);
 	const unavailable = availability || (!enabled && conv ? PHASE_SAID[phase] : "");
 	const placeholder = enabled ? addressee : "";
 	useComposerMeasure({ field, band: bar, draft, enabled, placeholder, onMeasured: keepLatestInView });
@@ -290,10 +295,17 @@ export function Composer(
 				open={emojiOpen}
 				onPick={(glyph) => {
 					insertAtCursor(glyph);
-					setEmojiOpen(false);
+					dispatch({ kind: "tray", open: false });
 				}}
 			/>
-			{listOpen && <CompletionList candidates={candidates} pick={pick} onPick={setPicked} onAccept={accept} />}
+			{listOpen && (
+				<CompletionList
+					candidates={candidates}
+					pick={pick}
+					onPick={(picked) => dispatch({ kind: "pick", picked })}
+					onAccept={accept}
+				/>
+			)}
 			{
 				/* Rewriting a line already posted, which the field alone cannot say:
 				    the words in it look exactly like a new message. Named here, with
@@ -331,8 +343,8 @@ export function Composer(
 			>
 				{
 					/* The files a file-line change is keeping, above the newly-picked
-					   ones, each removable. A × here drops a file the line already has;
-					   a × below drops one about to be added. */
+					   ones, each removable. A × here drops a file the line already has.
+					   A × below drops one about to be added. */
 				}
 				{draftKeeping !== undefined && draftKeeping.length > 0 && (
 					<div className="composer-files" aria-label={composerFilesOnLine}>
@@ -363,6 +375,8 @@ export function Composer(
 				{conv != null && conv.type !== "directory" && (
 					<DraftLinkPreviews conversation={conv.key} previews={draftPreviews} />
 				)}
+				<DraftSync convKey={conv?.key ?? null} />
+				<ActionFeedback action={`send:${conv?.key ?? ""}`} />
 				<div className="composer-input">
 					<textarea
 						id="line"
@@ -399,9 +413,9 @@ export function Composer(
 							e.preventDefault();
 							browser.addFiles(files);
 						}}
-						onBlur={() => setFocused(false)}
+						onBlur={() => dispatch({ kind: "focused", held: false })}
 						onFocus={() => {
-							setFocused(true);
+							dispatch({ kind: "focused", held: true });
 							// The keyboard slides in on a phone; once it has settled, bring
 							// the newest messages into view so you see what you are replying
 							// to. Two passes ride out the animation without a magic delay.
@@ -441,7 +455,7 @@ export function Composer(
 								if (e.key === "ArrowDown" || e.key === "ArrowUp") {
 									e.preventDefault();
 									const step = e.key === "ArrowDown" ? 1 : -1;
-									setPicked((pick + step + candidates.length) % candidates.length);
+									dispatch({ kind: "pickStepped", step, count: candidates.length });
 									return;
 								}
 								// Tab completes whatever is highlighted. Enter does too only
@@ -454,12 +468,12 @@ export function Composer(
 									return;
 								}
 								if (e.key === "Escape") {
-									setDismissedAt(trigger?.start ?? null);
+									dispatch({ kind: "dismissed", at: trigger?.start ?? null });
 									return;
 								}
 							}
 							if (e.key === "Escape" && emojiOpen) {
-								setEmojiOpen(false);
+								dispatch({ kind: "tray", open: false });
 								return;
 							}
 							// Escape backs out of rewriting a line, which is the one way
@@ -469,7 +483,7 @@ export function Composer(
 								return;
 							}
 							// An empty field's Up is otherwise a no-op. Fill it with the last
-							// line submitted here — including a command that never appeared in
+							// line submitted here, including a command that never appeared in
 							// the log. Down restores empty while that recall is still intact.
 							if (
 								!e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey &&
@@ -482,7 +496,7 @@ export function Composer(
 									const last = session.recallLastSent();
 									if (last !== null) {
 										e.preventDefault();
-										setRecalled(last);
+										dispatch({ kind: "recalled", line: last });
 										const box = field.current;
 										queueMicrotask(() => {
 											if (!box) return;
@@ -495,7 +509,7 @@ export function Composer(
 								if (e.key === "ArrowDown" && recalled !== null && draft === recalled) {
 									e.preventDefault();
 									session.setDraft("");
-									setRecalled(null);
+									dispatch({ kind: "recalled", line: null });
 									return;
 								}
 							}
@@ -561,11 +575,11 @@ export function Composer(
 							aria-expanded={emojiOpen}
 							disabled={!enabled}
 							onMouseDown={(e) => e.preventDefault()}
-							onClick={() => setEmojiOpen(!emojiOpen)}
+							onClick={() => dispatch({ kind: "tray", open: !emojiOpen })}
 						/>
 						{
 							/* The way to the writing help. On a wide screen it is a link in
-						    the hint under an empty field; a phone draws no hint, so the
+						    the hint under an empty field. A phone draws no hint, so the
 						    same way stands here among the tools instead. */
 						}
 						{mobile && (
@@ -581,7 +595,7 @@ export function Composer(
 							/>
 						)}
 					</div>
-					{roomWaiting && canInteract
+					{roomWaiting && canInteract && (conv.membership !== "joining" || joiningProgress)
 						? (
 							<Button
 								id="roomReconnect"
@@ -609,7 +623,7 @@ export function Composer(
 								tone={emptiesLine ? "danger" : canSend ? "accent" : "neutral"}
 								shape="circle"
 								type="submit"
-								disabled={!enabled || !canSend}
+								disabled={!enabled || !canSend || sendCooldown > 0}
 							/>
 						)}
 				</div>

@@ -1,5 +1,5 @@
 //! Docker actions inherit both output streams. Queries capture only their
-//! result on stdout; stderr stays live even on success or timeout.
+//! result on stdout. Stderr stays live even on success or timeout.
 //! No shell, timer process, or contributor toolchain participates in deployment.
 const std = @import("std");
 const log = @import("../../../operability/log.zig");

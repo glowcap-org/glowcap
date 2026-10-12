@@ -22,7 +22,7 @@ pub const Lmdb = struct {
         mode: union(enum) { create: core.StoreId, open: core.StoreId, bootstrap: core.StoreId },
     };
 
-    /// The directory must exist. Create refuses an existing Loam store; open
+    /// The directory must exist. Create refuses an existing Loam store. Open
     /// refuses missing or mismatched metadata. Successful opening durably
     /// reserves a fresh incarnation while holding exclusive lifetime custody.
     pub fn open(path: [:0]const u8, options: Options) !Lmdb {
@@ -94,7 +94,7 @@ pub const Lmdb = struct {
     };
 
     /// One offline replacement. Keep the backend stable until deinit. A failed
-    /// copy is canceled; an installed copy can retry its directory sync. The
+    /// copy is canceled. An installed copy can retry its directory sync. The
     /// original owner lock remains held until backend close in every state.
     pub const Compaction = struct {
         owner: *Lmdb,
@@ -158,7 +158,7 @@ pub const Lmdb = struct {
 
     /// Reserves the backend exclusively until Compaction.deinit. Join workers
     /// and retire the associated Store before beginning this offline operation.
-    /// Installation closes backend admission; close it before reopening.
+    /// Installation closes backend admission. Close it before reopening.
     pub fn beginCompaction(self: *Lmdb) !Compaction {
         try self.beginMaintenance();
         errdefer self.endMaintenance();
@@ -166,7 +166,7 @@ pub const Lmdb = struct {
     }
 
     /// Complete offline replacement and release its maintenance reservation.
-    /// Successful installation fences this backend; close and reopen normally.
+    /// Successful installation fences this backend. Close and reopen normally.
     pub fn compact(self: *Lmdb) !void {
         var operation = try self.beginCompaction();
         defer operation.deinit();
@@ -182,7 +182,7 @@ pub const Lmdb = struct {
     }
 
     /// Reports physical geometry while no backend transaction is active.
-    /// High water includes reusable free pages; map minus high water is unused
+    /// High water includes reusable free pages. Map minus high water is unused
     /// address space, not a guarantee that a particular write will fit.
     pub fn inspect(self: *Lmdb) !Statistics {
         try self.beginMaintenance();
@@ -191,7 +191,7 @@ pub const Lmdb = struct {
     }
 
     /// Increase the LMDB map between backend operations. Copied record leases
-    /// remain valid. Active workers refuse growth; remapping failure fences the
+    /// remain valid. Active workers refuse growth. Remapping failure fences the
     /// backend for close/reopen because LMDB may have released the old mapping.
     /// A later successful write persists the increased size in LMDB metadata.
     pub fn grow(self: *Lmdb, map_bytes: usize) !void {

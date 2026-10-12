@@ -17,7 +17,7 @@ const swissDecoder = new TextDecoder("utf-8", { fatal: true });
 /** The durable authority one room membership has accumulated.
  *
  * This object owns the imported steward reference and the two sturdyref
- * strings that describe it. Keeping that lifecycle together prevents a room
+ * strings that describe it. Keeping that lifecycle together stops a room
  * reconnect, handover, or failed replacement from leaving `canKick` and the
  * copyable links describing different authority. */
 export class RoomStewardship {
@@ -37,7 +37,7 @@ export class RoomStewardship {
 		this.#room = room;
 	}
 
-	/** Mint or recover the room's durable sturdyref. */
+	/** Create or recover the room's durable sturdyref. */
 	async link(): Promise<string> {
 		const authority = this.#managerLink == null
 			? await this.#roomAuthority()
@@ -65,8 +65,8 @@ export class RoomStewardship {
 		return { swiss, link };
 	}
 
-	/** Try to mint this room's one steward. Only the exact typed refusal means
-	 * this membership does not hold it; every operational failure propagates. */
+	/** Try to create this room's steward. Only the typed refusal means this
+	 * membership does not hold it, and every operational failure propagates. */
 	async claim(): Promise<boolean> {
 		if (this.#steward !== null) return true;
 		if (this.#managerLink === null) return false;
@@ -129,8 +129,8 @@ export class RoomStewardship {
 	 * released. */
 	async take(stewardLink: string): Promise<void> {
 		// A reconnect can race an explicit take of the same retained string. The
-		// imported reference already passed the exact-room proof, so importing it
-		// again would only add a retain that then has to be balanced correctly.
+		// imported reference already passed the room proof, so importing it again
+		// would only add a retain that then has to be balanced.
 		if (this.#steward !== null && stewardLink === this.#stewardLink) return;
 		const room = await this.#roomAuthority();
 		const roomIdentity = await roomAuthorityIdentity(room.swiss);

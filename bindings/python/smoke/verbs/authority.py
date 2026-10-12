@@ -11,11 +11,11 @@ from smoke.runtime import tcp_connect
 
 async def _forwarding_proxies_over_the_wire() -> None:
     """Object-capability forwarding proxies over the wire (ADR-0064). The server
-    fetches the client's published tool — a far reference on the server side —
+    fetches the client's published tool, a far reference on the server side,
     wraps it in a caretaker and an attenuator, and hands the proxies back. A
     call through the proxy forwards across the server to the client's tool (the
-    far deferred-answer path) and settles the caller's answer; the attenuator
-    passes only its allow-listed verb; and a revoke breaks every later call."""
+    far deferred-answer path) and settles the caller's answer. The attenuator
+    passes only its allow-listed verb, and a revoke breaks every later call."""
     server = await tcp.listen("127.0.0.1", 0)
     tool_ready = asyncio.Event()
     proxy_ready = asyncio.Event()
@@ -96,10 +96,10 @@ async def _forwarding_proxies_over_the_wire() -> None:
 
 async def _forwarding_proxy_local_call() -> None:
     """The wart ADR-0064 closes: a forwarding proxy is an ordinary spawned actor,
-    so its own host calls it locally exactly as a partner calls it over the
-    wire. A caretaker over a *local* tool answers a local send; a caretaker
+    so its own host calls it locally as a partner calls it over the
+    wire. A caretaker over a *local* tool answers a local send. A caretaker
     over a *far* tool forwards across the wire and the local send still
-    settles; and a revoke breaks the local call too, no second-class behavior
+    settles, and a revoke breaks the local call too, no second-class behavior
     on the hosting side."""
     server = await tcp.listen("127.0.0.1", 0)
     published = asyncio.Event()
@@ -141,7 +141,7 @@ async def _forwarding_proxy_local_call() -> None:
         pong = await session.send(care_far.proxy, "ping", [])
         assert pong == "pong", f"a local call to a proxy over a far tool settles, got {pong!r}"
 
-        # Revoke severs the local call exactly as it severs a partner's.
+        # Revoke severs the local call as it severs a partner's.
         care_local.revoke()
         severed = None
         try:
@@ -178,7 +178,7 @@ async def _mid_turn_driving_verb_breaks_the_answer() -> None:
     """The callback latch crosses the binding: a behavior that reaches for a
     host-driving verb mid-turn (publish, here) is refused by the C tier, the
     refusal surfaces as the behavior's own raise, and the answer breaks with
-    it — the turn neither deadlocks nor corrupts the host. The connection
+    it: the turn neither deadlocks nor corrupts the host. The connection
     stays fully usable afterwards."""
     server = await tcp.listen("127.0.0.1", 0)
     published = asyncio.Event()
@@ -223,7 +223,7 @@ async def _mid_turn_driving_verb_breaks_the_answer() -> None:
 
 async def _mid_turn_host_release_orders_sessions_before_host() -> None:
     """A behavior records driver-owned Host close intent immediately. Python
-    schedules only the completion barrier; native code owns session teardown."""
+    schedules only the completion barrier. Native code owns session teardown."""
     host = Host()
     server = await tcp.listen("127.0.0.1", 0, host=host)
     loop = asyncio.get_running_loop()

@@ -5,7 +5,7 @@
 ;; one line, and collects each expected member's line as the room pushes it back.
 ;; All the OCapN machinery lives in `room-client.rkt` (`room-connect` /
 ;; `dir-enter` / `room-subscribe` / `room-say` / `in-room`), so this reads like a
-;; chat client — a loop over the lines the room sends. The strict directory verbs
+;; chat client: a loop over the lines the room sends. The strict directory verbs
 ;; live there; the friendly enter-or-open below is this app's own convenience.
 ;;
 ;;   racket client.rkt 127.0.0.1:9099 general alice "hi" alice,bob,carol
@@ -24,7 +24,7 @@
 ;; the assertion.
 ;;
 ;; This is the same application as the Deno, Python, Rust, and Zig clients, on one
-;; OCapN wire — the room cannot tell which language a member is written in.
+;; OCapN wire: the room cannot tell which language a member is written in.
 
 (require "room-client.rkt"
          "protocol-gen.rkt" ; the generated wire grammar, beside this file

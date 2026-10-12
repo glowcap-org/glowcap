@@ -70,7 +70,7 @@ impl<D: Deadline> Direct<D> {
 	pub fn live(&self) -> bool {
 		self.target.as_ref().is_some_and(|target| !target.released()) && self.session().is_open()
 	}
-	/// Reference identity is Host-scoped; connection identity must agree before
+	/// Reference identity is Host-scoped. Connection identity must agree before
 	/// comparing arriving wrappers. This does not consult names or public keys.
 	pub fn uses_route(&self, session: &Session, target: &Ref) -> bool {
 		self.session().same_session(session)

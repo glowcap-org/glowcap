@@ -1,4 +1,4 @@
-// Native peers return protocol integers; UI identifiers must stay exact.
+// Native peers return protocol integers. UI identifiers must stay exact.
 import { parseListenerRows } from "../lib/listeners.ts";
 import { assertEquals } from "./assert.ts";
 

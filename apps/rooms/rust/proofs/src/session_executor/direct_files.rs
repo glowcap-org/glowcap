@@ -83,10 +83,51 @@ pub(super) async fn run(host: &Host, owner: &managed::Session<Platform>, line: &
 		.await
 		.unwrap();
 	let before = trace.steps.borrow().len();
+	let before_post = owner.activity().token(owner.activity().cursor()).unwrap();
 	let (args, canonical) = request(host, &source, blob, "direct-file", Kind::Post, true).await;
 	mutate(host, &source, "sendFiles", &args).await.unwrap();
 	let applied = outcome(host, &source, "direct-file", &canonical).await;
-	assert!(applied.files_complete && applied.line.is_some());
+	assert!(applied.files_complete);
+	let receipt_line = applied.line.expect("post receipt holds the sender line");
+	let workspace =
+		rooms_glowcap::client::workspace::Workspace::local(host.clone(), Platform::default(), source.clone());
+	let snapshot = workspace.snapshot().await.unwrap();
+	let posted = snapshot.intent.conversations.as_slice()[0]
+		.lines()
+		.iter()
+		.find(|line| Some(line.id) == applied.id)
+		.expect("sender line installed at settlement");
+	let posted_id = posted.id.get();
+	workspace
+		.recover_effect("direct-file")
+		.await
+		.unwrap()
+		.unwrap()
+		.prepare_result_acquisition_with_source(
+			snapshot.revision,
+			&[rooms_glowcap::client::workspace::ResultImport {
+				result: custody::Coordinate {
+					role: custody::Role::Line,
+					key: custody::FieldKey::new(receipt_line.slot(), receipt_line.generation()),
+				},
+				destination: custody::Coordinate {
+					role: custody::Role::Line,
+					key: custody::FieldKey::new(posted.handle.slot(), posted.handle.generation()),
+				},
+			}],
+			&[],
+			&snapshot.intent,
+			None,
+		)
+		.unwrap()
+		.submit()
+		.await
+		.unwrap();
+	let activity = workspace.activity_reader().await.unwrap();
+	let said: serde_json::Value = serde_json::from_str(&activity.read(&before_post, false).await.unwrap()).unwrap();
+	let notice: serde_json::Value = serde_json::from_str(said["data"].as_str().expect("sender post")).unwrap();
+	assert_eq!(notice["notice"]["marker"]["id"], posted_id);
+	assert_eq!(notice["notice"]["marker"]["change"], "said");
 	assert_eq!(
 		&trace.steps.borrow()[before..],
 		["direct"],
@@ -122,6 +163,14 @@ pub(super) async fn run(host: &Host, owner: &managed::Session<Platform>, line: &
 	assert!(outcome(host, &source, "direct-refile", &canonical).await.files_complete);
 	assert_eq!(trace.steps.borrow().last(), Some(&"direct-refile"));
 	assert_eq!(trace.readers.borrow().len(), 2);
+	let (args, canonical) = request(host, &source, blob, "sender-refile", Kind::Refile(posted_id), true).await;
+	mutate(host, &source, "refileLine", &args).await.unwrap();
+	assert!(outcome(host, &source, "sender-refile", &canonical).await.files_complete);
+	let changed: serde_json::Value =
+		serde_json::from_str(&activity.read(said["cursor"].as_str().unwrap(), false).await.unwrap()).unwrap();
+	let changed: serde_json::Value = serde_json::from_str(changed["data"].as_str().expect("sender update")).unwrap();
+	assert_eq!(changed["notice"]["marker"]["id"], posted_id);
+	assert_eq!(changed["notice"]["marker"]["change"], "refiled");
 	for action in ["pause", "resume", "revoke"] {
 		let state = host.send(&control, "describe-control", &[]).await.unwrap();
 		let loam::ControlDescription::Available(view) = loam::ControlDescription::read(&state).unwrap() else {
@@ -148,6 +197,7 @@ pub(super) async fn run(host: &Host, owner: &managed::Session<Platform>, line: &
 		}
 	}
 	trace.readers.borrow_mut().clear();
+	drop(activity);
 	drop(reader);
 	client.session().close(PendingWork::Cancel).await.unwrap();
 	accepted.close(PendingWork::Cancel).await.unwrap();

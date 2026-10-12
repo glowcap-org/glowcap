@@ -146,6 +146,7 @@ ROOM_TAILS = {
     "roster": ((), "text", "room", "any", ARRIVE),
     "join": (NAMED_TRAILING, None, "room", "any", ARRIVE),
     "leave": (NAMED_TRAILING, None, "room", "any", DEPART),
+    "offline": ((), "text", "room", "any", DEPART),
     "typing": (TYPING_TRAILING, None, "room", "empty", STAY),
     "away": (AWAY_TRAILING, None, "room", "any", STAY),
     "seat": (SEAT_TRAILING, None, "room", "any", STAY),

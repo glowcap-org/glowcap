@@ -1,5 +1,5 @@
 //! Real CapTP exercises the host client and shared wire adapter. The fixture
-//! owns an in-memory index; this is not the production archive storage service.
+//! owns an in-memory index. This is not the production archive storage service.
 use super::HostPlatform;
 use glowcap::{
 	Argument, ConnectOptions, Host, ListenerIdentity, PendingWork, Ref, Runtime, RuntimeConfig, Session, tcp,

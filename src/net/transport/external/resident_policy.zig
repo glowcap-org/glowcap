@@ -48,7 +48,7 @@ pub fn ResidentPolicy(comptime Backend: type, comptime Inner: type) type {
             };
         }
 
-        /// A provider listener restores through its provider; any other
+        /// A provider listener restores through its provider. Any other
         /// through the adapter beneath.
         pub fn restorationState(backend: *Backend, fd: Backend.Fd, out: []u8) netlayer.ListenerRestorationOutcome {
             const address = backend.listenerAddress(fd) catch |err| return .{ .failed = .init(err) };

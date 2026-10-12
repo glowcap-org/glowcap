@@ -82,7 +82,7 @@ fn emitBash(em: *Emitter, root: *const Command) !void {
     try emitCaseTables(em, root, "complete -F _glowcap glowcap\n");
 }
 
-/// The `_glowcap_cmds` / `_glowcap_flags` case tables bash and zsh share; only
+/// The `_glowcap_cmds` / `_glowcap_flags` case tables bash and zsh share. Only
 /// the registration line at the tail differs per shell.
 fn emitCaseTables(em: *Emitter, root: *const Command, register: []const u8) !void {
     try em.writeAll(

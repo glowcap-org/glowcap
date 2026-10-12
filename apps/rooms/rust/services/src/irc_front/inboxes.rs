@@ -1,5 +1,5 @@
 //! One public inbox Host, independent directory Hosts. A Noise attachment
-//! transfers capabilities once; subsequent DMs reach the public Host directly.
+//! transfers capabilities once. Subsequent DMs reach the public Host directly.
 use crate::cleanup;
 use glowcap::{ConnectOptions, Host, ListenerIdentity, Locator, PendingWork, Runtime, Session, tcp};
 use rooms_platform::serving;
@@ -53,10 +53,10 @@ impl Inboxes {
 				match setup {
 					Ok(local) => (Some(listener), local),
 					Err(error) => {
-						return Err(
-							cleanup::combine(Err(error), listener.close().await.map_err(|e| e.to_string()))
-								.expect_err("inbox listener setup failed"),
-						);
+						return Err(cleanup::failed(
+							error,
+							listener.close().await.map_err(|e| e.to_string()),
+						));
 					}
 				}
 			}

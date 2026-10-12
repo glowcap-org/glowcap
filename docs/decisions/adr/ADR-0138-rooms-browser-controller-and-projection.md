@@ -21,15 +21,15 @@ and hides who can execute a command or retain a capability.
 ## Decision
 
 Keep a stable browser controller for presentation and session establishment.
-After establishment, supply the actual managed viewer through
-`ManagedSessionProvider`; the grouped session controller submits commands
+After establishment, supply the managed viewer through
+`ManagedSessionProvider`. The grouped session controller submits commands
 through that viewer. Setup and chat both receive the page's presentation
 projection. Session-dependent components require an opened managed workspace.
 
 Each `RoomsPage` owns one non-persistent Zustand projection.
 `RoomsProjectionProvider` supplies it, and `useRoomsState` selects the fields a
 component renders. The projection owns no live capability authority. Managed
-intent and activity project into it; commands, uncertain operations and retained
+intent and activity project into it. Commands, uncertain operations and retained
 results remain with their application/session owners.
 
 Separate pages keep display state, rosters and unread projections independently.

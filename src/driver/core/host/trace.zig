@@ -18,7 +18,7 @@ const crypto = foundation.crypto;
 
 /// Install (or clear) the live trace sink: the callback that hears this host's
 /// session opens, message verbs, and closes, on the host's one thread, fields
-/// borrowed per call. The embedder stamps time and formats; the core reports
+/// borrowed per call. The embedder stamps time and formats. The core reports
 /// facts only. Call `replayTrace` after publishing the sink's own state to
 /// seed it with sessions that are already open.
 pub fn setTrace(self: *Host, sink: ?trace.Sink) error{ ReenteredHost, WrongThread }!void {

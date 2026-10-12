@@ -2,10 +2,10 @@
 //
 // Every row a directory's operator capability answers is declared here once:
 // the schema that bounds it, the parser that admits its passable tuple, and
-// the encoder that renders it back for a durable session facet. Keeping the
-// two directions beside each other is the point of the module: they are one
-// wire form, and holding them apart is how the sessions row once grew a
-// caller mark on the parsing side that the encoding side did not send.
+// the encoder that renders it back for a durable session facet. The two
+// directions sit together because they are one wire form. Holding them apart
+// is how the sessions row once grew a caller mark on the parsing side that the
+// encoding side did not send.
 
 import type { Argument } from "@glowcap/runtime";
 import * as z from "zod/mini";
@@ -107,7 +107,7 @@ interface OperatorPageBase {
 	revision: bigint;
 	next: number | null;
 	/** Every row of this category matching the search, whether or not it was
-	 * sent. A page is a page; this is what the directory holds. */
+	 * sent. A page is a page, and this is what the directory holds. */
 	total: number;
 }
 

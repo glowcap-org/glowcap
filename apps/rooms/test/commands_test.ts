@@ -5,10 +5,10 @@
 // command: `needsArgument` decides whether the completion list keeps the Enter
 // key, `grant` decides whether a conversation that can run it lists it, and
 // `place` decides whether this conversation can run it at all.
-// Rust owns the metadata and interpretation; the browser gesture adapter could
+// Rust owns the metadata and interpretation. The browser gesture adapter could
 // still disagree with the displayed affordance, and
-// a disagreement is silent — a command wrongly marked as needing an argument
-// simply stops running on Enter, which looks like a dead key rather than like
+// a disagreement is silent, a command wrongly marked as needing an argument
+// stops running on Enter, which looks like a dead key rather than like
 // a wrong flag. So each is asked of every command here.
 
 import { type Command, type CommandHere, type CommandPowers, held, hereOf, known } from "../web/ui/commands.ts";
@@ -61,7 +61,7 @@ Deno.test("session content metadata keeps workspace, custody and target powers s
 	}
 });
 
-/** Read-only context is available; reaching an effect before required input
+/** Read-only context is available. Reaching an effect before required input
  * is admitted fails loudly. Rust interpretation cannot act through this port. */
 const TRAP: CommandPowers = new Proxy({}, {
 	get(_target, verb) {
@@ -222,7 +222,7 @@ Deno.test("a command names the grant it waits on, and says so when it is missing
 
 Deno.test("the reader's list is what this conversation has actually handed over", () => {
 	const names = (grants: string[], here: CommandHere) => held(new Set(grants), here).map((command) => command.name);
-	// Editing and withdrawing are granted commands that are genuinely granted:
+	// Editing and withdrawing are granted commands that are granted:
 	// the room answers each post with a reference to the line, so a reader holds
 	// the authority for their own lines as a matter of course, with nothing
 	// conversation-wide to wait for.

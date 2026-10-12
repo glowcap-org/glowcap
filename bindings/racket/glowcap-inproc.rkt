@@ -1,5 +1,5 @@
 #lang racket/base
-;; glowcap/inproc — the socket-free in-process transport for the Racket binding.
+;; glowcap/inproc: the socket-free in-process transport for the Racket binding.
 ;;
 ;; Mirrors the à-la-carte archive split (ADR-0059): this module is
 ;; libglowcap_net_transport_inproc's binding, the in-process sibling of the TCP
@@ -9,7 +9,7 @@
 ;; (`private/ffi-inproc.rkt`) opens ONLY that archive, so requiring this module
 ;; links neither the TCP nor the iroh transport. It builds on the core value
 ;; and error machinery in `glowcap.rkt` through the shared transport seam
-;; (`private/seam.rkt`) — same frame layout, no shared symbol:
+;; (`private/seam.rkt`) with the same frame layout and no shared symbol:
 ;;
 ;;   (require "glowcap.rkt")
 ;;   (require "glowcap-inproc.rkt")
@@ -18,9 +18,9 @@
 ;;   (define lst (inproc-netlayer-listen nl "rendezvous"))
 ;;   (define cn (inproc-netlayer-connect nl "rendezvous"))
 ;;
-;; A listener binds to a string designator — any opaque token, not a host:port —
+;; A listener binds to a string designator (any opaque token, not a host:port)
 ;; and a dialer names that designator. The embedder shuttles whole frames over
-;; the pipe exactly as with TCP. Blocking; in-process only.
+;; the pipe as with TCP. Blocking; in-process only.
 
 (require ffi/unsafe
          ffi/unsafe/port
@@ -219,7 +219,7 @@
      (define rc (glowcap_inproc_conn_write_frame h (make-GlowcapFrame buf (bytes-length frame) FRAME-SHAPE-BYTE)))
      ;; The frame cstruct is retained as the call's argument, but it carries
      ;; only `buf`'s raw address; the sink keeps the pinned payload live for
-     ;; the whole blocking write.
+     ;; the blocking write.
      (void/reference-sink buf)
      (check/inproc rc))))
 

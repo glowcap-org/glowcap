@@ -3,7 +3,7 @@
 //! This module owns readiness, cancellation, and teardown while adapting the
 //! native blocking relay carrier to the generic C multiplexed-provider table.
 //! It moves opaque WebSocket bytes only. The archive facade owns exported C
-//! handles; CapTP framing and Noise_XK remain Host policy.
+//! handles. CapTP framing and Noise_XK remain Host policy.
 
 const std = @import("std");
 
@@ -225,7 +225,7 @@ const MultiplexedRuntime = struct {
     /// close transactions together. Each connection owns its own deadline, so
     /// one stalled peer cannot serialize or strand the others. A terminal
     /// reactor failure already owns every connection's exact consequence and
-    /// ends this wait; the abortive cleanup below remains the final fallback.
+    /// ends this wait. The abortive cleanup below is the final fallback.
     fn retireConnections(self: *MultiplexedRuntime) void {
         self.mutex.lock();
         for (self.connections.items) |conn| {

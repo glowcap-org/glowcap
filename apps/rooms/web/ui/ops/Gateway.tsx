@@ -1,8 +1,8 @@
 // A bridge gateway and the connections and leases beneath it.
 //
-// The bridge describes its gateway — the words, the connection form, the lease
-// form, and the connections it holds with their leases — and this draws it.
-// Nothing here knows IRC; it knows a gateway. IRC is the one bridge that fills
+// The bridge describes its gateway (the words, the connection form, the lease
+// form, and the connections it holds with their leases) and this draws it.
+// Nothing here knows IRC. It knows a gateway. IRC is the one bridge that fills
 // it today, so the words below read as IRC's.
 
 import { Fragment, useEffect, useState } from "react";
@@ -53,7 +53,7 @@ function capitalize(word: string): string {
 }
 
 /** Send only the form's primary action to the gateway. The wire knows two
- * verbs — open a connection, add a lease — and both belong to the primary; a
+ * verbs (open a connection, add a lease) and both belong to the primary. A
  * bridge declaring another action gets a refusal naming the boundary rather
  * than a wrong verb dispatched with empty answers. */
 function primaryOnly(form: BridgeForm, action: string, send: () => Promise<string>): Promise<string> {

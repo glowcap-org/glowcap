@@ -1,4 +1,4 @@
-//! Reserve the sender event before remote dispatch; publish after settlement.
+//! Reserve the sender event before remote dispatch. Publish after settlement.
 use super::*;
 use rooms_application::{content::session::outgoing, room::message::ChangeKind};
 use serde_json::json;
@@ -6,7 +6,7 @@ use serde_json::json;
 impl<P: Tasks + Deadline + Clone + 'static> Activity<P> {
 	/// One immutable event reserves encoded presentation, file actors and the
 	/// journal's byte charge before dispatch. Capture lends this same source and
-	/// file vector to recording; no second attachment population is retained.
+	/// file vector to recording. No second attachment population is retained.
 	/// After private settlement the journal owns it, under its existing count and
 	/// byte limits. Queued reads recheck the original source and line custody.
 	pub(in crate::session::managed) fn prepare_outgoing(
@@ -16,11 +16,12 @@ impl<P: Tasks + Deadline + Clone + 'static> Activity<P> {
 		text: &str,
 		change: ChangeKind,
 		files: Vec<Attachment<Ref>>,
+		operation: Option<&str>,
 	) -> Result<PreparedEvent<P>> {
 		self.reserve(
 			Event {
 				data: json!({"target":{"kind":"direct","id":origin.conversation},"notice":{
-					"kind":"line","from":origin.from,"text":text,
+					"kind":"line","from":origin.from,"text":text,"metadata":{"operation":operation},
 					"marker":{"id":origin.id.get(),"change":change.event_change()},
 					"previewUrls":origin.previews.urls()
 				}})

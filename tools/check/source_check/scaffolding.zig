@@ -24,7 +24,7 @@ const collectBulletSpans = util.collectBulletSpans;
 // `cd` inside a tool call), so a plain relative path resolves against the
 // wrong directory and the hook fails with "no such file or directory" the
 // moment the session is elsewhere. `${CLAUDE_PROJECT_DIR}` is the project's
-// own env var precisely for this, so only the Claude-side commands use it;
+// own env var for this, so only the Claude-side commands use it;
 // forcing both hosts to the identical string would check the wrong invariant.
 const expected_cursor_format_hook_command = "bash .agents/hooks/format-edited-file.sh";
 const expected_claude_format_hook_command = "bash \"${CLAUDE_PROJECT_DIR}/.agents/hooks/format-edited-file.sh\"";
@@ -350,7 +350,7 @@ fn expectMcpServer(
 const GlowcapMcpHost = enum { cursor, claude };
 
 /// Project CapTP MCP must launch the repo-root `./glowcap` shim (forwards to
-/// zig-out/bin/glowcap; PATH is not required).
+/// zig-out/bin/glowcap, PATH is not required).
 fn expectGlowcapMcpServer(
     io: std.Io,
     gpa: std.mem.Allocator,

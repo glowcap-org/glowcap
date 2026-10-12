@@ -1,12 +1,12 @@
 /// <reference lib="dom" />
 
-// One browser peer for the WebRTC browser-to-browser proof (ADR-0089 phase 6).
+// One browser peer for the WebRTC browser-to-browser proof (ADR-0089).
 // Two browser tabs run this, one as `?role=offerer` and one as `?role=answerer`.
 // Each bundles `@glowcap/web` (the wasm Host); the answerer drives
 // `@glowcap/webrtc` (`RtcPeer`) directly, while the offerer opens a managed
 // Runtime with the WebRTC connector and dials the bare
 // `ocapn://<key>.webrtc` locator, so the dial executor owns the whole bring-up
-// — offer, answer, trickled candidates, channel adoption, keyed handshake. The signaling relay only
+// ,  offer, answer, trickled candidates, channel adoption, keyed handshake. The signaling relay only
 // moves opaque strings between the two tabs; the keyed session and its DTLS
 // run end to end over the DataChannel, so the relay is out of the byte path.
 // Two browsers speak directly, the signaling host blind to what they say.

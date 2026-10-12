@@ -1,5 +1,5 @@
 //! Live membership owns its callback and original requests through settlement.
-//! Observation wakes progress; abandoning readiness never cancels the worker.
+//! Observation wakes progress. Abandoning readiness never cancels the worker.
 use super::{Inbox, Session, realization};
 use glowcap::{Argument, Result, loam};
 use rooms_application::content::session::{custody, results, workspace};
@@ -13,6 +13,7 @@ use tokio::sync::watch;
 mod connection;
 mod observation;
 mod ownership;
+mod rate_retry;
 pub(super) mod retirement;
 mod standing;
 mod startup;
@@ -22,7 +23,7 @@ pub(super) use ownership::{Signals, spawn};
 
 /// Keep this owner alongside the directory or conversation it realizes.
 /// Readiness observers may be cancelled independently. A failed stage retains
-/// its original request until retry or close; it cannot acquire newer intent.
+/// its original request until retry or close. It cannot acquire newer intent.
 pub struct Membership<P: Tasks> {
 	_budget: Rc<Budget<P>>,
 	stop: watch::Sender<bool>,
@@ -141,8 +142,9 @@ fn key<K>(entropy: &mut dyn crate::entropy::Entropy) -> Result<custody::FieldKey
 	entropy
 		.fill(&mut bytes)
 		.map_err(|_| loam::refusal("Membership entropy is unavailable"))?;
-	let slot = NonZeroU64::new(u64::from_be_bytes(bytes[..8].try_into().unwrap()));
-	let generation = NonZeroU64::new(u64::from_be_bytes(bytes[8..].try_into().unwrap()));
+	let malformed = || loam::refusal("Membership entropy is malformed");
+	let slot = NonZeroU64::new(u64::from_be_bytes(bytes[..8].try_into().map_err(|_| malformed())?));
+	let generation = NonZeroU64::new(u64::from_be_bytes(bytes[8..].try_into().map_err(|_| malformed())?));
 	Ok(custody::FieldKey::new(
 		slot.ok_or_else(|| loam::refusal("Empty membership custody identity"))?,
 		generation.ok_or_else(|| loam::refusal("Empty membership custody generation"))?,
@@ -255,7 +257,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		let operation = operation
 			.text()
 			.as_str()
-			.expect("generated ASCII identifier")
+			.ok_or_else(|| loam::refusal("generated membership identifier is not text"))?
 			.to_owned();
 		let mut inbox = self.open_inbox(selected.clone(), receive).await?;
 		if matches!(selected, workspace::InboxSelection::Direct { .. }) {
@@ -311,16 +313,29 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 					changes,
 					installed: false,
 					live: false,
+					connection_expiry_pending: false,
 					platform,
 					retirement,
 					recovery,
 					submission: None,
 					standing: standing::Standing::default(),
+					rate_retry: rate_retry::Window::new(&operation),
 				};
 				let mut cancellation = worker.stopping.clone();
+				let retirement = worker.retirement.clone();
 				let outcome = tokio::select! {
 					biased;
 					_ = cancellation.changed() => Ok(()),
+					ended = async {
+						match retirement {
+							Some(owner) => owner.ended().await,
+							None => std::future::pending().await,
+						}
+					} => {
+						worker.live = false;
+						worker.recovery.recover();
+						ended
+					},
 					outcome = worker.run(installation, source, target, &operation, permit, startup_budget) => outcome,
 				};
 				if worker.ready.borrow().is_none() {
@@ -337,7 +352,10 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 					worker.retrying.borrow_and_update();
 					let closed = worker.cleanup().await;
 					if closed.is_ok()
-						|| (worker.inbox.drained() && worker.retirement.is_none() && worker.submission.is_none())
+						|| (worker.inbox.drained()
+							&& worker.retirement.is_none()
+							&& worker.submission.is_none()
+							&& !worker.connection_expiry_pending)
 					{
 						return merge(outcome, closed);
 					}
@@ -381,11 +399,15 @@ struct Worker<P: Tasks> {
 	changes: super::changes::Wake,
 	installed: bool,
 	live: bool,
+	// Cleanup can retire the observer before a refused workspace expiry is
+	// retried. Retain affirmative loss until its exact lease is withdrawn.
+	connection_expiry_pending: bool,
 	platform: P,
 	retirement: Option<Rc<retirement::Owner>>,
 	recovery: Rc<super::watching::Refresh>,
 	submission: Option<rooms_glowcap::client::workspace::Submission>,
 	standing: standing::Standing<P>,
+	rate_retry: rate_retry::Window,
 }
 impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 	async fn stage<T, F, Fut>(&mut self, mut attempt: F) -> Result<Option<T>>
@@ -412,13 +434,59 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 			}
 		}
 	}
+	async fn retry_selection_current(&mut self) -> Result<bool> {
+		if *self.stopping.borrow() {
+			return Ok(false);
+		}
+		if self.installed {
+			let _inspection = self.changes.inspect().await;
+			if let Ok(snapshot) = self.workspace.owner_snapshot(&self.writer.root()?).await
+				&& !self.selected.matches(&snapshot.intent)
+			{
+				return Ok(false);
+			}
+		}
+		Ok(!*self.stopping.borrow())
+	}
+	async fn retry_after(&mut self, advice: rooms_application::admission::RetryAdvice) -> Result<bool> {
+		// A retry requested during an automatic cooldown cannot accumulate into
+		// another window after exhaustion. Only a later explicit request resets it.
+		self.retrying.borrow_and_update();
+		let proceed = match self.rate_retry.delay(advice, self.platform.monotonic_millis()) {
+			Some(delay) => rate_retry::wait(&self.platform, &mut self.stopping, delay).await,
+			None => {
+				// Exhaustion retains the exact worker and diagnostic. Ordinary
+				// workspace wakes cannot start another automatic retry window.
+				if *self.stopping.borrow() {
+					return Ok(false);
+				}
+				tokio::select! {
+					biased;
+					_ = self.stopping.changed() => false,
+					changed = self.retrying.changed() => {
+						if changed.is_err() { false } else { self.rate_retry.reset(); true }
+					}
+				}
+			}
+		};
+		if proceed {
+			self.retry_selection_current().await
+		} else {
+			Ok(false)
+		}
+	}
 	async fn failed(&mut self, failure: glowcap::Error) -> Result<bool> {
+		let retry = rooms_application::failure::Failure::parse(&failure.to_string()).and_then(|f| f.retry_advice());
 		self.ready.send_replace(Some(Err(failure)));
+		if let Some(retry) = retry {
+			return self.retry_after(retry).await;
+		}
 		let changed = self.changed().await?;
 		if changed {
+			self.rate_retry.reset();
 			let snapshot = if self.installed {
 				let _inspection = self.changes.inspect().await;
-				self.workspace.snapshot().await.ok()
+				self.workspace.owner_snapshot(&self.writer.root()?).await.ok()
 			} else {
 				None
 			};
@@ -433,5 +501,17 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 	}
 }
 fn error(error: rooms_glowcap::client::Error) -> glowcap::Error {
-	loam::refusal(error.to_string())
+	match error {
+		rooms_glowcap::client::Error::Binding(error) | rooms_glowcap::client::Error::Unsent(error) => *error,
+		rooms_glowcap::client::Error::Observation(reason)
+		| rooms_glowcap::client::Error::RefusedObservation(reason) => {
+			// The retained reason already crossed the binding wrapper. Normalize only
+			// validated Rooms carriers before placing it back in a binding error.
+			match rooms_application::failure::Failure::parse(&reason) {
+				Some(failure) => loam::refusal(failure.to_string()),
+				None => loam::refusal(reason),
+			}
+		}
+		error => loam::refusal(error.to_string()),
+	}
 }

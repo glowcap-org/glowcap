@@ -10,14 +10,12 @@
 //! pipelined `op:deliver` that lands against the answer while its resolve sits
 //! unemitted runs against a "settled" answer.
 //!
-//! The engine once stored the resolution only at emit time, so in that window
-//! an answer read settled with *no* resolution on hand. Three consumers each
-//! special-cased it, and each special-case was a separate bug surfaced by a
-//! separate binding's timing: the listener path (Deno), the projection path
-//! (Python, then Rust), and the pipelined-deliver path (latent, never tripped).
-//! `applySentResolve` now stores the resolution the same moment it flips the
-//! status, so the window cannot be observed: settled implies a stored
-//! resolution, always.
+//! Storing the resolution only at emit time would leave a window in which an
+//! answer reads settled with *no* resolution on hand. Three consumers would
+//! each need a special case: the listener path, the projection path, and the
+//! pipelined-deliver path. `applySentResolve` stores the resolution the same
+//! moment it flips the status, so the window cannot be observed: settled
+//! implies a stored resolution, always.
 //!
 //! These scenarios drive each consumer into the window at the pure engine layer:
 //! a resolve queued but not stepped. The class is caught here, by
@@ -77,9 +75,8 @@ test "a chained projection whose inner answer's resolve is still queued reaches 
 
     // untag(11 -> 12) settles 12 by recording a resolve (queued, unemitted).
     // index(12 -> 13) then anchors on 12 inside that same window, the exact
-    // shape `untag(...).index(...)` takes on the wire. Before the invariant 12
-    // read settled with no stored resolution and the chain broke; now index
-    // sees 12's unwrapped List and 13 reaches element 0.
+    // shape `untag(...).index(...)` takes on the wire. Index sees 12's
+    // unwrapped List and 13 reaches element 0.
     try peer_fixture.receiveAnsweredOperation(&peer, "<8'op:untag<11'desc:answer11+>3\"row12+>");
     try peer_fixture.receiveAnsweredOperation(&peer, "<8'op:index<11'desc:answer12+>0+13+>");
 
@@ -126,9 +123,8 @@ test "a pipelined op:deliver arriving while its answer's resolve is queued deliv
     // p2 records its resolve of answer 42 (queued, unemitted) and only THEN
     // takes the pipelined call inbound. `Peer.step` drains inbound before
     // outbound, so the call dispatches while 42's resolve still sits on
-    // `pending_send`. Before the invariant the call found 42 settled with no
-    // stored resolution and was dispatched against a synthetic "pipelined
-    // target already broken"; now it sees the near value and delivers locally.
+    // `pending_send`. The call sees the near value and delivers locally, not
+    // against a synthetic "pipelined target already broken".
     try p2.sendCopying(.{ .resolve = .{
         .answer = .from(42),
         .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = .from(9) } } } },
@@ -225,7 +221,7 @@ test "an op:listen arriving while its answer's resolve is queued fires with the 
 
     // p2 records its resolve of answer 42 (queued, unemitted), then takes the
     // listen inbound. The listen installs while 42's resolve is unemitted; the
-    // stored resolution lets it fire now with "ok" rather than against a
+    // stored resolution lets it fire at once with "ok" rather than against a
     // synthetic break (or get stranded waiting on an emit-time fire).
     try p2.sendCopying(.{ .resolve = .{
         .answer = .from(42),

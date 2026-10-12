@@ -1,6 +1,6 @@
 //! The blocking TCP transport (the `tcp` feature).
 //!
-//! This module wraps `libglowcap_net_transport_tcp` — the `glowcap_tcp_*`
+//! This module wraps `libglowcap_net_transport_tcp`: the `glowcap_tcp_*`
 //! archive that the `tcp` Cargo feature links (ADR-0059). It is the
 //! frame-shuttle layer one step below the async [`Session`](crate::Session):
 //! a [`Netlayer`] owns the blocking-TCP I/O backend, [`Netlayer::listen`] /
@@ -25,7 +25,7 @@ pub struct Keepalive {
 }
 
 /// Policy for one TCP stream. `None` at an operation inherits the provider's
-/// value; `Some(StreamOptions::default())` explicitly disables keepalive.
+/// value. `Some(StreamOptions::default())` explicitly disables keepalive.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct StreamOptions {
 	pub keepalive: Option<Keepalive>,
@@ -90,6 +90,9 @@ impl OperationOptions {
 	}
 
 	fn bytes(&self) -> &[u8] {
+		// SAFETY: `OperationOptions` is `#[repr(C)]` around one `GlowcapTcpStreamOptions`, three `u32`s with no padding
+		// (its size is asserted equal to the header's `GLOWCAP_TCP_OPERATION_OPTIONS_SIZE`), so all `size_of::<Self>()`
+		// bytes are initialized; `self` is borrowed for the returned slice's lifetime.
 		unsafe { core::slice::from_raw_parts(self as *const Self as *const u8, core::mem::size_of::<Self>()) }
 	}
 }
@@ -169,6 +172,7 @@ error_slot!(
 fn require_archive() -> Result<()> {
 	crate::require_archive_fingerprint(
 		"tcp",
+		// SAFETY: this fingerprint query takes no arguments and returns a constant.
 		unsafe { ffi::glowcap_tcp_archive_fingerprint() },
 		crate::abi_constants::TCP_ARCHIVE_FINGERPRINT,
 	)
@@ -197,6 +201,8 @@ impl Netlayer {
 		require_archive()?;
 		let mut raw: *mut ffi::GlowcapTcpNetlayer = core::ptr::null_mut();
 		let config = config.to_c();
+		// SAFETY: `config` is a local `GlowcapTcpConfig` borrowed for the call; `raw` is an out-parameter the callee
+		// fills with the new netlayer handle.
 		check_tcp(unsafe { ffi::glowcap_tcp_netlayer_new(&config, &mut raw) })?;
 		Ok(Netlayer { raw })
 	}
@@ -205,7 +211,11 @@ impl Netlayer {
 	/// driver acquires its own lease during registration.
 	#[cfg(feature = "async")]
 	pub(crate) fn transport_provider(&self) -> Result<crate::driver_loop::ProviderPackage<'_>> {
+		// SAFETY: `GlowcapTransportProvider` is a plain C struct of integers, null pointers, and `Option` function
+		// pointers; all-zero is a valid value, and the callee fills it before it is read.
 		let mut package: crate::sys::GlowcapTransportProvider = unsafe { core::mem::zeroed() };
+		// SAFETY: `self.raw` is this `Netlayer`'s handle from `glowcap_tcp_netlayer_new`, released only by its `Drop`;
+		// `package` is an out-parameter the callee fills, and the returned `ProviderPackage<'_>` borrows this netlayer.
 		check_tcp(unsafe { ffi::glowcap_tcp_transport_provider(self.raw, &mut package) })?;
 		Ok(crate::driver_loop::ProviderPackage {
 			package,
@@ -217,6 +227,9 @@ impl Netlayer {
 	/// borrows this netlayer and cannot outlive it.
 	pub fn listen(&self, bind_host: &str, port: u16) -> Result<Listener<'_>> {
 		let mut raw: *mut ffi::GlowcapTcpListener = core::ptr::null_mut();
+		// SAFETY: `self.raw` is this `Netlayer`'s handle from `glowcap_tcp_netlayer_new`, released only by its `Drop`;
+		// `bind_host` is a borrowed `str` whose pointer and length stay live for the call; `raw` is an out-parameter
+		// the callee fills.
 		check_tcp(unsafe { ffi::glowcap_tcp_listen(self.raw, bind_host.as_ptr(), bind_host.len(), port, &mut raw) })?;
 		Ok(Listener { raw, _nl: PhantomData })
 	}
@@ -234,6 +247,10 @@ impl Netlayer {
 	) -> Result<Connection<'_>> {
 		let mut raw: *mut ffi::GlowcapTcpConn = core::ptr::null_mut();
 		let options = options.map(StreamOptions::to_c);
+		// SAFETY: `self.raw` is this `Netlayer`'s handle from `glowcap_tcp_netlayer_new`, released only by its `Drop`;
+		// `host` is a borrowed `str` whose pointer and length stay live for the call; `options` (when `Some`) is a
+		// local `GlowcapTcpStreamOptions` borrowed for the call, else null; `raw` is an out-parameter the callee fills,
+		// and the null error buffer with length zero asks for no error text.
 		check_tcp(unsafe {
 			ffi::glowcap_tcp_connect(
 				self.raw,
@@ -255,6 +272,8 @@ impl Netlayer {
 
 impl Drop for Netlayer {
 	fn drop(&mut self) {
+		// SAFETY: `self.raw` is this `Netlayer`'s handle from `glowcap_tcp_netlayer_new`, released only by its `Drop`,
+		// so the release runs once after every borrowing `Listener` and `Connection` is gone.
 		unsafe { ffi::glowcap_tcp_netlayer_release(self.raw) };
 	}
 }
@@ -270,14 +289,19 @@ impl Listener<'_> {
 	/// The OS-resolved local port (useful after binding to port 0).
 	pub fn port(&self) -> Result<u16> {
 		let mut port: u16 = 0;
+		// SAFETY: `self.raw` is this `Listener`'s handle from `Netlayer::listen`, released only by its `Drop`; its `'a`
+		// borrow keeps the netlayer alive; `port` is an out-parameter the callee writes.
 		check_tcp(unsafe { ffi::glowcap_tcp_listener_port(self.raw, &mut port) })?;
 		Ok(port)
 	}
 
 	/// Return the borrowed listening descriptor for reactor integration.
-	/// The listener owns it; callers must not close it or retain it after drop.
+	/// The listener owns it. Callers must not close it or retain it after drop.
 	pub fn readiness_fd(&self) -> Result<i32> {
 		let mut fd: i32 = -1;
+		// SAFETY: `self.raw` is this `Listener`'s handle from `Netlayer::listen`, released only by its `Drop`; its `'a`
+		// borrow keeps the netlayer alive; `fd` is an out-parameter the callee writes; the listener keeps owning the
+		// descriptor.
 		check_tcp(unsafe { ffi::glowcap_tcp_listener_readiness_fd(self.raw, &mut fd) })?;
 		Ok(fd)
 	}
@@ -292,6 +316,10 @@ impl Listener<'_> {
 	) -> Result<Connection<'_>> {
 		let mut raw: *mut ffi::GlowcapTcpConn = core::ptr::null_mut();
 		let options = options.map(StreamOptions::to_c);
+		// SAFETY: `self.raw` is this `Listener`'s handle from `Netlayer::listen`, released only by its `Drop`; its `'a`
+		// borrow keeps the netlayer alive; `options` (when `Some`) is a local `GlowcapTcpStreamOptions` borrowed for
+		// the call, else null; `raw` is an out-parameter the callee fills, and the null error buffer with length zero
+		// asks for no error text.
 		check_tcp(unsafe {
 			ffi::glowcap_tcp_accept(
 				self.raw,
@@ -308,8 +336,8 @@ impl Listener<'_> {
 	}
 }
 
-// SAFETY: a `Listener` owns a self-contained payload — its own listening socket
-// plus a copy of the netlayer's allocator — and shares no per-handle mutable
+// SAFETY: a `Listener` owns a self-contained payload, its own listening socket
+// plus a copy of the netlayer's allocator, and shares no per-handle mutable
 // state with the netlayer or sibling handles, so moving it to the accepting
 // thread and calling `accept` there touches only its own state. The two pieces
 // it does share with the netlayer are both thread-safe: the allocator
@@ -321,6 +349,8 @@ unsafe impl Send for Listener<'_> {}
 
 impl Drop for Listener<'_> {
 	fn drop(&mut self) {
+		// SAFETY: `self.raw` is this `Listener`'s handle from `Netlayer::listen`, released only by its `Drop`; its `'a`
+		// borrow keeps the netlayer alive, and the netlayer outlives it.
 		unsafe { ffi::glowcap_tcp_listener_release(self.raw) };
 	}
 }
@@ -338,11 +368,13 @@ impl Connection<'_> {
 	/// Seal this connection and interrupt blocking frame operations. Drop then
 	/// releases its storage after callers have joined their operation threads.
 	pub fn shutdown(&self) -> Result<()> {
+		// SAFETY: `self.raw` is this `Connection`'s handle from `connect` or `accept`, released only by its `Drop`; its
+		// `'a` borrow keeps the backend alive.
 		check_tcp(unsafe { ffi::glowcap_tcp_conn_shutdown(self.raw) })
 	}
 
 	/// Close explicitly, reporting a shutdown failure to the caller. Native
-	/// storage is released as this value is consumed; a release-only refusal is
+	/// storage is released as this value is consumed. A release-only refusal is
 	/// retained by the process diagnostic fallback because `Drop` has no caller.
 	pub fn close(self) -> Result<()> {
 		self.shutdown()
@@ -351,11 +383,21 @@ impl Connection<'_> {
 	/// Block for one whole frame. [`ErrorKind::Closed`](crate::ErrorKind::Closed)
 	/// reports a clean EOF.
 	pub fn read_frame(&mut self) -> Result<Vec<u8>> {
+		// SAFETY: `GlowcapManagedFrame` is a plain C struct of integers, null pointers, and an `Option` function
+		// pointer; all-zero is a valid value, and the callee fills it before it is read.
 		let mut frame: crate::sys::GlowcapManagedFrame = unsafe { core::mem::zeroed() };
+		// SAFETY: `self.raw` is this `Connection`'s handle from `connect` or `accept`, released only by its `Drop`; its
+		// `'a` borrow keeps the backend alive; `frame` is an out-parameter the callee fills, and the null error buffer
+		// with length zero asks for no error text.
 		check_tcp(unsafe {
 			ffi::glowcap_tcp_conn_read_frame(self.raw, &mut frame, core::ptr::null_mut(), 0, core::ptr::null_mut())
 		})?;
+		// SAFETY: on success `read_frame` filled `frame.bytes` and `frame.len` with a view the frame owns until
+		// `glowcap_managed_frame_release` runs on the next line, and `owned_from_view` copies it first; it handles a
+		// null pointer or zero length.
 		let out = unsafe { crate::owned_from_view(frame.bytes, frame.len) };
+		// SAFETY: `frame` was filled by the successful `read_frame` call above and is released exactly once, after the
+		// copy.
 		unsafe { crate::sys::glowcap_managed_frame_release(&mut frame) };
 		Ok(out)
 	}
@@ -367,14 +409,17 @@ impl Connection<'_> {
 			len: bytes.len(),
 			shape: crate::sys::FRAME_SHAPE_BYTE,
 		};
+		// SAFETY: `self.raw` is this `Connection`'s handle from `connect` or `accept`, released only by its `Drop`; its
+		// `'a` borrow keeps the backend alive; `f` is a local `GlowcapFrame` whose `bytes` and `len` come from the
+		// borrowed `bytes` slice, live for the call, and the callee reads it only during the call.
 		check_tcp(unsafe {
 			ffi::glowcap_tcp_conn_write_frame(self.raw, &f, core::ptr::null_mut(), 0, core::ptr::null_mut())
 		})
 	}
 }
 
-// SAFETY: a `Connection` owns a self-contained payload — its own TCP stream plus
-// a copy of the netlayer's allocator — and shares no per-handle mutable state
+// SAFETY: a `Connection` owns a self-contained payload, its own TCP stream plus
+// a copy of the netlayer's allocator, and shares no per-handle mutable state
 // with the netlayer or sibling handles, so moving it to another thread and doing
 // frame I/O on it touches only its own state. The allocator and the netlayer's
 // `std.Io.Threaded` backend it shares are thread-safe under the concurrent
@@ -383,6 +428,8 @@ unsafe impl Send for Connection<'_> {}
 
 impl Drop for Connection<'_> {
 	fn drop(&mut self) {
+		// SAFETY: `self.raw` is this `Connection`'s handle from `connect` or `accept`, released only by its `Drop`; its
+		// `'a` borrow keeps the backend alive, so the release runs once after every borrow of it ends.
 		if let Err(error) = check_tcp(unsafe {
 			ffi::glowcap_tcp_conn_release(self.raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
 		}) {
@@ -399,7 +446,7 @@ mod tests {
 	#[test]
 	fn shuttles_a_frame_over_a_real_tcp_socket() {
 		// The netlayer owns the I/O backend; the listener and connections borrow
-		// it, so a scoped thread keeps those borrows honest (the borrowed
+		// it, so a scoped thread holds those borrows (the borrowed
 		// `Listener` is not `'static` and cannot enter `thread::spawn`).
 		let netlayer = Netlayer::new(Config::default()).unwrap();
 		let listener = netlayer.listen("127.0.0.1", 0).unwrap();

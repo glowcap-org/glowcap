@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-session-shift-click-probe.ts — Same matrix as the
+ * playwright-session-shift-click-probe.ts: Same matrix as the
  * peer shift-click probe, but targeting session lines and message
  * dots to find any cross-entity-type drift in the click pipeline.
  *

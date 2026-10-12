@@ -26,7 +26,7 @@ pub const ResourceRecord = struct {
     const label = "access:resource";
 
     /// Allocates one exact byte slice through the supplied allocator. The
-    /// caller frees that slice; the encoder retains no record or input borrow.
+    /// caller frees that slice. The encoder retains no record or input borrow.
     pub fn encodeAlloc(self: ResourceRecord, allocator: std.mem.Allocator) (Error || syrup.shared.WalkError)![]u8 {
         try self.validate();
         if (!self.live and (self.resource.parent != null or self.children != null)) return error.InvalidRecord;
@@ -46,7 +46,7 @@ pub const ResourceRecord = struct {
     }
 
     /// Child identity lives only in its strong edge. Parent model identity is
-    /// encoded in the payload; the caller supplies its resolved storage target.
+    /// encoded in the payload. The caller supplies its resolved storage target.
     pub fn edges(self: ResourceRecord, parent: ?loam.ObjectId, buffer: *[2]loam.Edge) Error![]const loam.Edge {
         if ((parent != null) != (self.resource.parent != null)) return error.InvalidRecord;
         if (!self.live and (parent != null or self.children != null)) return error.InvalidRecord;

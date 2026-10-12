@@ -19,15 +19,15 @@ const GLOWCAP_ERR_FRAME_TOO_LARGE = result.GLOWCAP_ERR_FRAME_TOO_LARGE;
 const setLastError = last_error.set;
 
 /// Admission barrier for operations entered from foreign threads. Shutdown
-/// seals admission and waits for every call that already crossed the barrier;
-/// the foreign owner still prevents calls from racing final handle release.
+/// seals admission and waits for every call that already crossed the barrier.
+/// The foreign owner still prevents calls from racing final handle release.
 pub const ForeignCallBarrier = struct {
     const closing_bit = @as(usize, 1) << (@bitSizeOf(usize) - 1);
     const active_mask = closing_bit - 1;
 
     gate: std.Io.Mutex = .init,
     drained: std.Io.Condition = .init,
-    /// High bit seals admission; low bits count calls that already crossed the
+    /// High bit seals admission. Low bits count calls that already crossed the
     /// C boundary. Admission and shutdown never wait on the release barrier.
     state: std.atomic.Value(usize) = .init(0),
 
@@ -165,7 +165,7 @@ pub fn ConnLifecycle(comptime Payload: type) type {
 /// The one body behind every stream-shaped `glowcap_*_conn_{read,write}_frame`
 /// (tcp and inproc). `Payload` declares `stream` (with `readFrame`/`writeFrame`)
 /// and `allocator`. A comptime helper, not an `export fn`, so each archive
-/// compiles its own copy and the shared leaf stays symbol-free — the archives
+/// compiles its own copy and the shared leaf stays symbol-free. The archives
 /// keep their own exports (ADR-0059). `onConnectionLost` / `onWriteErr`
 /// parameterize the last-error message: tcp consults `lastReadError`/
 /// `lastWriteError`, inproc records a static cause.

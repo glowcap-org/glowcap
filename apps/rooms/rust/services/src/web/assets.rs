@@ -65,6 +65,7 @@ impl State {
 }
 pub(super) struct Assets {
 	root: PathBuf,
+	browser_admission: String,
 	prepared: bool,
 	state: RefCell<State>,
 	refresh: Notify,
@@ -78,6 +79,7 @@ impl Assets {
 		prepared: bool,
 		stop: watch::Receiver<bool>,
 		report: Report,
+		browser_admission: String,
 	) -> Result<Option<Rc<Self>>, String> {
 		if *stop.borrow() {
 			return Ok(None);
@@ -88,11 +90,13 @@ impl Assets {
 			Some(bundle::graph(&root).await?)
 		};
 		let stamp = graph.as_ref().map(|graph| graph.stamp);
-		let Some(current) = Self::generation(&root, graph, stop.clone(), &report).await? else {
+		let Some(current) = Self::generation(&root, graph, stop.clone(), &report, browser_admission.clone()).await?
+		else {
 			return Ok(None);
 		};
 		Ok(Some(Rc::new(Self {
 			root,
+			browser_admission,
 			prepared,
 			refresh: Notify::new(),
 			updated: watch::channel(()).0,
@@ -112,6 +116,7 @@ impl Assets {
 		graph: Option<Graph>,
 		stop: watch::Receiver<bool>,
 		report: &Report,
+		browser_admission: String,
 	) -> Result<Option<Generation>, String> {
 		if *stop.borrow() {
 			return Ok(None);
@@ -138,7 +143,7 @@ impl Assets {
 		} else {
 			directory
 		};
-		let result = tokio::task::spawn_blocking(move || Generation::load(&directory))
+		let result = tokio::task::spawn_blocking(move || Generation::load_configured(&directory, &browser_admission))
 			.await
 			.map_err(|e| e.to_string())
 			.and_then(|r| r);
@@ -149,7 +154,7 @@ impl Assets {
 					cleanup?;
 					Ok(Some(generation))
 				}
-				Err(error) => Err(crate::cleanup::combine(Err(error), cleanup).expect_err("asset load failed")),
+				Err(error) => Err(crate::cleanup::failed(error, cleanup)),
 			}
 		} else {
 			result.map(Some)
@@ -176,7 +181,14 @@ impl Assets {
 		let stamp = graph.stamp;
 		let changed = self.state.borrow().stamp != Some(stamp);
 		if changed {
-			let generation = Self::generation(&self.root, Some(graph), self.stop.clone(), &self.report).await;
+			let generation = Self::generation(
+				&self.root,
+				Some(graph),
+				self.stop.clone(),
+				&self.report,
+				self.browser_admission.clone(),
+			)
+			.await;
 			self.state.borrow_mut().finish_refresh(stamp, generation);
 		}
 		self.state.borrow_mut().checked = Instant::now();
@@ -184,7 +196,7 @@ impl Assets {
 	}
 	/// Refresh is owned by the service, not the HTTP request that noticed an
 	/// edit. Dropping a browser connection cannot abandon a compiler or its
-	/// temporary files; shutdown wakes and joins this owner.
+	/// temporary files. Shutdown wakes and joins this owner.
 	pub async fn run(self: Rc<Self>) -> Result<(), String> {
 		let mut stop = self.stop.clone();
 		loop {
@@ -255,6 +267,9 @@ impl Assets {
 }
 impl Generation {
 	pub(super) fn load(bundle: &Path) -> Result<Self, String> {
+		Self::load_configured(bundle, "{}")
+	}
+	fn load_configured(bundle: &Path, browser_admission: &str) -> Result<Self, String> {
 		// Resolve a publication pointer once so a concurrent preparation cannot
 		// mix files from different immutable generations during startup.
 		let bundle = std::fs::canonicalize(bundle).map_err(|e| e.to_string())?;
@@ -268,7 +283,7 @@ impl Generation {
 		}
 		let mut generation = Self {
 			files: BTreeMap::new(),
-			revision: Asset::new(format!("{revision}\n").into(), "text/plain; charset=utf-8"),
+			revision: Asset::new(format!("{revision}\n").into(), "text/plain; charset=utf-8")?,
 			bytes: 0,
 		};
 		let application = read(&bundle.join("rooms_browser_bg.wasm"), MAX_ASSET)?;
@@ -278,7 +293,7 @@ impl Generation {
 		);
 		generation.insert(
 			application_path.clone(),
-			Asset::new(application.into(), "application/wasm"),
+			Asset::new(application.into(), "application/wasm")?,
 		)?;
 		for entry in std::fs::read_dir(&bundle).map_err(|e| e.to_string())? {
 			let entry = entry.map_err(|e| e.to_string())?;
@@ -290,23 +305,24 @@ impl Generation {
 				let mut body = read(&entry.path(), MAX_ASSET)?;
 				if name == "page.js" {
 					let prefix = format!(
-						"document.documentElement.dataset.uiBuild={};\ndocument.documentElement.dataset.roomsWasm={};\n",
+						"document.documentElement.dataset.uiBuild={};\ndocument.documentElement.dataset.roomsWasm={};\ndocument.documentElement.dataset.roomsSessionAdmission={};\n",
 						serde_json::to_string(&revision).map_err(|e| e.to_string())?,
-						serde_json::to_string(&application_path).map_err(|e| e.to_string())?
+						serde_json::to_string(&application_path).map_err(|e| e.to_string())?,
+						serde_json::to_string(browser_admission).map_err(|e| e.to_string())?
 					);
 					let mut main = prefix.into_bytes();
 					main.append(&mut body);
 					body = main;
 				}
 				let route = format!("/{name}");
-				generation.insert(route, Asset::new(body.into(), "text/javascript; charset=utf-8"))?;
+				generation.insert(route, Asset::new(body.into(), "text/javascript; charset=utf-8")?)?;
 			}
 		}
 		if !generation.files.contains_key("/page.js") {
 			return Err("browser bundle has no page.js".into());
 		}
 		let page = text(&bundle.join("page.html"), MAX_ASSET)?;
-		let mut html = Asset::new(page.as_bytes().to_vec().into(), "text/html; charset=utf-8");
+		let mut html = Asset::new(page.as_bytes().to_vec().into(), "text/html; charset=utf-8")?;
 		html.headers = security(&page)?;
 		generation.insert("/".into(), html)?;
 		for (folder, suffix, content_type, route) in [
@@ -325,7 +341,7 @@ impl Generation {
 				{
 					generation.insert(
 						format!("/{route}{name}"),
-						Asset::new(read(&entry.path(), MAX_ASSET)?.into(), content_type),
+						Asset::new(read(&entry.path(), MAX_ASSET)?.into(), content_type)?,
 					)?;
 				}
 			}
@@ -342,18 +358,18 @@ impl Generation {
 	}
 }
 impl Asset {
-	fn new(body: Bytes, content_type: &'static str) -> Self {
+	fn new(body: Bytes, content_type: &'static str) -> Result<Self, String> {
 		let etag = HeaderValue::from_str(&format!(
 			"\"{}\"",
 			rooms_application::fields::lower_hex(&Sha256::digest(&body))
 		))
-		.expect("hex digest");
-		Self {
+		.map_err(|e| e.to_string())?;
+		Ok(Self {
 			body,
 			content_type,
 			etag,
 			headers: HeaderMap::new(),
-		}
+		})
 	}
 	pub fn response(self, request: &hyper::Request<hyper::body::Incoming>) -> super::http::Reply {
 		let matches = request
@@ -362,7 +378,11 @@ impl Asset {
 			.and_then(|h| h.to_str().ok())
 			.is_some_and(|header| {
 				header.split(',').map(str::trim).any(|tag| {
-					tag == "*" || tag.strip_prefix("W/").unwrap_or(tag) == self.etag.to_str().expect("hex digest")
+					tag == "*"
+						|| self
+							.etag
+							.to_str()
+							.is_ok_and(|etag| tag.strip_prefix("W/").unwrap_or(tag) == etag)
 				})
 			});
 		let mut response = super::http::response(
@@ -445,7 +465,7 @@ mod tests {
 	fn generation(label: &str) -> Generation {
 		Generation {
 			files: BTreeMap::new(),
-			revision: Asset::new(Bytes::copy_from_slice(label.as_bytes()), "text/plain"),
+			revision: Asset::new(Bytes::copy_from_slice(label.as_bytes()), "text/plain").unwrap(),
 			bytes: 0,
 		}
 	}

@@ -3,8 +3,8 @@
 // Forms own their values and save flows. This boundary owns only the question
 // shared by closing a modal, leaving a page, or starting an action that reloads:
 // are there local changes outside the flow being committed, and if so has the
-// reader chosen to discard them? The registry belongs to one React provider;
-// nothing is process-global, and a non-modal surface can render its own prompt
+// reader chosen to discard them? The registry belongs to one React provider.
+// Nothing is process-global, and a non-modal surface can render its own prompt
 // over the same context.
 
 import { discardChangesTitle } from "../../lib/text/controls.ts";
@@ -188,7 +188,7 @@ export function useCommitments(): CommitmentBoundary {
 
 /** Bridge an async form commit to the first React layout that contains its
  * result. A close/navigation request arriving in that gap waits, then asks the
- * form's current dirty state; it cannot prompt about values the successful
+ * form's current dirty state. It cannot prompt about values the successful
  * commit has already reset. Instance-owned by the form using it. */
 export function useCommitSettling(): {
 	begin(): void;

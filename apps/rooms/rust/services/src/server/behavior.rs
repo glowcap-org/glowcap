@@ -1,5 +1,5 @@
 //! The directory root shared by all connections. Every verb reads its
-//! arguments, asks the policy, and applies what the policy answered; the
+//! arguments, asks the policy, and applies what the policy answered. The
 //! verbs that take capabilities are the only ones that accept them.
 use super::{
 	registration, signaling,
@@ -37,13 +37,33 @@ fn takes_capability(verb: &str) -> bool {
 	)
 }
 
-/// Publish before listeners open; the calling session identifies the policy
+/// Publish before listeners open. The calling session identifies the policy
 /// owner even when a first turn precedes the accept loop's bookkeeping.
 pub(super) fn root(state: Shared) -> impl FnMut(&str, &[Argument]) -> Reply {
 	move |verb, args| {
 		let (connection, _) = super::rooms::caller(&mut state.borrow_mut())?;
+		if !matches!(verb, rooms_application::directory::UNWATCH | signal::DONE) {
+			state.borrow_mut().ingress(connection)?;
+		}
 		if !takes_capability(verb) && args.iter().any(|arg| Value(arg).contains_capability()) {
 			return Err(format!("directory {verb} does not take capability arguments"));
+		}
+		// The root bounds cheap queries and registration independently from
+		// effects admitted at subscription, creation and introduction owners.
+		let class = match verb {
+			rooms_application::directory::UNWATCH | signal::DONE => Some(rooms_application::admission::Class::Cleanup),
+			creation::OPEN | creation::OPEN_MANAGED | member::OFFER_INBOX => {
+				Some(rooms_application::admission::Class::Create)
+			}
+			member::REGISTER => Some(rooms_application::admission::Class::Registration),
+			INTRODUCE | member::REQUEST_DIRECT | creation::SUBSCRIBE_PUBLICATION | signal::OFFER => None,
+			signal::OFFER_INBOX | signal::ANSWER | signal::CANDIDATE => {
+				Some(rooms_application::admission::Class::Signal)
+			}
+			_ => Some(rooms_application::admission::Class::Read),
+		};
+		if let Some(class) = class {
+			state.borrow_mut().admit_work(connection, class, 1)?;
 		}
 		match verb {
 			LIST_BASELINE | LIST => list(&state, args, shape_of(verb)),
@@ -100,10 +120,12 @@ fn list(state: &Shared, args: &[Argument], shape: Shape) -> Reply {
 		let state = state.borrow();
 		let rows;
 		if let Some(mut durable) = state.authority.named_publication(name) {
-			let id = state
-				.authority
-				.publication_room(durable.id.text().as_str().expect("publication id"))
-				.expect("named publication");
+			let id = durable
+				.id
+				.text()
+				.as_str()
+				.and_then(|id| state.authority.publication_room(id))
+				.ok_or("named publication has no room")?;
 			let key = if id.managed {
 				rooms_application::server::rooms::RoomKey::managed(id.id)
 			} else {
@@ -111,7 +133,8 @@ fn list(state: &Shared, args: &[Argument], shape: Shape) -> Reply {
 			};
 			let count = state.rooms.member_count(&key);
 			durable.count = rooms_application::fields::Nullable::Value(
-				rooms_application::fields::SafeInteger::new(count as u64).expect("bounded roster"),
+				rooms_application::fields::SafeInteger::new(count as u64)
+					.ok_or("room roster is outside the safe integer range")?,
 			);
 			rows = vec![durable];
 		} else {
@@ -200,6 +223,10 @@ fn introduce(state: &Shared, connection: u64, args: &[Argument]) -> Reply {
 	}
 	let (nick, id) = (text(args, 0).unwrap_or(""), text(args, 1).unwrap_or(""));
 	let mut state = state.borrow_mut();
+	if !rooms_application::directory::introduction::valid_opening(text(args, 2).unwrap_or("")) {
+		return Err("introduce needs a bounded opening identity".into());
+	}
+	state.admit_introduction(connection, nick, id, text(args, 2))?;
 	match state
 		.policy
 		.introduce(connection, nick, id, text(args, 2).unwrap_or(""))
@@ -220,14 +247,11 @@ fn introduce(state: &Shared, connection: u64, args: &[Argument]) -> Reply {
 				.borrowed();
 			let resolver = caller.host().defer_turn().map_err(|e| e.to_string())?;
 			let caller_nick = state.policy.registered_nick(connection).unwrap_or("").to_owned();
-			let pending = format!(
-				"{}: \"{nick}\" has been asked for an inbox for \"{caller_nick}\"; try again",
-				FailureCode::IntroductionPending.wire()
-			);
-			let offline = format!(
-				"{}: \"{nick}\" could not be reached for direct messages",
-				FailureCode::PeerOffline.wire()
-			);
+			let pending = FailureCode::IntroductionPending.line(format_args!(
+				"\"{nick}\" has been asked for an inbox for \"{caller_nick}\"; try again"
+			));
+			let offline =
+				FailureCode::PeerOffline.line(format_args!("\"{nick}\" could not be reached for direct messages"));
 			seat.send(Work::Introduce {
 				target: tell,
 				caller,
@@ -247,6 +271,17 @@ fn request_direct(state: &Shared, connection: u64, args: &[Argument]) -> Reply {
 	let (nick, id) = (text(args, 0).unwrap_or(""), text(args, 1).unwrap_or(""));
 	let mut state = state.borrow_mut();
 	let now = state.now();
+	if !state
+		.policy
+		.direct_request_due(connection, nick, id, now)
+		.map_err(|r| r.reason())?
+	{
+		state
+			.admission
+			.coalesced(rooms_application::admission::Class::Introduction);
+		return Ok(Argument::Void);
+	}
+	state.admit_introduction(connection, nick, id, None)?;
 	if let Some(tell) = state
 		.policy
 		.request_direct(connection, nick, id, now)

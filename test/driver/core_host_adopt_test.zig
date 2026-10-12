@@ -48,7 +48,7 @@ test "openAcceptedAdvertisedOver adopts an embedder-pinned peer: handshake, fetc
     defer client.deinit();
 
     // The embedder-pinned peer: owned by this frame, adopted by the host,
-    // freed here after releaseSession — never by the host or the node.
+    // freed here after releaseSession, never by the host or the node.
     var pinned = engine.Peer.initNegotiating(allocator);
     defer pinned.deinit();
 
@@ -122,7 +122,7 @@ test "openAcceptedAdvertisedOver adopts an embedder-pinned peer: handshake, fetc
     try std.testing.expectEqual(@as(i64, 2), second_reply.value orelse return error.SecondReplyMissing);
 
     // Release the adopted connection: the node unregisters the slot but the
-    // pinned peer stays the embedder's — the deferred `pinned.deinit()` above
+    // pinned peer stays the embedder's, the deferred `pinned.deinit()` above
     // frees it exactly once under the testing allocator.
     try server.releaseSession(adopted);
 }

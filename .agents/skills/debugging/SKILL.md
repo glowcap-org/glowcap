@@ -14,8 +14,8 @@ the assertion each destroy it.
   A gate passes by exit code ([cli rule](../../rules/cli.md#gates)).
 - Reproduce alone and small before changing anything: the narrowest failing
   step, `-Dtest-filter=<name>`, and a deadline around anything that dials. A
-  failure you cannot reproduce alone is not yet a fact, and fixing a flake
-  produces a real defect.
+  failure you cannot reproduce alone is not yet a fact. A flake has a cause,
+  and fixing it fixes a real defect.
 - For protocol behavior, read `conformance/` (pinned Goblins source, upstream
   suite, draft spec) before designing around the failure.
 
@@ -23,13 +23,12 @@ the assertion each destroy it.
 
 When several proofs fail, take the whole inventory in one concurrent run (the
 Rooms browser family runs in parallel; see `apps/rooms/developing.md`), then
-group failures by first error before fixing any. A single cause often owns a
-cluster, and a serial fix-and-rerun loop spends the session discovering that
-one failure at a time. Probe in a copy of the failing proof kept outside the
-repository, with console capture, DOM dumps and screenshots, so product
-sources never carry diagnostic logging into the next build. When a proof's
-wait passes but the next step fails, suspect the wait: it may be satisfied by
-a transitional state such as a destination title over the old composer.
+group failures by first error before fixing any, since one cause often owns a
+cluster. Probe in a copy of the failing proof kept outside the repository,
+with console capture, DOM dumps and screenshots, so product sources never
+carry diagnostic logging into the next build. When a proof's wait passes but
+the next step fails, suspect the wait: a transitional state can satisfy it,
+such as a destination title over the old composer.
 
 ## Suspects, in order
 
@@ -48,8 +47,8 @@ failing case: half the diff, the input, the scenario, or the history (read-only
 never from `git checkout`/`git restore`.
 
 A candidate fix is the most expensive experiment and rules out only itself.
-Two disproved fixes in a row means the search is running on guesses: go measure
-a difference instead. Reach for a fix once you can say what breaks.
+After two disproved fixes in a row, stop guessing and measure a difference.
+Reach for a fix once you can say what breaks.
 
 ## Prove, don't assume
 

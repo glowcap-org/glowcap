@@ -4,7 +4,7 @@
  *
  * Each method is the public door onto an operation that already lives in
  * `authoring/`, `visibility.ts`, or `document-fields.ts`. The Engine subclass
- * adds the runtime loop, placement, paste, and undo; this class does not
+ * adds the runtime loop, placement, paste, and undo. This class does not
  * know about those.
  */
 
@@ -104,8 +104,8 @@ export abstract class EngineDocApi {
 	}
 
 	/** Extract a `ClipboardPayload` from the current doc + a selection.
-	 *  Pure read — no engine state change. Caller (UI) holds the
-	 *  payload between copy and paste; the engine doesn't carry
+	 *  Pure read. No engine state change. Caller (UI) holds the
+	 *  payload between copy and paste. The engine doesn't carry
 	 *  clipboard state. */
 	extractPayload(selection: Selection): ClipboardPayload {
 		return extractClipboardPayload(this.ctx.doc, selection);
@@ -114,13 +114,13 @@ export abstract class EngineDocApi {
 	/** Patch session-level fields.
 	 *
 	 * - `codec` / `captpVersion` rewrite the `session-opened` event in
-	 *   place — these are fundamental to the session's identity, not
+	 *   place, these are fundamental to the session's identity, not
 	 *   things that change mid-life.
 	 * - `state` is timeline-shaped: a non-undefined value inserts a
-	 *   `session-state-changed` event at `clock.t` (Flash convention —
+	 *   `session-state-changed` event at `clock.t` (Flash convention,
 	 *   the playhead is where you author). If you want to fix the
 	 *   genesis state, edit `initialState` directly on the
-	 *   `session-opened` event via a future intent; this path won't
+	 *   `session-opened` event via a future intent. This path won't
 	 *   touch it.
 	 */
 	updateSession(
@@ -151,16 +151,16 @@ export abstract class EngineDocApi {
 	 * one also moves its paired `message-delivered` so the flight
 	 * duration is preserved (the whole message slides as a rigid
 	 * unit). The `resize-end` move kind drives the arrival
-	 * independently — that's the "drag the right edge" gesture in
+	 * independently, that's the "drag the right edge" gesture in
 	 * the timeline.
 	 *
 	 * Validates against the doc's pair / ordering constraints. On
 	 * rejection, logs a warning and leaves the doc unchanged. The
 	 * intent layer's `#isNoOpIntent` already short-circuits "moving
-	 * to the same time"; rejections here are real conflicts.
+	 * to the same time". Rejections here are real conflicts.
 	 *
 	 * Extends `doc.duration` when the new time(s) exceed the current
-	 * end (Flash convention — same as `applyAuthored`).
+	 * end (Flash convention, same as `applyAuthored`).
 	 */
 	moveEvent(move: MoveIntent): void {
 		moveEventOnCtx(this.ctx, move);
@@ -168,7 +168,7 @@ export abstract class EngineDocApi {
 
 	/** Patch peer-level fields on a `peer-joined` event in place.
 	 * `peerId` (key) and `position` (own entry point) are excluded.
-	 * Re-seeks so the world rebuilds from the mutated doc — one
+	 * Re-seeks so the world rebuilds from the mutated doc, one
 	 * mutation site, small cost. */
 	updatePeer(
 		peerId: string,
@@ -182,7 +182,7 @@ export abstract class EngineDocApi {
 	}
 
 	/** Set the per-category timeline row order. Listed entity ids
-	 * render first in the given order; unlisted entities fall after
+	 * render first in the given order. Unlisted entities fall after
 	 * by the renderer's default sort (first-event-t). Empty `order`
 	 * clears the override for that category. When all categories
 	 * are cleared, `rowOrder` itself is removed so docs without any
@@ -197,16 +197,16 @@ export abstract class EngineDocApi {
 	/** Effective start time for an entity, resolving the
 	 * implicit-vs-explicit cascade through its context:
 	 *
-	 *   - World context (root) — start `0`, end `doc.duration`.
+	 *   - World context (root), start `0`, end `doc.duration`.
 	 *   - Peer.context = world. Implicit start = 0.
 	 *   - Session.context = both endpoint peers. Implicit start
-	 *     = `max(peerA.effectiveStart, peerB.effectiveStart)` —
+	 *     = `max(peerA.effectiveStart, peerB.effectiveStart)`,
 	 *     the session can't exist until BOTH endpoints exist.
 	 *   - Message.context = its session. Implicit start =
 	 *     `session.effectiveStart`.
 	 *
-	 * Explicit values (a creation event in `events`) always win;
-	 * absent values inherit from the context up the chain. */
+	 * Explicit values (a creation event in `events`) always win.
+	 * Absent values inherit from the context up the chain. */
 	// Engine-level effective range. Reads from `entity.timing` via
 	// the doc-resolver. The engine's constructor calls
 	// `projectFromObservations` so every entity is guaranteed to
@@ -223,13 +223,13 @@ export abstract class EngineDocApi {
 	): number {
 		// doc-resolver returns Infinity for implicit-end peers (world
 		// is unbounded). Callers expect `doc.duration` as the visible
-		// ceiling — clamp here so the timeline-bounded UI keeps
+		// ceiling, clamp here so the timeline-bounded UI keeps
 		// working without a separate "visible end" pass.
 		const end = effectiveOfEntity(this.ctx.doc, category, id).end;
 		return Number.isFinite(end) ? end : this.ctx.doc.duration;
 	}
 
-	/** Intrinsic start — the entity's stored intent after resolving
+	/** Intrinsic start. The entity's stored intent after resolving
 	 * implicit sides through inheritance, BUT before clamping into
 	 * the parent context. Differs from `effectiveStart` only when a
 	 * parent context has squeezed the value. */
@@ -299,7 +299,7 @@ export abstract class EngineDocApi {
 	/** Set the session's start: pins `timing.start` explicit at `t`.
 	 * Identity from `doc.entities.sessions[sessionId]`. Validates
 	 * against the cascade lower bound: `t >= max(peerA.effectiveStart,
-	 * peerB.effectiveStart)` — a session can't predate either
+	 * peerB.effectiveStart)`. A session can't predate either
 	 * endpoint. Mirrors `setPeerStart` for the session level. */
 	setSessionStart(sessionId: string, t: number): void {
 		setSessionStartOnCtx(this.ctx, sessionId, t);
@@ -325,7 +325,7 @@ export abstract class EngineDocApi {
 		setMessageDurationOnCtx(this.ctx, messageId, duration);
 	}
 
-	/** Session counterpart to `setPeerEnd` — pins `timing.duration`
+	/** Session counterpart to `setPeerEnd`, pins `timing.duration`
 	 * so the session's painted end lands at `t`. Validated against
 	 * the painted start (close cannot precede open). */
 	setSessionEnd(sessionId: string, t: number): void {
@@ -340,7 +340,7 @@ export abstract class EngineDocApi {
 		clearSessionEndOnCtx(this.ctx, sessionId);
 	}
 
-	/** State one of the session's temporal properties from `t` onward —
+	/** State one of the session's temporal properties from `t` onward,
 	 *  a lifecycle change, or one end attaching to a peer. Inspector
 	 *  trajectory-row edit primitive, and the session sibling of
 	 *  `setPeerUpdate`. */
@@ -364,7 +364,7 @@ export abstract class EngineDocApi {
 	}
 
 	/** Edit the session's genesis `initialState` (row 0 of the state
-	 *  trajectory — the value the session is born with). */
+	 *  trajectory. The value the session is born with). */
 	setSessionInitialState(sessionId: string, state: SessionState): void {
 		setSessionInitialStateOnCtx(this.ctx, sessionId, state);
 	}
@@ -387,7 +387,7 @@ export abstract class EngineDocApi {
 	/** Set an entity's per-row stage-visibility mode (four states:
 	 * visible / label-hidden / body-hidden / both-hidden). The
 	 * three doc arrays (`rowHidden`, `rowLabelHidden`, `rowBodyHidden`)
-	 * are mutually exclusive — `setRowVisMode` removes the id from
+	 * are mutually exclusive, `setRowVisMode` removes the id from
 	 * all three first, then writes it into the bucket for the
 	 * target mode. "visible" is the absence-from-all case.
 	 *
@@ -404,7 +404,7 @@ export abstract class EngineDocApi {
 			id,
 			mode,
 		);
-		// Same React-subscriber notification as `reorderRow` — without
+		// Same React-subscriber notification as `reorderRow`, without
 		// it the gutter eyeball glyph waits for the next clock tick to
 		// repaint, even though the Stage updates same-frame.
 		this.notify();
@@ -433,7 +433,7 @@ export abstract class EngineDocApi {
 	}
 
 	/** Set the all-rows visibility flag. INDEPENDENT of per-category
-	 * and per-entity flags — same cascade rationale as
+	 * and per-entity flags, same cascade rationale as
 	 * `setCategoryVisMode`. */
 	setAllVisMode(mode: "visible" | "label" | "body" | "both"): void {
 		if (setAllVisModeOnDoc(this.ctx.doc as TimelineDocument, mode)) {
@@ -491,7 +491,7 @@ export abstract class EngineDocApi {
 	}
 
 	/** Per-entity stored mode. UI consumers cycling the entity
-	 * eyeball read this directly; render-time cascade lives in
+	 * eyeball read this directly. Render-time cascade lives in
 	 * `effectiveRowVisMode`. */
 	rowVisMode(
 		category: "peers" | "sessions" | "messages",
@@ -514,7 +514,7 @@ export abstract class EngineDocApi {
 
 	/** Effective per-entity visibility for rendering: composes the
 	 * `all → category → entity` cascade. The cascade-bug fix replaces
-	 * `effectiveRowVisMode` in `./visibility.ts` only — this method
+	 * `effectiveRowVisMode` in `./visibility.ts` only, this method
 	 * stays a one-line delegate. */
 	effectiveRowVisMode(
 		category: "peers" | "sessions" | "messages",

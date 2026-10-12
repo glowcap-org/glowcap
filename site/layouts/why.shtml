@@ -166,7 +166,7 @@
 					const current = i === step - 1;
 					li.classList.toggle("is-current", current);
 					// The class is a paint; this is what a screen reader reads, so
-					// a listener knows which step the figure is actually showing.
+					// a listener knows which step the figure is showing.
 					if (current) li.setAttribute("aria-current", "step");
 					else li.removeAttribute("aria-current");
 				});

@@ -147,7 +147,7 @@ await server.shutdown();
 
 // The first-call matrix spans Start building, four binding pages, and four
 // transport/relay pages. A real build renders tabs on every one; a handful is
-// the honest floor below which the walk found nothing to press.
+// the floor below which the walk found nothing to press.
 const floor = 6;
 if (tabbedPages < floor) {
 	console.error(`site_tabs: pressed tabs on only ${tabbedPages} pages (floor ${floor}); refusing a vacuous pass`);

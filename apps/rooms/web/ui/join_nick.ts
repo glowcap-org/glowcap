@@ -77,7 +77,7 @@ export function answerJoinNick(
  *
  * A live directory registration reserves its name across that directory, so
  * it proves a collision before this tab has the room. A room listing only
- * carries a count; room-local knowledge comes from holding the exact room and
+ * carries a count. Room-local knowledge comes from holding the exact room and
  * receiving its roster. The room still judges at submit time because either
  * reading can race another arrival. */
 export function joinNickAvailability(

@@ -7,11 +7,16 @@ import type { BridgeForm } from "../../../lib/bridge/form.ts";
 import type { RoomAuthorityKind } from "../../../lib/room/authority.ts";
 import type { RoomPolicy } from "../room_policy.ts";
 import type { DirId, DmConv, OperatorCategory, OpsCap, RoomDestination, ViewerDirection } from "../types.ts";
-import type { RoomsErrorCode } from "../../../lib/error_codes.ts";
+import type { RoomsError, RoomsErrorCode } from "../../../lib/error_codes.ts";
 
 export type JoinOutcome =
 	| { readonly ok: true }
-	| { readonly ok: false; readonly code: RoomsErrorCode | null; readonly text: string };
+	| {
+		readonly ok: false;
+		readonly code: RoomsErrorCode | null;
+		readonly text: string;
+		readonly failure?: RoomsError;
+	};
 
 export type JoinNicknameIntent =
 	| { readonly kind: "exact"; readonly name: string }
@@ -36,7 +41,7 @@ export interface RoomsDirectoryController {
 	dirAddress(dir: DirId): string;
 	directoryId(locator: string): DirId | null;
 	/** The room's final answer to a join. Expected protocol failures retain their
-	 * code so the field that can repair one receives it; unknown failures still
+	 * code so the field that can repair one receives it. Unknown failures still
 	 * carry reader-facing text through the same boundary. */
 	join(destination: RoomDestination, nick: JoinNicknameIntent, signal?: AbortSignal): Promise<JoinOutcome>;
 	/** Reach a directory without entering a room in it, so a card can offer its
@@ -46,9 +51,9 @@ export interface RoomsDirectoryController {
 }
 
 export interface RoomsConversationController {
-	/** Settles when the conversation opens; its failure has already been told. */
+	/** Settles when the conversation opens. Its failure has already been told. */
 	startDm(who: string): Promise<void>;
-	/** Reconnect to the exact peer registration; an empty string is success. */
+	/** Reconnect to the exact peer registration. An empty string is success. */
 	recoverDm(key: string): Promise<string>;
 	retry(key: string, id: number): void;
 	withdraw(key: string, id: number): void;
@@ -82,7 +87,7 @@ export interface RoomsRoomController {
 		answers: Record<string, string>,
 		secrets: Record<string, string>,
 	): Promise<string>;
-	/** Take or claim the room's moderator capability; resolves with the refusal,
+	/** Take or claim the room's moderator capability. Resolves with the refusal,
 	 * or "" once held. */
 	stewardRoom(key: string, link?: string): Promise<string>;
 	managerRoom(key: string, link: string): Promise<string>;
@@ -94,9 +99,9 @@ export interface RoomsRoomController {
 	dropRoomModerator(key: string, token: string): Promise<string>;
 	createRoomLink(key: string): Promise<string>;
 	/** Explicitly recover a room whose exact authority retired. A public room
-	 * retries by name; a held room supplies a current exact link. */
+	 * retries by name. A held room supplies a current exact link. */
 	recoverRoom(key: string, link?: string): Promise<string>;
-	/** Ask a member out; resolves with the refusal, or "" once asked. */
+	/** Ask a member out. Resolves with the refusal, or "" once asked. */
 	askRoomMemberOut(key: string, name: string): Promise<string>;
 }
 

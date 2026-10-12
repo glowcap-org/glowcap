@@ -1,16 +1,16 @@
-/* glowcap_iroh_sidecar.h — the C seam of the iroh netlayer sidecar (ADR-0055).
+/* glowcap_iroh_sidecar.h, the C seam of the iroh netlayer sidecar (ADR-0055).
  *
  * Hand-written. The implementation is transports/iroh/src/lib.rs (a Rust
- * staticlib over the iroh crate, emitting libglowcap_iroh_sidecar.a); the
+ * staticlib over the iroh crate, emitting libglowcap_iroh_sidecar.a). The
  * consumer is the Zig sidecar owner src/net/transport/iroh/sidecar.zig. The
  * explicitly blocking calls (connect_blocking/accept/conn_read/conn_write)
  * block the calling thread. Evented connect, accept, and stream I/O report
  * terminal/readiness state over one fd so a single loop thread multiplexes
  * many connections. The endpoint owns the private tokio runtime driving both
- * surfaces. No call panics across this boundary; failures come back as null
+ * surfaces. No call panics across this boundary. Failures come back as null
  * handles or negative return values.
  *
- * This is the private byte-level seam. It is deliberately prefixed
+ * This is the private byte-level seam. It is prefixed
  * glowcap_iroh_sidecar_* so it shares no symbol prefix with the public
  * frame-level ABI (glowcap_iroh_netlayer_*, in include/glowcap_net_transport_iroh.h): the
  * two link into one library without colliding.
@@ -31,8 +31,8 @@ extern "C" {
 #endif
 
 /* Reachability postures for glowcap_iroh_sidecar_endpoint_new. The caller
- * always passes one — there is no default. A glowcap peer never turns on relays
- * or a discovery service as a hidden implementation detail; the host chooses,
+ * always passes one. There is no default. A glowcap peer never turns on relays
+ * or a discovery service as a hidden implementation detail. The host chooses,
  * in the open, how the endpoint becomes reachable.
  *
  *   DIRECT             relay-less, lookup-less. Dial by id plus explicit
@@ -55,8 +55,8 @@ extern "C" {
  * from one host thread: the loop polls one readiness fd, drains
  * (subject, events) records, and drives non-blocking byte I/O. WOULD_BLOCK is
  * the try_read/try_write sentinel, distinct from 0 (clean end of stream) and
- * -1 (error). EV_ACCEPT uses subject 0; EV_CONNECT uses the caller's request
- * id; connection I/O uses a stable endpoint-scoped connection id. */
+ * -1 (error). EV_ACCEPT uses subject 0. EV_CONNECT uses the caller's request
+ * id. Connection I/O uses a stable endpoint-scoped connection id. */
 #define GLOWCAP_IROH_WOULD_BLOCK ((intptr_t)-2)
 #define GLOWCAP_IROH_EV_READABLE 1u
 #define GLOWCAP_IROH_EV_WRITABLE 2u
@@ -68,7 +68,7 @@ extern "C" {
  * iroh's own account of the fault beside the dial code, so an embedder learns
  * which relay refused, which address stayed silent, or what the QUIC close
  * reason was, not only "unreachable". The sidecar keeps at most this many
- * bytes per failed dial, cut at the last whole UTF-8 sequence that fits; a
+ * bytes per failed dial, cut at the last whole UTF-8 sequence that fits. A
  * caller buffer of this size never sees a truncated copy. */
 #define GLOWCAP_IROH_SIDECAR_DIAL_TEXT_BYTES 256u
 
@@ -82,19 +82,19 @@ typedef struct glowcap_iroh_sidecar_ready_event {
 } glowcap_iroh_sidecar_ready_event;
 
 /* An iroh endpoint: a bound QUIC socket pair plus the tokio runtime driving
- * it. Created by glowcap_iroh_sidecar_endpoint_new; released by
+ * it. Created by glowcap_iroh_sidecar_endpoint_new. Released by
  * glowcap_iroh_sidecar_endpoint_free. */
 typedef struct glowcap_iroh_sidecar_endpoint glowcap_iroh_sidecar_endpoint;
 
-/* One QUIC connection carrying one bidirectional stream — the OCapN session's
+/* One QUIC connection carrying one bidirectional stream, the OCapN session's
  * byte channel. Created by glowcap_iroh_sidecar_connect_blocking,
- * glowcap_iroh_sidecar_endpoint_finish_connect, or the bounded accept;
- * released by glowcap_iroh_sidecar_conn_free. */
+ * glowcap_iroh_sidecar_endpoint_finish_connect, or the bounded accept.
+ * Released by glowcap_iroh_sidecar_conn_free. */
 typedef struct glowcap_iroh_sidecar_conn glowcap_iroh_sidecar_conn;
 
 /* One endpoint's configuration, passed by pointer so a new setting is a field
  * rather than a wider signature every caller has to agree on. `reachability` is
- * one of GLOWCAP_IROH_REACH_* and is mandatory — it decides whether the
+ * one of GLOWCAP_IROH_REACH_* and is mandatory, it decides whether the
  * endpoint uses relays or a discovery service, and there is no default. An
  * unknown value returns NULL.
  *
@@ -106,10 +106,10 @@ typedef struct glowcap_iroh_sidecar_conn glowcap_iroh_sidecar_conn;
  * it, and so how quickly a peer that was killed rather than closed stops
  * counting as connected: such a peer sends nothing, and UDP has no equivalent
  * of the FIN a dying TCP process gets from the operating system, so nothing
- * else ends the connection. There is no keep-alive beside it; the sidecar
+ * else ends the connection. There is no keep-alive beside it. The sidecar
  * derives the heartbeat from this timeout so the two cannot be put out of step.
  *
- * `worker_threads` sizes this endpoint's private tokio runtime; 0 selects the
+ * `worker_threads` sizes this endpoint's private tokio runtime. 0 selects the
  * sidecar default. It is an endpoint cost, not a per-connection cost.
  *
  * 0 means the built-in default for either timeout or the worker count. */
@@ -123,16 +123,16 @@ typedef struct glowcap_iroh_sidecar_endpoint_config {
 /* Create an endpoint and bind its UDP sockets. `secret_seed32` is either NULL
  * (a fresh random Ed25519 endpoint key is generated) or a pointer to exactly
  * 32 bytes of secret key material the caller keeps owning. `config` is
- * mandatory; a NULL one returns NULL. Returns an owned handle, or NULL on
+ * mandatory. A NULL one returns NULL. Returns an owned handle, or NULL on
  * failure. Blocks until the sockets are bound. */
 glowcap_iroh_sidecar_endpoint *glowcap_iroh_sidecar_endpoint_new(
     const uint8_t *secret_seed32,
     const glowcap_iroh_sidecar_endpoint_config *config);
 
-/* Write this endpoint's id — its Ed25519 public key, the dialable designator —
+/* Write this endpoint's id, its Ed25519 public key, the dialable designator,
  * into `out` as lowercase hex (64 bytes; iroh's canonical string form, parsed
  * back by either connect surface). No terminator is written. Returns the
- * complete byte count and copies only when `out_cap` is large enough; a
+ * complete byte count and copies only when `out_cap` is large enough. A
  * zero-capacity call is the size query. Borrows the handle. */
 intptr_t glowcap_iroh_sidecar_endpoint_node_id(const glowcap_iroh_sidecar_endpoint *ep,
                                                uint8_t *out, size_t out_cap);
@@ -142,16 +142,16 @@ intptr_t glowcap_iroh_sidecar_endpoint_node_id(const glowcap_iroh_sidecar_endpoi
  * bindings are reported in loopback form so the list is dialable on the local
  * host. This is the hint string a partner passes to either connect surface.
  * No terminator is written. Returns the complete byte count and copies only
- * when `out_cap` is large enough; a zero-capacity call is the size query.
+ * when `out_cap` is large enough. A zero-capacity call is the size query.
  * Borrows the handle. */
 intptr_t glowcap_iroh_sidecar_endpoint_direct_addrs(const glowcap_iroh_sidecar_endpoint *ep,
                                                      uint8_t *out, size_t out_cap);
 
 /* Dial a remote endpoint by id and open the session's one bidirectional
- * stream. `node_id`/`node_id_len` view the partner's id string; `addr_hints`/
+ * stream. `node_id`/`node_id_len` view the partner's id string. `addr_hints`/
  * `addr_hints_len` view its comma-separated direct-address list. An empty hint
  * list dials by id alone when the endpoint was bound with a discovery posture
- * (DISCOVERY, DISCOVERY_NO_RELAY, or LOCAL_DISCOVERY); a DIRECT endpoint needs
+ * (DISCOVERY, DISCOVERY_NO_RELAY, or LOCAL_DISCOVERY). A DIRECT endpoint needs
  * the hints. Both views are
  * borrowed for the call only. Blocks until the QUIC connection is up. The
  * returned stream is lazy: the dialer must write first, which OCapN
@@ -168,7 +168,7 @@ intptr_t glowcap_iroh_sidecar_endpoint_direct_addrs(const glowcap_iroh_sidecar_e
  * `out_text` / `out_text_cap` / `out_text_len` carry the failure's text, the
  * same bytes the evented finish call reports: on failure the longest whole
  * UTF-8 prefix that fits `out_text_cap` is copied into `out_text` and its
- * byte count written to `out_text_len` (no terminator); on success the count
+ * byte count written to `out_text_len` (no terminator). On success the count
  * is 0. A NULL `out_text` with a zero capacity declines the text, and a NULL
  * `out_text_len` declines the count. Size the buffer by
  * GLOWCAP_IROH_SIDECAR_DIAL_TEXT_BYTES to receive every retained byte. The
@@ -183,18 +183,18 @@ glowcap_iroh_sidecar_conn *glowcap_iroh_sidecar_connect_blocking(
 
 /* Wait at most timeout_ms for a partner connection and first bidirectional
  * stream. Returns only after the dialer has written its first bytes (QUIC bi
- * streams are lazy; OCapN's dialer writes op:start-session immediately), or
+ * streams are lazy. OCapN's dialer writes op:start-session immediately), or
  * NULL with out_code set to the same classification connect_blocking uses:
  * 2 for a bounded timeout, 1 for a null endpoint or negative timeout, and 4
  * for endpoint close, panic, or stream-handle construction failure. out_code
- * is mandatory. Private resident-listener primitive; does not arm or drain
+ * is mandatory. Private resident-listener primitive. Does not arm or drain
  * readiness. */
 glowcap_iroh_sidecar_conn *glowcap_iroh_sidecar_accept_timeout(
     glowcap_iroh_sidecar_endpoint *ep, int32_t timeout_ms,
     int32_t *out_code);
 
-/* Write the connection's QUIC-authenticated remote endpoint id — the 32-byte
- * Ed25519 public key TLS verified during the handshake — into `out_key32`
+/* Write the connection's QUIC-authenticated remote endpoint id, the 32-byte
+ * Ed25519 public key TLS verified during the handshake, into `out_key32`
  * (caller-owned, at least 32 bytes). The transport-layer peer proof the
  * driver installs as pre-feed CapTP hello policy on accept paths (ADR-0097).
  * Returns 0 on success, -1 on failure. Borrows the handle. */
@@ -203,29 +203,29 @@ int32_t glowcap_iroh_sidecar_conn_remote_node_id(const glowcap_iroh_sidecar_conn
 /* Read up to `len` bytes into `buf`, blocking until at least one byte
  * arrives. Returns the byte count (> 0), 0 at clean end of stream (the
  * partner finished its send side or closed the connection cleanly), or -1 on
- * error. Borrows the handle; `buf` is caller-owned. */
+ * error. Borrows the handle. `buf` is caller-owned. */
 intptr_t glowcap_iroh_sidecar_conn_read(glowcap_iroh_sidecar_conn *conn, uint8_t *buf, size_t len);
 
 /* Write all `len` bytes from `buf`, blocking until the QUIC flow-control
  * window accepts them. Returns `len` on success or -1 on error. Borrows the
- * handle; `buf` is caller-owned and fully consumed before return. */
+ * handle. `buf` is caller-owned and fully consumed before return. */
 intptr_t glowcap_iroh_sidecar_conn_write(glowcap_iroh_sidecar_conn *conn, const uint8_t *buf, size_t len);
 
 /* Report stream health after writes. QUIC transmits written bytes eagerly, so
- * there is nothing buffered to push; returns 0 while the connection is alive
+ * there is nothing buffered to push. Returns 0 while the connection is alive
  * and -1 once it is closed or lost. Borrows the handle. */
 int32_t glowcap_iroh_sidecar_conn_flush(glowcap_iroh_sidecar_conn *conn);
 
 /* Gracefully close. A blocking-surface connection finishes its send stream and
  * closes QUIC. A readiness-surface connection marks its writer closed so the
  * writer drains admitted bytes and finishes the stream asynchronously, without
- * parking the caller's reactor thread. Idempotent. Borrows the handle; the
+ * parking the caller's reactor thread. Idempotent. Borrows the handle. The
  * handle stays valid until glowcap_iroh_sidecar_conn_free. */
 void glowcap_iroh_sidecar_conn_close(glowcap_iroh_sidecar_conn *conn);
 
 /* Release a connection handle, closing it first if still open. A
  * readiness-surface connection transfers any admitted final write batch to its
- * writer task, which drains asynchronously; release never joins that task on
+ * writer task, which drains asynchronously. Release never joins that task on
  * the caller's reactor thread. NULL is a no-op. The handle is invalid afterward. */
 void glowcap_iroh_sidecar_conn_free(glowcap_iroh_sidecar_conn *conn);
 
@@ -233,14 +233,14 @@ void glowcap_iroh_sidecar_conn_free(glowcap_iroh_sidecar_conn *conn);
 
 /* The OS readiness fd for this endpoint's scale surface: the read end of a
  * self-pipe the sidecar nudges whenever a connection (or the acceptor) becomes
- * ready. The completion loop registers this read-only fd once and polls it; on
+ * ready. The completion loop registers this read-only fd once and polls it. On
  * wake it calls glowcap_iroh_sidecar_endpoint_drain_ready. Returns -1 if the
- * readiness channel could not be created. Borrows the handle; the fd is owned by
+ * readiness channel could not be created. Borrows the handle. The fd is owned by
  * the endpoint and valid until glowcap_iroh_sidecar_endpoint_free. */
 int32_t glowcap_iroh_sidecar_endpoint_readiness_fd(const glowcap_iroh_sidecar_endpoint *ep);
 
 /* Drain pending readiness records into the caller's buffer. `out` points at
- * `out_cap` records; the call writes up to that many and returns the count
+ * `out_cap` records. The call writes up to that many and returns the count
  * (>= 0), or -1 on error. The call clears coalesced fd bytes before draining
  * authoritative records. No allocation per call. If more remain queued than
  * fit, the endpoint re-nudges its readiness fd so the loop wakes again to drain
@@ -251,8 +251,8 @@ intptr_t glowcap_iroh_sidecar_endpoint_drain_ready(const glowcap_iroh_sidecar_en
 
 /* Admit one outbound dial without blocking. request_id is nonzero and unique
  * among this endpoint's live requests. The borrowed target is parsed before
- * return. A zero result promises exactly one EV_CONNECT carrying request_id;
- * a nonzero rejection owes no event. */
+ * return. A zero result promises exactly one EV_CONNECT carrying request_id.
+ * A nonzero rejection owes no event. */
 int32_t glowcap_iroh_sidecar_endpoint_start_connect(
     glowcap_iroh_sidecar_endpoint *ep, size_t request_id,
     const uint8_t *node_id, size_t node_id_len,
@@ -269,7 +269,7 @@ int32_t glowcap_iroh_sidecar_endpoint_start_connect(
  * failed: iroh's own account of the fault (its error and source chain on one
  * line), or for a local deadline the deadline it missed. On a failure the
  * longest whole UTF-8 prefix that fits `out_text_cap` is copied into
- * `out_text` and its byte count written to `out_text_len` (no terminator); on
+ * `out_text` and its byte count written to `out_text_len` (no terminator). On
  * success, for a pending request, and for an unknown request the count is 0.
  * A NULL `out_text` with a zero capacity declines the text, and a NULL
  * `out_text_len` declines the count. Size the buffer by
@@ -283,7 +283,7 @@ int32_t glowcap_iroh_sidecar_endpoint_finish_connect(
     uint8_t *out_text, size_t out_text_cap, size_t *out_text_len);
 
 /* Cancel an admitted dial. The winning pending-to-canceled transition emits
- * the request's sole EV_CONNECT; canceling a terminal request is idempotent. */
+ * the request's sole EV_CONNECT. Canceling a terminal request is idempotent. */
 int32_t glowcap_iroh_sidecar_endpoint_cancel_connect(
     glowcap_iroh_sidecar_endpoint *ep, size_t request_id);
 
@@ -297,9 +297,9 @@ int32_t glowcap_iroh_sidecar_endpoint_set_nonblocking_accept(glowcap_iroh_sideca
 int32_t glowcap_iroh_sidecar_endpoint_admission(glowcap_iroh_sidecar_endpoint *ep, uint8_t enabled);
 
 /* Claim one connection the acceptor has pulled off the wire, or NULL when none
- * is waiting (the non-blocking accept: NULL is WOULD_BLOCK, not failure — retry
- * on the next EV_ACCEPT). The returned handle is a fresh blocking connection;
- * the loop calls glowcap_iroh_sidecar_conn_set_nonblocking on it. Returns an
+ * is waiting (the non-blocking accept: NULL is WOULD_BLOCK, not failure, retry
+ * on the next EV_ACCEPT). The returned handle is a fresh blocking connection.
+ * The loop calls glowcap_iroh_sidecar_conn_set_nonblocking on it. Returns an
  * owned handle or NULL. The endpoint must outlive the connection. */
 glowcap_iroh_sidecar_conn *glowcap_iroh_sidecar_endpoint_try_accept(glowcap_iroh_sidecar_endpoint *ep);
 
@@ -330,7 +330,7 @@ intptr_t glowcap_iroh_sidecar_conn_try_write(glowcap_iroh_sidecar_conn *conn, co
 
 /* Close the endpoint without releasing its handle: an in-flight bounded accept
  * returns NULL, subsequent dials fail, and queued connection closes are
- * delivered. Idempotent. Borrows the handle; the handle stays valid until
+ * delivered. Idempotent. Borrows the handle. The handle stays valid until
  * glowcap_iroh_sidecar_endpoint_free. */
 void glowcap_iroh_sidecar_endpoint_close(glowcap_iroh_sidecar_endpoint *ep);
 

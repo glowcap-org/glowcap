@@ -5,7 +5,7 @@
 // reaches it, and the facts a reader would open the title to check. The
 // directory's name is the door to that directory's conversation. The locator
 // below the facts is that directory's address for a public room. A private room
-// has no name-based entry, so its held room link is the only honest locator.
+// has no name-based entry, so its held room link is the only accurate locator.
 // Durable authority for either kind remains visible in the separate
 // Capabilities tab.
 

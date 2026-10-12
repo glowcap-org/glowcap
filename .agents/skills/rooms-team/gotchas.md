@@ -11,7 +11,7 @@
 | Team start partly fails | Inspect team-status. Already-started peers remain available; team-stop attempts every roster entry. |
 | Nickname or workspace is already in use | Resolve the conflict; do not silently change a name or erase state. |
 | Browser DM cannot be reached | Check the route described in rooms-peer; a WebRTC-only browser needs a compatible reachable route. |
-| Member restarts after a stop order | Stop it and restate presence ownership. Recovery is not permission to disregard the human or lead. |
+| Member restarts after a stop order | Stop it and restate presence ownership. Recovery does not override the human or lead. |
 | Debate or handoff loops | Use the strategy's round or handoff limit, then let the lead summarize and decide or ask the human. |
 | Harness reports progress but the room sees nothing | Post a concise update for room-scoped work; keep private tool output out of chat. |
 

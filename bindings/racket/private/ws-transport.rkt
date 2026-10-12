@@ -6,7 +6,7 @@
 ;; handshake runs end to end over it. This module adapts one client WebSocket
 ;; (net/rfc6455) to the `async-transport` record the pump drives: each binary
 ;; message is one inbound chunk, and the host's stream delimiter owns framing,
-;; exactly as over TCP.
+;; as over TCP.
 ;;
 ;; `ws-recv` blocks its thread, but `read-some!` must also wait on the pump's
 ;; wake event. A reader thread bridges the two: it pulls one message and posts
@@ -26,7 +26,7 @@
 (provide ws-transport)
 
 ;; A WebSocket message is a transport chunk and may coalesce several CapTP
-;; frames. This bound is intentionally independent from DEFAULT-FRAME-CAP.
+;; frames. This bound is independent from DEFAULT-FRAME-CAP.
 (define WS-MESSAGE-HIGH-WATER BINDING-WEBSOCKET-MESSAGE-CAP-BYTES)
 
 ;; Open a WebSocket and adapt it. Procedures are injectable only at this private

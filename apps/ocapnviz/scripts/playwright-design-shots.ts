@@ -1,11 +1,11 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-design-shots.ts — screenshots the chrome in both themes.
+ * playwright-design-shots.ts: screenshots the chrome in both themes.
  *
  * Usage: playwright-design-shots.ts <out-dir> [url]
  *
  * Writes, per theme, a full window plus close crops of the top bar,
- * the left pane, and the inspector — the three surfaces the control
+ * the left pane, and the inspector. The three surfaces the control
  * families all appear on. Run it before and after a design change and
  * compare the pairs.
  */

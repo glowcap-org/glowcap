@@ -3,8 +3,8 @@ import { assertEquals } from "../assert.ts";
 import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
 import type { RoomsManagedCommand, RoomsManagedRecoveredEffect } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
 import type { ObservationView } from "../../web/ui/session/managed/model.ts";
-import { resumeEffect } from "../../web/ui/session/managed/recovery.ts";
-import { TerminalObservationError } from "../../web/ui/session/managed/operation.ts";
+import { restoreEffects, resumeEffect } from "../../web/ui/session/managed/recovery.ts";
+import { ResultAcquisitionError, TerminalObservationError } from "../../web/ui/session/managed/operation.ts";
 
 Deno.test("paused unknown execution resumes before reading its unavailable result", async () => {
 	let reads = 0;
@@ -345,4 +345,46 @@ Deno.test("an uncertain result acquisition keeps its receipt until the original 
 	assertEquals(await session.releaseOperation(operation.id).then(() => false, () => true), true);
 	assertEquals([inspected, session.pending], [0, ["acquiring"]]);
 	await session.close();
+});
+
+Deno.test("failed resume preserves its earlier committed status for the operation owner", async () => {
+	const cause = new Error("resume unavailable");
+	const observed: string[] = [];
+	const request = {
+		status: () => Promise.resolve("committed"),
+		resume: () => Promise.reject(cause),
+	} as unknown as RoomsManagedRecoveredEffect;
+	const outcome = (await Promise.allSettled([resumeEffect(request, () => {}, (status) => observed.push(status))]))[0];
+	assertEquals(observed, ["committed"]);
+	assertEquals(outcome.status, "rejected");
+	if (outcome.status === "rejected") {
+		assertEquals(outcome.reason instanceof ResultAcquisitionError, true);
+		assertEquals(outcome.reason.cause, cause);
+	}
+});
+
+Deno.test("startup retains committed inventory evidence before reading a recovered result", async () => {
+	const request = { free() {} } as unknown as RoomsManagedRecoveredEffect;
+	const session = viewer({
+		effects: () => Promise.resolve([{ operation: "known", status: "committed" }]),
+		recoverEffect: () => Promise.resolve(request),
+	});
+	let committed = false;
+	try {
+		await restoreEffects({
+			workspace: session.workspace,
+			retain: (operation) => {
+				committed = operation.committed;
+			},
+			finish: () => {},
+			complete: (operation) => {
+				operation.finish();
+				return Promise.resolve();
+			},
+			report: () => {},
+		});
+		assertEquals(committed, true);
+	} finally {
+		await session.close();
+	}
 });

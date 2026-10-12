@@ -12,7 +12,7 @@
 //! may complete an operation synchronously into its ready queue where no
 //! descriptor reports it. While records wait, a wake channel armed as a
 //! backend readiness poll (`submitPoll`) keeps the descriptor readable, which
-//! makes it level-shaped as the contract requires; the poll consumes no pool
+//! makes it level-shaped as the contract requires. The poll consumes no pool
 //! buffer.
 //!
 //! Reads keep one completed receive per connection and lend it through the
@@ -54,13 +54,13 @@ pub const Options = struct {
     /// Drained staging buffers the resident keeps for reuse across all its
     /// connections.
     spare_send_buffers: usize = 64,
-    /// The largest drained buffer kept as a spare; a larger one is freed.
+    /// The largest drained buffer kept as a spare. A larger one is freed.
     spare_send_bytes: usize = 16 << 10,
 };
 
 /// `Policy` binds the backend to transport symbols:
 ///
-///   * `resolve(locator) !Backend.ConnectTarget`, the dial resolver;
+///   * `resolve(locator) !Backend.ConnectTarget`, the dial resolver.
 ///   * `listenTarget(backend, transport, config) !Backend.ListenTarget`,
 ///     refusing a designator the backend cannot serve exactly;
 ///   * `localLocator(backend, fd, transport, identity, allocator)
@@ -105,7 +105,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
         pub const Conn = struct {
             fd: Fd,
             recv: Recv = .idle,
-            /// `front` is borrowed by the backend while `sending`; writes
+            /// `front` is borrowed by the backend while `sending`. Writes
             /// append to `back`.
             front: std.ArrayListUnmanaged(u8) = .empty,
             back: std.ArrayListUnmanaged(u8) = .empty,
@@ -161,7 +161,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
         spare_sends: std.ArrayListUnmanaged(std.ArrayListUnmanaged(u8)) = .empty,
         next_conn: usize = 1,
         next_listener: usize = 1,
-        /// Listener closes the backend still owes; a stopped listener's row
+        /// Listener closes the backend still owes. A stopped listener's row
         /// is gone, but its descriptor is not released until this settles.
         closing_listeners: usize = 0,
         /// Listen-ready waits the backend still owes.
@@ -191,7 +191,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
 
         /// Close whatever is still open and retire every operation the
         /// backend still owes, waiting at most `timeout_ms`. Fallible and
-        /// retryable, as `completion.Loop.closeAndDrain` is; `deinit` requires
+        /// retryable, as `completion.Loop.closeAndDrain` is. `deinit` requires
         /// it to have succeeded, because an owed operation may still borrow a
         /// connection's staging.
         pub const closeAndDrain = teardown.Machine(Self).closeAndDrain;
@@ -366,7 +366,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
         /// A message-framed backend sends each submit as one packet, so a
         /// packet is staged whole and at most one waits behind the send in
         /// flight: `startSend` then always submits exactly one packet. The
-        /// window does not split a packet; the frame cap already bounds it.
+        /// window does not split a packet. The frame cap already bounds it.
         fn stagePacket(self: *Self, conn: *Conn, bytes: []const u8) isize {
             if (conn.back.items.len != 0) {
                 conn.owes_writable = true;
@@ -462,7 +462,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
         }
 
         /// Keeps the exact cause in the chain and classifies it on the
-        /// closed retry axis; a cause outside that axis is a lost connection,
+        /// closed retry axis. A cause outside that axis is a lost connection,
         /// except an unroutable locator, which no retry repairs.
         fn dialFailure(err: anyerror) netlayer.DialFailure {
             const classification: netlayer.DialError = switch (err) {

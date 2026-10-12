@@ -113,7 +113,9 @@ impl FileArchive {
 			store.live()?;
 			work(&mut store)
 		}));
-		self.settle().await.expect("submitted disk operation")
+		self.settle()
+			.await
+			.unwrap_or_else(|| Err(Error::invalid("disk operation was not submitted")))
 	}
 	async fn call(&mut self, request: Request) -> Result<Completion, Error> {
 		self.submit(move |store| match request {
@@ -233,6 +235,19 @@ impl Store {
 		)?);
 		Ok(store)
 	}
+	/// The blob store `open` attaches last, after recovery and compaction have
+	/// settled the index it indexes. Nothing reaches a store before `open`
+	/// returns, so a missing blob store is an invalid-state refusal, not a panic.
+	fn blobs(&self) -> Result<&blobs::Blobs, DiskFailure> {
+		self.blobs
+			.as_ref()
+			.ok_or_else(|| DiskFailure::Invalid("archive blob store is not open".into()))
+	}
+	fn blobs_mut(&mut self) -> Result<&mut blobs::Blobs, DiskFailure> {
+		self.blobs
+			.as_mut()
+			.ok_or_else(|| DiskFailure::Invalid("archive blob store is not open".into()))
+	}
 	fn live(&self) -> Result<(), DiskFailure> {
 		if self.ready {
 			Ok(())
@@ -304,7 +319,9 @@ impl Store {
 		}
 		let written = storage::atomic::append(&self.directory, disk::FILE, &bytes);
 		self.written(written)?;
-		self.index.apply(revision, record).expect("validated next revision");
+		self.index
+			.apply(revision, record)
+			.map_err(|_| DiskFailure::Invalid("archive index refused a validated revision".into()))?;
 		self.bytes += bytes.len();
 		self.rows += 1;
 		Ok(revision)

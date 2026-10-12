@@ -1,5 +1,5 @@
 //! Isolated collection counts over a fixed graph. Volatile commits exercise the
-//! real batch contract; timings here do not model storage or fsync throughput.
+//! real batch contract, timings here do not model storage or fsync throughput.
 const std = @import("std");
 const builtin = @import("builtin");
 const g = @import("glowcap");

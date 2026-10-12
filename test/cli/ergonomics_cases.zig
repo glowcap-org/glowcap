@@ -175,7 +175,7 @@ test "root help footer mentions Examples and XDG_STATE_HOME" {
     try std.testing.expect(std.mem.indexOf(u8, text, "GLOWCAP_STATE") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "[flags] <command>") != null);
 
-    // Help formats from owning constants — prose cannot invent a different map.
+    // Help formats from owning constants, prose cannot invent a different map.
     var line: [64]u8 = undefined;
     const timeout_line = try std.fmt.bufPrint(&line, "  {d}  timeout", .{cli.exit_codes.timeout});
     try std.testing.expect(std.mem.indexOf(u8, text, timeout_line) != null);

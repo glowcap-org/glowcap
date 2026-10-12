@@ -1,4 +1,5 @@
 // Loaded inventories must follow exact custody and the latest requested query.
+import { ManagedReads } from "../../web/ui/session/managed/reads.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
 import type { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
@@ -94,11 +95,19 @@ Deno.test("operations possession follows custody and replacement clears the old 
 	const page = new RoomsPage();
 	const current = snapshot();
 	const session = {
+		reads: new ManagedReads(),
 		current,
+		effects: {
+			cancelledConversations: [],
+			standingVersion: "",
+			standing: (_name: string, _target: string | null, accepted: string | null) => accepted,
+		},
 		access: { status: "active" },
 		pending: [],
+		pendingOperations: [],
 		recoverable: [],
-		actions: { pending: [], recoverable: [] },
+		actions: { pending: [], recoverable: [], cancelledConversations: [] },
+		openings: { destination: null },
 		navigation: {},
 	} as unknown as ManagedRoomsSession;
 	const files = presentationFiles(page.projection, () => null);
@@ -136,7 +145,12 @@ for (const change of ["replace", "drop", "newer"] as const) {
 		let reads = 0;
 		let freed = 0;
 		const session = {
+			reads: new ManagedReads(),
 			current,
+			effects: {
+				standingVersion: "",
+				standing: (_name: string, _target: string | null, accepted: string | null) => accepted,
+			},
 			workspace: {
 				operationsReader: () => {
 					const answer = reads++ === 0 ? first : second;
@@ -186,10 +200,18 @@ Deno.test("peering publication and revoke update the pane from its held leases",
 	current.intent.operations = [{ kind: "peering", handle: { role: "operations", key: "publisher" } }];
 	const page = new RoomsPage();
 	const session = {
+		reads: new ManagedReads(),
 		current,
+		effects: {
+			standingVersion: "",
+			cancelledConversations: [],
+			standing: (_name: string, _target: string | null, accepted: string | null) => accepted,
+		},
 		access: { status: "active" },
 		pending: [],
+		pendingOperations: [],
 		recoverable: [],
+		openings: { destination: null },
 		navigation: {},
 		drafts: { value: (_id: string, text: string) => text },
 		workspace: {
@@ -215,6 +237,7 @@ Deno.test("peering publication and revoke update the pane from its held leases",
 		actions: {
 			pending: [],
 			recoverable: [],
+			cancelledConversations: [],
 			run: (name: string, args: string[]) => {
 				assertEquals([name, args], ["revokePeeredRoom", ["publication", JSON.stringify("exact-lease")]]);
 				current.intent.peering = [];

@@ -23,6 +23,8 @@ typedef struct GlowcapDriverLoop GlowcapDriverLoop;
 #define GLOWCAP_DRIVER_FAILURE_ABI_VERSION 2
 /* Largest handshake_ms or settle_ms value. */
 #define GLOWCAP_DRIVER_MAX_WAIT_MS 2147483647
+/* GlowcapDriverOptions wait value with no deadline. SECURITY.md asks deployments to set a finite one. */
+#define GLOWCAP_DRIVER_WAIT_UNBOUNDED 0
 /* Default GlowcapDriverOptions.wire_buffer_bytes. */
 #define GLOWCAP_DRIVER_DEFAULT_WIRE_BUFFER_BYTES 16384
 /* Default GlowcapDriverOptions.max_pending_opens. */
@@ -226,8 +228,14 @@ int32_t glowcap_driver_wake(GlowcapDriverLoop *loop);
 int32_t glowcap_driver_next_event(GlowcapDriverLoop *loop, GlowcapDriverEvent *out);
 /* Resolve a live remote capability's exporter session and ensure the loop's one
    application-owned handle claims it before returning. A local, stale, foreign-Host,
-   or closed-session capability writes NULL. Repeated calls return the same handle. */
+   or closed-session capability writes NULL. Repeated calls return the same handle.
+   Callback-safe: claiming performs no I/O or callback dispatch. */
 int32_t glowcap_driver_claim_reference_exporter(GlowcapDriverLoop *loop, const GlowcapReference *reference, GlowcapHostSession **out_session);
+/* Claim the loop's single application handle for a borrowed exporter session.
+   The pointer must still be live and belong to this loop. Repeated claims are
+   idempotent. Callback-safe: claiming performs no I/O or callback dispatch.
+   Release a claimed handle only once, through glowcap_driver_session_release. */
+int32_t glowcap_driver_claim_exporter_session(GlowcapDriverLoop *loop, GlowcapHostSession *session);
 /* Seal one loop-owned session's application admission and begin or escalate its
    nonblocking close barrier. Continue stepping until
    glowcap_driver_session_lifecycle_state reports GLOWCAP_LIFECYCLE_CLOSED. This

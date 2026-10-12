@@ -7,7 +7,7 @@ const ui = @import("ui.zig");
 
 const appendViolation = util.appendViolation;
 
-/// CSS has no `deno check`. An unclosed `/*` or `{` does not fail a build; the
+/// CSS has no `deno check`. An unclosed `/*` or `{` does not fail a build. The
 /// browser drops every declaration after it, which looks like a theme bug
 /// (wrong ink, square icon buttons, missing dimmers) rather than a syntax
 /// error. Walk every product stylesheet the same way `Scanner` already walks

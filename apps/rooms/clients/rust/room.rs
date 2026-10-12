@@ -55,7 +55,7 @@ fn room_ref(arg: Argument, verb: &str) -> Result<glowcap::Ref, String> {
 }
 
 /// The wire reason a broken `send` carried, so a caller can classify it by the
-/// typed code at the front of the reason (`no-such-room` vs `room-exists`); falls
+/// typed code at the front of the reason (`no-such-room` vs `room-exists`). Falls
 /// back to the debug form when the partner gave no message.
 fn reason(err: glowcap::Error) -> String {
 	err.message().map(str::to_string).unwrap_or_else(|| format!("{err:?}"))
@@ -63,8 +63,8 @@ fn reason(err: glowcap::Error) -> String {
 
 /// The directory of rooms: an open connection plus the directory's reference.
 /// `connect` dials and fetches it; `open` and `enter` send it the strict verbs,
-/// each returning a reference to the room. Both mirror the wire — `open` errs if
-/// the name is taken, `enter` errs if there is no such room — and the error
+/// each returning a reference to the room. Both mirror the wire (`open` errs if
+/// the name is taken, `enter` errs if there is no such room) and the error
 /// string carries the wire reason so a caller can classify it. The friendly
 /// enter-or-open is a CLI convenience and lives in `client.rs`.
 pub struct Directory {
@@ -157,9 +157,9 @@ impl Directory {
 
 /// Dial a transport-neutral rooms locator: an `ocapn://…iroh` URI joins over
 /// iroh (when this client is built with the `iroh` feature), a bare `host:port`
-/// over TCP. The room's wire is identical either way; only how a member reaches
+/// over TCP. The room's wire is identical either way. Only how a member reaches
 /// it differs. A URI carrying direct-addresses dials those directly (relay-less
-/// Direct); a node-id-only URI resolves the peer through discovery.
+/// Direct). A node-id-only URI resolves the peer through discovery.
 async fn dial(locator: &str) -> Result<(Runtime, Session), String> {
 	if locator.contains("://") {
 		let loc = parse_locator(locator)
@@ -223,7 +223,7 @@ fn rooms_host() -> Result<glowcap::Host, String> {
 }
 
 /// One line in the room. `system` is true for the room's own announcements (a
-/// member joining, your welcome); otherwise `from` is who said it. `presence` is
+/// member joining, your welcome). Otherwise `from` is who said it. `presence` is
 /// set on a membership-change system line.
 #[derive(Debug, Clone)]
 pub struct Message {
@@ -352,7 +352,7 @@ impl Room {
 	}
 
 	/// Say a line to everyone in the room, on the membership seat. Fails if the
-	/// room rejects the line or the session is gone; a caller that drops the
+	/// room rejects the line or the session is gone. A caller that drops the
 	/// error is silently dropping the message.
 	pub async fn say(&self, text: &str) -> Result<(), String> {
 		self.session

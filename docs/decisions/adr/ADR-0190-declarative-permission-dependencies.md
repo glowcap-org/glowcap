@@ -38,7 +38,7 @@ Their keys and facts undergo structural validation without prerequisite closure.
 The held grant remains subject to dependency validation. An effect asking for
 Post can therefore use valid Post/Receive authority without expanding its demand.
 
-The C ABI projects the fixed matrix. Rust converts key-pair declarations into it;
+The C ABI projects the fixed matrix. Rust converts key-pair declarations into it.
 Rooms derives those pairs from its existing permission declarations and retains
 the full domain ordering. No validation callback or graph traversal is added.
 
@@ -56,7 +56,7 @@ The matrix adds 512 bytes to each copied Policy descriptor. Construction and val
 allocate nothing. Validation visits at most 64 selected permissions. Owner
 encoding stores one eight-byte byte string per declared permission in a bounded
 list within the existing payload budget. Old prerelease owner encodings are
-rejected; no fallback reader is added.
+rejected. No fallback reader is added.
 
 This contract does not decide interface applicability across heterogeneous
 selections, future descendants or projections. Those scope-aware declarations

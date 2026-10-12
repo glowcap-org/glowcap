@@ -3,7 +3,7 @@
 //!
 //! Linked only with the `iroh` feature (ADR-0055/ADR-0059). Unlike the static
 //! TCP and in-process archives, this is a dynamic companion that links the Rust
-//! iroh sidecar; it exports only the `glowcap_iroh_*` family and its own
+//! iroh sidecar. It exports only the `glowcap_iroh_*` family and its own
 //! thread-local last-error (`glowcap_iroh_last_error`), sharing no core symbol.
 //! The shared frame and context types it speaks are reused by layout from
 //! [`crate::sys`].
@@ -29,7 +29,7 @@ pub const GLOWCAP_IROH_EV_CLOSED: u32 = crate::abi_constants_gen::IROH_EV_CLOSED
 pub const GLOWCAP_IROH_EV_ACCEPT: u32 = crate::abi_constants_gen::IROH_EV_ACCEPT;
 pub const GLOWCAP_IROH_EV_CONNECT: u32 = crate::abi_constants_gen::IROH_EV_CONNECT;
 
-/// One readiness record drained by `glowcap_iroh_netlayer_drain_ready` — the
+/// One readiness record drained by `glowcap_iroh_netlayer_drain_ready`: the
 /// `#[repr(C)]` counterpart of the header's `GlowcapIrohReadyEvent`.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -52,10 +52,10 @@ const _: () = {
 };
 
 /// `#[repr(C)]` counterpart of the header's `GlowcapIrohConfig`. `reachability`
-/// is mandatory; `connect_timeout_ms` is the per-endpoint stream-establishment
+/// is mandatory. `connect_timeout_ms` is the per-endpoint stream-establishment
 /// deadline (0 = the built-in default). Construct with `..Default::default()`
 /// (or the `Default` impl) so a field a later version adds stays 0 rather than
-/// reading uninitialized memory — the header's zero-init contract.
+/// reading uninitialized memory: the header's zero-init contract.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct GlowcapIrohConfig {
@@ -65,7 +65,7 @@ pub struct GlowcapIrohConfig {
 	/// declares it dead, which decides how quickly a peer killed rather than
 	/// closed stops counting as connected. 0 keeps the built-in default.
 	pub idle_timeout_ms: u64,
-	/// Worker threads for this endpoint's runtime; 0 keeps the default.
+	/// Worker threads for this endpoint's runtime. 0 keeps the default.
 	pub worker_threads: u32,
 }
 

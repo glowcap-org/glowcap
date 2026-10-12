@@ -30,6 +30,9 @@ const browser = await chromium.launch({ headless: true });
 try {
 	const page = await browser.newPage();
 	page.on("pageerror", (error) => console.error(error));
+	page.on("console", (event) => {
+		if (event.type() === "error") console.error(event.text());
+	});
 	const url = `http://127.0.0.1:${server.address().port}/`;
 	const initialize = async () => {
 		await page.goto(url);

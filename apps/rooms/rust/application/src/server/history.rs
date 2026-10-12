@@ -31,7 +31,7 @@ pub const FILE_BYTES: usize = 64 * 1024 * 1024;
 /// The pre-read ceiling for the whole history directory.
 pub const DISK_BYTES: usize = 512 * 1024 * 1024;
 /// Append and whole-room deletion are two filesystem operations, so a crash
-/// may leave one surplus room standing; startup admits exactly that one.
+/// may leave one surplus room standing. Startup admits exactly that one.
 pub const ROOM_FILES: usize = ROOMS_KEPT + 1;
 const LINE_VERSION: u64 = 2;
 
@@ -121,7 +121,7 @@ pub struct Recorded {
 }
 
 /// What one admitted change asks the backend to persist. Immutable rows are
-/// shared with the index and queued tails; editing replaces only the changed
+/// shared with the index and queued tails. Editing replaces only the changed
 /// row with a fresh one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Persist {
@@ -138,7 +138,7 @@ pub enum Persist {
 }
 
 /// The one live tail owner. Every mutation answers what the backend must
-/// persist; the adapter queues that work in order.
+/// persist. The adapter queues that work in order.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Index {
 	rooms: BTreeMap<String, Room>,
@@ -304,7 +304,7 @@ impl Index {
 }
 
 /// One persisted row in the room-history store's JSON form. A version-one
-/// row is the same shape with no `previews` key; version two writes the
+/// row is the same shape with no `previews` key. Version two writes the
 /// key only when a preview was chosen, so the two versions read through
 /// one struct and the version rule is decided on it.
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -320,14 +320,19 @@ struct Persisted<'a> {
 
 pub fn encode_line(line: &KeptLine) -> String {
 	let urls = line.previews.urls();
-	serde_json::to_string(&Persisted {
+	#[expect(
+		clippy::expect_used,
+		reason = "a persisted line is strings, an integer, and a list of strings, which have no failing serialization arm"
+	)]
+	let encoded = serde_json::to_string(&Persisted {
 		version: LINE_VERSION,
 		from: Cow::Borrowed(&line.from),
 		text: Cow::Borrowed(&line.text),
 		previews: (!urls.is_empty()).then(|| urls.to_vec()),
 		at: line.at,
 	})
-	.expect("a kept line encodes")
+	.expect("a kept line encodes");
+	encoded
 }
 
 /// Read one persisted row. A row of another version is refused, and so is

@@ -30,8 +30,8 @@ test "imported-promise substrate owns host, listeners, and relayed resolution" {
     const peeked = s.importedPromiseResolution(.from(5)) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqualStrings("v", peeked.fulfill.bytes);
 
-    // A second relayed resolution is refused — a promise resolves once,
-    // mirroring the answer-side rule — the refused value is freed (no leak),
+    // A second relayed resolution is refused, a promise resolves once,
+    // mirroring the answer-side rule, the refused value is freed (no leak),
     // and the stored value is untouched.
     try std.testing.expectError(error.UnexpectedMessage, s.recordRelayedResolution(
         .from(5),

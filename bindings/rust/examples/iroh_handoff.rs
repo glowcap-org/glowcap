@@ -6,7 +6,7 @@
 //! `direct-addresses` dial hint, and the recipient redeems it transparently by
 //! dialing that endpoint directly over encrypted QUIC.
 //!
-//! Topology — three iroh endpoints (separate identities) in one process, the
+//! Topology: three iroh endpoints (separate identities) in one process, the
 //! relay-less `Direct` posture on loopback, so the gate is deterministic and
 //! flake-free (no discovery service, no network):
 //!   Exporter  binds an iroh endpoint and publishes a Host-published `greeter`.
@@ -16,14 +16,14 @@
 //!             that returns the greeter.
 //!   Recipient binds its own endpoint, dials the gifter, asks the introducer for
 //!             the greeter, transparently redeems the give by dialing the
-//!             exporter directly, and calls it — the reply must echo its name.
+//!             exporter directly, and calls it: the reply must echo its name.
 //!
 //! Returning the exporter's greeter (home = gifter-to-exporter) on the recipient's
-//! connection trips the transparent gifter; the recipient's `send` resolves to an
+//! connection trips the transparent gifter. The recipient's `send` resolves to an
 //! ordinary capability whose calls route straight to the exporter. The proof is
 //! the greeter's reply carrying the name the recipient sent.
 //!
-//! Needs `cargo` plus the iroh ABI companion library (`zig build iroh-abi`); run
+//! Needs `cargo` plus the iroh ABI companion library (`zig build iroh-abi`). Run
 //! via `zig build rust-iroh-handoff`.
 
 use std::rc::Rc;
@@ -83,8 +83,8 @@ async fn run() -> Result<(), Fail> {
 	exporter.host().publish("greeter", || {
 		Box::new(|_verb: &str, _args: &[Argument]| Ok(Argument::from("decoy")))
 	})?;
-	// The exporter's own signed session record names it by node id alone — not
-	// dialable under the relay-less Direct posture — so record its full dialable
+	// The exporter's own signed session record names it by node id alone, not
+	// dialable under the relay-less Direct posture, so record its full dialable
 	// location (id + direct-addresses) as the give's exporter location.
 	to_exporter.set_exporter_locator(Some(&exporter_locator))?;
 	gifter_host.publish("introducer", move || {
@@ -138,7 +138,7 @@ async fn run() -> Result<(), Fail> {
 }
 
 // The published actor: `prime` stores a mark, `greet` echoes the caller's
-// name with it — so a redeemed call proves the exact mutated actor answered.
+// name with it: so a redeemed call proves the exact mutated actor answered.
 fn greeter() -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
 	let mut mark = String::new();
 	move |verb: &str, args: &[Argument]| {

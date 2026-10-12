@@ -4,13 +4,13 @@ import { spawnWeb } from "../support/web_front.ts";
 // A reader who pastes another directory's locator into the join card ends up
 // holding two: the one their own page serves, opened at boot to fill the rail,
 // and the one they went to. Both are ordinary directories and the room works
-// either way — but a `webrtc` locator names a designator and nothing else, so
+// either way, but a `webrtc` locator names a designator and nothing else, so
 // when that reader redeems an introduction, the connector dialing it has to ask
-// the page which directory to signal through, and the page used to answer with
-// whichever it had opened first. That is always its own. The offer went to a
+// the page which directory to signal through, and the page must not answer with
+// whichever it opened first. That is always its own. The offer went to a
 // room that had never heard of the person being written to, which meant a
 // visitor could receive direct messages from the room's own members and never
-// start one — the failure looked like a direction, and was really about whose
+// start one, the failure looked like a direction, and was really about whose
 // room it was.
 //
 // So this drives the half the same-directory proofs cannot see. Two room
@@ -53,7 +53,7 @@ function serveRooms(httpPort: number, roomPort: number, reaches?: number): Deno.
 	});
 }
 
-// The directory locator a page is serving, once it has one — which is also how
+// The directory locator a page is serving, once it has one, which is also how
 // the page proves both halves are up.
 async function roomLocator(port: number, who: string): Promise<string> {
 	for (let i = 0; i < 400; i++) {
@@ -70,7 +70,7 @@ async function roomLocator(port: number, who: string): Promise<string> {
 }
 
 // Join `ROOM` as `nick` in a fresh, isolated tab. `directory` is the locator to
-// paste into the join card, or null for the page's own — the difference this
+// paste into the join card, or null for the page's own, the difference this
 // whole proof is about.
 async function joinAs(
 	browser: Browser,
@@ -127,7 +127,7 @@ try {
 	// bo is a visitor: his own page's directory is open, and he joins ada's.
 	const bo = await joinAs(browser, visitorHttp, "web-bo", hostDirectory);
 
-	// The room they now share is ada's, so bo has to be in her members list for
+	// The room they share is ada's, so bo has to be in her members list for
 	// this to be about direct messages at all.
 	await bo.tab.locator(`#members li:has-text("web-ada")`).waitFor({ state: "visible", timeout: 60_000 })
 		.catch(() => fail("bo joined ada's room but never saw her in it"));

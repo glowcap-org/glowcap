@@ -10,7 +10,7 @@
  * Each dash is one sub-path however many curve samples it spans, or every
  * internal joint takes a cap and the line renders as beads. And a dash the curve
  * cut short is dropped, because a round cap on a sliver is a dot sitting off the
- * end of the line — which is exactly what it looked like on screen.
+ * end of the line, which is exactly what it looked like on screen.
  */
 
 import { assert, assertAlmostEquals, assertEquals } from "@std/assert";
@@ -104,8 +104,8 @@ Deno.test("a dashed session line is round at its tips and flat between", () => {
 });
 
 Deno.test("each dash is one sub-path, so no internal joint takes a cap", () => {
-	// The bead failure: a dash spanning a sample boundary used to be two
-	// sub-paths, and the round pass then capped the middle of a dash.
+	// The bead failure: a dash spanning a sample boundary must not become two
+	// sub-paths, or the round pass caps the middle of a dash.
 	const g = new CurveRecorder();
 	// A curve long enough that a 12-unit dash must cross the 24 sample points.
 	strokeDashedCurve(
@@ -163,7 +163,7 @@ Deno.test("a dash the curve cut short is dropped, not rounded into a dot", () =>
 	// round cap turned that hair into a dot floating inside the end's body.
 	//
 	// The run is 25 units with a 12-on/6-off pattern: dashes at 0..12 and 18..25,
-	// leaving a 7-unit tail — longer than the 4-wide line, so it stays. Widen the
+	// leaving a 7-unit tail, longer than the 4-wide line, so it stays. Widen the
 	// line past the tail and it must go.
 	const cut: SessionCurve = { ax: 0, ay: 0, cx: 12.5, cy: 0, bx: 25, by: 0 };
 	const kept = new CurveRecorder();

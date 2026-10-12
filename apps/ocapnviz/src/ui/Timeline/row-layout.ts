@@ -8,15 +8,15 @@
  *
  * Pure data: no React, no Pixi, no engine state mutation. The
  * caller threads `expanded`, `expandedCategories`, the
- * already-ordered entity lists, and the doc's `rowHidden` map in;
- * the generator yields rows in paint order so the renderer and
+ * already-ordered entity lists, and the doc's `rowHidden` map in.
+ * The generator yields rows in paint order so the renderer and
  * the hit-tester share one source of truth.
  */
 
 import type { TimelineDocument } from "../../engine/timeline.ts";
 import { type LaneKind, plotStartXOf, plotWidthOf, type TimelineView } from "./state.ts";
 
-/** Per-row paint height. Compact rows on a single vertical grid;
+/** Per-row paint height. Compact rows on a single vertical grid.
  *  the panel grows to fit via intrinsic-height callback. */
 export const MIN_LANE_HEIGHT = 14;
 
@@ -28,7 +28,7 @@ export const RULER_HEIGHT = 22;
 /** Vertical breathing room between the bottom-most lane and the
  * top of the ruler band. Counted into `scrubberHeight` so the
  * intrinsic measurement (and therefore the auto-grow target)
- * reserves the gap; counted into `lanesMaxY` so the lane clip
+ * reserves the gap. Counted into `lanesMaxY` so the lane clip
  * keeps it visually empty. */
 export const RULER_TOP_PAD = 4;
 
@@ -75,12 +75,12 @@ export function laneScrollMax(contentHeight: number, hostHeight: number): number
 
 /** Height of an expanded category-header row. Pinned to
  *  `MIN_LANE_HEIGHT` so the header DOESN'T grow when the user
- *  expands the category — every gutter row (collapsed-category,
+ *  expands the category, every gutter row (collapsed-category,
  *  expanded-category-header, per-entity) renders at the same
  *  height for a consistent vertical rhythm. (Was 18 px when
  *  `laneHeight` was larger, which left the "slim" header
  *  accidentally CHUNKIER than the entity rows after the lane
- *  height dropped to 14 — exactly the expand-makes-it-bigger
+ *  height dropped to 14, exactly the expand-makes-it-bigger
  *  jitter the user pointed out.) */
 export const CATEGORY_HEADER_HEIGHT = MIN_LANE_HEIGHT;
 
@@ -95,9 +95,9 @@ export const LANE_ORDER: readonly Exclude<LaneKind, "ruler">[] = [
 
 /** Captured at the start of a row-drag so the pointermove handler
  * can compute reorders against a stable origin. The `finalIndex`
- * advances each frame as the pointer crosses row midpoints; the
+ * advances each frame as the pointer crosses row midpoints. The
  * commit on pointerup applies that index to the rowOrder. Also
- * drives the paint path's "ghost-row" hint — a horizontal
+ * drives the paint path's "ghost-row" hint, a horizontal
  * indicator at the resolved target slot. Null when no row drag
  * is active (or the drag hasn't moved past the threshold yet). */
 export type RowDragSnapshot = {
@@ -133,7 +133,7 @@ export function* iterateRows(
 	expanded: ReadonlySet<LaneKind>,
 	expandedCategories: ReadonlySet<Exclude<LaneKind, "ruler">>,
 	/** Per-category ordered entity ids (already resolved via
-	 * `orderEntities`). An empty category still gets its row — the
+	 * `orderEntities`). An empty category still gets its row, the
 	 * lane toggle, not content, decides row existence. */
 	orderedEntities: Record<Exclude<LaneKind, "ruler">, readonly string[]>,
 	rowHidden: TimelineDocument["rowHidden"],
@@ -142,13 +142,13 @@ export function* iterateRows(
 	let y = 0;
 	for (const lane of LANE_ORDER) {
 		if (!expanded.has(lane)) continue;
-		// The lane toggle alone decides whether a category row exists —
+		// The lane toggle alone decides whether a category row exists,
 		// empty or not. Chrome answers to user-set state (the toggle,
 		// the expansion set) and never to content: rows that appear and
 		// vanish as data changes are unrequested layout shifts, and a
 		// group emptied while drilled-down would otherwise lose its
 		// chevron and be stuck expanded. A lane the user doesn't want
-		// has its own remedy — toggle it off.
+		// has its own remedy, toggle it off.
 		if (!expandedCategories.has(lane)) {
 			yield {
 				kind: "category-collapsed",
@@ -168,7 +168,7 @@ export function* iterateRows(
 		y += CATEGORY_HEADER_HEIGHT + LANE_GAP;
 		const hiddenSet = new Set(rowHidden?.[lane] ?? []);
 		for (const entityId of orderedEntities[lane]) {
-			// `hidden` reports stage visibility, NOT row geometry —
+			// `hidden` reports stage visibility, NOT row geometry,
 			// every entity-row paints at full `laneHeight` so the row
 			// remains interactive (drag-to-reorder, click-to-select,
 			// edit on the timeline) regardless of whether the entity
@@ -194,16 +194,16 @@ export function* iterateRows(
  * whether or not the category holds anything, and says why where it does it:
  * chrome answers to the toggle the user set rather than to content, so a group
  * emptied while drilled-down keeps its chevron instead of getting stuck
- * expanded. The panel's fitted height and the scroll clamp each used to walk
- * the same lanes with their own rule, both skipping an empty category, and both
- * agreed with the row pitch while disagreeing about the rows.
+ * expanded. The panel's fitted height and the scroll clamp walk the same rows
+ * as the painter. Separate rules that skip an empty category would agree with
+ * the row pitch while disagreeing about the rows.
  *
- * What that produced was neither of the two behaviors anybody chose. The
- * panel was fitted to a height with no room for a row the painter drew anyway,
- * the lane mask cut that row through the middle of its label, and the scroll
- * clamp had also left it out, so there was nothing to scroll to and it read as
- * a rendering fault. Deriving both from this walk retires the disagreement:
- * a height that comes from the rows cannot fail to land on a row boundary.
+ * Separate rules produce a behavior nobody chose. The panel is fitted to a
+ * height with no room for a row the painter draws anyway, the lane mask cuts
+ * that row through the middle of its label, and the scroll clamp leaves it out
+ * too, so there is nothing to scroll to and it reads as a rendering fault.
+ * Deriving both from this walk removes the disagreement: a height that comes
+ * from the rows cannot fail to land on a row boundary.
  *
  * `rowHidden` is not a parameter because it is not geometry. Every row paints
  * at full height whatever its stage visibility, which `iterateRows` states at

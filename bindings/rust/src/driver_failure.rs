@@ -3,14 +3,13 @@
 //! Provider registration, listener close, and the consuming loop-release
 //! barrier cannot use a thread-local text slot as their machine contract:
 //! release destroys the owner, and rollback may add a second exact cause. This
-//! module owns the one Rust projection of that fixed C record; policy remains
-//! native.
+//! module owns the one Rust projection of that fixed C record, which
+//! `driver_loop::handle` fills through the loop it owns. Policy remains native.
 
-use crate::sys::GlowcapTransportProvider;
-use crate::sys::driver::{self as ffi, GlowcapDriverFailure, GlowcapDriverLoop};
+use crate::sys::driver::GlowcapDriverFailure;
 use crate::{Error, Result};
 
-fn empty() -> GlowcapDriverFailure {
+pub(crate) fn empty() -> GlowcapDriverFailure {
 	GlowcapDriverFailure {
 		abi_version: crate::sys::DRIVER_FAILURE_ABI_VERSION,
 		struct_size: core::mem::size_of::<GlowcapDriverFailure>(),
@@ -39,13 +38,16 @@ unsafe fn name(ptr: *const u8, len: usize, field: &str) -> Result<String> {
 			format!("driver returned null {field} with nonzero length"),
 		));
 	}
+	// SAFETY: `ptr` is non-null (checked above) and names `len` bytes of a failure name the driver wrote into its
+	// `GlowcapDriverFailure`, which the header documents as borrowed for the process lifetime; `to_owned` copies the
+	// text before this function returns.
 	let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
 	let text = core::str::from_utf8(bytes)
 		.map_err(|_| Error::with_detail(crate::sys::ERR_INTERNAL, format!("driver returned non-UTF-8 {field}")))?;
 	Ok(text.to_owned())
 }
 
-fn decode(code: i32, raw: GlowcapDriverFailure, operation: &str) -> Result<()> {
+pub(crate) fn decode(code: i32, raw: GlowcapDriverFailure, operation: &str) -> Result<()> {
 	let carrier = crate::carrier_failure::decode(
 		raw.carrier_phase,
 		raw.carrier_detail_flags,
@@ -53,7 +55,11 @@ fn decode(code: i32, raw: GlowcapDriverFailure, operation: &str) -> Result<()> {
 		raw.carrier_peer_alert,
 		raw.carrier_engine_code,
 	)?;
+	// SAFETY: `raw.primary_name` and `raw.primary_name_len` are the pair the driver filled in the
+	// `GlowcapDriverFailure` the caller owns, or the null and zero `empty()` set, and `name` copies the
+	// process-lifetime text into an owned `String`.
 	let primary = unsafe { name(raw.primary_name, raw.primary_name_len, "primary failure name")? };
+	// SAFETY: as `primary` above for `raw.secondary_name` and `raw.secondary_name_len`.
 	let secondary = unsafe { name(raw.secondary_name, raw.secondary_name_len, "secondary failure name")? };
 	if code == crate::sys::OK {
 		if raw.primary_result == crate::sys::OK
@@ -90,27 +96,6 @@ fn decode(code: i32, raw: GlowcapDriverFailure, operation: &str) -> Result<()> {
 		error.secondary_count = raw.secondary_count;
 	}
 	Err(error)
-}
-
-pub(crate) fn add_provider(loop_: *mut GlowcapDriverLoop, provider: *const GlowcapTransportProvider) -> Result<()> {
-	let mut failure = empty();
-	let code = unsafe { ffi::glowcap_driver_add_provider(loop_, provider, &mut failure) };
-	decode(code, failure, "driver add_provider")
-}
-
-pub(crate) fn close_listener(loop_: *mut GlowcapDriverLoop, listener: u64) -> Result<bool> {
-	let mut failure = empty();
-	let code = unsafe { ffi::glowcap_driver_listener_close(loop_, listener, &mut failure) };
-	if code == crate::sys::WOULD_BLOCK {
-		return Ok(false);
-	}
-	decode(code, failure, "driver listener_close").map(|()| true)
-}
-
-pub(crate) fn release(loop_: *mut GlowcapDriverLoop) -> (i32, Result<()>) {
-	let mut failure = empty();
-	let code = unsafe { ffi::glowcap_driver_release(loop_, &mut failure) };
-	(code, decode(code, failure, "driver release"))
 }
 
 #[cfg(test)]

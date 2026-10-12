@@ -35,7 +35,7 @@ const contents = [_]access.hosting.ContentBehavior{.{ .schema = 7, .requirement 
 
 /// This fixture admits an edit envelope, one capability reply and two held
 /// occurrences. The shared owners size retained invocation and one restored
-/// field; the callback adds its request spine and 128-byte replacement. Native
+/// field. The callback adds its request spine and 128-byte replacement. Native
 /// access operations and Store staging retain their separate allocator owners.
 pub fn callAllocationBound() !loam.hosting.references.AllocationBound {
     var bound = try access.hosting.invocationAllocationBound(.{

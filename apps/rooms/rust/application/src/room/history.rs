@@ -1,5 +1,5 @@
 //! Admission of a room's optional retained conversation. Wire decoding stays
-//! in the binding; malformed display rows are ignored without retaining caps.
+//! in the binding. Malformed display rows are ignored without retaining caps.
 use alloc::{string::String, vec::Vec};
 
 /// The membership history verb returns at most the server's last 100 lines.

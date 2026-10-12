@@ -47,7 +47,8 @@ impl FileArchive {
 						let mut random = [0; 16];
 						rooms_platform::entropy::fill(&mut random).map_err(entropy_failure)?;
 						let source = identity::RecordingIdentity::new(random);
-						let bytes = serde_json::to_vec(&source).expect("fixed recorder identity");
+						let bytes = serde_json::to_vec(&source)
+							.map_err(|error| DiskFailure::Invalid(error.to_string().into()))?;
 						let written = storage::atomic::replace(&store.directory, FILE, [bytes.as_slice()]);
 						store.written(written)?;
 						source

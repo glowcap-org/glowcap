@@ -1,4 +1,4 @@
-//! Load-bearing rooms UI selectors: every id/class a browser proof presses,
+//! Essential rooms UI selectors: every id/class a browser proof presses,
 //! still emitted by a component, still named in that proof.
 
 const std = @import("std");
@@ -11,7 +11,7 @@ const ui_dir = shared.ui_dir;
 /// A selector the interface promises to emit and a proof depends on.
 ///
 /// Both directions matter. A literal no component emits is a proof about to fail
-/// for a reason that has nothing to do with what it tests; a literal no proof
+/// for a reason that has nothing to do with what it tests. A literal no proof
 /// uses is rent, and should be retired rather than carried.
 const Selector = struct {
     /// The exact text a component writes, as it appears in the JSX.
@@ -64,7 +64,7 @@ const selectors = [_]Selector{
     // The mark in the title ends whatever is on screen: it leaves a room, and it
     // closes a direct line. The two-tab proof closes a conversation with it and
     // then checks the member is still reachable, so a rename here would report
-    // as "the members list stopped offering a direct line" — a claim about the
+    // as "the members list stopped offering a direct line", a claim about the
     // roster, made by a button that moved.
     .{ .literal = "id=\"leaveBtn\"", .proven_by = "apps/rooms/test/proofs/dm_tabs_proof.ts" },
     .{ .literal = "show-list", .proven_by = "apps/rooms/test/proofs/page_proof.ts" },
@@ -85,11 +85,11 @@ const selectors = [_]Selector{
     // glossary made by a name that moved.
     .{ .literal = "id=\"kitchenSink\"", .proven_by = "apps/rooms/test/proofs/page_proof.ts" },
     // A room's row says which directory it is on, and that line opens the card
-    // that describes it — this page's own included. Settings keeps the page
+    // that describes it: this page's own included. Settings keeps the page
     // locator and a button that opens that same card. The proof presses both
     // and reads the three answers the card gives. A rename here reports as
     // "holding two servers did not say which server each room is on" or "the
-    // caption did not open a card about it" — claims about holding more than
+    // caption did not open a card about it", claims about holding more than
     // one directory, made by a name that moved.
     .{ .literal = "\"rwhere\"", .proven_by = "apps/rooms/test/proofs/page_proof.ts" },
     // A card's title is drawn by `ModalHead`, so the id a proof presses is
@@ -97,7 +97,7 @@ const selectors = [_]Selector{
     .{ .literal = "titleId=\"dircardTitle\"", .proven_by = "apps/rooms/test/proofs/page_proof.ts" },
     // The conversation's name opens what this tab knows about it, and a long
     // refusal's Show opens the rest of the words. A rename here reads as "the
-    // title did nothing" or "Show did not open the rest" — claims about those
+    // title did nothing" or "Show did not open the rest", claims about those
     // cards, made by a name that moved.
     .{ .literal = "id=\"roomAbout\"", .proven_by = "apps/rooms/test/proofs/page_proof.ts" },
     .{ .literal = "titleId=\"convcardTitle\"", .proven_by = "apps/rooms/test/proofs/page_proof.ts" },
@@ -123,14 +123,14 @@ const selectors = [_]Selector{
     .{ .literal = "commitId=\"dircardLeave\"", .proven_by = "apps/rooms/test/proofs/page_proof.ts" },
     // The opening screen is written in the document rather than by a component,
     // so it can paint before the bundle exists. The proof watches
-    // both of its faces from the first frame, so the names are load-bearing in
+    // both of its faces from the first frame, so the names are essential in
     // the same way every name above is.
     .{ .literal = "id=\"boot\"", .proven_by = "apps/rooms/test/proofs/page_proof.ts" },
     .{ .literal = "class=\"boot-wait\"", .proven_by = "apps/rooms/test/proofs/page_proof.ts" },
     .{ .literal = "class=\"boot-explain\"", .proven_by = "apps/rooms/test/proofs/page_proof.ts" },
 };
 
-/// Every load-bearing selector is still emitted, and still proven.
+/// Every essential selector is still emitted, and still proven.
 pub fn checkRoomsSelectors(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -267,7 +267,7 @@ fn resolveBeside(gpa: std.mem.Allocator, from_file: []const u8, spec: []const u8
 
 /// `id="log"`, `listId="dmList"`, and `"bubble"` name `log`, `dmList`, and
 /// `bubble`. The literal is matched as the component actually writes it, so a
-/// rename fails here; the proof spells the name alone.
+/// rename fails here. The proof spells the name alone.
 fn bareName(literal: []const u8) []const u8 {
     var name = literal;
     if (std.mem.indexOfScalar(u8, name, '=')) |at| name = name[at + 1 ..];
@@ -294,9 +294,9 @@ fn readUiSources(
 
     var all: std.ArrayList(u8) = .empty;
     errdefer all.deinit(gpa);
-    // Every depth, because the interface's modules live in subdirectories now.
+    // Every depth, because the interface's modules live in subdirectories.
     // Reading only the top level would still find every component and so still
-    // pass, while quietly no longer covering the layer a selector's data comes
+    // pass, while quietly not covering the layer a selector's data comes
     // from: a check narrowed by someone else's file move, saying nothing.
     var walker = try dir.walk(gpa);
     defer walker.deinit();

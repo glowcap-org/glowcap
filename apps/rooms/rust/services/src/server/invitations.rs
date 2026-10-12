@@ -1,4 +1,4 @@
-//! A one-claim entrance. Copies race on one stateful object; the winning
+//! A one-claim entrance. Copies race on one stateful object. The winning
 //! receipt may retry without creating a second claim after a lost answer.
 use super::{rooms, state::Shared};
 use glowcap::{Argument, current_session};
@@ -25,6 +25,11 @@ pub(super) fn invitation(
 		let session = current_session()
 			.map_err(|e| e.to_string())?
 			.ok_or("a room invitation is reachable only during a session turn")?;
+		let connection = shared.borrow_mut().admit(session.borrowed());
+		shared.borrow_mut().ingress(connection)?;
+		shared
+			.borrow_mut()
+			.admit_work(connection, rooms_application::admission::Class::Read, 1)?;
 		let entrance = shared
 			.borrow_mut()
 			.rooms

@@ -42,7 +42,7 @@ test "loam LMDB sharing recovers a lost reply without duplicate grants after reo
             // Retire the first call; the matching queued retry may commit only
             // when recovery proved the first attempt absent.
             try server.drain(&db);
-            // Deliberately discard outbound replies with this client/Host.
+            // Discard outbound replies with this client/Host.
         }
         try store.deinit();
         try db.close();

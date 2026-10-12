@@ -172,7 +172,7 @@ pub fn Machine(
             return false;
         }
 
-        pub fn finishWebSocketSend(backend: *Backend, c: *RelayConn) anyerror!void {
+        pub fn finishWebSocketSend(backend: *Backend, c: *RelayConn) !void {
             const completed_kind = c.ws_send_kind;
             if (completed_kind == .upgrade) {
                 // Upgrade scratch is deployment-sized, not a connection
@@ -269,7 +269,7 @@ pub fn Machine(
             c.ws_send_kind = .upgrade;
         }
 
-        pub fn onBytes(backend: *Backend, c: *RelayConn) anyerror!void {
+        pub fn onBytes(backend: *Backend, c: *RelayConn) !void {
             switch (c.state) {
                 .reading_upgrade => try consumeUpgrade(backend, c),
                 .open => try Access.receiveBuffered(backend, c),

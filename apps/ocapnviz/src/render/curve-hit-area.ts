@@ -2,13 +2,13 @@
  * Pointer hit-test and cull bounds for a session Bezier without a
  * stroked Graphics.
  *
- * The wire's pixels live in the shared edge stroke batch; per-edge
+ * The wire's pixels live in the shared edge stroke batch. Per-edge
  * picking still needs a footprint, and `cullable` hit proxies need a
- * `boundsArea` — an empty halo Graphics reports origin bounds, which
+ * `boundsArea`, an empty halo Graphics reports origin bounds, which
  * would cull on-screen wires when the camera is elsewhere. Sampling
  * matches {@link CURVE_STROKE_SAMPLES} so the corridor follows the same
  * polyline the dashed stroke walks. The corridor is continuous even
- * for dashed ink — gaps are a codec reading, not a thinner target.
+ * for dashed ink, gaps are a codec reading, not a thinner target.
  */
 
 import { Rectangle } from "pixi.js";

@@ -5,12 +5,12 @@
 //! allocation events, so a test can pin how many heap allocations one turn costs.
 //! `LiveBytesAllocator` tracks outstanding bytes, so a test can weigh the steady
 //! heap a set of warmed sessions holds. Both wrap a backing allocator and forward
-//! every call; they add the instrumentation and nothing else.
+//! every call. They add the instrumentation and nothing else.
 
 const std = @import("std");
 
 /// Observe positive request demand with in-place growth unavailable. Bound is
-/// the owner's checked demand accumulator; no private growth formula is copied.
+/// the owner's checked demand accumulator. No private growth formula is copied.
 pub fn AllocationTraffic(comptime Bound: type) type {
     return struct {
         backing: std.mem.Allocator,
@@ -41,8 +41,8 @@ pub fn AllocationTraffic(comptime Bound: type) type {
     };
 }
 
-/// Counts every backing allocation — a fresh `alloc`, plus a `remap`/`resize`
-/// that grows an existing block — so a measurement reflects real heap traffic,
+/// Counts every backing allocation, a fresh `alloc`, plus a `remap`/`resize`
+/// that grows an existing block, so a measurement reflects real heap traffic,
 /// not just same-size churn. Reset `allocs` to zero to start a measurement
 /// window.
 pub const CountingAllocator = struct {

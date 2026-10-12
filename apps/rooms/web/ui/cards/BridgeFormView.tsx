@@ -3,7 +3,7 @@
 // This is the rendering core an identity form and a gateway's connection and
 // lease forms all share: a bridge declares fields and actions, and this draws
 // them and splits a submission by the form's own declaration. It knows no
-// service. The owner decides what a pressed action does; this only collects
+// service. The owner decides what a pressed action does. This only collects
 // what a reader typed and refuses a required field left empty.
 
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -91,9 +91,9 @@ export function BridgeFormView(
 		 * something new rather than editing a standing identity. */
 		resetOnDone?: boolean;
 		/** How the form is laid out. A wide surface (the operations pane's
-		 * connection form) packs its fields into a `grid` with a footer; a short
-		 * one-field-and-act form (a lease's channel beside Join) is a single `row`;
-		 * everything else `stack`s. It is where the form is drawn, not what it asks,
+		 * connection form) packs its fields into a `grid` with a footer. A short
+		 * one-field-and-act form (a lease's channel beside Join) is a single `row`.
+		 * Everything else `stack`s. It is where the form is drawn, not what it asks,
 		 * so it is the caller's choice rather than the bridge's. */
 		layout?: "stack" | "grid" | "row";
 		/** A failure the owner already knows about (a bridge link that dropped),

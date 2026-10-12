@@ -8,11 +8,11 @@ description: >-
 
 # glowcap CLI
 
-**This is CapTP in your hands.** `glowcap` is the installable product (`cli/`,
-[ADR-0084](../../../docs/decisions/adr/ADR-0084-glowcap-cli-product-boundary.md)) —
-same `driver`/`net` stack as the library. When the job is to *talk to a peer*,
-*host one*, *poke a session*, or *script CapTP*, do it here. Do not open a new
-Zig file, binding stub, or throwaway harness first.
+`glowcap` is the installable product (`cli/`,
+[ADR-0084](../../../docs/decisions/adr/ADR-0084-glowcap-cli-product-boundary.md))
+on the same `driver`/`net` stack as the library. To *talk to a peer*, *host
+one*, *poke a session*, or *script CapTP*, do it here, before opening a new Zig
+file, binding stub, or throwaway harness.
 
 | Audience | Authority |
 | --- | --- |
@@ -39,8 +39,8 @@ export PATH="$PWD/zig-out/bin:$PATH"
 glowcap help
 ```
 
-Same binary via the build graph: `zig build glowcap -- <command> …`. No
-`glowcap check` — gates are `zig build check` / `cli-test`.
+Same binary via the build graph: `zig build glowcap -- <command> …`. There is
+no `glowcap check`; gates are `zig build check` / `cli-test`.
 
 ## Pick a front
 
@@ -53,23 +53,23 @@ Same binary via the build graph: `zig build glowcap -- <command> …`. No
 | Something else to dial *you* | **argv listen** | background `ocapn listen …` |
 | Deterministic CapTP simulation / NDJSON timeline | **griddle** | `glowcap griddle run --scenario … --seed …` |
 
-## Session model (load-bearing)
+## Session model
 
 | Front | Session lifetime |
 | --- | --- |
 | argv `call` / `tell` / `fetch` / `probe` | Dial if needed, act, close |
-| argv `dial` (no `--repl`) | Opens then **closes** — no leftover session |
+| argv `dial` (no `--repl`) | Opens then **closes**, leaving no session |
 | `repl` / `dial --repl` | Process-local open session; `repl` locator optional (dial inside; listen argv-only); omit locator later once open |
 | `listen` | Argv-only; blocks. **Never** an MCP tool |
 | MCP tools (Cursor/Claude) | One MCP process retains the peer; `close` ends it — [glowcap-mcp](../glowcap-mcp/SKILL.md) |
 
 `listen --publish` / `--once` accept **one** partner then exit. Do not probe
-then call the same process — start a fresh listen. `ocapn locator` / `info`
+then call the same process; start a fresh listen. `ocapn locator` / `info`
 see the last listen URI only inside that process. `info` includes front,
 identity path, and partner `abort_kind`/`abort` when retained. CapTP MCP
 session lifetime and tool schemas: [glowcap-mcp](../glowcap-mcp/SKILL.md).
 
-CLI-only demo actors (`cli/ocapn`, not `libglowcap_*`): **greeter** (verbs
+CLI-only demo actors (`cli/ocapn`, not in `libglowcap_*`): **greeter** (verbs
 `greet` → `Hello, <arg>`, `cowsay` / `glowcapsay` / `goblinsay` → ASCII
 balloons) and **echo** (verb `echo`, returns its arg).
 Shape: `call <locator> <publish-name|#N> <verb> [arg…]`. Prefer `--json`.
@@ -93,12 +93,12 @@ active wait (`#0` is bootstrap — wrong target hangs until cancel/timeout).
   or `GLOWCAP_IDENTITY` / `--identity`. Prefer a state dir with `…/identity`
   inside; a loose seed file locks `<path>.lock` beside it (not the parent dir).
 - CapTP wait budgets and exit codes: `glowcap help` (finite handshake/settle;
-  hang ≈ exit `6`). Wrap long waits with `timeout N`. One live CapTP suite at
-  a time — concurrent listens / `cli-test` wedge on ports.
+  hang ≈ exit `6`). Wrap long waits with `timeout N`. Run one live CapTP suite
+  at a time, since concurrent listens / `cli-test` wedge on ports.
 
 ## CapTP lab (REPL)
 
-TTY: CapTP workbench (ECS-lite under `cli/repl/ecs/` — not Flecs): transcript
+TTY: CapTP workbench (ECS-lite under `cli/repl/ecs/`, not Flecs): transcript
 + prompt dock, CapTP rail, modes (Ctrl-O browse, F1 help, `focus` quiet), ↑↓
 history, expandable blocks, mouse (wheel/click; character drag-select + OSC 52;
 Shift-drag = terminal select), idle CapTP pump, log divert, resize reflow.
@@ -118,10 +118,10 @@ paste locators without quotes. `GLOWCAP_REPL_QUIET=1` /
 | Expect bare `dial` to keep a session for next argv | Only REPL/MCP retain; argv one-shots. MCP/REPL locator `call`/`fetch`/`tell` retain when none held |
 | Same `GLOWCAP_STATE` for both peers | Identity crosstalk / exit `7` |
 | CapTP MCP tools without glowcap-mcp skill | Load [glowcap-mcp](../glowcap-mcp/SKILL.md) |
-| `listen` via MCP | Argv-only by design |
+| `listen` via MCP | Argv-only |
 | Quotes around `ocapn://` inside the REPL | `UriParseError` — paste bare |
 | Writing Zig to perform a shell-shaped CapTP act | Use this binary |
-| Treating shell echo as Goblins/suite evidence | Product adapter only — see community-review matrix |
+| Treating shell echo as Goblins/suite evidence | Product adapter only; see community-review matrix |
 
 ## Hand off
 

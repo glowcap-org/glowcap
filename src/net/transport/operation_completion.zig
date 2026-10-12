@@ -1,5 +1,5 @@
 //! Completion ownership for a blocking transport operation running away from
-//! the host's stepping thread. The transport owns the task and result; this
+//! the host's stepping thread. The transport owns the task and result. This
 //! state machine owns only the race between publish, claim, and cancellation.
 
 const std = @import("std");
@@ -87,8 +87,8 @@ pub const Completion = struct {
         };
     }
 
-    /// Abandon an unclaimed result. True transfers cleanup to the caller;
-    /// false leaves it with the worker, which has not finished publishing.
+    /// Abandon an unclaimed result. True transfers cleanup to the caller.
+    /// False leaves it with the worker, which has not finished publishing.
     pub fn cancel(self: *Completion) bool {
         while (true) {
             const state: State = @fromBackingInt(@intCast(self.state.load(.acquire)));

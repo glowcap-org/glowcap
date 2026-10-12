@@ -1,22 +1,22 @@
 #lang racket/base
-;; kernel-test.rkt — end-to-end test for the kernel loop.
+;; kernel-test.rkt: end-to-end test for the kernel loop.
 ;;
 ;; Exercises all 8 steps (kernel.rkt does the same path; this test inspects
 ;; the persisted artifacts and asserts each step's invariant):
-;;   1. Vat hosts an Actor — implicitly tested by the AID's existence.
-;;   2. KERI AID — KEL exists, inception event well-formed, AID is CESR-encoded
+;;   1. Vat hosts an Actor, implicitly tested by the AID's existence.
+;;   2. KERI AID: KEL exists, inception event well-formed, AID is CESR-encoded
 ;;      Blake3 SAID (E-prefix, 44 chars).
-;;   3. Capability ref — kernel.rkt's call returns a structured result; we
+;;   3. Capability ref: kernel.rkt's call returns a structured result; we
 ;;      check the Episode's `object` field reflects that result.
-;;   4. Capability invocation — the result (kernel-loop-invoked) is in the
+;;   4. Capability invocation: the result (kernel-loop-invoked) is in the
 ;;      Episode `object.result`.
-;;   5. Episode produced — exactly one Episode in episodes.jsonld.
-;;   6. Ephemeral KERI-derived signing — Episode's ephemeral_pubkey_sig
+;;   5. Episode produced: exactly one Episode in episodes.jsonld.
+;;   6. Ephemeral KERI-derived signing: Episode's ephemeral_pubkey_sig
 ;;      verifies against AID@seq=1 verkey (post-rotation); Episode's sig
 ;;      verifies against ephemeral_pubkey.
-;;   7. Episode persisted — episodes.jsonld and transparency.log both exist
+;;   7. Episode persisted: episodes.jsonld and transparency.log both exist
 ;;      and contain matching counts.
-;;   8. Auditable — verify-episode returns #t.
+;;   8. Auditable: verify-episode returns #t.
 ;;
 ;; Run via: bash reference/implementations/accountability-on-goblins/stack/run.sh test
 ;; (which invokes raco test tests/kernel-test.rkt inside the container).

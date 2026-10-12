@@ -65,7 +65,7 @@ export const WorkspaceDirectorySchema = z.strictObject({
 	locator: nonemptyText(),
 	home: z.boolean(),
 	/** Whether a browser has ever received a successful answer from this route.
-	 * Absent is the conservative value for pre-field persisted documents. */
+	 * Absent is the conservative value for documents persisted before the field. */
 	reached: z.optional(z.boolean()),
 	nick: nickText,
 	nickAllocation: z.optional(z.enum(["exact", "automatic"])),
@@ -75,9 +75,9 @@ export const WorkspaceDirectorySchema = z.strictObject({
 /** A bridge form a reader answered, kept so a reconnect can answer it again.
  *
  * What is kept is what the reader chose: which action, within which of the
- * bridge's own scopes, and the answers that are not secrets. A secret is never
- * checkpointed — it lives in the runtime until every room in its scope has read
- * it, and a reconnect without one asks the reader again rather than guessing.
+ * bridge's scopes, and the answers that are not secrets. A secret is never
+ * checkpointed. It lives in the runtime until every room in its scope has read
+ * it, and a reconnect without one asks the reader again and does not guess.
  *
  * `scope` is the bridge's word for how far one answer reaches, so a reader who
  * linked an identity on one channel finds it on the others without this having
@@ -88,11 +88,11 @@ export const WorkspaceRoomBridgeIntentSchema = z.strictObject({
 	answers: BridgeAnswersSchema,
 	/** Whether the reader answered a secret field.
 	 *
-	 * The secret itself is never here, so without this a replay could not tell a
-	 * submission that needed none from one whose password is simply missing, and
-	 * would send a blank where a credential was. Both replays read it: a browser
-	 * that holds nothing asks the reader again, and a durable runtime looks in
-	 * its own custody first. */
+	 * The secret itself is never here. Without this flag a replay could not tell
+	 * a submission that needed none from one whose password is missing, and
+	 * would send a blank where a credential belonged. Both replays read it: a
+	 * browser that holds nothing asks the reader again, and a durable runtime
+	 * looks in its own storage first. */
 	secretsGiven: z.boolean(),
 	/** Opaque command identity for matching separately held credentials. It is
 	 * public but contains no credential-derived material. */
@@ -113,7 +113,7 @@ export const WorkspaceRoomConversationSchema = z.strictObject({
 	held: z.boolean(),
 	/** A definitive authority retirement requires an explicit rejoin choice.
 	 * `requested` is the durable half-commit while a fresh realization proves
-	 * that choice; success clears it and failure returns to `manual`. */
+	 * that choice. Success clears it, and failure returns to `manual`. */
 	reconnect: z.optional(z.enum(["manual", "requested"])),
 	link: optionalSturdyrefText,
 	manager: optionalSturdyrefText,
@@ -132,7 +132,7 @@ export const WorkspaceRoomConversationSchema = z.strictObject({
 });
 
 /** Desired foreign-room publication. The lease and DirectoryPeering stay live
- * in the session runtime; this row is the restartable operation intent. */
+ * in the session runtime. This row is the restartable operation intent. */
 export const WorkspacePeeringIntentSchema = z.strictObject({
 	id: nonemptyText(),
 	destination: nonemptyText(MAX_BEARER_CHARS),
@@ -218,7 +218,7 @@ export const RoomsSessionStateSchema = RoomsSessionStateShapeSchema.check(
 const RoomsWorkspaceStateShapeSchema = z.strictObject({
 	version: z.literal(WORKSPACE_STATE_VERSION),
 	/** The page directory a local browser explicitly gave back. Missing keeps
-	 * the pre-field behavior of opening the directory that serves this page. */
+	 * the behavior of opening the directory that serves this page. */
 	leftPageDirectory: z.optional(nonemptyText()),
 	controller: RoomsControllerSelectionSchema,
 	session: RoomsSessionStateSchema,
@@ -338,7 +338,8 @@ export function peeringIntentsForOperations(
 
 /** Resolve the authority carried by a durable route without making the schema
  * parser responsible for dialing it. This low-frequency check is shared by
- * workspace/session imports and every command that validates a new aggregate. */
+ * workspace and session imports and by every command that validates a new
+ * aggregate. */
 function routeAuthority(locator: string): string | null {
 	try {
 		return roomsPeerAuthority(roomsLocator(locator));

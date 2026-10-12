@@ -1,10 +1,10 @@
-"""Internal: the :class:`RemotePromise` a Session send returns — immediate
+"""Internal: the :class:`RemotePromise` a Session send returns: immediate
 progress, lazy result observation, promise pipelining, and ``index``/``untag``/``get``
 projection (ADR-0007 / ADR-0050 / ADR-0052). Also the shared fetch/enliven
 mint→await→classify path (``_await_minted`` / ``_fetch_like``), the far-send
 mint→``_promise_for`` path (``_send_far``), and RemotePromise construction.
-Session owns CapTP verb wrappers; trampoline owns Host-reference send·tell
-dispatch and local arms; this module owns the handle type, remote-send /
+Session owns CapTP verb wrappers. Trampoline owns Host-reference send·tell
+dispatch and local arms. This module owns the handle type, remote-send /
 post-mint choreography, and the projection FFI.
 """
 
@@ -57,7 +57,7 @@ def _classify_live_ref(result, label: str) -> Ref:
 async def _fetch_like(session, swiss: bytes, label: str, mint, track: bool) -> Ref:
     # The one mint/await/classify body under `fetch` and `enliven`: mint
     # the host vow with `mint`, await its drain-routed completion, and
-    # classify — only an opaque Host reference is a live capability this
+    # classify: only an opaque Host reference is a live capability this
     # surface can hand out. `track` enrolls the fulfilled value in
     # distributed GC. Fetch and fresh/cached enliven results each project
     # an application retain, independently of the session dedup cache.
@@ -135,7 +135,7 @@ def _promise_for(session, vow: int, *, pipelineable: bool = True) -> RemotePromi
 
 class PromiseState:
     """Sum state for :class:`RemotePromise`: ``Far`` (host vow), ``Local``, or
-    ``Failed`` (the send never left). Discriminant is the arm type — not a
+    ``Failed`` (the send never left). Discriminant is the arm type: not a
     nullable vow field."""
 
     @dataclass(frozen=True, slots=True)
@@ -155,7 +155,7 @@ class PromiseState:
 
     @dataclass(frozen=True, slots=True)
     class Failed:
-        """A send that could not be issued at all — a closed session, an
+        """A send that could not be issued at all: a closed session, an
         argument that would not lower. It is a state rather than a raised
         exception because ``send`` must return its handle synchronously, so
         pipelining can project at the answer before it settles (ADR-0050).
@@ -213,9 +213,9 @@ class RemotePromise(asyncio.Future):
     observed, an unobserved anchor whose far answer *breaks* stays silent. Like
     any ``asyncio.Future``, construct it within a running event loop (``send``
     is always called from one). State is a sum (``far`` | ``observer`` |
-    ``local`` | ``failed``), not a nullable vow flag; an ``observer`` is an
+    ``local`` | ``failed``), not a nullable vow flag. An ``observer`` is an
     await-only ``op:listen`` result with no remote answer position. A pipeline
-    target belongs to the Host that minted it; another Host refuses it before
+    target belongs to the Host that minted it. Another Host refuses it before
     interpreting the Host-local vow number.
 
     The projection verbs :meth:`index` / :meth:`untag` / :meth:`get`
@@ -339,7 +339,7 @@ class RemotePromise(asyncio.Future):
     def add_done_callback(self, callback, *, context=None) -> None:
         # The Future-protocol observation path: ``asyncio.gather`` / ``wait`` /
         # ``shield`` never call ``__await__`` on a child, they register a done
-        # callback — so registering interest is what starts the send.
+        # callback: so registering interest is what starts the send.
         self._ensure_started()
         if context is None:
             super().add_done_callback(callback)

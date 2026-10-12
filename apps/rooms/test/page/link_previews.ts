@@ -1,6 +1,6 @@
 // Link previews as somebody actually meets them: inside the composer and a
 // delivered message, with the real React state machine and Rooms controls.
-// Metadata transport is intercepted so this proof is hermetic; the Rust
+// Metadata transport is intercepted so this proof is hermetic. The Rust
 // service separately proves provider selection, bounds, and SSRF policy.
 
 import type { Browser, Page, Route } from "playwright";

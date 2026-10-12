@@ -1,7 +1,7 @@
 //! The Rust half of the verb-spine proof family: one process that walks the
 //! promise, dial, listen, and GC verbs against the fixed peer and prints one
 //! `VERB-SPINE <marker>` line per scene. `bindings/proofs/verb_spine/harness.ts`
-//! owns the marker contract and the two locators it appends to argv; read its
+//! owns the marker contract and the two locators it appends to argv. Read its
 //! header before changing anything here.
 //!
 //! Two of that contract's clauses land differently in Rust than they do in a
@@ -33,7 +33,7 @@ use glowcap_rust_dogfood::{
 use tokio::task::LocalSet;
 
 /// How long the accepted half of the listen scene has to finish serving after
-/// the dialing half closes. The harness owns the proof's own deadline; this one
+/// the dialing half closes. The harness owns the proof's own deadline. This one
 /// keeps a stalled serve loop reported as the scene that stalled rather than as
 /// a silent 25-second timeout with no marker.
 const SERVE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -198,7 +198,7 @@ async fn walk(peer_uri: String, dead_uri: String) {
 		"open a TCP listener",
 		tcp::listen("127.0.0.1", 0, tcp::ListenOptions::default()).await,
 	));
-	// A closed listener no longer has a locator to read, so name it while it lives.
+	// A closed listener has no locator to read, so name it while it lives.
 	let own_uri = expect_value("read the listener locator", server.uri());
 	let own_locator = expect_value("read the listener locator", server.locator());
 	let serving = tokio::task::spawn_local(serve_once(Rc::clone(&server)));

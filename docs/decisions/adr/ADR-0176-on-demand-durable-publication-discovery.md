@@ -29,8 +29,8 @@ synchronous response. Storage latency therefore needs no new wire operation.
 The engine's composition seam receives one fetch context containing the secret
 name, a Session-stamped answer target, and the session-local bootstrap fallback.
 It returns `found`, `missing`, `deferred`, or `refused`. The engine owns immediate
-settlement. The Host owns publication precedence and bounded provider admission;
-a hidden registry reservation cannot fall through to storage. Deferred replies
+settlement. The Host owns publication precedence and bounded provider admission.
+A hidden registry reservation cannot fall through to storage. Deferred replies
 use the existing answer settlement queue, including its resolver, listener,
 pipeline, and detached-answer custody. Codecs and session semantics are unchanged.
 
@@ -40,15 +40,15 @@ lookup work. The embedding performs storage work and returns ticketed results.
 The attachment loads the descriptor through its existing Store cache and read
 lane, rechecks current publication authority, and restores the exact endpoint
 through the ordinary restoration path. Fetch leaves no permanent publication
-registry row. Submitted work retains its Host lease after callers cancel;
-unregister refuses until the provider's authoritative work storage is idle.
+registry row. Submitted work retains its Host lease after callers cancel.
+Unregister refuses until the provider's authoritative work storage is idle.
 
 A schema can declare one immutable 128-bit name at a fixed payload offset.
 Shared transaction validation installs a schema-scoped name-to-object index
 atomically with the record in both volatile storage and LMDB. Names cannot be
 changed or assigned to a different object. Collection reclaims the descriptor
 but preserves its index reservation, preventing a retired name from retargeting.
-Lookup validates store, incarnation, and revision; stale completions retry
+Lookup validates store, incarnation, and revision. Stale completions retry
 against current metadata. An uncertain write fails discovery closed until
 recovery. Recovery of an absent retirement restores prior discovery without
 creating a registry row for a previously cold publication. The proven outcome
@@ -56,7 +56,7 @@ settles the write before any fallible restoration. Existing bounded retirement
 slots retain restoration custody through allocation refusal, cold read completion
 and later transactions. Ordinary attachment advancement retries restoration only
 while the Store is idle and after call settlement releases leases. The manual
-`applyRetirement` API is removed; retirement commits through the attachment
+`applyRetirement` API is removed. Retirement commits through the attachment
 write lane that owns its admission fence.
 
 ## Alternatives considered
@@ -71,9 +71,9 @@ write lane that owns its admission fence.
 ## Costs and compatibility
 
 Discovery allocates its owner and two bounded arrays at registration. Admission
-copies only the 16-byte name into a group; fetch waiters retain no frame bytes.
+copies only the 16-byte name into a group. Fetch waiters retain no frame bytes.
 Each completed fetch uses existing endpoint/projection and answer queue costs.
-The Host adds one provider pointer; standalone engine/session footprints do not
+The Host adds one provider pointer. Standalone engine/session footprints do not
 increase. Each persistent name reserves 25 key bytes and 33 object-ID bytes,
 before backend overhead, even after descriptor collection. Future compaction
 must preserve these identity reservations.

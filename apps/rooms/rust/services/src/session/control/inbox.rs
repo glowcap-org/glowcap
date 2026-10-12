@@ -1,9 +1,10 @@
 //! Acknowledgment journal owned by one blocking worker, independent of history.
 //! Appends and acknowledgments append records. Compaction only reclaims a full
-//! journal; it serializes borrowed retained rows instead of cloning the inbox.
+//! journal. It serializes borrowed retained rows instead of cloning the inbox.
 use super::failure::Failure;
 use rooms_application::documents::WriteFailure;
 use rooms_platform::storage::{self, Directory, atomic};
+use serde::Serialize;
 use serde_json::{Value, json};
 use std::{collections::BTreeSet, path::PathBuf};
 
@@ -12,9 +13,45 @@ const MAX_ROWS: usize = 4096;
 // Leave enough room to dismiss every retained identifier even when full.
 const ACK_RESERVE: usize = MAX_ROWS * 22 + 64;
 const NAME: &str = "events.jsonl";
+/// One retained event. The journal owns the identifier so the body stays an
+/// arbitrary presentation payload. Serialization renders the identifier first
+/// and the body's own keys after it, the row shape clients read.
+#[derive(Serialize)]
+struct RetainedEvent {
+	id: u64,
+	#[serde(flatten)]
+	body: Value,
+}
+/// The journal's replay language: one line is an acknowledgment batch, a
+/// watermark checkpoint, or a retained event.
+enum JournalEntry {
+	Ack(Vec<u64>),
+	Next(u64),
+	Event { id: u64, body: Value },
+}
+/// Classify one replayed journal line. An acknowledgment batch or a watermark
+/// is recognized by its own key. Anything else is a retained event whose
+/// identifier moves from the body into the event itself.
+fn classify(mut row: Value) -> Result<JournalEntry, Failure> {
+	if let Some(ids) = row.get("ack") {
+		return Ok(JournalEntry::Ack(serde_json::from_value(ids.clone())?));
+	}
+	if let Some(next) = row.get("next").and_then(Value::as_u64) {
+		return Ok(JournalEntry::Next(next));
+	}
+	let object = row
+		.as_object_mut()
+		.ok_or_else(|| Failure::invalid("inbox event has no id"))?;
+	let id = object
+		.get("id")
+		.and_then(Value::as_u64)
+		.ok_or_else(|| Failure::invalid("inbox event has no id"))?;
+	let body = Value::Object(std::mem::take(object));
+	Ok(JournalEntry::Event { id, body })
+}
 pub struct Inbox {
 	directory: Directory,
-	rows: Vec<Value>,
+	rows: Vec<RetainedEvent>,
 	next: u64,
 	bytes: usize,
 	gap: Option<Failure>,
@@ -50,23 +87,20 @@ impl Inbox {
 			}
 			this.bytes = raw.len();
 			for line in raw.split(|b| *b == b'\n').filter(|l| !l.is_empty()) {
-				let row: Value = serde_json::from_slice(line)?;
-				if let Some(ids) = row.get("ack") {
-					let ids: Vec<u64> = serde_json::from_value(ids.clone())?;
-					this.remove(&ids);
-				} else if let Some(next) = row.get("next").and_then(Value::as_u64) {
-					this.next = this.next.max(next);
-				} else {
-					let id = row["id"]
-						.as_u64()
-						.ok_or_else(|| Failure::invalid("inbox event has no id"))?;
-					if id < this.next {
-						return Err(Failure::invalid("inbox identifiers are out of order"));
+				match classify(serde_json::from_slice(line)?)? {
+					JournalEntry::Ack(ids) => {
+						this.remove(&ids.iter().copied().collect());
 					}
-					this.next = id
-						.checked_add(1)
-						.ok_or_else(|| Failure::exhausted("inbox identifiers exhausted"))?;
-					this.rows.push(row);
+					JournalEntry::Next(next) => this.next = this.next.max(next),
+					JournalEntry::Event { id, body } => {
+						if id < this.next {
+							return Err(Failure::invalid("inbox identifiers are out of order"));
+						}
+						this.next = id
+							.checked_add(1)
+							.ok_or_else(|| Failure::exhausted("inbox identifiers exhausted"))?;
+						this.rows.push(RetainedEvent { id, body });
+					}
 				}
 			}
 		} else {
@@ -116,21 +150,22 @@ impl Inbox {
 		self.bytes = bytes.len();
 		Ok(())
 	}
-	fn write(&mut self, record: &Value, limit: usize) -> Result<(), Failure> {
+	/// Compaction and refusal belong to the byte budget. Callers render their
+	/// own newline-delimited record so event and acknowledgment rows share one
+	/// writer.
+	fn write(&mut self, bytes: &[u8], limit: usize) -> Result<(), Failure> {
 		if self.uncertain {
 			return Err(Failure::uncertain(
 				"inbox needs restart to reconcile an uncertain write",
 			));
 		}
-		let mut bytes = serde_json::to_vec(record)?;
-		bytes.push(b'\n');
 		if self.bytes + bytes.len() > limit {
 			self.compact()?;
 		}
 		if self.bytes + bytes.len() > limit {
 			return Err(Failure::exhausted("inbox is full; dismiss reviewed events"));
 		}
-		if let Err(error) = atomic::append(&self.directory, NAME, &bytes) {
+		if let Err(error) = atomic::append(&self.directory, NAME, bytes) {
 			return Err(self.journal_failure(error));
 		}
 		self.bytes += bytes.len();
@@ -140,7 +175,7 @@ impl Inbox {
 		self.uncertain |= matches!(&error, WriteFailure::Indeterminate(_));
 		write_failure(error)
 	}
-	pub fn append(&mut self, mut row: Value) -> Result<u64, Failure> {
+	pub fn append(&mut self, row: Value) -> Result<u64, Failure> {
 		if let Some(gap) = &self.gap {
 			return Err(gap.clone());
 		}
@@ -153,18 +188,21 @@ impl Inbox {
 			.next
 			.checked_add(1)
 			.ok_or_else(|| Failure::exhausted("inbox identifiers exhausted"))?;
-		row["id"] = self.next.into();
-		self.write(&row, MAX_BYTES - ACK_RESERVE)?;
-		let id = self.next;
+		let event = RetainedEvent {
+			id: self.next,
+			body: row,
+		};
+		let mut bytes = serde_json::to_vec(&event)?;
+		bytes.push(b'\n');
+		self.write(&bytes, MAX_BYTES - ACK_RESERVE)?;
+		let id = event.id;
 		self.next = next;
-		self.rows.push(row);
+		self.rows.push(event);
 		Ok(id)
 	}
-	fn remove(&mut self, ids: &[u64]) -> usize {
-		let ids: BTreeSet<_> = ids.iter().copied().collect();
+	fn remove(&mut self, ids: &BTreeSet<u64>) -> usize {
 		let before = self.rows.len();
-		self.rows
-			.retain(|row| !ids.contains(&row["id"].as_u64().expect("validated event")));
+		self.rows.retain(|row| !ids.contains(&row.id));
 		before - self.rows.len()
 	}
 	pub fn acknowledge(&mut self, ids: &[u64]) -> Result<Value, Failure> {
@@ -172,14 +210,18 @@ impl Inbox {
 		let retained: Vec<_> = self
 			.rows
 			.iter()
-			.filter_map(|row| row["id"].as_u64())
+			.map(|row| row.id)
 			.filter(|id| requested.contains(id))
 			.collect();
 		if retained.is_empty() {
 			return Ok(json!({"ok": true, "acknowledged": 0}));
 		}
-		self.write(&json!({"ack": retained}), MAX_BYTES)?;
-		let removed = self.remove(&retained);
+		let mut bytes = serde_json::to_vec(&json!({"ack": retained}))?;
+		bytes.push(b'\n');
+		self.write(&bytes, MAX_BYTES)?;
+		// Every requested identifier names a retained row, so removal reads the
+		// request set directly instead of rebuilding a set from the filter.
+		let removed = self.remove(&requested);
 		Ok(json!({"ok": true, "acknowledged": removed}))
 	}
 	/// Copy at most one page into the socket response. Identifiers survive
@@ -187,9 +229,7 @@ impl Inbox {
 	/// The response owns its rows after the disk worker finishes this request.
 	/// The journal's byte budget also bounds a page containing a single large row.
 	pub fn pending(&self, after_id: u64) -> Value {
-		let start = self
-			.rows
-			.partition_point(|row| row["id"].as_u64().expect("validated event") <= after_id);
+		let start = self.rows.partition_point(|row| row.id <= after_id);
 		let end = (start + 64).min(self.rows.len());
 		json!({"ok": true, "pending": &self.rows[start..end], "more": end < self.rows.len(),
                "remaining": self.rows.len(), "gap": self.gap})

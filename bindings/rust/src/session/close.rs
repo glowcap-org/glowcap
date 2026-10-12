@@ -36,15 +36,15 @@ impl Session {
 	}
 
 	/// Observe terminal session retirement without requesting close or taking
-	/// the serve task. Independent and late observers share the terminal result;
-	/// cancelling an observer leaves the connection and its other observers live.
+	/// the serve task. Independent and late observers share the terminal result.
+	/// Cancelling an observer leaves the connection and its other observers live.
 	pub async fn closed(&self) -> Result<()> {
 		wait_session_close(&self.shared).await;
 		self.shared.terminal_result()
 	}
 
 	/// A session view whose lifetime does not keep the connection open. The
-	/// owning handles or Host control retirement; calls through this view then
+	/// owning handles or Host control retirement. Calls through this view then
 	/// refuse normally. Explicit `close` still closes the named connection.
 	pub fn borrowed(&self) -> Session {
 		Session::view(Rc::clone(&self.shared))
@@ -62,12 +62,12 @@ impl Session {
 		}
 	}
 
-	/// Close the session. A running [`serve`](Session::serve) completes; pending
+	/// Close the session. A running [`serve`](Session::serve) completes. Pending
 	/// vows settle closed.
 	///
 	/// This closes the connection it names and nothing else: not a sibling
 	/// session, and not the connections the host dialed by itself to redeem a
-	/// handoff — the `via` from [`send_redeeming`](Session::send_redeeming) is
+	/// handoff: the `via` from [`send_redeeming`](Session::send_redeeming) is
 	/// one of those. [`Host::close`](crate::Host::close) is what ends those.
 	pub async fn close(&self, pending: PendingWork) -> Result<()> {
 		if self.shared.released.get() {
@@ -142,6 +142,9 @@ async fn drive_session_close(shared: Rc<SessionShared>) {
 		tokio::pin!(notified);
 		notified.as_mut().enable();
 		let mut lifecycle = 0;
+		// SAFETY: `shared.ptr` is this session's `GlowcapHostSession` handle, nulled only by `commit_native_release`,
+		// which also sets `released`; no await separates this call from the `while !shared.released.get()` check at the
+		// loop head, so the handle is live, and `lifecycle` is a local out-parameter the callee fills.
 		let rc = unsafe { ffi::glowcap_host_session_close_progress(shared.ptr.get(), monotonic_ms(), &mut lifecycle) };
 		if rc != sys::OK && rc != sys::ERR_TIMEOUT {
 			shared.record_close_result(rc);
@@ -229,7 +232,7 @@ impl Drop for Session {
 			return;
 		}
 		// A drop has no result channel. Inside a behavior callback the native
-		// close is refused by design, and `close_transport` parks the release
+		// close is refused, and `close_transport` parks the release
 		// for the next drain, as the Host's own drop does.
 		if crate::trampoline::inside_turn() {
 			self.shared.close_transport();
@@ -264,6 +267,9 @@ fn request_close_on_owner(shared: &Rc<SessionShared>, pending: PendingWork) -> R
 		return loop_.request_session_close(shared.ptr.get(), pending);
 	}
 	let options = pending.to_ffi()?;
+	// SAFETY: `shared.ptr` is this session's `GlowcapHostSession` handle, live because `request_session_close` checked
+	// `released` just before calling here; `options` is a local `GlowcapCloseOptions` borrowed for the call and read
+	// only during it.
 	check_host(unsafe { ffi::glowcap_host_session_close(shared.ptr.get(), &options, monotonic_ms()) })?;
 	// A close request or escalation is close-relevant activity: a driver
 	// parked on a now-superseded wait must re-check progress.

@@ -1,4 +1,4 @@
-//! The Python, Rust, and Racket emitters of the host-action mirror; the arm
+//! The Python, Rust, and Racket emitters of the host-action mirror. The arm
 //! table, the shared writers, and the TypeScript emitter stay with the
 //! output list in `host_action.zig`.
 
@@ -234,6 +234,8 @@ pub fn generateRust(gpa: std.mem.Allocator) ![]u8 {
     try ha.tline(&out, gpa, 2, "} else {");
     try ha.tline(&out, gpa, 3, "// The bytes originate in a partner-authored give, so decode");
     try ha.tline(&out, gpa, 3, "// leniently rather than let untrusted bytes fault mid-drain.");
+    try ha.tline(&out, gpa, 3, "// SAFETY: `ptr` is non-null (checked above) and names `len` bytes of a view the host owns in the");
+    try ha.tline(&out, gpa, 3, "// `GlowcapHostAction` being decoded, live until the next pop; `into_owned` copies them first.");
     try ha.tline(&out, gpa, 3, "String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(ptr, len) }).into_owned()");
     try ha.tline(&out, gpa, 2, "}");
     try ha.tline(&out, gpa, 1, "};");
@@ -357,6 +359,8 @@ fn emitRustDecodeArm(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: ha.Ar
         },
         .settle => {
             try ha.tline(out, gpa, 3, "ticket: raw.ticket,");
+            try ha.tline(out, gpa, 3, "// SAFETY: `raw.value` is the settle value the host wrote into this `GlowcapHostAction`, whose");
+            try ha.tline(out, gpa, 3, "// spines and leaves stay host-owned until the next pop; `arg_from_sys` copies them first.");
             try ha.tline(out, gpa, 3, "value: unsafe { arg_from_sys(&raw.value) }?,");
         },
         .fail => {

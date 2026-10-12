@@ -50,14 +50,14 @@ export function roomPreset(policy: RoomPolicy): RoomPreset {
 /** The standing a room is in, read from what its public registration offers.
  *
  * `participant` is the open name. `observer` is the moderated one: the room is
- * listed and its name offers watching rather than speaking. A listed room that
+ * listed and its name offers watching and not speaking. A listed room that
  * offers nothing publicly is moderated too, because it is listed without an
  * offer to participate.
  *
  * No answer is `private`: a private room is not listed, so nothing that reaches
  * a directory listing can be in that standing. A name absent from the listing
- * is either new or private, and the two are indistinguishable from outside,
- * which is the point of a private room. */
+ * is either new or private, and the two look the same from outside, which is
+ * the point of a private room. */
 export function standingOffered(offers: "observer" | "participant" | null): RoomPreset {
 	return offers === "participant" ? "open" : "moderated";
 }

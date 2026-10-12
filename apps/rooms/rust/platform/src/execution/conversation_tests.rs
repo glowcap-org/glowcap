@@ -1,5 +1,5 @@
 //! Client-side contracts over real Host capabilities. These actors control
-//! replies and acknowledgements; they are not a substitute Rooms server.
+//! replies and acknowledgements. They are not a substitute Rooms server.
 use super::HostPlatform;
 use glowcap::{Argument, ConnectOptions, Host, ListenerIdentity, PendingWork, Runtime, RuntimeConfig, tcp};
 use rooms_application::{
@@ -21,6 +21,9 @@ struct ObservedDeadline {
 	expire_next: Rc<Cell<bool>>,
 }
 impl rooms_glowcap::client::Deadline for ObservedDeadline {
+	fn monotonic_millis(&self) -> u64 {
+		0
+	}
 	async fn within<T>(&self, milliseconds: u64, work: impl Future<Output = T>) -> Option<T> {
 		self.calls.borrow_mut().push(milliseconds);
 		if self.expire_next.replace(false) {

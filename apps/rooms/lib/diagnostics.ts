@@ -1,9 +1,9 @@
 // The operator's view of a directory, taken as a capability.
 //
-// Inspect is not a directory method: it is a second object the server publishes
-// under an unguessable name, so holding that name is the whole of the
-// authority. Taking it is the shared operations flow in `operations.ts`; what
-// it answers — the `snapshot` rows below — is what this module owns.
+// Inspect is not a directory method. It is a second object the server publishes
+// under an unguessable name, so holding that name is the authority. Taking it
+// is the shared operations flow in `operations.ts`. This module owns what it
+// answers: the `snapshot` rows below.
 
 import type { Ref, Session } from "@glowcap/runtime";
 import * as z from "zod/mini";

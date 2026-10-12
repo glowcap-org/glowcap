@@ -10,7 +10,7 @@ import type { TimelineEvent } from "../../timeline.ts";
  * non-null / discriminant gymnastics.
  *
  * This pattern repeats across the suite because `assertEquals` is not
- * a TypeScript predicate — it asserts at runtime but does not narrow
+ * a TypeScript predicate. It asserts at runtime but does not narrow
  * the type, and `noUncheckedIndexedAccess` returns `T | undefined`
  * from array indexing.
  */

@@ -1,19 +1,20 @@
-//! 02 — An introduction: the capability pattern glowcap exists for.
+//! 02: An introduction, the capability pattern glowcap exists for.
 //!
 //! Chapter 01 held one session between two peers. Here there are three, and
 //! the point is what you do *not* write. A directory you already talk to
 //! introduces you to a service on a different machine. You call the
-//! directory; the answer that comes back is the service itself, live and
-//! callable. Then you call the service directly and the directory is out of
-//! the path — it cannot see the traffic, and it cannot revoke by eavesdropping
-//! because it was never in the middle.
+//! directory. The answer that comes back is the service itself, live and
+//! callable. Then you call the service directly. The directory carries the
+//! introduction, but sits outside the later call path. This direct introduction
+//! gives it no authority to inspect or revoke your service reference.
 //!
-//! On the wire this is a three-party handoff. None of that appears below.
+//! All three sessions use encrypted Noise TCP. Each dialer authenticates the
+//! listener's key. On the wire the introduction is a three-party handoff.
 //! `connect`, `fetch`, and `call` are the whole program: every `driver.Session`
 //! rides a host that redeems the introduction inside the call you were already
 //! waiting on. The same three verbs do the same thing in every language binding.
 //!
-//! What this costs to serve at scale — one thread, many connections — is
+//! What this costs to serve at scale, one thread, many connections, is
 //! `many_sessions_one_loop.zig`, which performs this same handoff on the
 //! completion-loop tier with the machinery visible.
 //!
@@ -25,8 +26,6 @@ const glowcap = @import("glowcap");
 const model = glowcap.ocapn.model;
 const actors = glowcap.actors;
 const driver = glowcap.driver;
-const net = glowcap.net;
-const tcp = net.tcp;
 
 const opts: driver.SessionOptions = .{
     .frame_cap = 8192,
@@ -47,7 +46,7 @@ const Widget = struct {
 };
 
 /// The directory: answers `lookup` with a capability that lives on *another*
-/// peer. Returning it is the whole introduction — the host sees that the
+/// peer. Returning it is the whole introduction, the host sees that the
 /// capability's home is a different session and signs a give instead of a
 /// plain reference. The actor writes no handoff code, and holds no wire
 /// position: the capability it hands out is the same opaque value it fetched.
@@ -63,7 +62,7 @@ const Directory = struct {
 };
 
 /// The widget host. It is registered once in the Host Vat. Fetch projects it on
-/// the gifter-facing Port; deposit retains that exact actor, and redemption
+/// the gifter-facing Port, deposit retains that exact actor, and redemption
 /// projects it on the recipient-facing Port without another name lookup.
 fn serveWidget(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
     try server.publish("widget", Widget, .{});
@@ -92,14 +91,10 @@ fn serveWidget(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!v
 /// its gives name the directory's own advertised locator as their gifter.
 fn serveDirectory(
     directory: *driver.Server,
-    widget_designator: []const u8,
+    widget_locator: model.PeerLocator,
     done: *std.atomic.Value(bool),
 ) anyerror!void {
-    var widget_loc_buf: [tcp.designator_buf_len]u8 = undefined;
-    const to_widget = try directory.runtime.connectLocator(tcp.locatorFromAddress(
-        &widget_loc_buf,
-        try tcp.parseDesignator(widget_designator),
-    ), .inherit);
+    const to_widget = try directory.runtime.connectLocator(widget_locator, .inherit);
     const widget_view = try driver.Session.adopt(directory.runtime, to_widget);
     defer widget_view.deinit();
     const widget = try widget_view.fetch("widget");
@@ -121,20 +116,18 @@ pub fn main(init: std.process.Init) !void {
 
     var done = std.atomic.Value(bool).init(false);
 
-    var widget_host = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
+    var widget_host = try driver.listen(allocator, io, .{ .symbols = &.{.noise_tcp} }, model.transport.noise_tcp, .{ .designator = "127.0.0.1:0" }, .{ .keyed = try driver.drawSessionSecret(io) }, opts);
     defer widget_host.deinit();
-    var widget_addr_buf: [64]u8 = undefined;
-    const widget_designator = try allocator.dupe(u8, try widget_host.localDesignator(&widget_addr_buf));
-    defer allocator.free(widget_designator);
+    const widget_locator = try model.clonePeerLocator(allocator, try widget_host.advertisedLocator());
+    defer model.freePeerLocator(allocator, widget_locator);
 
-    var directory_host = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
+    var directory_host = try driver.listen(allocator, io, .{ .symbols = &.{.noise_tcp} }, model.transport.noise_tcp, .{ .designator = "127.0.0.1:0" }, .{ .keyed = try driver.drawSessionSecret(io) }, opts);
     defer directory_host.deinit();
-    var directory_addr_buf: [64]u8 = undefined;
-    const directory_designator = try allocator.dupe(u8, try directory_host.localDesignator(&directory_addr_buf));
-    defer allocator.free(directory_designator);
+    const directory_locator = try model.clonePeerLocator(allocator, try directory_host.advertisedLocator());
+    defer model.freePeerLocator(allocator, directory_locator);
 
     var widget_future = try io.concurrent(serveWidget, .{ widget_host, &done });
-    var directory_future = try io.concurrent(serveDirectory, .{ directory_host, widget_designator, &done });
+    var directory_future = try io.concurrent(serveDirectory, .{ directory_host, widget_locator, &done });
     var hosts_joined = false;
     defer if (!hosts_joined) {
         done.store(true, .release);
@@ -145,12 +138,11 @@ pub fn main(init: std.process.Init) !void {
     };
 
     // ── The client. This is the whole program. ───────────────────────────────
-    var dir_loc_buf: [tcp.designator_buf_len]u8 = undefined;
     const session = try driver.connect(
         allocator,
         io,
-        .{ .symbols = &.{.tcp} },
-        tcp.locatorFromAddress(&dir_loc_buf, try tcp.parseDesignator(directory_designator)),
+        .{ .symbols = &.{.noise_tcp} },
+        directory_locator,
         .ephemeral,
         opts,
     );

@@ -18,7 +18,7 @@ pub const ContentDelta = struct {
         return edges;
     }
 
-    /// Payload borrows the pinned row or retained call arena; edge output
+    /// Payload borrows the pinned row or retained call arena. Edge output
     /// belongs to that arena and survives through the hosting transaction.
     pub fn prepare(arena: std.mem.Allocator, view: loam.RecordView, replacement: ?[]const u8, edits: []const Edit, appended: []const hosting.references.Replacement) !?ContentDelta {
         const payload = replacement orelse view.payload;

@@ -38,7 +38,7 @@ impl Disk {
 			version: 1,
 			identity_seed: Hex(identity),
 			session_entropy: Hex(entropy),
-			revision: SafeInteger::new(0).unwrap(),
+			revision: SafeInteger::ZERO,
 			workspace_adoption: Adoption::Available,
 			checkpoint: Rc::new(Checkpoint::empty()),
 			recent: List(alloc::vec::Vec::new()),

@@ -54,7 +54,7 @@ pub fn ResidentPolicy(comptime Backend: type, comptime Inner: type) type {
             });
         }
 
-        /// An onion listener restores from its service key; any other
+        /// An onion listener restores from its service key. Any other
         /// listener answers through `Inner`.
         pub fn restorationState(backend: *Backend, fd: Backend.Fd, out: []u8) netlayer.ListenerRestorationOutcome {
             if (backend.listenerServiceKey(fd)) |key| return .{ .size = netlayer.writeListenerRestorationState(out, key) };

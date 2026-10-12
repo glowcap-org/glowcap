@@ -1,5 +1,5 @@
 //! C vocabulary unit proof through an attachment's actual registered decoders.
-//! Shared Zig access scenarios own admission; this checks shape and held scope.
+//! Shared Zig access scenarios own admission. This checks shape and held scope.
 const std = @import("std");
 const access = @import("loam_access");
 const core = access.core;

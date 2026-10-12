@@ -1,14 +1,14 @@
 /* ── The media viewer ─────────────────────────────────────────────────── */
-/* Over the whole interface, dismissed by the backdrop the way Settings is —
+/* Over the whole interface, dismissed by the backdrop the way Settings is,
    and with none of its chrome. Settings is a panel because it is a form with
-   fields and a title; a picture is the content, and a frame around it would
+   fields and a title. A picture is the content, and a frame around it would
    only take space from it. The bar rides a legibility gradient rather than a
    surface, because the media behind it can be any colour. */
 .viewer {
 	position: fixed;
 	inset: 0;
 	/* Fill the window and stop there. The UA dialog is sized to its contents
-	   and capped just inside the viewport; neither is the right box for a
+	   and capped just inside the viewport. Neither is the right box for a
 	   picture that must fit the window. */
 	width: 100%;
 	height: 100%;
@@ -37,7 +37,7 @@
 		opacity: 0;
 	}
 }
-/* The picture rises the way the settings panel does; its ground does not, because
+/* The picture rises the way the settings panel does. Its ground does not, because
    that ground is the whole screen and scaling it would show the page around its
    edges. No blur either: the ground is opaque, so there is nothing behind it left
    to see. The wait mark and the failure line are left out: one is already turning,

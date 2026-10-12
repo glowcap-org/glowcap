@@ -50,6 +50,8 @@ pub const glowcap_loam_call_prepared_live_dependent = @import("live_dependent.zi
 pub const glowcap_loam_call_matches_live_dependent = @import("live_dependent.zig").glowcap_loam_call_matches_live_dependent;
 pub const glowcap_loam_call_live_dependent_exporter = @import("live_dependent.zig").glowcap_loam_call_live_dependent_exporter;
 pub const glowcap_loam_call_source = @import("graph_abi.zig").glowcap_loam_call_source;
+pub const glowcap_loam_call_accounting_path = @import("graph_abi.zig").glowcap_loam_call_accounting_path;
+pub const glowcap_loam_call_refuse_copying = @import("graph_abi.zig").glowcap_loam_call_refuse_copying;
 pub const glowcap_loam_call_retain_prepared_reference = @import("graph_abi.zig").glowcap_loam_call_retain_prepared_reference;
 pub const glowcap_loam_call_disclose_page = @import("graph_abi.zig").glowcap_loam_call_disclose_page;
 pub const glowcap_loam_references_restore_page = @import("graph_abi.zig").glowcap_loam_references_restore_page;
@@ -73,6 +75,7 @@ pub const GlowcapLoamResourceId = t.GlowcapLoamResourceId;
 pub const GlowcapLoamBoundResource = t.GlowcapLoamBoundResource;
 pub const GlowcapLoamInvocation = t.GlowcapLoamInvocation;
 pub const GlowcapLoamRequirementFn = t.GlowcapLoamRequirementFn;
+pub const GlowcapLoamForwardFn = t.GlowcapLoamForwardFn;
 pub const GlowcapLoamInvokeFn = t.GlowcapLoamInvokeFn;
 pub const GlowcapLoamReferencesFn = t.GlowcapLoamReferencesFn;
 pub const GlowcapLoamEntropyFn = t.GlowcapLoamEntropyFn;
@@ -223,7 +226,7 @@ pub fn glowcap_loam_references_restore(raw: ?*GlowcapLoamReferences, index: usiz
     return shared.GLOWCAP_OK;
 }
 /// Prepare the exact held capability. A foreign target needs its established
-/// sturdy URI; a null URI supports local capture. Copies URI bytes before return.
+/// sturdy URI. A null URI supports local capture. Copies URI bytes before return.
 pub fn glowcap_loam_references_save_copying(raw: ?*GlowcapLoamReferences, reference: ?*const shared.GlowcapReference, uri: ?[*]const u8, uri_len: usize) callconv(.c) i32 {
     shared.lastErrorClear();
     const ref = reference orelse return shared.GLOWCAP_ERR_NULL_POINTER;
@@ -232,7 +235,7 @@ pub fn glowcap_loam_references_save_copying(raw: ?*GlowcapLoamReferences, refere
 }
 
 /// Declare exact held authority for Host-lifetime storage. Live startup must
-/// confirm first; the shared scope reserves custody before preparation waits.
+/// confirm first. The shared scope reserves custody before preparation waits.
 pub fn glowcap_loam_references_save_live(raw: ?*GlowcapLoamReferences, reference: ?*const shared.GlowcapReference) callconv(.c) i32 {
     shared.lastErrorClear();
     const ref = reference orelse return shared.GLOWCAP_ERR_NULL_POINTER;
@@ -265,7 +268,7 @@ pub fn glowcap_loam_last_error(buf: ?[*]u8, len: usize) callconv(.c) usize {
     return shared.lastErrorRead(buf, len);
 }
 /// Privileged staging opens one fresh transaction. Names remain provisional
-/// until commit; failures discard its staged graph and expose no capability.
+/// until commit. Failures discard its staged graph and expose no capability.
 pub fn glowcap_loam_resource_stage(raw: ?*GlowcapLoamStore, policy: ?*const GlowcapLoamPolicy, owner_id: ?[*]const u8, kind: u64, schema: u64, version: u32, payload: ?[*]const u8, payload_len: usize, delegation_depth: u16, out_resource: ?*GlowcapLoamResource) callconv(.c) i32 {
     shared.lastErrorClear();
     const owner = common.store(raw) catch |err| return common.code(err);
@@ -352,7 +355,7 @@ pub fn glowcap_loam_policy_value(policy: ?*const GlowcapLoamPolicy, requirement:
     return policyValue(policy, requirement, out_value, null);
 }
 /// Construct terms supported by one declared exact interface. Kind is schema
-/// data; this check supplies no authority or reusable admission for an effect.
+/// data. This check supplies no authority or reusable admission for an effect.
 pub fn glowcap_loam_policy_value_for_kind(policy: ?*const GlowcapLoamPolicy, kind: u64, requirement: ?*const GlowcapLoamRequirement, out_value: ?*GlowcapLoamPolicyValue) callconv(.c) i32 {
     return policyValue(policy, requirement, out_value, kind);
 }

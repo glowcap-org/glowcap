@@ -1,7 +1,7 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-multi-select-probe.ts — End-to-end visual probe for
- * PR 2 of the Flash-grade timeline thrust. Verifies that the
+ * playwright-multi-select-probe.ts: End-to-end visual probe for
+ * the timeline's multi-select. Verifies that the
  * core multi-select and bulk verbs each produce a visual change:
  *
  *   01-default              clean timeline, no selection
@@ -10,8 +10,8 @@
  *   04-rubber-band-selected drag across plot area → multiple selected
  *
  * Bulk drag, snap-to-grid visual, and the multi-summary Inspector
- * panel are exercised by other unit-test / inspection paths;
- * this probe focuses on the gestures that produce easily-
+ * panel are exercised by other unit-test / inspection paths.
+ * This probe focuses on the gestures that produce easily-
  * observable global visual deltas.
  *
  * Setup: dev server on :5173.

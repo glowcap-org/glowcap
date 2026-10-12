@@ -1,9 +1,9 @@
 /**
  * Is a key event aimed at a surface the user is typing into?
  *
- * Three keyboard pipelines need the same answer — the global key
+ * Three keyboard pipelines need the same answer, the global key
  * authority, the pointer FSM's Space bridge, and the timeline's own
- * verbs all step aside while text is being edited — so the question
+ * verbs all step aside while text is being edited, so the question
  * is answered once here instead of once per listener.
  */
 

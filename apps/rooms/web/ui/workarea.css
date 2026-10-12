@@ -18,7 +18,7 @@
 }
 /* The topbar that heads this column lives in topbar.css. */
 /* A toggle has to look toggled. The Members button has always carried
-   aria-pressed, so assistive software knew whether the roster was up; everyone
+   aria-pressed, so assistive software knew whether the roster was up. Everyone
    else was told only by the roster itself, which is the one thing the button
    takes away. */
 .content {
@@ -29,7 +29,7 @@
 	display: grid;
 	grid-template-columns: minmax(0,1fr) var(--rail-w);
 	/* One bounded row. Left implicit, the row auto-sizes to its content, and a
-	   column taller than the app — the operations surface on a phone — grows
+	   column taller than the app, the operations surface on a phone, grows
 	   the row past the locked page instead of scrolling inside it. The stream
 	   never showed this because its log is absolutely positioned and adds no
 	   height. */
@@ -86,12 +86,12 @@
 	gap: var(--gap-hair);
 }
 /* Pin messages to the bottom (just above the composer) when a conversation is
-   short, on both desktop and mobile; when it overflows there is no free space so
+   short, on both desktop and mobile. When it overflows there is no free space so
    it scrolls normally. */
 #log > :first-child {
 	margin-top: auto;
 }
-/* The bottom edge of the reading area, and nothing else. It is deliberately not
+/* The bottom edge of the reading area, and nothing else. It is not
    the composer's own paint: the composer is a control that happens to sit here,
    and this is the surface the conversation ends on. Keeping them apart is what
    lets the field carry a shadow and read as resting on the column, instead of
@@ -189,7 +189,7 @@
 /* Earlier messages arrive above the live log. Reserve their measure where they
    will appear, so the empty column does not pretend the room has answered and
    then jump when it does. The shared shimmer owns motion and its reduced-motion
-   answer; these lines own only the log-native shape. */
+   answer. These lines own only the log-native shape. */
 .history-loading {
 	align-self: flex-start;
 	box-sizing: border-box;
@@ -263,7 +263,7 @@
 	flex: none;
 }
 /* A tint can land near whatever surface is behind it, so the chip keeps a
-   hairline of ink; the pip stays small enough to read as worn, not held. */
+   hairline of ink. The pip stays small enough to read as worn, not held. */
 .avatar-presence .avatar-chip {
 	box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 22%, transparent);
 }
@@ -278,10 +278,10 @@
 	border: 1.5px solid var(--teal);
 	background: var(--teal);
 	/* The punch-out ring, then the same hairline of ink the chip itself keeps:
-	   the pip is a tint that can land on an identical tint — light's teal
-	   avatars are the very teal the pip wears — so the ring alone reads as one
+	   the pip is a tint that can land on an identical tint, light's teal
+	   avatars are the very teal the pip wears, so the ring alone reads as one
 	   shape. The hairline draws the pip's own edge in both themes. A box-shadow
-	   takes a colour, not a gradient, so the ring is the surface's flat tone —
+	   takes a colour, not a gradient, so the ring is the surface's flat tone,
 	   handing it --page-bg or --rail-fill (both gradients) invalidates the
 	   whole declaration and the pip melts into the chip. */
 	box-shadow:
@@ -289,7 +289,7 @@
 		0 0 0 3px color-mix(in srgb, var(--ink) 26%, transparent);
 }
 /* Away is a way of being here, so the pip keeps the online dot's shape and
-   says so by weight; offline is the hollow ring. */
+   says so by weight. Offline is the hollow ring. */
 .avatar-presence.away .presence-pip {
 	opacity: .45;
 }
@@ -315,8 +315,8 @@
 }
 /* Scoped wherever a name sits above a line. Unscoped, `.who` is a word general
    enough that somewhere else in this page will want it, and the next element to
-   carry the class inherits a message author's indent for no reason it can see —
-   which is exactly what happened to the member list. */
+   carry the class inherits a message author's indent for no reason it can see.
+   Which is exactly what happened to the member list. */
 /* The name over a stack is what a reader scans the log by, so it takes the
    page's ink at a firm weight rather than the soft ink a caption takes: it is
    the anchor of the group, not a note about it. Size is what keeps it under
@@ -354,7 +354,7 @@
    they sit a shade apart from everybody else's and never louder. In syrup the
    bloom sits around them, and in light it is transparent. The gradient stays
    a gradient because the browser proof reads your lines' ink against its two
-   stops; it is a gentle one. */
+   stops. It is a gentle one. */
 .row.mine .bubble {
 	background: linear-gradient(135deg, var(--said-from) 0%, var(--said-to) 100%);
 	color: var(--said-ink);
@@ -421,7 +421,7 @@
 .sys-line {
 	display: inline-block;
 	max-width: min(var(--card-cap), 100%);
-	/* The pill hugs its words, so a single line still reads as centred; what
+	/* The pill hugs its words, so a single line still reads as centred. What
 	   this changes is a pill with more than one, where the answers to /list and
 	   /directories are a list rather than a sentence and centring each row
 	   scattered them. */

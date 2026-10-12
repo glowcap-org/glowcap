@@ -20,7 +20,7 @@ fn active(raw: ?*c.GlowcapLoamCall) !*callbacks.Call {
 }
 
 /// Borrow Host-owned exporter metadata for a committed live dependent facet.
-/// Null means no exporter; the result discloses no target capability and must
+/// Null means no exporter. The result discloses no target capability and must
 /// not be released. Its lifetime belongs to the existing Host session.
 pub fn glowcap_loam_call_live_dependent_exporter(raw: ?*c.GlowcapLoamCall, facet: ?*const shared.GlowcapReference, out_session: ?*?*common.host.GlowcapHostSession) callconv(.c) i32 {
     shared.lastErrorClear();
@@ -35,7 +35,7 @@ pub fn glowcap_loam_call_live_dependent_exporter(raw: ?*c.GlowcapLoamCall, facet
 }
 
 /// Borrow the exact facet prepared by this call's matching declaration.
-/// The callback may save it; obtaining it declares no reply disclosure.
+/// The callback may save it. Obtaining it declares no reply disclosure.
 pub fn glowcap_loam_call_prepared_live_dependent(raw: ?*c.GlowcapLoamCall, source: ?*const shared.GlowcapReference, target: ?*const shared.GlowcapReference, out_reference: ?*shared.GlowcapReference) callconv(.c) i32 {
     shared.lastErrorClear();
     const out = out_reference orelse return shared.GLOWCAP_ERR_NULL_POINTER;
@@ -51,7 +51,7 @@ pub fn glowcap_loam_call_prepared_live_dependent(raw: ?*c.GlowcapLoamCall, sourc
 }
 
 /// Compare the committed facet's actual guarded source and target. A false
-/// match is descriptive refusal; this cannot construct or disclose authority.
+/// match is descriptive refusal. This cannot construct or disclose authority.
 pub fn glowcap_loam_call_matches_live_dependent(raw: ?*c.GlowcapLoamCall, facet: ?*const shared.GlowcapReference, source: ?*const shared.GlowcapReference, target: ?*const shared.GlowcapReference, out_matches: ?*u32) callconv(.c) i32 {
     shared.lastErrorClear();
     const out = out_matches orelse return shared.GLOWCAP_ERR_NULL_POINTER;

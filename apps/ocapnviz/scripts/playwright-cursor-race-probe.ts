@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-cursor-race-probe.ts — proves the canvas keeps the cursor the
+ * playwright-cursor-race-probe.ts: proves the canvas keeps the cursor the
  * app asked for while Space is held and the pointer is moving, which is the
  * Hand tool's convention (`docs/cursor.md`).
  *
@@ -53,7 +53,7 @@ const peerX = 800;
 const peerY = 500;
 
 // (1) Hover the stage with no key down. Whatever the pointer is over, the
-//     answer is one of the surface's own cursors and never the pan's — which
+//     answer is one of the surface's own cursors and never the pan's, which
 //     is what makes step (2)'s flip evidence of anything.
 await page.mouse.move(peerX, peerY);
 await page.waitForTimeout(150);
@@ -66,7 +66,7 @@ await page.waitForTimeout(150);
 const spaceCursor = await cursorStyle();
 console.log(`space held:             ${spaceCursor}`);
 
-// (3) Move the pointer a few pixels. It must stay "grab" — this is the step
+// (3) Move the pointer a few pixels. It must stay "grab". This is the step
 //     the bug failed, because Pixi's un-hover write landed "default".
 await page.mouse.move(peerX + 5, peerY);
 await page.waitForTimeout(50);
@@ -87,7 +87,7 @@ await browser.close();
 
 // The regression: moving the pointer while Space was held reverted
 // `canvas.style.cursor` from "grab" to "default", because Pixi's un-hover
-// write raced the app's. The other checks confirm the ladder around it —
+// write raced the app's. The other checks confirm the ladder around it,
 // the surface answers before the key and again after it.
 const checks = {
 	"before Space, the surface's own cursor": hoverCursor !== "grab" &&

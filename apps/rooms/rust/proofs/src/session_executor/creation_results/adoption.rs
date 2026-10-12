@@ -57,7 +57,10 @@ pub(super) async fn run(
 	);
 	assert_eq!(adopted.intent.directories, intent.directories);
 	assert_eq!(adopted.intent.conversations.as_slice().len(), 1);
-	assert_eq!(adopted.intent.active.as_ref().unwrap().text().as_str(), Some("created"));
+	assert_eq!(
+		adopted.intent.active, intent.active,
+		"acquisition preserves the reader's selection"
+	);
 	acquisition.submit().await.unwrap();
 	assert_eq!(workspace.snapshot().await.unwrap().revision, adopted.revision);
 	owner.replace_workspace(intent).await.unwrap();

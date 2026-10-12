@@ -1,11 +1,11 @@
 // A Host publication `dm` behavior that records each incoming message into `inbox` and
-// replies to the caller over the connection the call arrived on — the ADR-0088
-// receiver primitive: `currentSession()` names that connection, so a caller that
-// opened no listener (a browser, a NAT'd peer) is answered without a dial back.
-// Shared by the receiver-reply demos so they assert against one spine instead of
-// four hand-rolled copies. This is not the app's own path: the browser UI's
-// Rust receiver captures the reply capability and answers on a
-// later user send rather than inline, so this helper models the inline-reply
+// replies to the caller over the connection the call arrived on. This is the
+// ADR-0088 receiver primitive: `currentSession()` names that connection, so a
+// caller that opened no listener (a browser, a NAT'd peer) is answered without
+// a dial back. Shared by the receiver-reply demos so they assert against one
+// spine instead of four hand-rolled copies. This is not the app's own path. The
+// browser UI's Rust receiver captures the reply capability and answers on a
+// later user send instead of inline, so this helper models the inline-reply
 // demos, not what the app ships.
 
 import { type Behavior, type Ref, type Session } from "@glowcap/runtime";
@@ -16,7 +16,7 @@ import { DM } from "./protocol.ts";
 /** Build a `dm` Host publication that pushes each received text to `inbox` and answers
  * the caller with `replyText(received)`, over the arriving connection. The reply
  * is a fresh eventual-send on a later turn (the host refuses a driving verb
- * inside the callback frame); `currentSession()` is read synchronously because it
+ * inside the callback frame). `currentSession()` is read synchronously because it
  * is null once the turn returns. */
 export function recordingReplyDm(
 	inbox: string[],

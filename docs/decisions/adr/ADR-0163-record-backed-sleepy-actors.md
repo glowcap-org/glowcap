@@ -21,7 +21,7 @@ embedding's executor. It owns neither a second scheduler nor database I/O.
 Ordinary volatile actors require no attachment or additional per-session state.
 
 A schema/version selects an explicit behavior callback. Its record is the
-complete durable state; invocation reads immutable fields, obtains held local
+complete durable state. Invocation reads immutable fields, obtains held local
 capabilities from stored strong edges, and optionally proposes replacement
 payload. Invocation performs no I/O or external effects. It receives no Turn
 API for sending effects before commitment. This is a trusted native callback
@@ -29,7 +29,7 @@ contract, not memory isolation or automatic serialization of arbitrary actors.
 
 The attachment retains plain-data requests in bounded call buffers. It preserves
 per-actor pending-call order and coalesces loads through the Store. Ready work
-uses the original Vat ingress; network work resumes through Host scheduling.
+uses the original Vat ingress. Network work resumes through Host scheduling.
 Cancellation of queued activation releases its lease. Outstanding backend work
 retains its buffers until completion even when a caller disconnects. Existing
 Host pending-work leases prevent shutdown from outrunning unfinished calls.
@@ -43,11 +43,11 @@ encoding a deferred resolution can make a pipelined call runnable.
 
 Sleeping releases eligible record bytes while ordinary Vat/Host custody keeps
 held actor references callable. Stored objects alone allocate no endpoints.
-Near calls require current resident state and cannot mutate durable state;
-eventual calls provide the storage boundary. Retaining a committed record moves
+Near calls require current resident state and cannot mutate durable state.
+Eventual calls provide the storage boundary. Retaining a committed record moves
 its prepared allocation into available cache space, with no allocation during
 installation and no displacement of pinned snapshots. The default policy uses
-bounded cache residency; an every-turn policy stresses cold activation.
+bounded cache residency. An every-turn policy stresses cold activation.
 
 ## Capability and publication boundary
 
@@ -61,7 +61,7 @@ A publication descriptor stores secret-name entropy and an exact actor edge.
 The application retains bootstrap descriptor names and restores Host identity
 at startup. A committed descriptor populates the existing Host publication
 registry. Retirement replaces it with a tombstone and removes discovery from
-that registry; previously issued references remain valid. Historical leases
+that registry. Previously issued references remain valid. Historical leases
 cannot restore current authority. The embedding pauses fetch admission across
 retirement commit and registry application, including unknown-outcome recovery.
 No automatic publication enumeration or snapshot-based authority rollback is
@@ -78,17 +78,17 @@ actor through CapTP, and follows the saved cycle back to the same capability.
 This proves those process boundaries, not power-loss behavior or external
 protocol interoperability.
 
-Pending calls and replies remain volatile; a caller can lose a reply after its
+Pending calls and replies remain volatile. A caller can lose a reply after its
 mutation committed. Durable inbox/outbox, retry receipts, events, managed grant
 participants, foreign/cross-vat restoration, browser storage,
-and C/Rust APIs remain in the [Loam plan](../../planning/loam/architecture.md).
-Payload replacement currently preserves edges; administrative transactions
+and C/Rust APIs remain in the [Loam plan](../../loam/architecture.md).
+Payload replacement currently preserves edges. Administrative transactions
 update them separately while no actor calls are pending. Timers, subscriptions,
 unresolved promises, and native handles have no durable representation in this
-profile. Local plain Vat responses cannot transport owning capability values;
-those replies use the Host/CapTP path.
+profile. Local plain Vat responses cannot transport owning capability values.
+Those replies use the Host/CapTP path.
 
-Fixed operation and endpoint tables use bounded linear searches; pending-call
+Fixed operation and endpoint tables use bounded linear searches. Pending-call
 ordering can take quadratic work in the configured call limit. Commit installation
 checks bounded cache slots against changed objects while preserving lease epochs. These
 costs and the separate Host, cache, staging, backend, and OS memory budgets must

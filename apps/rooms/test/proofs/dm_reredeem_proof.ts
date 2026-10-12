@@ -5,7 +5,7 @@
 // (ADR-0088).
 //
 // The sharp case is a *second* redeem to an exporter already dialed. The first
-// introduction dials Bob and resolves to that connection. The second reuses it —
+// introduction dials Bob and resolves to that connection. The second reuses it,
 // the node dedups the dial by exporter identity, so no new dial runs at all. A
 // heuristic that captured "the exporter dialed during this send" would see none
 // and surface `via = null`, and the sender would wrongly host its reply inbox on
@@ -104,8 +104,8 @@ async function main(): Promise<void> {
 	);
 
 	// Two lines to one member share one connection, so closing one must not
-	// hang up the other. `ownsSession` used to be "a route came back", which is
-	// a different question from "this line opened it": the second line resolves
+	// hang up the other. `ownsSession` means "this line opened it", not "a route
+	// came back", which is a different question: the second line resolves
 	// the exporter the first already dialed, so both claimed it and whichever
 	// closed first took the connection down with it.
 	const firstLine = await DirectMessage.open(carol, "bob");

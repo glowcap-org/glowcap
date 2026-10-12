@@ -1,5 +1,5 @@
 //! Projection borrows an action's owned Value and grants independent consumer
-//! retains. The stable tree is its own rollback receipt; no scratch allocation
+//! retains. The stable tree is its own rollback receipt. No scratch allocation
 //! or second value materialization is needed.
 const std = @import("std");
 const host_mod = @import("../../host.zig");
@@ -65,7 +65,7 @@ fn keepValue(_: void, value: value_mod.Value) !value_mod.Value {
 }
 
 /// The callback projects representation only. Its successful result owns one
-/// retain per capability occurrence; its bytes borrow the action unless the
+/// retain per capability occurrence. Its bytes borrow the action unless the
 /// callback copies them. A refusal leaves the action available for retry.
 pub fn projectCompletion(
     self: *Host,

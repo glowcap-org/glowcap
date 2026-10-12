@@ -1,5 +1,5 @@
 //! File methods share bounded backend admission. Committed byte reads can
-//! serve callbacks during ingestion; mutations remain serial. Reader issuance
+//! serve callbacks during ingestion. Mutations remain serial. Reader issuance
 //! stays with the archive's caller accounts and never replenishes on release.
 use super::*;
 use rooms_application::archive::{

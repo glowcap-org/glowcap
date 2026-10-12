@@ -2,9 +2,9 @@
  * What the session inspector's trajectory offers to insert.
  *
  * The rows themselves come from `engine/trajectory.ts` and are tested
- * there; this is the one piece of policy the panel owns. A new moment
+ * there. This is the one piece of policy the panel owns. A new moment
  * has to arrive saying something true, and for a session's ends
- * "true" can be "nothing" — so the offer either carries a real peer
+ * "true" can be "nothing". So the offer either carries a real peer
  * or is not made at all.
  */
 
@@ -59,7 +59,7 @@ function looseDoc(): TimelineDocument {
 	});
 }
 
-/** A session drawn with no peers at all — both ends loose. The
+/** A session drawn with no peers at all. Both ends loose. The
  *  document admits it, so Build mode can make it. */
 function peerlessDoc(): TimelineDocument {
 	return TimelineDocument.parse({
@@ -146,7 +146,7 @@ Deno.test("an offer over an attributed end restates what backed it", () => {
 	// An insert says what the session already carries at the playhead. An
 	// end carries a peer AND what put them there, so an offer that named
 	// only the peer would have the new moment quietly unsay a signed
-	// handoff — the recording holds that word, so Build has to keep it.
+	// handoff. The recording holds that word, so Build has to keep it.
 	const e = engineFor(looseDoc());
 	e.setSessionKeyframe("s1", "b", 1000, {
 		peer: "bob",

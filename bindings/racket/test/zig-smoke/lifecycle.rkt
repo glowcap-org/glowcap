@@ -48,7 +48,7 @@
          racket/tcp)
 
 ;; Mint a bare negotiating session for close-lifecycle scenarios. The helper
-;; deliberately leaves the session pending so Host shutdown owns the outcome.
+;; leaves the session pending so Host shutdown owns the outcome.
 (define (open-pending-dialed! m)
   (call-with-locator-view (locator "tcp" "pending-session" (hash) 'boolean-false)
     (lambda (view)
@@ -63,7 +63,7 @@
 ;; free the native session while the trampoline frame is still on the stack. Local
 ;; vat turns do not set `inside-turn?` (they never enter the C latch); the park
 ;; is for the hosted trampoline path. Closing the transport drops the partner
-;; before the reply can settle on the wire — the proof here is the park count
+;; before the reply can settle on the wire. The proof here is the park count
 ;; observed *during* the turn (1), not a far reply.
 (define mc-server (listen "127.0.0.1" 0))
 (define mc-ready (make-semaphore 0))

@@ -1,5 +1,5 @@
 /**
- * Live-feed converter — the epoch and replay envelope around one
+ * Live-feed converter. The epoch and replay envelope around one
  * record's effect on the stage (`apply.ts`). The wire record
  * shape and field readers live in `record.ts`. The CapTP
  * consumer that delivers those records is `connection.ts`.
@@ -28,7 +28,7 @@ export type FeedState = {
 	hostOfScope: Map<string, string>;
 	/** Producer scope -> the sessions it is watching. A producer leaving takes
 	 * its view of them with it, and the endpoint no longer synthesizes a close
-	 * per session to say so — it reports the departure, and this is what turns
+	 * per session to say so. It reports the departure, and this is what turns
 	 * that into the right ending for each session the viewer was shown. */
 	sessionsOfScope: Map<string, Set<string>>;
 	/** The replayed batch, held until the endpoint says it has ended.
@@ -42,8 +42,8 @@ export type FeedState = {
  * Only the ones that carry topology, because only those are what the
  * batch is FOR: it exists so both ends of a wire are known before
  * either is drawn. Everything else a feed might replay is already
- * dropped on arrival — `applyEvent` refuses replayed messages, which
- * are the past and not this viewer's capture — so buffering them
+ * dropped on arrival, `applyEvent` refuses replayed messages, which
+ * are the past and not this viewer's capture, so buffering them
  * would hold bytes to reach a `continue`.
  *
  * That is also what makes the count bound below a real bound. A
@@ -63,7 +63,7 @@ const REPLAY_BATCH_KINDS = new Set([
  * untrusted until it has been read: the viewer dials the
  * endpoint, and a feed that marked records `replay` forever would
  * otherwise grow this buffer for the connection's life. Past the
- * bound the batch is drawn rather than dropped — a viewer that
+ * bound the batch is drawn rather than dropped. A viewer that
  * silently discarded topology would be worse than one that draws it
  * a moment early and has to learn an end, which is the same honest
  * degradation a feed sending no end-of-batch mark already gets.
@@ -77,7 +77,7 @@ const MAX_REPLAY_BATCH = 8192;
 /** Apply a replayed batch as ONE picture.
  *
  * A snapshot is not a sequence of moments. Every session in it is
- * already open, and a wire watched from both ends is in it twice —
+ * already open, and a wire watched from both ends is in it twice,
  * so the far end's name is in hand before anything is drawn, and a
  * viewer that left the end loose and then attributed it would be
  * reporting a transition that never happened.
@@ -85,7 +85,7 @@ const MAX_REPLAY_BATCH = 8192;
  * What resolves it is one pass over the batch's opens, grouping each
  * wire's reporting selves. A wire with exactly two distinct selves is
  * fully known: each end's own designator is the other end's answer.
- * Anything else — one end reporting, or a shape this cannot read —
+ * Anything else, one end reporting, or a shape this cannot read,
  * falls through to what a live feed does, which is honest about what
  * it did not know rather than merely acceptable.
  *
@@ -93,13 +93,13 @@ const MAX_REPLAY_BATCH = 8192;
  * Every edge is still made by `openSession` and `#joinWire`, in the
  * same order, so the snapshot only hands over a fact the live path
  * had to wait for. What that buys is the same TOPOLOGY and the same
- * names, reached without reporting a learning that did not happen —
+ * names, reached without reporting a learning that did not happen,
  * not identical documents. The live path leaves an unbacked end loose
  * and mints the peer only when a producer speaks for it, so the two
  * paths can reach one picture by different routes.
  * `feed-test/` holds the equality that does apply.
  *
- * Both of a wire's records still apply — the second is what marks its
+ * Both of a wire's records still apply, the second is what marks its
  * reporting host eternal, which the first draw does not. */
 function removeObservedSession(
 	state: FeedState,
@@ -136,8 +136,8 @@ function flushReplayBatch(
 ): void {
 	const batch = state.replayBatch;
 	state.replayBatch = [];
-	// Both passes ask the same question of a record — is this an open, and
-	// which wire is it of — so they ask it once, the same way.
+	// Both passes ask the same question of a record, is this an open, and
+	// which wire is it of, so they ask it once, the same way.
 	const replayOpen = (ev: BaseTimelineEvent): {
 		wire: string;
 		self: string;
@@ -170,9 +170,9 @@ function flushReplayBatch(
 	}
 
 	// Only an explicit replay-end makes this batch authoritative. A reconnect
-	// snapshot replaces the observations the viewer previously retained: an
+	// snapshot replaces the observations the viewer retained: an
 	// observation absent now was lost while the byte channel was down. This is
-	// deliberately "unobserved", never a claim that the CapTP session closed.
+	// "unobserved", never a claim that the CapTP session closed.
 	// Bounded and live-tail fallback flushes omit snapshotT because their batch
 	// may be incomplete and therefore cannot prove absence.
 	if (snapshotT !== undefined) {
@@ -200,7 +200,7 @@ function flushReplayBatch(
 		const selves = open === null ? undefined : selvesByWire.get(open.wire);
 		// Exactly two ends reporting is what "fully known" means: each one's own
 		// name is the other's answer. One end, or a shape this cannot read,
-		// falls through to what a live feed does — which is honest about what it
+		// falls through to what a live feed does, which is accurate about what it
 		// did not know.
 		const partnerOwnName = selves?.size === 2 ? [...selves.keys()].find((self) => self !== open?.self) : undefined;
 		const stated = partnerOwnName === undefined ? undefined : selves?.get(partnerOwnName);
@@ -215,12 +215,12 @@ function flushReplayBatch(
  * Convert one wire event into zero or more OCapN-flavored
  * `TimelineEvent`s. Some inputs (`ocapn.session-opened`,
  * `ocapn.message-decoded`) yield multiple outputs because they
- * reference peers that the renderer needs as separate entities;
- * the ledger synthesizes `peer-joined` events on first sight and on
+ * reference peers that the renderer needs as separate entities.
+ * The ledger synthesizes `peer-joined` events on first sight and on
  * each return, and `peer-left` when a peer's last session closes.
  *
  * Returns `[]` for a kind this viewer does not read. Epoch changes
- * and the replay batch are this function's; one record's effect is
+ * and the replay batch are this function's. One record's effect is
  * `applyEvent`.
  */
 export function convertEvent(
@@ -236,13 +236,13 @@ export function convertEvent(
 
 	const epoch = numberFromWire(ev.epoch);
 	if (epoch != null && epoch !== state.epoch.current) {
-		// A new producer process. Retire the old one's topology first;
+		// A new producer process. Retire the previous one's topology first;
 		// its sessions died with it and its wire ids may now recur.
 		if (state.epoch.current !== undefined) {
 			state.ledger.closeEpoch(t_ms, out);
 		}
 		// Both of these are keyed by producer scope, and the scopes of a
-		// process that has gone will never be spoken for again — the same
+		// process that has gone will never be spoken for again, the same
 		// reason `closeEpoch` drops the ledger's own per-producer state.
 		state.hostOfScope.clear();
 		state.sessionsOfScope.clear();
@@ -250,7 +250,7 @@ export function convertEvent(
 		// A batch held from the previous process describes sessions that
 		// died with it, and its wire names may now belong to something
 		// else. Drawing it into the new epoch would materialize exactly
-		// the ghost topology `closeEpoch` just cleared — the same reason
+		// the ghost topology `closeEpoch` just cleared. The same reason
 		// it drops names claimed for sessions that will never open.
 		state.replayBatch = [];
 	}
@@ -273,7 +273,7 @@ export function convertEvent(
 		return out;
 	}
 	// A live record while a batch is open means the endpoint sent no
-	// end-of-batch mark — an older one, or another producer of this
+	// end-of-batch mark. An older one, or another producer of this
 	// schema. Draw what is held rather than stranding it. This is a
 	// backstop and not the boundary: a quiet feed may send no live
 	// record for minutes, and the batch must not wait on one.
@@ -286,7 +286,7 @@ export function convertEvent(
 }
 
 /**
- * Stateful converter — the `StageLedger` tracks live incarnations
+ * Stateful converter. The `StageLedger` tracks live incarnations
  * across calls so `peer-joined` fires once per lifetime, closes
  * release refcounts, and a producer restart (epoch change) retires
  * the previous process's topology.
@@ -299,10 +299,10 @@ export function makeBaseEventConverter(): (
 }
 
 /** A feed's memory, fresh. `makeBaseEventConverter` is the ordinary
- *  door; this and `convertEvent` are the same thing with the state
- *  named, so a caller that has to weigh what a feed RETAINS — every
+ *  door. This and `convertEvent` are the same thing with the state
+ *  named, so a caller that has to weigh what a feed RETAINS, every
  *  map here is per producer or per conversation, and each has to give
- *  its rows back — can hold it and look. */
+ *  its rows back, can hold it and look. */
 export function newFeedState(): FeedState {
 	return {
 		ledger: new StageLedger(),

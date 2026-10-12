@@ -61,7 +61,7 @@ async def run_unit(conn: Session, root) -> None:
 async def run_unit_pipelined(conn: Session, root) -> None:
     # The same four verbs as run_unit, but pipelined (ADR-0007, questioner half):
     # assign/complete/status are addressed at the answer `create` will resolve to
-    # — the RemotePromise it returns, passed as the send target. assign/complete
+    # (the RemotePromise it returns), passed as the send target. assign/complete
     # are one-way deliveries; only status allocates an answer and is awaited. The
     # unit costs one round trip without leaving discarded result promises behind.
     create = conn.send(root, "create", ["benchmark"])
@@ -207,9 +207,9 @@ async def measure_hits(conn: Session, target: Ref, n: int) -> list:
 
 
 async def run_local(runtime: Runtime, n: int) -> None:
-    # The `local` mode (see contract.md): (a) in_lang — a counter spawned on
+    # The `local` mode (see contract.md): (a) in_lang, a counter spawned on
     # this connection, dispatched in process by the binding's own local path;
-    # (b) via_host — the same behavior published across a loopback pair inside
+    # (b) via_host: the same behavior published across a loopback pair inside
     # this process (listen on 127.0.0.1:0 + connect to itself), so every turn
     # pays wire codec, feed, trampoline, and marshal both ways. The
     # orchestrator's host/port arguments are unused; the pair is

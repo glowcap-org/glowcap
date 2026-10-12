@@ -1,14 +1,14 @@
 //! C-stable transport provider packages. A package contains one or more
-//! profiles, each tagged with the execution model it actually implements.
+//! profiles, each tagged with the execution model it implements.
 //! Stream transports keep per-listener/per-connection handles and readiness
-//! descriptors; multiplexed transports keep one shared readiness descriptor and
+//! descriptors. Multiplexed transports keep one shared readiness descriptor and
 //! stable connection ids through `GlowcapMultiplexedTransport`. The driver normalizes
 //! registration and locator semantics, not incompatible ownership models.
 //!
 //! Handle-producing callbacks transfer outputs only when they return
 //! `GLOWCAP_OK`. On every other status the provider retains and cleans any
 //! partial work and leaves output slots untouched. `finish_connect` and
-//! `finish_listen` consume their input attempt on every return; cancel is only
+//! `finish_listen` consume their input attempt on every return. Cancel is only
 //! for an attempt that was never passed to finish.
 
 const std = @import("std");
@@ -42,7 +42,7 @@ pub const GLOWCAP_WIRE_FRAMING_MESSAGE: u32 = 1;
 
 /// Optional carrier acquisition or byte-lifecycle phase on a structured
 /// provider failure. Zero means that this provider cannot name a carrier
-/// phase; progress states such as would-block never use this field.
+/// phase. Progress states such as would-block never use this field.
 pub const GLOWCAP_CARRIER_PHASE_NONE: u32 = 0;
 pub const GLOWCAP_CARRIER_PHASE_RESOLVE: u32 = 1;
 pub const GLOWCAP_CARRIER_PHASE_CONNECT: u32 = 2;
@@ -103,7 +103,7 @@ pub const GlowcapTransportOperationOptions = extern struct {
 /// On failure, `result` matches the returned GLOWCAP_ERR_* status and
 /// `primary_name` names the provider's exact cause. A non-zero
 /// `secondary_count` carries the first cleanup/consequence name and its stable
-/// result; later consequences are represented by the count. Cause names are
+/// result. Later consequences are represented by the count. Cause names are
 /// immutable process-lifetime identifiers (normally string literals), allowing
 /// the driver to retain them without allocating or copying on the wire path.
 pub const GlowcapProviderFailure = extern struct {
@@ -157,7 +157,7 @@ pub fn setProviderFailure(out: ?*GlowcapProviderFailure, result: i32, cause: any
 }
 
 /// Project one neutral failure chain onto the fixed provider callback record.
-/// The callback's returned status remains the primary classification authority;
+/// The callback's returned status remains the primary classification authority.
 /// `secondaryResult` supplies the transport family's stable classification for
 /// the first later consequence. Names come from the chain so a failure that
 /// crossed an earlier archive boundary is not flattened back to its Zig proxy
@@ -269,7 +269,7 @@ pub const GlowcapStreamCancelListenFn = *const fn (
 
 /// Tagged ownership result shared by stream and multiplexed listener setup.
 /// READY carries only `listener`. Stream PENDING carries `attempt` plus a
-/// readiness descriptor; multiplexed PENDING carries neither because its
+/// readiness descriptor. Multiplexed PENDING carries neither because its
 /// driver-minted route id and shared descriptor already identify completion.
 /// A provider may return PENDING only when its execution table supplies the
 /// complete finish/cancel listener-completion pair.
@@ -304,8 +304,8 @@ pub const GlowcapStreamListenerReadinessFdFn = *const fn (
 ) callconv(.c) i32;
 
 /// Project one listener's complete locator through a synchronous sink. The
-/// callback context is the provider-owned stream or multiplexed listener handle;
-/// provider may keep every projected view on its stack.
+/// callback context is the provider-owned stream or multiplexed listener handle.
+/// Provider may keep every projected view on its stack.
 pub const GlowcapTransportListenerLocatorFn = *const fn (
     listener_ctx: ?*anyopaque,
     sink_ctx: ?*anyopaque,
@@ -324,7 +324,7 @@ pub const GlowcapTransportListenerAdvertiseFn = *const fn (
 ) callconv(.c) i32;
 
 /// Query or copy opaque provider-owned listener restoration state. Writes the
-/// complete size to `out_len`; a short output is untouched and returns
+/// complete size to `out_len`. A short output is untouched and returns
 /// `GLOWCAP_ERR_BUFFER_TOO_SMALL`.
 pub const GlowcapTransportListenerRestorationStateFn = *const fn (
     listener_ctx: ?*anyopaque,
@@ -383,15 +383,15 @@ pub const GlowcapStreamConnTakeFailureFn = *const fn (
     out_failure: ?*GlowcapProviderFailure,
 ) callconv(.c) void;
 
-/// One stream-native transport profile. Connection callbacks are required;
-/// staged dial and the base listener capability are each complete or absent
+/// One stream-native transport profile. Connection callbacks are required.
+/// Staged dial and the base listener capability are each complete or absent
 /// operation groups. Listener completion is a separate optional finish/cancel
-/// pair; without it `listen` must return READY. A
+/// pair. Without it `listen` must return READY. A
 /// dial attempt owns its readiness descriptor until exactly one finish or
 /// cancel consumes it, and a PENDING listener attempt has the same ownership
 /// rule. Callbacks
 /// return `GLOWCAP_OK` or a `GLOWCAP_ERR_*` value except `try_read` and
-/// `try_write`, whose byte-count contract is explicit; handles and
+/// `try_write`, whose byte-count contract is explicit. Handles and
 /// descriptors remain provider-owned until the matching close callback. A
 /// connection's readiness descriptor reports when `try_read` or `try_write`
 /// can progress, so one thread drives every connection.
@@ -421,7 +421,7 @@ pub const GlowcapStreamTransport = extern struct {
 /// One tagged package entry. `implementation` points to
 /// `GlowcapStreamTransport` for STREAM or `GlowcapMultiplexedTransport` for
 /// MULTIPLEXED. Multiplexed entries in one package share a runtime exactly when they
-/// point to the same implementation table; the table's context and callbacks
+/// point to the same implementation table. The table's context and callbacks
 /// then have one lease, readiness descriptor, and connection namespace.
 pub const GlowcapTransportProviderEntry = extern struct {
     profile: ?*const GlowcapTransportProfile,
@@ -439,8 +439,8 @@ pub const GlowcapTransportReleaseFn = *const fn (
 ) callconv(.c) i32;
 /// Decide whether two packages produced by this provider implementation carry
 /// the same complete effective configuration. The driver calls this only when
-/// both packages advertise the same profile set and use this exact callback;
-/// return 1 for equivalent and 0 for different.
+/// both packages advertise the same profile set and use this exact callback.
+/// Return 1 for equivalent and 0 for different.
 pub const GlowcapTransportProviderSameConfigurationFn = *const fn (
     ctx: ?*anyopaque,
     other_ctx: ?*anyopaque,
@@ -448,7 +448,7 @@ pub const GlowcapTransportProviderSameConfigurationFn = *const fn (
 
 /// A provider package installed atomically through the driver's generic
 /// registration verb. The driver copies every table and retains one package
-/// lease before publication; it releases that lease only after all listeners,
+/// lease before publication. It releases that lease only after all listeners,
 /// connections, and copied callbacks have retired. Re-registering the same
 /// profile set is idempotent only when `same_configuration` is the same
 /// function and reports equivalent package contexts.

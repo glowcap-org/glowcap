@@ -25,6 +25,9 @@ zig build check-external       # outside protocol authority and shipped browser 
 
 - A gate passes by its exit code. Never pipe a gate through `tail`/`grep` and
   read the pipe's status; a green log can still echo `failed command:` stderr.
+  Colored output defeats text greps (a plain `grep error` can miss an
+  ANSI-wrapped error), so redirect to a file and trust only the command's own
+  exit code.
 - Iterate on the narrowest step. `-Dtest-filter=<name>` also skips
   analysis: code reached only by unmatched tests is never compiled, so a
   filtered green says nothing about their callers. It accepts one literal
@@ -39,7 +42,8 @@ zig build check-external       # outside protocol authority and shipped browser 
   successful sibling evidence. A prose-only edit needs `source-check`; an
   executable example also needs its owning check.
 - A failure gets a focused reproduction before another aggregate run (the
-  [debugging skill](../skills/debugging/SKILL.md)).
+  [debugging skill](../skills/debugging/SKILL.md)). Zig error-set mechanics
+  live in the [zig-error-sets skill](../skills/zig-error-sets/SKILL.md).
 - Bound CapTP and socket work with a deadline of tens of seconds. A silent hang
   is an unbounded wait, not a slow test.
 - [`docs/build-steps.md`](../../docs/build-steps.md) is the one place every
@@ -51,10 +55,20 @@ The committed `.devcontainer/` is the environment of record.
 [`pins.sh`](../../.devcontainer/pins.sh) and
 [`checksums.sh`](../../.devcontainer/checksums.sh) own tool versions; move them
 with `.devcontainer/bin/update-pins.sh`, and never weaken a check to accept an
-update. A toolchain-check or Playwright-preflight failure means the container is
-older than the image: rebuild it, never hand-install. Zig's cache lives in the
-per-worktree `glowcap-dev-<worktree>-zig-work` volume; `zig-out/` stays at the
-worktree root. [The environment notes](../../.devcontainer/README.md) own every
+update. A toolchain-check failure means the container is older than the image:
+rebuild it, never hand-install. A browser-preparation failure names its own
+remedy (rebuild only when the pin's libraries are newer than the image's).
+The four AI harnesses are
+the exception: they are managed tools, not image content — update them with
+`.devcontainer/bin/tools.sh` (never by hand), and a harness pin bump needs the
+cold-seed smoke run, not a rebuild. Playwright's browsers are the same shape
+one step further: the shared browser prerequisite prepares the checkout's
+exact pinned requirement through `tools.sh ensure playwright`, and browser
+steps run under `tools.sh exec playwright --`, which supplies the resolved
+browser directory — never set `PLAYWRIGHT_BROWSERS_PATH` by hand. Zig's cache
+lives in the per-worktree
+`glowcap-dev-<worktree>-zig-work` volume; `zig-out/` stays at the worktree
+root. [The environment notes](../../.devcontainer/README.md) own every
 procedure.
 
 ## Generated State
@@ -82,7 +96,8 @@ fails.
 
 ## Git Posture
 
-Commit, rebase, or integrate only when the user authorized it.
+Commit, rebase, or integrate within the user's authorized scope. A request to
+commit for another agent's handoff includes integration into local `dev`.
 
 - One session owns one linked worktree. Read the branch with
   `git branch --show-current`; never infer it.
@@ -90,8 +105,15 @@ Commit, rebase, or integrate only when the user authorized it.
   another worktree's branch, and never move `main`.
 - `git checkout -- <path>` and `git restore` destroy uncommitted work. Undo a
   probe from a copy saved in the scratchpad.
-- Stage explicit paths after reading `git status`, never `-a`/`-u`/`add .`.
+- Stage explicit paths after reading `git status`, never `-a`/`-u`/`add .`, and read
+  `git diff --cached --stat` against the intended change before committing. The
+  integrate gate catches a dirty tree, not a mis-staged one.
   Never amend in a shared worktree.
+- Commit messages name the change and its reason in the repository's ordinary
+  voice. Never add provenance or assistance trailers (`Co-Authored-By` and
+  friends): the maintainer decides what a commit says about how it was made,
+  and [`PROVENANCE.md`](../../PROVENANCE.md) owns the disclosure. Existing
+  trailers in history stay.
 - Commit small on the worktree; `dev` takes one commit per change. Start with
   `.agents/skills/work/bin/glowcap-integrate --sync`. Publish without
   `--sync`: it rebases onto `main` and `dev`, squashes several commits into

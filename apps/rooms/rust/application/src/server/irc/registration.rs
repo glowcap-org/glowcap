@@ -2,13 +2,16 @@
 //! vocabulary, and the state machine that runs CAP, AUTHENTICATE, and the
 //! welcome for the shared feed and for a member's own connection alike. The
 //! socket driver feeds it every message before registration and sends what
-//! it answers; after the welcome the driver owns the conversation.
+//! it answers. After the welcome the driver owns the conversation.
 use super::protocol::{Message, encode};
 use alloc::{
 	format,
 	string::{String, ToString},
 	vec::Vec,
 };
+
+mod invalid;
+pub use invalid::Invalid;
 
 const SASL_ACCOUNT_BYTES: usize = 64;
 const SASL_PASSWORD_BYTES: usize = 256;
@@ -31,7 +34,7 @@ fn nick_start(c: char) -> bool {
 	c.is_ascii_alphabetic() || matches!(c, '[' | ']' | '\\' | '`' | '_' | '^' | '{' | '|' | '}')
 }
 
-pub fn validate_nick(nick: &str) -> Result<(), String> {
+pub fn validate_nick(nick: &str) -> Result<(), Invalid> {
 	let mut chars = nick.chars();
 	let ok = match chars.next() {
 		Some(first) if nick_start(first) => {
@@ -39,24 +42,18 @@ pub fn validate_nick(nick: &str) -> Result<(), String> {
 		}
 		_ => false,
 	};
-	if ok {
-		Ok(())
-	} else {
-		Err("IRC nickname must be 1..28 ASCII nickname characters and begin with a letter or special".into())
-	}
+	if ok { Ok(()) } else { Err(Invalid::NickCharacters) }
 }
 
 /// Admit the GECOS/real-name value that IRC publishes in WHOIS. Feed callers
-/// use it to identify the bot and a reachable administrator; the wire encoder
+/// use it to identify the bot and a reachable administrator. The wire encoder
 /// remains the final authority on the complete 512-byte USER line.
-pub fn validate_realname(realname: &str) -> Result<(), String> {
+pub fn validate_realname(realname: &str) -> Result<(), Invalid> {
 	if realname.is_empty()
 		|| realname.len() > REALNAME_BYTES
 		|| realname.bytes().any(|byte| matches!(byte, 0 | b'\r' | b'\n'))
 	{
-		return Err(format!(
-			"IRC real name must be 1..{REALNAME_BYTES} UTF-8 bytes without NUL or a line break"
-		));
+		return Err(Invalid::RealnameBytes);
 	}
 	Ok(())
 }
@@ -92,18 +89,14 @@ pub fn rename_refusal(requested: &str, observed: &str) -> Option<String> {
 	))
 }
 
-pub fn validate_sasl_plain(credentials: &SaslPlain) -> Result<(), String> {
+pub fn validate_sasl_plain(credentials: &SaslPlain) -> Result<(), Invalid> {
 	let account = credentials.account.len();
 	let password = credentials.password.len();
 	if account == 0 || account > SASL_ACCOUNT_BYTES || credentials.account.contains('\0') {
-		return Err(format!(
-			"IRC SASL account must be 1..{SASL_ACCOUNT_BYTES} UTF-8 bytes without NUL"
-		));
+		return Err(Invalid::SaslAccountBytes);
 	}
 	if password == 0 || password > SASL_PASSWORD_BYTES || credentials.password.contains('\0') {
-		return Err(format!(
-			"IRC SASL password must be 1..{SASL_PASSWORD_BYTES} UTF-8 bytes without NUL"
-		));
+		return Err(Invalid::SaslPasswordBytes);
 	}
 	Ok(())
 }
@@ -128,7 +121,7 @@ fn base64(bytes: &[u8]) -> String {
 }
 
 /// The SASL PLAIN payload: `\0account\0password`, base64.
-pub fn sasl_plain_payload(credentials: &SaslPlain) -> Result<String, String> {
+pub fn sasl_plain_payload(credentials: &SaslPlain) -> Result<String, Invalid> {
 	validate_sasl_plain(credentials)?;
 	let raw = format!("\0{}\0{}", credentials.account, credentials.password);
 	Ok(base64(raw.as_bytes()))
@@ -136,16 +129,16 @@ pub fn sasl_plain_payload(credentials: &SaslPlain) -> Result<String, String> {
 
 /// The AUTHENTICATE lines carrying one payload, 400 characters at a time,
 /// with the empty continuation a full last chunk requires.
-pub fn sasl_lines(credentials: &SaslPlain) -> Result<Vec<Vec<u8>>, String> {
+pub fn sasl_lines(credentials: &SaslPlain) -> Result<Vec<Vec<u8>>, Invalid> {
 	let payload = sasl_plain_payload(credentials)?;
 	let mut lines = Vec::new();
 	let bytes = payload.as_bytes();
 	for chunk in bytes.chunks(SASL_CHUNK) {
-		let text = core::str::from_utf8(chunk).map_err(|e| e.to_string())?;
-		lines.push(encode("AUTHENTICATE", &[text]).map_err(|e| e.to_string())?);
+		let text = core::str::from_utf8(chunk).map_err(|e| Invalid::Wire(e.to_string()))?;
+		lines.push(encode("AUTHENTICATE", &[text]).map_err(|e| Invalid::Wire(e.to_string()))?);
 	}
 	if bytes.len().is_multiple_of(SASL_CHUNK) {
-		lines.push(encode("AUTHENTICATE", &["+"]).map_err(|e| e.to_string())?);
+		lines.push(encode("AUTHENTICATE", &["+"]).map_err(|e| Invalid::Wire(e.to_string()))?);
 	}
 	Ok(lines)
 }
@@ -161,9 +154,9 @@ pub enum Role {
 /// What one observed message changed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
-	/// The welcome arrived; `nick` is the one the server granted.
+	/// The welcome arrived. `nick` is the one the server granted.
 	Registered { nick: String },
-	/// Registration cannot complete; the connection is over.
+	/// Registration cannot complete. The connection is over.
 	Failed(String),
 }
 
@@ -204,12 +197,12 @@ pub struct Registration {
 	bot_mode_requested: bool,
 }
 
-fn encoded(command: &str, params: &[&str]) -> Result<Vec<u8>, String> {
-	encode(command, params).map_err(|e| e.to_string())
+fn encoded(command: &str, params: &[&str]) -> Result<Vec<u8>, Invalid> {
+	encode(command, params).map_err(|e| Invalid::Wire(e.to_string()))
 }
 
 impl Registration {
-	pub fn new(role: Role, nick: &str, realname: &str, sasl: Option<SaslPlain>) -> Result<Self, String> {
+	pub fn new(role: Role, nick: &str, realname: &str, sasl: Option<SaslPlain>) -> Result<Self, Invalid> {
 		validate_nick(nick)?;
 		validate_realname(realname)?;
 		if let Some(sasl) = &sasl {
@@ -244,7 +237,7 @@ impl Registration {
 	}
 	/// The opening lines: capability negotiation when a login rides the
 	/// connection, then NICK and USER.
-	pub fn start(&self) -> Result<Vec<Vec<u8>>, String> {
+	pub fn start(&self) -> Result<Vec<Vec<u8>>, Invalid> {
 		let mut lines = Vec::new();
 		if self.sasl.is_some() {
 			lines.push(encoded("CAP", &["LS", "302"])?);
@@ -262,7 +255,7 @@ impl Registration {
 		encode("PONG", &params).ok()
 	}
 	/// One message before the welcome. The driver sends `send` in order and
-	/// acts on the event; a step with neither is a message to pass over.
+	/// acts on the event. A step with neither is a message to pass over.
 	pub fn observe(&mut self, message: &Message) -> Step {
 		if let Some(pong) = Self::pong(message) {
 			return Step::sends(alloc::vec![pong]);
@@ -273,20 +266,20 @@ impl Registration {
 			Err(reason) => Step::failed(reason),
 		}
 	}
-	fn observe_inner(&mut self, message: &Message) -> Result<Step, String> {
+	fn observe_inner(&mut self, message: &Message) -> Result<Step, Invalid> {
 		let command = message.command.as_str();
 		if self.registered && command == "CAP" {
 			return Ok(Step::default());
 		}
 		if self.registered && command == "AUTHENTICATE" {
-			return Err("IRC requested authentication after registration".into());
+			return Err(Invalid::AuthenticateAfterRegistration);
 		}
 		if command == "NICK" {
 			if let (Some(next), true) = (message.param(0), self.is_self(message.prefix.as_deref())) {
 				if self.role == Role::Feed
 					&& let Some(reason) = rename_refusal(&self.nick, next)
 				{
-					return Err(reason);
+					return Err(Invalid::Renamed(reason));
 				}
 				self.current = next.into();
 			}
@@ -333,10 +326,10 @@ impl Registration {
 						return Ok(Step::default());
 					}
 					if !self.sasl_advertised {
-						return Err("IRC server does not advertise SASL".into());
+						return Err(Invalid::SaslNotAdvertised);
 					}
 					if !self.sasl_plain_advertised {
-						return Err("IRC server does not advertise the SASL PLAIN mechanism".into());
+						return Err(Invalid::SaslPlainNotAdvertised);
 					}
 					self.sasl_requested = true;
 					return Ok(Step::sends(alloc::vec![encoded("CAP", &["REQ", "sasl"])?]));
@@ -350,7 +343,7 @@ impl Registration {
 						return Ok(Step::sends(alloc::vec![encoded("AUTHENTICATE", &["PLAIN"])?]));
 					}
 				}
-				Some("NAK") => return Err("IRC server refused the SASL capability".into()),
+				Some("NAK") => return Err(Invalid::SaslCapabilityRefused),
 				_ => {}
 			}
 		}
@@ -358,31 +351,35 @@ impl Registration {
 			if let (Some(sasl), Some("+")) = (&self.sasl, message.param(0)) {
 				{
 					if !self.sasl_started {
-						return Err("IRC server started SASL before agreeing to it".into());
+						return Err(Invalid::SaslBeforeAgreed);
 					}
 					if self.sasl_payload_sent {
-						return Err("IRC server requested the SASL payload twice".into());
+						return Err(Invalid::SaslPayloadTwice);
 					}
 				}
 				self.sasl_payload_sent = true;
 				return Ok(Step::sends(sasl_lines(sasl)?));
 			}
 			if message.param(0) == Some("*") {
-				return Err("IRC server aborted SASL authentication".into());
+				return Err(Invalid::SaslAborted);
 			}
 		}
 		if command == "903" && self.sasl.is_some() {
 			if !self.sasl_payload_sent {
-				return Err("IRC server completed SASL before receiving credentials".into());
+				return Err(Invalid::SaslBeforeCredentials);
 			}
 			self.sasl_authenticated = true;
 			return Ok(Step::sends(alloc::vec![encoded("CAP", &["END"])?]));
 		}
 		if matches!(command, "902" | "904" | "905" | "906" | "907") {
-			return Err(format!("IRC SASL authentication failed ({command})"));
+			return Err(Invalid::SaslFailed {
+				command: command.into(),
+			});
 		}
 		if command == "433" {
-			return Err(format!("IRC nickname \"{}\" is already in use", self.nick));
+			return Err(Invalid::NickInUse {
+				nick: self.nick.clone(),
+			});
 		}
 		if command == "005" {
 			for param in &message.params {
@@ -390,24 +387,23 @@ impl Registration {
 				if let Some(mapping) = upper.strip_prefix("CASEMAPPING=")
 					&& !mapping.eq_ignore_ascii_case("rfc1459")
 				{
-					return Err(format!("IRC server uses unsupported {param}"));
+					return Err(Invalid::UnsupportedCasemapping { param: param.clone() });
 				}
 			}
 		}
 		if command == "ERROR" {
-			return Err(format!(
-				"IRC server closed: {}",
-				message.last().unwrap_or("unknown reason")
-			));
+			return Err(Invalid::ServerClosed {
+				reason: message.last().unwrap_or("unknown reason").into(),
+			});
 		}
 		if command == "001" && !self.registered {
 			if !self.sasl_authenticated {
-				return Err("IRC registered before SASL authentication completed".into());
+				return Err(Invalid::RegisteredBeforeSasl);
 			}
 			if self.role == Role::Feed
 				&& let Some(reason) = message.param(0).and_then(|nick| rename_refusal(&self.nick, nick))
 			{
-				return Err(reason);
+				return Err(Invalid::Renamed(reason));
 			}
 			self.registered = true;
 			self.sasl = None;

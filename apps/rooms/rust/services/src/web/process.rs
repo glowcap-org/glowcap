@@ -1,5 +1,5 @@
 //! A supervised child is retained until it exits. Normal shutdown requests
-//! SIGTERM; a deadline escalates to kill and still reaps the child.
+//! SIGTERM. A deadline escalates to kill and still reaps the child.
 use super::notice::{Notice, Report};
 use crate::server::readiness::Announcement;
 use std::{os::unix::fs::DirBuilderExt, path::PathBuf, process::Stdio, time::Duration};

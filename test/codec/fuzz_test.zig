@@ -10,12 +10,12 @@
 //!
 //! `zig build fuzz` turns the same blocks into live mutation fuzzers. It needs
 //! a patched copy of Zig's test runner, which does not compile in fuzz mode in
-//! this release; `build.zig` explains that where it wires the copy in.
+//! this release. `build.zig` explains that where it wires the copy in.
 //!
 //! The contract per entrypoint: an arbitrary byte string never panics and
 //! never leaks (everything runs under `std.testing.allocator`, which fails the
 //! test on either), and a successful decode is re-encodable up to the codec's
-//! typed refusals — when the re-encode succeeds, one further decode/encode
+//! typed refusals, when the re-encode succeeds, one further decode/encode
 //! crossing must reproduce the same bytes exactly (the ADR-0010 perspective
 //! flip is an involution, so two crossings are a fixed point).
 //!
@@ -40,7 +40,7 @@ const capnp = glowcap.ocapn.codec.capnp;
 const regression_seeds = [_][]const u8{};
 
 /// Upper bound on one fuzz input. Large enough to cover every corpus frame and
-/// deeply nested malformed constructions; small enough that the fuzzer spends
+/// deeply nested malformed constructions. Small enough that the fuzzer spends
 /// its budget on structure, not bulk.
 const max_input = 4096;
 
@@ -53,17 +53,17 @@ const seed = corpus.seed;
 const runtimeSeed = corpus.runtimeSeed;
 
 /// Re-encoding a decoded message may refuse through the codec's typed refusals
-/// (e.g. a decoded `near` deliver target never re-enters the wire — the
+/// (e.g. a decoded `near` deliver target never re-enters the wire, the
 /// ADR-0010 perspective flip makes that pairing reachable from untrusted bytes,
-/// and `Unsupported*` names it). A refusal ends the property for this input;
-/// only allocation failure is a real error.
+/// and `Unsupported*` names it). A refusal ends the property for this input.
+/// Only allocation failure is a real error.
 fn swallowRefusal(err: anyerror) anyerror!void {
     if (err == error.OutOfMemory) return error.OutOfMemory;
 }
 
 /// An allocator that runs out of memory where the fuzzer says, shared with the
 /// other targets. `test/support/fuzz_budget.zig` explains why it earns its
-/// place; the span here is a decoder's worth of allocations.
+/// place. The span here is a decoder's worth of allocations.
 const Budget = @import("../support/fuzz_budget.zig").Budget;
 
 /// Structural message equality, shared with the fixed cross-codec fixtures.
@@ -73,7 +73,7 @@ const decode_span: u16 = 512;
 /// Round-trip totality from a successfully decoded message: its re-encoding
 /// (when the codec admits it) must decode, and one further crossing must land
 /// on the exact same bytes. The flip swaps `near`/`far` arms on each decode,
-/// so `frame1` and `frame3` — two crossings apart — are the comparable pair.
+/// so `frame1` and `frame3`, two crossings apart, are the comparable pair.
 fn expectReencodeStability(comptime codec: anytype, gpa: std.mem.Allocator, first: model.Message) anyerror!void {
     var frame1 = codec.encodeMessage(gpa, first) catch |err| return swallowRefusal(err);
     defer frame1.deinit();
@@ -148,10 +148,10 @@ fn syrupOne(_: void, smith: *std.testing.Smith) anyerror!void {
 ///
 /// Both sides are encoded and decoded once, so the perspective flip decode
 /// performs applies equally to each and the two are comparable. Encoding may
-/// legitimately refuse — a decoded near target never re-enters the wire — and a
+/// legitimately refuse, a decoded near target never re-enters the wire, and a
 /// refusal ends the property rather than failing it.
 ///
-/// One difference is deliberately outside the comparison, and it is worth
+/// One difference is outside the comparison, and it is worth
 /// naming because it is real. Syrup spells a reference to one of our own
 /// exports `<desc:export N>`, which ADR-0010 says carries no object-or-promise
 /// signal at all: the receiving session is the authority on its own export's
@@ -218,7 +218,7 @@ test "fuzz: syrup decode is total over arbitrary bytes and round-trips what it a
 /// traversal-budget charge pass, and the owned projection.
 ///
 /// These were two targets, and the framer one threw away the body it had
-/// already decoded — `decodePrefix` calls `decodeBody` on the way to a
+/// already decoded, `decodePrefix` calls `decodeBody` on the way to a
 /// `.decoded` verdict. So it was this target minus the interesting half, plus
 /// the length arithmetic, running on its own budget against its own corpus.
 ///

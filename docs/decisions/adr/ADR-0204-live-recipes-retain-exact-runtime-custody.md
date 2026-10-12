@@ -15,17 +15,17 @@ amended_by: [ADR-0205]
 ## Decision
 
 An explicit `save_live` declaration saves authority for the current hosting
-lifetime. Ordinary durable saves retain their existing refusal contract.
-The shared Zig `LiveScope` owns a bounded reservation table and an index keyed
-by the actual recipe record identity. Each reservation retains the exact Host
-capability before preparation can wait. No Host handle, slot index or actor
-reconstruction instruction enters storage.
+lifetime. Ordinary durable saves retain their existing refusal contract. The
+shared Zig `LiveScope` owns a bounded reservation table and an index keyed by
+the recipe record identity. Each reservation retains the exact Host capability
+before preparation can wait. No Host handle, slot index or actor reconstruction
+instruction enters storage.
 
 A live recipe stores its opening epoch and one strong edge to the epoch row.
 Stored field occurrences retain the recipe through the portable graph. Scope
 entries do not root their recipes. Warm restoration requires a current checked
-epoch, that exact recipe identity and its actual runtime retain. A new scope
-has no old actual capabilities and refuses old recipes with `LiveReferenceExpired`.
+epoch, that exact recipe identity and its runtime retain. A new scope has no old
+capabilities and refuses old recipes with `LiveReferenceExpired`.
 
 Recipe creation and application fields share one Store transaction. Unknown
 writes keep reservations through exact recovery. Known commit transfers custody
@@ -51,7 +51,7 @@ and submitted work retire. Startup and cleanup inspect no grant population.
 Live fields consume independently configured runtime capacity. They preserve
 exact authority during one lifetime and cannot make seats, uploads or line
 handles survive restart. Saving a live capability also does not implement
-source or upstream permission checks; mediated readers still require those
+source or upstream permission checks. Mediated readers still require those
 checks on each operation.
 
 Shared hosting tests establish reservation pressure, commit and absent recovery,

@@ -1,5 +1,5 @@
 //! Typed restoration records above the portable graph. Local recipes retain
-//! one actual target; foreign recipes carry an established canonical sturdy URI.
+//! one actual target. Foreign recipes carry an established canonical sturdy URI.
 const std = @import("std");
 const core = @import("loam_core");
 const Epoch = @import("live_epoch.zig").Epoch;
@@ -11,7 +11,7 @@ pub const schema: core.Schema = .{ .id = 0x4c4f414d52454601, .version = 1, .max_
 pub const Recipe = union(enum) {
     local: struct { attachment: []const u8, target: core.ObjectId },
     foreign: []const u8,
-    /// Data identifies a lifetime; only the live scope holds actual authority.
+    /// Data identifies a lifetime. Only the live scope holds actual authority.
     live: Epoch,
 
     pub fn decode(view: core.RecordView) !Recipe {

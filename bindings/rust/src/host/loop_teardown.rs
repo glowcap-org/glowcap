@@ -19,8 +19,8 @@ impl HostShared {
 
 	/// Retire wrapper state after a refused loop release was transferred to the
 	/// recurring finalizer owner and a later attempt consumed native ownership.
-	/// The Host may already have published the exact failure to close waiters;
-	/// consumption still has to clear every now-stale native-facing shell.
+	/// The Host may already have published the exact failure to close waiters.
+	/// Consumption still has to clear every stale native-facing shell.
 	pub(crate) fn finish_deferred_failed_loop_teardown(self: &Rc<HostShared>, error: Error) {
 		if !self.raw.get().is_null() {
 			self.retire_loop_wrapper();

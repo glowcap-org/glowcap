@@ -179,7 +179,7 @@ test "core host: a deposited gift keeps its exact actor across alias replacement
     // settle, and the vow's fulfillment all pump inside the report. No alias is
     // projected on this Port until either the exact gift or a fresh fetch asks.
     const e_accepts_r = try publishAndOpenAccepted(&exporter, "tcp", "127.0.0.1:7001", &.{});
-    // Production Bridge dials from pendingDial parts — no URI re-parse.
+    // Production Bridge dials from pendingDial parts, no URI re-parse.
     const redeem_view = recipient.pendingDial(parked.ticket, 0) orelse return error.MissingPendingDial;
     const r_to_e = try recipient.openDialedLocator(.{
         .transport = redeem_view.locator.transport,
@@ -221,9 +221,9 @@ test "core host: a deposited gift keeps its exact actor across alias replacement
 test "core host: unpublish removes discovery on every session while issued capabilities and deposited gifts keep the exact actor" {
     // The alias-only unpublish scenario (ADR-0096): all three required
     // outcomes in one production Host. Fresh lookup of the removed alias
-    // fails — including on a Port that fetched it before, because the
+    // fails, including on a Port that fetched it before, because the
     // registry is the one discovery authority and a fetch leaves no
-    // per-session alias copy behind — while a capability issued before
+    // per-session alias copy behind, while a capability issued before
     // removal remains callable and a gift deposited before removal still
     // redeems the exact (mutated) actor.
     const allocator = std.testing.allocator;
@@ -277,7 +277,7 @@ test "core host: unpublish removes discovery on every session while issued capab
     try std.testing.expectEqual(@as(?u64, null), try exporter.publishedPosition(g_to_e.b, "widget"));
 
     // Outcome 1a: a fresh fetch of the removed alias breaks on the Port that
-    // fetched it before — discovery is registry-only, with no session copy.
+    // fetched it before, discovery is registry-only, with no session copy.
     var stale_fetch = CapturedRef{};
     try gifter.vowOn(try gifter.fetch(g_to_e.a, "widget"), .{ .ctx = &stale_fetch, .func = CapturedRef.record });
     try pumpToQuiescence(allocator, &hosts, &.{ g_to_e, r_to_g }, &dials);
@@ -399,7 +399,7 @@ test "core host: an unnamed local target deposits and withdraws as the exact mut
     const r_to_g = try openPair(allocator, &recipient, &gifter, "127.0.0.1:7032", &dials);
 
     // Lifting the bare reply reference and lowering it onto the
-    // recipient-facing session is what makes it routable for re-gifting —
+    // recipient-facing session is what makes it routable for re-gifting,
     // the same lift/lower seam the owning facade fuses into its argument
     // walk. The result is a Node token whose home is the exporter session.
     const lifted = try gifter.liftCapability(g_to_e.a, made_ref);

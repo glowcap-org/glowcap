@@ -1,7 +1,7 @@
 /**
- * Top-bar controls — small icon-button clusters that live in the
+ * Top-bar controls, small icon-button clusters that live in the
  * App header in build mode. Each cluster is conceptually its own
- * widget; grouped in one file because they share a visual idiom
+ * widget. Grouped in one file because they share a visual idiom
  * (ghost-style icon button) and are all wired to engine actions.
  */
 
@@ -20,7 +20,7 @@ import { segmentCellClass } from "./tokens.ts";
  * promised something else, those acts refuse and name the two controls
  * that DO end a recording, which are sitting in the same bar.
  *
- * Stop is the only control that claims a capture; Discard is the only
+ * Stop is the only control that claims a capture, Discard is the only
  * control that throws one away. Mode switching owns neither effect.
  */
 function recordingHolds(act: string): string {
@@ -29,7 +29,7 @@ function recordingHolds(act: string): string {
 }
 
 /** Top-bar Live / Play / Build segmented control. Three siblings
- * operating on one shared document buffer — Live taps a feed,
+ * operating on one shared document buffer, Live taps a feed,
  * Play replays the buffer, Build edits it.
  *
  * While a capture is running the two cells that would leave Live are
@@ -158,7 +158,7 @@ export function SaveOpenControls(
 			{
 				/* Open is the other way out of Live: it replaces the buffer and
           lands in Play, so during a capture it would end one without
-          saying so. Save stays live throughout — it reads the document
+          saying so. Save stays live throughout. It reads the document
           and disturbs nothing. */
 			}
 			<button

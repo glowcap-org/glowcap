@@ -1,5 +1,5 @@
 //! Local graph reservations preserve prepared scope decisions. Tokens are
-//! incarnation-checked data; they are not capabilities or transport handles.
+//! incarnation-checked data. They are not capabilities or transport handles.
 const structural_policy = @import("grant_fixture.zig").structural_policy;
 const std = @import("std");
 const f = @import("grant_fixture.zig");

@@ -3,7 +3,7 @@ id: ADR-0162
 status: accepted
 date: 2026-09-14
 tags: [loam, persistence, memory, lmdb]
-decision: "Implement one portable record and transaction contract with volatile and optional LMDB realizations, bounded leases, and durable opening incarnations; retain immutable collections as Loam's dependency-free leaf."
+decision: "Implement one portable record and transaction contract with volatile and optional LMDB realizations, bounded leases, and durable opening incarnations. Retain immutable collections as Loam's dependency-free leaf."
 supersedes: []
 superseded_by: []
 amends: [ADR-0061, ADR-0161]
@@ -29,7 +29,7 @@ uses LMDB's synchronous durability settings without weaker flush flags.
 A store opening claims an exclusive backend and durably advances its
 incarnation before returning. Object names include store identity, opening
 incarnation, and a monotonic sequence. Creation names are valid only in the
-transaction that allocates them; abort, deletion, and reopen never recycle one.
+transaction that allocates them. Abort, deletion, and reopen never recycle one.
 Existing records retain their names across openings. No identifier becomes a
 CapTP reference merely by being stored.
 
@@ -37,12 +37,12 @@ A batch owns encoded record deltas and expected revisions. The common Zig
 validator checks the complete delta inside the backend transaction before any
 write. Records, strong-reference validation, root flags, byte/object totals,
 revision, and the current submission receipt commit together. Cycles between
-new records are permitted. Explicit destruction refuses a rooted object;
-incoming references to a destroyed unrooted object resolve as gone.
+new records are permitted. Explicit destruction refuses a rooted object.
+Incoming references to a destroyed unrooted object resolve as gone.
 
 The core emits read requests with bounded owned buffers. Native reads copy one
 row from its mapped value, then end the LMDB reader before completion delivery.
-Leases retain validated data snapshots; they do not grant authority or preserve
+Leases retain validated data snapshots. They do not grant authority or preserve
 historical permission. Cancellation retains a read's buffer until the worker
 reports completion. Backend close stops new work and remains busy until active
 calls and prepared native commits release the environment.
@@ -50,7 +50,7 @@ calls and prepared native commits release the environment.
 Preparation copies only changed records. Known-unchanged failure discards the
 batch. An unknown outcome fences use until the original worker has retired and
 an authoritative receipt lookup resolves it. Installation allocates nothing.
-The receipt covers the one outstanding local submission; remote operation
+The receipt covers the one outstanding local submission. Remote operation
 retry, durable inboxes, and historical receipt retention remain separate work.
 
 ## Evidence and limits
@@ -68,4 +68,4 @@ with offline compaction and installation under continuous writer custody.
 [ADR-0163](ADR-0163-record-backed-sleepy-actors.md) extends this foundation with
 record-backed sleepy actors and local capability restoration. Managed access
 participation, foreign/browser APIs, and backend comparison
-remain in the [implementation plan](../../planning/loam/architecture.md).
+remain in the [implementation plan](../../loam/architecture.md).

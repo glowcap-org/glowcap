@@ -9,7 +9,7 @@
 
 const std = @import("std");
 
-/// `std.os.linux.fd_t`; `uring.zig` owns the platform calls.
+/// `std.os.linux.fd_t`. `uring.zig` owns the platform calls.
 const Fd = i32;
 
 pub const Listeners = struct {

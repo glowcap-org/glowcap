@@ -8,7 +8,7 @@ const appendViolation = util.appendViolation;
 const expectFileContains = util.expectFileContains;
 
 /// Product CLI CapTP waits must be finite (ADR-0081). An `.unbounded` budget
-/// parks forever on a silent peer — the hang that wedged `cli-test` and left
+/// parks forever on a silent peer, the hang that wedged `cli-test` and left
 /// zombie test binaries back when unbounded was a silent default.
 pub fn checkCliCaptpDeadlines(
     io: std.Io,
@@ -89,14 +89,14 @@ pub fn checkCliCaptpDeadlines(
 /// because there it is a hang. In an example it is worse than a hang: a reader
 /// copies it.
 ///
-/// This asserts the positive — every call that opens a session names a budget
-/// — rather than matching the shape of a bad one. A first attempt looked for
+/// This asserts the positive, every call that opens a session names a budget
+/// ,  rather than matching the shape of a bad one. A first attempt looked for
 /// `, .{})` on the call's own line and so was blind to every real call in the
 /// tree, all of which wrap their arguments across lines.
 ///
 /// Blank out every comment, keeping the source's byte offsets so reported line
 /// numbers still point at the right place. Zig has no block comments, so this
-/// is `//` to end of line, skipping the ones inside a string literal — a locator
+/// is `//` to end of line, skipping the ones inside a string literal, a locator
 /// like `"tcp://host"` is not the start of a comment, and a naive scan that
 /// thinks it is truncates the argument list it was meant to read.
 pub fn blankComments(src: []u8) void {
@@ -138,7 +138,7 @@ pub fn blankComments(src: []u8) void {
 /// against the file's own top-level constants: a named, documented budget is
 /// the form an example *should* teach, and a check that only accepted literals
 /// would push every example toward a magic number. `.unbounded` has no arm
-/// here on purpose: it is the value this check exists to refuse.
+/// here: it is the value this check exists to refuse.
 pub fn valuePositive(file: []const u8, value_expr: []const u8, allow_name: bool) bool {
     // What may legally follow the value: the end of an argument, of a struct
     // initializer, of a call, or of a declaration.
@@ -230,7 +230,7 @@ pub fn initializedPositive(file: []const u8, args: []const u8, field: []const u8
 /// The argument list of a call whose opener ends at `at`, found by matching
 /// parens. Skips string and character literals, because a `(` inside a locator
 /// string would otherwise unbalance the walk and silently widen the result to
-/// the rest of the file — where some *other* call's budget could satisfy this
+/// the rest of the file, where some *other* call's budget could satisfy this
 /// one.
 pub fn callArguments(contents: []const u8, at: usize) []const u8 {
     var depth: usize = 1;
@@ -289,7 +289,7 @@ pub fn checkExampleCaptpDeadlines(
         };
         defer gpa.free(contents);
         blankComments(contents);
-        // The compiler refuses an omitted budget everywhere now, so what is
+        // The compiler refuses an omitted budget everywhere, so what is
         // left to hold here is the one that says forever out loud. An example
         // is copied, so it must not be the place a reader learns that spelling.
         {

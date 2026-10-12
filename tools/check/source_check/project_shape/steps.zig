@@ -39,7 +39,7 @@ const ci_command_files = [_][]const u8{"ci/gates.sh"};
 /// Appends each command-context region of a Markdown document to `out`: every
 /// line inside a fenced code block, and the text of every inline backtick span
 /// elsewhere. Regions are slices into `contents`, so they share its lifetime.
-/// Text outside both — ordinary prose — is never yielded, so a phrase like
+/// Text outside both, ordinary prose, is never yielded, so a phrase like
 /// "the zig build system" cannot be mistaken for a command citation.
 fn collectCommandRegions(gpa: std.mem.Allocator, contents: []const u8, out: *std.ArrayList([]const u8)) !void {
     var in_fence = false;
@@ -76,10 +76,10 @@ const CommandScan = struct {
     documented: *std.StringHashMap(void),
     documented_arena: std.mem.Allocator,
     path: []const u8,
-    /// CI invocations resolve forward only; they are not documentation, so
+    /// CI invocations resolve forward only. They are not documentation, so
     /// they never feed the reverse every-step-is-documented direction.
     record_documented: bool = true,
-    /// A CI `zig build a b c` names several steps in one invocation; docs
+    /// A CI `zig build a b c` names several steps in one invocation, docs
     /// cite one step per span, so token consumption stays single there.
     multi_step: bool = false,
 

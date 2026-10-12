@@ -4,7 +4,7 @@
  * repainting.
  *
  * A mark exists only while its entity is selected or under the pointer, and the
- * repaint gate reads the camera — so on a stage with nothing picked, every one of
+ * repaint gate reads the camera. So on a stage with nothing picked, every one of
  * these sprites cleared an empty `Graphics` on every frame of every zoom, to draw
  * nothing into it. Clearing is not free: it dirties the geometry and the renderer
  * rebuilds it. Asking whether there is a mark, or was one a frame ago, is what

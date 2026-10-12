@@ -1,15 +1,15 @@
 //! The griddle timeline wire format: one JSON object per line.
 //!
-//! The schema is layered and versioned, and both properties are load-bearing.
+//! The schema is layered and versioned.
 //! Versioned (`"v"`) so a consumer detects a format change loudly instead of
-//! misreading it. Layered so the network facts a viewer draws — hosts, links,
-//! messages in flight — stay free of any protocol, and the CapTP facts ride
+//! misreading it. Layered so the network facts a viewer draws (hosts, links,
+//! messages in flight) stay free of any protocol, and the CapTP facts ride
 //! as their own kinds beside them. A viewer that only understands the base
 //! kinds still draws a correct picture of a glowcap run.
 //!
 //! Times are simulated nanoseconds (`sim_t_ns`), not wall time: a replay must
 //! reproduce them exactly, which a real clock could never do. The scheduler
-//! counts ticks; `ns_per_tick` is the one place that becomes a duration.
+//! counts ticks. `ns_per_tick` is the one place that becomes a duration.
 
 const std = @import("std");
 
@@ -21,7 +21,7 @@ pub const schema_version: u32 = 1;
 pub const ns_per_tick: u64 = 1_000_000;
 
 /// One timeline event. The base kinds describe the network and carry no
-/// protocol; the `captp_*` kinds are glowcap's own extension, named so a
+/// protocol. The `captp_*` kinds are glowcap's own extension, named so a
 /// consumer can tell at a glance which layer it is reading.
 pub const Event = union(enum) {
     /// The run began. Once, at tick zero.

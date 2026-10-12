@@ -1,4 +1,4 @@
-//! Syrup codec barrel. See `shared` for the error sets both halves use; the
+//! Syrup codec barrel. See `shared` for the error sets both halves use. The
 //! implementations live in `decode.zig` and `encode.zig`, the same
 //! decode/encode/shared split the `codec.capnp` barrel uses.
 

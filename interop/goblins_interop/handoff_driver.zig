@@ -10,7 +10,7 @@
 //! ordinary routable reference. Calling that reference routes through the
 //! host to Bob's connection, and the greeter replies directly.
 //!
-//! Needs `racket` + the `goblins` collection on PATH; runs as the sibling step
+//! Needs `racket` + the `goblins` collection on PATH, runs as the sibling step
 //! `zig build goblins-handoff`, not in the in-tree check.
 
 const std = @import("std");

@@ -22,7 +22,7 @@ mod writer;
 pub(super) use writer::Writer;
 
 /// One bounded job retains its actual observation across interruption or drive
-/// refusal. Loam owns the receipt; these phases cannot reconstruct dispatch.
+/// refusal. Loam owns the receipt. These phases cannot reconstruct dispatch.
 pub(super) struct Job<P: Tasks> {
 	pub task: Option<P::Task>,
 	work: Rc<Mutex<Option<Work<P>>>>,
@@ -128,8 +128,13 @@ impl<P: Tasks + Deadline + Clone + 'static> Work<P> {
 						if let Some(capture) = &mut work.outgoing {
 							capture.prepare()?;
 						}
-						let continuation = continuation.take().expect("confirmed continuation");
-						match action.take().expect("unconfirmed action") {
+						let continuation = continuation
+							.take()
+							.ok_or_else(|| loam::refusal("confirmed continuation is absent"))?;
+						match action
+							.take()
+							.ok_or_else(|| loam::refusal("confirmed action is absent"))?
+						{
 							Action::Archive(intent) => {
 								Phase::SharingArchive(Box::new(super::archive_sharing::Pipeline::new(
 									writer.host.clone(),
@@ -143,12 +148,12 @@ impl<P: Tasks + Deadline + Clone + 'static> Work<P> {
 							)),
 							Action::Call { verb, args } => match continuation.execute(0, &verb, &args, reply_bytes) {
 								Ok(execution) => Phase::Executing(execution),
-								Err(_) => {
+								Err(error) => {
 									if let Some(retirement) = &work.retirement {
 										retirement.absent();
 									}
 									Phase::Settling {
-										outcome: Settlement::absent(),
+										outcome: Settlement::refused(&error),
 										pending: None,
 									}
 								}
@@ -272,18 +277,29 @@ impl<P: Tasks + Deadline + Clone + 'static> Work<P> {
 									}
 								}
 							}
-							EffectResult::Unsent(_) => {
+							EffectResult::Unsent(error) => {
 								if let Some(retirement) = &work.retirement {
 									retirement.absent();
 								}
 								Phase::Settling {
-									outcome: Settlement::absent(),
+									outcome: Settlement::refused(&error),
 									pending: None,
 								}
 							}
 							// Terminal uncertainty supplies no reason to dispatch
 							// again. Its receipt retains the diagnostic and wakes
 							// ordinary durable observers through settlement.
+							EffectResult::Unknown(error)
+								if rooms_glowcap::client::binding_admission_refusal(&error).is_some() =>
+							{
+								if let Some(retirement) = &work.retirement {
+									retirement.absent();
+								}
+								Phase::Settling {
+									outcome: Settlement::refused(&error),
+									pending: None,
+								}
+							}
 							EffectResult::Unknown(error) => match Prepared::negative(work.reply, &error) {
 								Some(outcome) => Phase::Settling { outcome, pending: None },
 								None => {
@@ -306,12 +322,12 @@ impl<P: Tasks + Deadline + Clone + 'static> Work<P> {
 							let host = writer.host.clone();
 							*pending = Some(Box::pin(async move { prepared.acquire(&host).await }));
 						}
-						let result = platform
-							.within(OBSERVATION_MS, pending.as_mut().expect("owned result acquisition"))
-							.await
-							.ok_or_else(|| {
-								loam::refusal("result acquisition deadline expired; exact lookup remains retained")
-							})?;
+						let acquiring = pending
+							.as_mut()
+							.ok_or_else(|| loam::refusal("result acquisition is not started"))?;
+						let result = platform.within(OBSERVATION_MS, acquiring).await.ok_or_else(|| {
+							loam::refusal("result acquisition deadline expired; exact lookup remains retained")
+						})?;
 						*pending = None;
 						Phase::Settling {
 							outcome: result?,
@@ -330,12 +346,12 @@ impl<P: Tasks + Deadline + Clone + 'static> Work<P> {
 							let writer = Rc::clone(writer);
 							*pending = Some(Box::pin(async move { writer.idempotent("settle-effect", &args).await }));
 						}
-						let result = platform
-							.within(OBSERVATION_MS, pending.as_mut().expect("owned settlement observation"))
-							.await
-							.ok_or_else(|| {
-								loam::refusal("settlement deadline expired; exact observation remains retained")
-							})?;
+						let settling = pending
+							.as_mut()
+							.ok_or_else(|| loam::refusal("settlement observation is not started"))?;
+						let result = platform.within(OBSERVATION_MS, settling).await.ok_or_else(|| {
+							loam::refusal("settlement deadline expired; exact observation remains retained")
+						})?;
 						// Only a terminal observation retires its receiver. A failed
 						// attempt retains the exact outcome for strict receipt retry.
 						*pending = None;
@@ -416,7 +432,12 @@ pub(super) fn resume<P: Tasks + Deadline + Clone + 'static>(owner: &Rc<State<P>>
 				match result {
 					Ok(()) => jobs.remove(&id),
 					Err(error) => {
-						jobs.get_mut(&id).expect("owned worker").failure = Some(error);
+						// `resume` replaces a job's worker under the same id; a worker whose job
+						// is gone was superseded, and the replacement owns the outcome, as the
+						// `Retirement` drop below also assumes.
+						if let Some(job) = jobs.get_mut(&id) {
+							job.failure = Some(error);
+						}
 						None
 					}
 				}
@@ -426,10 +447,15 @@ pub(super) fn resume<P: Tasks + Deadline + Clone + 'static>(owner: &Rc<State<P>>
 			owner.changed.notify_waiters();
 		}
 	});
-	owner.jobs.borrow_mut().get_mut(&task_id).expect("reserved worker").task = Some(task);
+	owner
+		.jobs
+		.borrow_mut()
+		.get_mut(&task_id)
+		.ok_or_else(|| loam::refusal("effect has no live observation"))?
+		.task = Some(task);
 	Ok(())
 }
-/// Reserve before Loam staging; failure withdraws this inert worker seat.
+/// Reserve before Loam staging. Failure withdraws this inert worker seat.
 pub(super) struct Seat<P: Tasks + Deadline + Clone + 'static> {
 	owner: Weak<State<P>>,
 	id: String,
@@ -500,7 +526,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Seat<P> {
 				.jobs
 				.borrow_mut()
 				.get_mut(&self.id)
-				.expect("reserved worker")
+				.ok_or_else(|| loam::refusal("effect has no live observation"))?
 				.batch_released = Some(Rc::clone(&released));
 		}
 		self.install(
@@ -561,8 +587,17 @@ impl<P: Tasks + Deadline + Clone + 'static> Seat<P> {
 			.owner
 			.upgrade()
 			.ok_or_else(|| loam::refusal("session owner is closed"))?;
-		let work = Rc::clone(&owner.jobs.borrow().get(&self.id).expect("reserved worker").work);
-		*work.try_lock().expect("unstarted observation") = Some(Work {
+		let work = Rc::clone(
+			&owner
+				.jobs
+				.borrow()
+				.get(&self.id)
+				.ok_or_else(|| loam::refusal("effect has no live observation"))?
+				.work,
+		);
+		*work
+			.try_lock()
+			.map_err(|_| loam::refusal("effect observation is already started"))? = Some(Work {
 			intent: Intent { source, canonical },
 			reply,
 			outgoing,

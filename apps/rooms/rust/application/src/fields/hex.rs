@@ -8,7 +8,7 @@ impl core::fmt::Display for LowerHex<'_> {
 		const DIGITS: &[u8] = b"0123456789abcdef";
 		for byte in self.0 {
 			let pair = [DIGITS[(byte >> 4) as usize], DIGITS[(byte & 15) as usize]];
-			f.write_str(core::str::from_utf8(&pair).expect("ASCII hex"))?;
+			f.write_str(core::str::from_utf8(&pair).map_err(|_| core::fmt::Error)?)?;
 		}
 		Ok(())
 	}
@@ -18,7 +18,7 @@ impl core::fmt::Display for LowerHex<'_> {
 pub fn lower_hex(bytes: &[u8]) -> String {
 	use core::fmt::Write;
 	let mut text = String::with_capacity(bytes.len() * 2);
-	write!(text, "{}", LowerHex(bytes)).expect("a String accepts writes");
+	let _ = write!(text, "{}", LowerHex(bytes));
 	text
 }
 

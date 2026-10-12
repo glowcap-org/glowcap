@@ -39,8 +39,8 @@ impl Registry {
 	) -> Result<Attempt, policy::Error> {
 		let mut entries = self.0.borrow_mut();
 		entries.retain(|entry| live(&entry.current) || live(&entry.pending));
-		let entry = if let Some(index) = entries.iter().position(|entry| &entry.directory == directory) {
-			&mut entries[index]
+		let index = if let Some(index) = entries.iter().position(|entry| &entry.directory == directory) {
+			index
 		} else {
 			if entries.len() == policy::MAX_HELD_DIRECTORIES {
 				return Err(policy::Error::Overflow);
@@ -51,8 +51,9 @@ impl Registry {
 				claim,
 				pending: Weak::new(),
 			});
-			entries.last_mut().expect("inserted directory")
+			entries.len() - 1
 		};
+		let entry = &mut entries[index];
 		if live(&entry.pending) {
 			return Err(policy::Error::Busy);
 		}
@@ -69,13 +70,13 @@ impl Registry {
 	}
 }
 impl Attempt {
-	pub fn committed(&self) {
+	pub fn committed(&self) -> Result<(), policy::Error> {
 		let prior = {
 			let mut entries = self.registry.0.borrow_mut();
 			let entry = entries
 				.iter_mut()
 				.find(|entry| entry.directory == self.directory)
-				.expect("admitted registration");
+				.ok_or(policy::Error::Ended)?;
 			entry.claim = self.claim;
 			std::mem::replace(&mut entry.current, self.state.clone())
 		};
@@ -84,6 +85,7 @@ impl Attempt {
 		{
 			close(&prior);
 		}
+		Ok(())
 	}
 }
 impl Drop for Attempt {

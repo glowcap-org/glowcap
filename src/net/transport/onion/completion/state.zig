@@ -1,6 +1,6 @@
 //! Owned state and operation vocabulary for the completion-backed onion leg.
 //!
-//! The backend drives SOCKS and Tor control transitions; this module owns the
+//! The backend drives SOCKS and Tor control transitions. This module owns the
 //! data whose lifetimes those transitions coordinate. Keeping connection
 //! footprint, retry links, retained receives, and configuration together makes
 //! them one reviewable subject instead of reactor declarations.
@@ -21,7 +21,7 @@ const socks5 = @import("../socks5.zig");
 /// leg accumulates until it can answer. Keeping the accumulation pure here
 /// leaves the backend only the effects: recycle, refuse, read again, or open.
 pub const ReplyVerdict = union(enum) {
-    /// Not the whole reply yet; read more.
+    /// Not the whole reply yet. Read more.
     need_more,
     /// A well-formed success, having taken `consumed` bytes of this chunk.
     /// Anything past that is application data the leg retains.

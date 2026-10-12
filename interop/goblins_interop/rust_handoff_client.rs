@@ -1,5 +1,5 @@
 //! Live three-party handoff with the Rust binding as the recipient (Carol),
-//! proving the binding redeems a `desc:handoff-give` transparently — through the
+//! proving the binding redeems a `desc:handoff-give` transparently, through the
 //! same `connect`/`fetch`/`send` application surface the demos use, with no
 //! bespoke handoff choreography in the application. The binding counterpart of
 //! `zig build goblins-handoff` (which proves it at the Zig driver level).
@@ -11,12 +11,12 @@
 //!   2. `send(introducer, "get-greeter")`. Alice hands back Bob's greeter as a
 //!      three-party handoff give. The binding's node router redeems it: it
 //!      dials Bob directly (keyed with the *same* identity Alice saw), withdraws
-//!      the gift, and resolves the send to an ordinary capability — the
+//!      the gift, and resolves the send to an ordinary capability, the
 //!      application never sees the give or the second connection.
 //!   3. `send(greeter, "", ["glowcap-carol"])`. The bytes go straight to Bob;
 //!      the reply must carry the name back, proving data integrity end to end.
 //!
-//! Needs `racket` plus the `goblins` collection on PATH; run via
+//! Needs `racket` plus the `goblins` collection on PATH. Run via
 //! `zig build rust-goblins-handoff`.
 
 use glowcap_rust_dogfood::{Argument, ConnectOptions, Ref, Runtime, RuntimeConfig, tcp};
@@ -28,7 +28,7 @@ mod helpers;
 type Fail = helpers::Fail;
 
 const HOST: &str = "127.0.0.1";
-/// Alice's port; Bob (the exporter) listens on PORT+1. `--port=N` (from
+/// Alice's port, Bob (the exporter) listens on PORT+1. `--port=N` (from
 /// `zig build rust-goblins-handoff -Dport=N`) moves the pair when 22115 is taken.
 const DEFAULT_PORT: u16 = 22115;
 const RACKET: &str = "racket";

@@ -110,7 +110,7 @@ pub fn checkGreetingReply(bytes: []const u8) Error!void {
 pub const connect_reply_head_len = 4;
 
 /// How the bound address following a successful reply head is sized. IPv4 and
-/// IPv6 have fixed trailing widths (address plus port); a domain carries its
+/// IPv6 have fixed trailing widths (address plus port). A domain carries its
 /// one-byte length first. Tor customarily answers an onion connect with null
 /// IPv4, but all three forms are legal SOCKS5 replies and must leave the stream
 /// positioned at the same session-byte boundary.
@@ -129,7 +129,7 @@ pub fn boundAddress(head: *const [connect_reply_head_len]u8) Error!BoundAddress 
     };
 }
 
-/// Check a connect reply's head. Success is reply code zero; anything else is
+/// Check a connect reply's head. Success is reply code zero. Anything else is
 /// the proxy declining, and the code is Tor's own (for example `0x04` host
 /// unreachable when a descriptor cannot be fetched).
 pub fn checkConnectReply(head: *const [connect_reply_head_len]u8) Error!void {
@@ -143,7 +143,7 @@ pub fn checkConnectReply(head: *const [connect_reply_head_len]u8) Error!void {
 ///
 /// Three things are checked, and the third is what makes this stricter than the
 /// pinned Goblins. Its regular expression is `^[a-z0-9]{55}d\.onion$`, which
-/// admits `0`, `1`, `8`, and `9` — characters outside the base32 alphabet, so a
+/// admits `0`, `1`, `8`, and `9`, characters outside the base32 alphabet, so a
 /// string containing one cannot decode to any address and Tor would refuse it a
 /// round trip later. Refusing it here rejects nothing a real peer could name.
 pub fn checkServiceId(designator: []const u8) Error!void {

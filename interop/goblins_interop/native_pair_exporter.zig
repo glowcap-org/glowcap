@@ -7,7 +7,7 @@
 //!
 //! Publishes a greeter, prints `EXPORTER LISTENING <host:port>`, and
 //! serves until killed. It prefers `glowcap-next` over Cap'n Proto, which it
-//! gets on the gifter's dial and does not get on the Goblins redeem — the
+//! gets on the gifter's dial and does not get on the Goblins redeem, the
 //! split the driver asserts.
 
 const std = @import("std");

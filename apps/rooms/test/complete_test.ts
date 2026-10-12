@@ -1,7 +1,7 @@
 // The composer's inline-completion rules, held where they are pure: which
 // caret positions raise which trigger, how candidates rank, and what
-// accepting one leaves in the draft. The browser proof drives the widget;
-// this file pins the grammar the widget trusts.
+// accepting one leaves in the draft. The browser proof drives the widget.
+// This file pins the grammar the widget trusts.
 
 import { acceptCompletion, commandArgTrigger, completeCandidates, nickSource, triggerAt } from "../web/ui/complete.ts";
 import { EMOJI_TABLE } from "../web/ui/emoji.ts";
@@ -52,7 +52,7 @@ Deno.test("slash commands are discoverable and have one parser", () => {
 	// The rule rather than the roster, because the roster is meant to grow. Every
 	// command offered has to be one that exists: completion and the runner read
 	// one registry, so being suggested something that then says "no such command"
-	// is not a thing that can happen — and this is what says so.
+	// is not a thing that can happen, and this is what says so.
 	const offered = completeCandidates(trigger!, SOURCES);
 	if (offered.length === 0) fail("a bare slash offered no commands at all");
 	for (const candidate of offered) {
@@ -130,7 +130,7 @@ Deno.test("slash commands are discoverable and have one parser", () => {
 	// and nothing travels.
 	assertEquals(actionIn("/me"), null);
 	// A line that opens with a slash and names no command anybody knows is
-	// ordinary text — somebody talking about /etc/hosts is not giving an order.
+	// ordinary text, somebody talking about /etc/hosts is not giving an order.
 	assertEquals(actionIn("/unknown stays text"), null);
 	// A command that is not the kind that travels is not an action either, even
 	// though it is a command: /help acts on this window and says nothing here.
@@ -141,8 +141,8 @@ Deno.test("slash commands are discoverable and have one parser", () => {
 Deno.test("the list gives Enter back once a whole command needs nothing more", () => {
 	// Enter is the send key. The list borrows it while it still has something to
 	// offer and hands it back when it does not, so `/delete` typed out and sent
-	// withdraws a line instead of returning `/delete ` to the composer — which is
-	// what it used to do, and which looked exactly like a key that does nothing.
+	// withdraws a line instead of returning `/delete ` to the composer, which
+	// would look exactly like a key that does nothing.
 	const only = (query: string) => {
 		const rows = completeCandidates({ kind: "command", start: 0, query }, SOURCES);
 		const row = rows.find((candidate) => candidate.insert.trim() === `/${query}`) ?? rows[0];
@@ -327,7 +327,7 @@ Deno.test("the emoji table is one authority: unique codes, picker and substituti
 Deno.test("what the header claims the registry holds, the registry holds", () => {
 	// The file's own first lines name examples of each kind. A name there that no
 	// command answers to is the cheapest possible lie and the hardest to notice,
-	// because it reads as documentation rather than as a claim — `/clear` was one
+	// because it reads as documentation rather than as a claim, `/clear` was one
 	// for a while, described in the header and absent from the list.
 	const header = Deno.readTextFileSync(new URL("../web/ui/commands.ts", import.meta.url)).split("\n")
 		.filter((line) => line.startsWith("//"))

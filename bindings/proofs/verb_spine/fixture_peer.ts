@@ -1,6 +1,6 @@
 // The fixed peer of the verb-spine proof family: one plain-TCP listener on
 // loopback that publishes `spine`, the object every binding's client projects
-// and calls. It is deliberately the same known-good Deno side for all four
+// and calls. It is the same known-good Deno side for all four
 // clients, so a red run points at the client's binding rather than at a
 // disagreement between two clients.
 //
@@ -17,7 +17,7 @@
 //
 // Run by `harness.ts`, which reads the `VERB-SPINE-PEER-READY <uri>` line and
 // hands that locator to the client. The harness runs a second copy of this
-// script and kills it, so the client also has a genuinely dead address to dial.
+// script and kills it, so the client also has a dead address to dial.
 
 import { PStruct, tagged } from "@glowcap/runtime";
 import * as tcp from "@glowcap/tcp";

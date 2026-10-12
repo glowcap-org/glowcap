@@ -2,20 +2,20 @@
 //! ADR-0072): [`Session`] and its verbs (`fetch`/`send`/`tell`/`spawn`/
 //! `publish`/`enliven`/`serve`/`close`), plus mint/handshake (`establish_*`).
 //! The managed dial executor (provider selection + channel open + [`Runtime::connect`]) lives in
-//! [`crate::dial`]; [`Server`] / [`listen`] live in [`crate::listen`]. The
+//! [`crate::dial`]. [`Server`] / [`listen`] live in [`crate::listen`]. The
 //! [`RemotePromise`] handle lives in [`crate::promise`]. CapTP action
 //! decode+execute lives in [`crate::action`].
-//! Per-session [`Caretaker`] / [`SessionShared`] live in [`crate::session_shared`];
-//! the Host-scoped [`Ref`] lives beside [`Argument`](crate::Argument).
-//! The byte-fed pump choreography — read packets, `glowcap_host_session_feed_packet`,
+//! Per-session [`Caretaker`] / [`SessionShared`] live in [`crate::session_shared`].
+//! The Host-scoped [`Ref`] lives beside [`Argument`](crate::Argument).
+//! The byte-fed pump choreography, read packets, `glowcap_host_session_feed_packet`,
 //! drain the action queue, write what `take_packet` drains, feed-refusal /
-//! `last_abort`, EOF / `break_far_vows` — lives in [`crate::pump`]; this module
+//! `last_abort`, EOF / `break_far_vows`, lives in [`crate::pump`]. This module
 //! keeps CapTP verbs and thin wrappers into that path. A loop-backed session
 //! (ADR-0112) carries the same verbs with no pump at all: the native loop owns
 //! its wire ([`crate::driver_loop`]). The host owns everything
 //! else: routing, redemption, gift origination, far vows.
 //!
-//! Everything runs on one tokio current-thread `LocalSet`; the handles are
+//! Everything runs on one tokio current-thread `LocalSet`. The handles are
 //! `!Send` by construction, so create and use them on one task inside it.
 
 use std::rc::Rc;
@@ -52,12 +52,12 @@ pub use identity::{DurableProvenance, PartnerIdentity};
 /// (ADR-0082), both of which finish before the handshake starts.
 pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(crate::abi_constants::HANDSHAKE_TIMEOUT_MS as u64);
 
-/// A live CapTP session with one OCapN partner — the one object an application
+/// A live CapTP session with one OCapN partner: the one object an application
 /// holds, over one byte-fed `GlowcapHostSession` the shared [`Host`] minted.
-/// `!Send` by construction; use it on a single task inside a `LocalSet`.
+/// `!Send` by construction. Use it on a single task inside a `LocalSet`.
 /// A dial or accept returns an owning handle whose drop closes the session.
-/// Host-retained views, such as `send_redeeming`'s `via`, do not close on drop;
-/// explicit [`close`](Session::close) still closes the session they name.
+/// Host-retained views, such as `send_redeeming`'s `via`, do not close on drop.
+/// Explicit [`close`](Session::close) still closes the session they name.
 pub struct Session {
 	shared: Rc<SessionShared>,
 	// Application owners control retirement; Host pumps and callback views do
@@ -70,19 +70,19 @@ pub struct Session {
 impl Session {
 	/// Binding-internal: the raw handles the trace veneer names a
 	/// session by (`annotate_session`). Null session pointer after
-	/// close — the veneer treats that as nothing to annotate.
+	/// close: the veneer treats that as nothing to annotate.
 	pub(crate) fn trace_handles(&self) -> (*mut ffi::GlowcapHost, *mut ffi::GlowcapHostSession) {
 		(self.shared.host.raw(), self.shared.ptr.get())
 	}
 }
 
 pub struct SendRedeemingResult {
-	/// The value the send settled with, exactly what an ordinary
+	/// The value the send settled with, what an ordinary
 	/// [`Session::send`] would have yielded. Lift a capability out of it with
 	/// `Ref::try_from(&reply)`.
 	pub reply: Argument,
 	/// The direct session the reply's capability lives in, when the reply is
-	/// a capability a three-party-handoff redeem brought in; `None` for an
+	/// a capability a three-party-handoff redeem brought in. `None` for an
 	/// ordinary far reply, or when that exporter session has already gone.
 	///
 	/// The Host retains this view and the reply capability independently of the
@@ -113,7 +113,7 @@ impl Session {
 	}
 
 	/// Transfer an admitted dial to Host custody without closing it. Its pump
-	/// observes lifetime; application handles acquired through reference_session
+	/// observes lifetime. Application handles acquired through reference_session
 	/// own it. With no application handle yet, Host shutdown remains the owner.
 	pub(crate) fn into_host_retained(mut self) -> Self {
 		if self.owns_session {
@@ -136,16 +136,14 @@ impl Session {
 	/// Record the complete exporter locator the gifter embeds when *this*
 	/// session is the exporter side of a handoff
 	/// this host originates (ADR-0009). Needed when the partner's signed location
-	/// is not dialable on its own — an iroh partner signs only its node id, so a
+	/// is not dialable on its own: an iroh partner signs only its node id, so a
 	/// gifter that learned the exporter's `direct-addresses` out of band sets the
 	/// full locator here. Unset, origination falls back to the partner's signed
 	/// location.
 	///
-	/// Fallible, unlike an earlier shape that returned `()` and dropped both a
-	/// closed session and a refused call. This is the one method where silence
-	/// produces exactly the outcome the caller called it to avoid: on failure
-	/// origination reverts to the partner's signed location, and the recipient's
-	/// redeem dial fails later, in another process, with an unrelated message.
+	/// Fallible because silent failure defeats the call: on failure origination
+	/// reverts to the partner's signed location, and the recipient's redeem dial
+	/// fails later, in another process, with an unrelated message.
 	/// The other three bindings raise here.
 	pub fn set_exporter_locator(&self, locator: Option<&Locator>) -> Result<()> {
 		self.shared.guard_open()?;
@@ -154,6 +152,10 @@ impl Session {
 			Some(value) => value.borrow_view()?,
 			None => core::ptr::null(),
 		};
+		// SAFETY: `self.shared.ptr` is this session's `GlowcapHostSession` handle, owned by the Host and nulled only
+		// when the session is released, and `guard_open` above proved it live; `view` is null, which the header defines
+		// as clearing the override, or points into `owned`, a local `OwnedLocator` that outlives the call, and the Host
+		// clones the borrowed view.
 		check_host(unsafe { ffi::glowcap_host_session_set_exporter_location(self.shared.ptr.get(), view) })?;
 		Ok(())
 	}
@@ -164,7 +166,7 @@ impl Session {
 	/// [`Session::publish`] returns its own `Ref`, so this is for the other
 	/// publisher: [`Host::publish`](crate::Host::publish) hosts
 	/// one actor under a Host-wide alias and returns nothing. This lazily projects
-	/// the actor onto the session and returns its Host identity; no enrollment
+	/// the actor onto the session and returns its Host identity. No enrollment
 	/// step exists.
 	///
 	/// Calls to the returned reference use the native Host's local eventual
@@ -172,6 +174,8 @@ impl Session {
 	pub fn published_ref(&self, name: &str) -> Result<Option<Ref>> {
 		self.shared.guard_open()?;
 		let mut reference = sys::GlowcapReference { id: 0 };
+		// SAFETY: `self.shared.ptr` is this session's live `GlowcapHostSession` handle (`guard_open` above); `name` is
+		// a `&str` borrowed for the call, and `reference` is a local out-parameter the callee fills.
 		let rc = unsafe {
 			ffi::glowcap_host_session_published_ref(self.shared.ptr.get(), name.as_ptr(), name.len(), &mut reference)
 		};
@@ -186,10 +190,10 @@ impl Session {
 	/// done holding it.
 	///
 	/// Releases one application retain. For a remote capability the Host emits
-	/// any required `op:gc-exports`; a local capability needs no wire message.
+	/// any required `op:gc-exports`. A local capability needs no wire message.
 	/// Dropping the last clone does this for every far capability a Host
 	/// projects while [`Host::set_release_on_drop`](crate::Host::set_release_on_drop)
-	/// is on (the default); this verb also works for a handle outside that
+	/// is on (the default). This verb also works for a handle outside that
 	/// automatic seam.
 	///
 	/// `cap` is taken by value, so the handle you released is gone. A clone
@@ -214,7 +218,7 @@ impl Session {
 
 	/// Spawn a local actor and return a capability to it. Pass the returned `Ref`
 	/// as a `send` argument to hand a partner a callback. The returned identity
-	/// is opaque and Host-scoped; wire export positions stay inside glowcap.
+	/// is opaque and Host-scoped. Wire export positions stay inside glowcap.
 	/// Callable from inside a served turn (a factory's `create` minting the task
 	/// it replies with).
 	pub fn spawn(
@@ -227,7 +231,7 @@ impl Session {
 	/// Spawn an actor whose local root is owned by the returned reference.
 	/// The last clone's Drop parks its release on the Host, including when Drop
 	/// runs inside a callback. Remote exports retain their own actor roots.
-	/// Unlike `spawn`, this does not require a later explicit `release`; it is
+	/// Unlike `spawn`, this does not require a later explicit `release`. It is
 	/// independent of the session's distributed-GC opt-in.
 	pub fn spawn_owned(
 		&self,
@@ -249,11 +253,11 @@ impl Session {
 	}
 
 	/// Wrap `target` (local or far) in a revocable caretaker (ADR-0064). Returns a
-	/// [`Caretaker`] whose `proxy` is an ordinary capability you hand a partner;
-	/// every call through it forwards to `target` until you
+	/// [`Caretaker`] whose `proxy` is an ordinary capability you hand a partner.
+	/// Every call through it forwards to `target` until you
 	/// [`revoke`](Caretaker::revoke) it, after which each call breaks with
-	/// `Revoked`. `target` may be a capability you imported over the wire — the
-	/// proxy forwards transparently — so this hands out a revocable view of
+	/// `Revoked`. `target` may be a capability you imported over the wire, the
+	/// proxy forwards transparently, so this hands out a revocable view of
 	/// authority you do not own locally.
 	pub fn caretaker(&self, target: &Ref) -> Result<Caretaker> {
 		crate::trampoline::caretaker_proxy(&self.shared, target)
@@ -269,7 +273,7 @@ impl Session {
 
 	/// Fetch a partner's published capability by `name`. Returns a `Ref` you can
 	/// `send` to. The canonical fetch lives in the library: one call registers
-	/// the bootstrap import, allocates the answer, and queues the deliver; the
+	/// the bootstrap import, allocates the answer, and queues the deliver. The
 	/// host enrolls the fulfilled capability under a node-unique token (ADR-0069)
 	/// before the completion is queued, so a return re-gifts the right home.
 	/// Rejects with the typed break when the partner refuses the fetch, and with
@@ -288,10 +292,10 @@ impl Session {
 
 	/// Enliven a sturdyref against this session (ADR-0098): bring the durable
 	/// `(peer, swissnum)` to life as a live [`Ref`]. The host verifies the complete
-	/// locator against this session before consulting its dedup cache — a repeat
+	/// locator against this session before consulting its dedup cache: a repeat
 	/// enliven of the same swissnum on this session short-circuits with no wire
 	/// traffic (its completion is queued before the minting call returns). The
-	/// session must already be open to the sturdyref's peer; this session-level
+	/// session must already be open to the sturdyref's peer. This session-level
 	/// call never dials. Rejects with the typed break
 	/// when the partner refuses, and with a broken error on a non-capability
 	/// fulfillment.
@@ -309,7 +313,7 @@ impl Session {
 	/// Listen on a far capability this session holds (CapTP `op:listen`,
 	/// ADR-0095): the returned handle settles with the listen notification,
 	/// which may be any value, not only a capability. In 1.0, the target may be
-	/// a far promise or live far object; in glowcap-next, the target must be a
+	/// a far promise or live far object. In glowcap-next, the target must be a
 	/// promise. A re-gifted promise routes to its exporter session
 	/// transparently.
 	pub fn listen(&self, target: &Ref) -> RemotePromise {
@@ -317,21 +321,21 @@ impl Session {
 	}
 
 	/// Resolve an opaque capability. A live object returns an independently
-	/// owned handle without wire traffic; a promise awaits its settlement,
+	/// owned handle without wire traffic. A promise awaits its settlement,
 	/// which may be any value. The Host owns routing and handoff redemption.
 	pub async fn resolve(&self, target: &Ref) -> Result<Argument> {
 		crate::promise::resolve(&self.shared, target).await
 	}
 
 	/// Eventual-send `verb(args)` to `target` and return a [`RemotePromise`] for
-	/// the reply. `await` it for the value (a capability via `Ref::try_from`; a
+	/// the reply. `await` it for the value (a capability via `Ref::try_from`, a
 	/// typed `Err` on a partner break).
 	///
 	/// `target` is a capability `&Ref` *or* a `&RemotePromise` from an earlier
-	/// send: passing the latter pipelines (ADR-0007) — the call is addressed at
+	/// send: passing the latter pipelines (ADR-0007). The call is addressed at
 	/// the answer that send will resolve, so a dependent chain costs one round
 	/// trip instead of one per link. `args` may contain capabilities via
-	/// `Into<Argument>`. A `Ref` this session spawned runs in process; a
+	/// `Into<Argument>`. A `Ref` this session spawned runs in process. A
 	/// partner's rides the wire, and a redeemed or fetched token routes to the
 	/// exporter session that hosts it, transparently.
 	pub fn send<T: AsSendTarget>(&self, target: T, verb: &str, args: &[Argument]) -> RemotePromise {
@@ -342,8 +346,8 @@ impl Session {
 	/// back the direct session a three-party-handoff redeem opened to answer
 	/// it.
 	///
-	/// When `target` answers with a `desc:handoff-give` — a rooms `introduce`,
-	/// say — the host redeems it by dialing the exporter, and the reply resolves
+	/// When `target` answers with a `desc:handoff-give`, a rooms `introduce`,
+	/// say, the host redeems it by dialing the exporter, and the reply resolves
 	/// to a capability that routes over a fresh direct session. The byte
 	/// connection is otherwise internal. This surfaces the session as
 	/// [`via`](SendRedeemingResult::via), so the caller can host its own objects in the same
@@ -394,14 +398,14 @@ impl Session {
 	/// Fire-and-forget eventual-send (Goblins `<-np`): no answer is allocated and
 	/// no reply comes back, so a notification or broadcast costs one deliver
 	/// rather than a deliver plus a reply. Returns once the deliver is queued on
-	/// the host; the scheduled drain flushes it, in order with the sends around
+	/// the host. The scheduled drain flushes it, in order with the sends around
 	/// it.
 	pub fn tell<T: AsSendTarget>(&self, target: T, verb: &str, args: &[Argument]) -> Result<()> {
 		crate::promise::tell_target(&self.shared, target.as_send_target(), verb, args)
 	}
 
 	/// Start or resume inbound delivery immediately. The first call takes the
-	/// serve task; awaiting it observes admission or task failure and eventual
+	/// serve task. Awaiting it observes admission or task failure and eventual
 	/// close. Later calls report admission only. Use [`Session::closed`] for
 	/// independent retirement observers. Dropping a serve future gives up its
 	/// observation while delivery continues. Keep the
@@ -412,8 +416,8 @@ impl Session {
 	/// serve handle, and the close observer are all taken out of the shared
 	/// state before the `async move`, so the future outlives the borrow. Rust
 	/// 2024 would otherwise capture `&self` implicitly, and a caller that
-	/// starts serving and then moves the `Session` into its client — which is
-	/// the ordinary shape, because the handle must stay alive — would be
+	/// starts serving and then moves the `Session` into its client, which is
+	/// the ordinary shape, because the handle must stay alive, would be
 	/// refused for a borrow the future does not hold. Keeping the handle alive
 	/// is a contract the sentence above states, not one the borrow checker is
 	/// asked to carry.

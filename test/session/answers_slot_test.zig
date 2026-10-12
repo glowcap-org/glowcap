@@ -166,7 +166,7 @@ test "Session retainSentExportRef leaves a live export cell authoritative — a 
     try std.testing.expectEqual(slot.Slot{ .local_value = object_export.int() }, s.exportSlot(object_export).?);
 
     // A promise export is authoritative from its allocation. A later object
-    // mention does not fulfill it, and a repeat promise mention leaves it be —
+    // mention does not fulfill it, and a repeat promise mention leaves it be,
     // a live cell is decided once, at establishment.
     const promise_export = try s.allocatePromiseExport();
     try std.testing.expectEqual(slot.Slot{ .local_unresolved = promise_export.int() }, s.exportSlot(promise_export).?);

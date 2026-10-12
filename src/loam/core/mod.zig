@@ -1,5 +1,5 @@
 //! Portable record transactions and bounded residency. Stores emit explicit
-//! read and write work; the embedding owns execution and completion delivery.
+//! read and write work. The embedding owns execution and completion delivery.
 const records = @import("loam_records");
 
 pub const Record = records.Record;

@@ -1,7 +1,7 @@
 //! Sole CapTP leaf table for argv (projected into the command tree), REPL, and MCP.
 //!
 //! ADR-0084: one CapTP verb registry. Argv help/completion/parse share this table
-//! through `cli/cmd/tree.zig`'s projection — do not duplicate name/help/mcp/run.
+//! through `cli/cmd/tree.zig`'s projection. Do not duplicate name/help/mcp/run.
 //! Front-applicable leaves/flags use `leafVisible` / `flagVisible` so help, Tab,
 //! and MCP schemas cannot disagree.
 const std = @import("std");
@@ -163,7 +163,7 @@ pub fn dispatch(ctx: *Ctx, name: []const u8, positionals: []const []const u8) !u
 
 pub const McpCatalog = enum { default, full, readonly };
 
-/// Whether a CapTP leaf is honest on this front (help / Tab / MCP catalogs).
+/// Whether a CapTP leaf is valid on this front (help / Tab / MCP catalogs).
 pub fn leafVisible(cmd: *const Command, front: Front) bool {
     return switch (front) {
         .argv => true,

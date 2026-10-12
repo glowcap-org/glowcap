@@ -9,9 +9,9 @@ other.
 Watching this takes three terminals and a browser.
 
 First, start the browser UI with the live timeline turned on. This walkthrough uses the cleartext TCP testing adapter,
-the shortest path, because it needs no transport sidecar. (The repository also has an iroh netlayer for Goblins, used by
-the automated encrypted scenario. It is an adapter kept here, not a transport Goblins ships.) The TCP Rooms server
-listens on port 9099:
+the shortest path, because it needs no extra transport process. (The repository also has an iroh netlayer for Goblins,
+used by the automated encrypted scenario. It is an adapter kept here, not a transport Goblins ships.) The TCP Rooms
+server listens on port 9099:
 
 ```sh
 zig build rooms-web -Dtransport=tcp -- --trace
@@ -48,7 +48,7 @@ client exchange lines in one room, and the server's trace must show both profile
 
 ## Direct-messaging the vat
 
-Click the vat's name in the member pane and type. The room introduces the two of you and then carries none of the
+Click the vat's name in the member list and type. The room introduces the two of you and then carries none of the
 conversation. Your messages go directly between your browser and the vat, and the viewer draws that as its own session,
 which disappears when you close the conversation. The vat shows your messages as `(dm) <you>`, and anything it sends
 back with `/dm` returns over the connection your message came in on.

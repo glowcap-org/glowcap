@@ -16,7 +16,7 @@ import type { ScrubberPointerHost } from "./types.ts";
 import type { EventHitIndex } from "../event-hit-index.ts";
 
 /** What the pointer is over and what it should look like there. The zones
- *  and the row key are `scrubberHoverAt`'s answer; the cursor is
+ *  and the row key are `scrubberHoverAt`'s answer. The cursor is
  *  `cursorFor`'s, reached through `timelineCursor`. This host writes both and
  *  decides neither. */
 function computeHoverState(
@@ -33,7 +33,7 @@ function computeHoverState(
 		disabledScrub: boolean;
 		/** The gesture this host is running, or null while it only hovers. */
 		inFlight: TimelineGesture | null;
-		/** The App's gesture context — a held Shift previews the selection edit
+		/** The App's gesture context. A held Shift previews the selection edit
 		 *  the click or marquee would commit, exactly as it does on the Stage. */
 		gestureCtx: SurfaceGestureCtx;
 	},
@@ -130,7 +130,7 @@ export function onScrubberPointerMove(
 	} = h;
 	const rect = e.currentTarget.getBoundingClientRect();
 	const drag = dragRef.current;
-	// Ghost playhead is hover-only — once a drag starts, the
+	// Ghost playhead is hover-only, once a drag starts, the
 	// real playhead (scrub) or cursor (pan) carries the signal.
 	// Mirrors the Overview's behavior.
 	if (!drag) {
@@ -157,7 +157,7 @@ export function onScrubberPointerMove(
 		return;
 	}
 	// A gesture in flight is what is HAPPENING, and it outranks whatever
-	// the pointer is passing over (cursor.md, rung 1) — a scrub that wanders
+	// the pointer is passing over (cursor.md, rung 1). A scrub that wanders
 	// into the gutter still reads as a scrub. Written every move so the
 	// answer cannot go stale under the drag.
 	if (inFlightRef.current !== null) {
@@ -169,7 +169,7 @@ export function onScrubberPointerMove(
 	}
 	// A move with no button held is a pointer-up that went
 	// missing, and `watchGestureEnd` has already ended the drag
-	// by the time this bubbles here — so the live `drag` read
+	// by the time this bubbles here. So the live `drag` read
 	// above is the whole guard.
 	const plotWidth = plotWidthOf(rect.width, view);
 	switch (drag.kind) {
@@ -188,7 +188,7 @@ export function onScrubberPointerMove(
 			const dy = e.clientY - drag.lastClientY;
 			drag.lastClientX = e.clientX;
 			drag.lastClientY = e.clientY;
-			// Vertical: grab-the-paper — content follows the pointer,
+			// Vertical: grab-the-paper, content follows the pointer,
 			// so dragging down reveals rows that were above.
 			if (dy !== 0) {
 				const next = Math.max(
@@ -204,7 +204,7 @@ export function onScrubberPointerMove(
 				}
 			}
 			// Horizontal: updater form so `dt` derives from the CURRENT
-			// window width — without this, multiple moves per frame all
+			// window width, without this, multiple moves per frame all
 			// pan against the original window and the drag feels weak.
 			if (dx !== 0) {
 				onSetView((current) => {

@@ -1,6 +1,6 @@
 /* ── Settings ─────────────────────────────────────────────────────────── */
 /* The settings dialog and the modal machinery it stands on. Split from
-   join.css along its own section line; page.css imports this sheet
+   join.css along its own section line. The page.css sheet imports this one
    immediately after, so every rule keeps its place in the cascade. */
 /* Settings: the same card the join form uses, inside a native dialog. Saving
    reloads so the peer opens with the new locator. */
@@ -223,12 +223,12 @@ html:has(.app.covered) {
 }
 /* The directory's own mark, worn by the card describing it. The same glyph its
    rows carry in the rail and in the same colour, so arriving here from a
-   coloured line lands somewhere that agrees; a card that dropped the colour
+   coloured line lands somewhere that agrees. A card that dropped the colour
    would have a reader checking they opened the one they meant.
 
    On the heading rather than as a wash over the panel, and at the size of the
    words beside it. This is an identity, not a status. The card's top stripe is
-   the bar every modal wears; a foreign directory recolors that bar's teal stop
+   the bar every modal wears. A foreign directory recolors that bar's teal stop
    so it agrees with this mark. */
 .dircard #dircardTitle {
 	display: flex;
@@ -343,7 +343,7 @@ html:has(.app.covered) {
 }
 
 /* The capability-set draft has one model and two projections. Its tiny action
-   swaps the complete controls for the complete text block; neither projection
+   swaps the complete controls for the complete text block. Neither projection
    is a second form or a nested card. */
 .capability-set-head {
 	display: flex;
@@ -405,7 +405,7 @@ html:has(.app.covered) {
 }
 /* Session managers open cards of their own, each one column of sections.
    Issuing access and editing it take the paired width so their permission
-   groups can stand side by side; a list or one pasted link takes rows. */
+   groups can stand side by side. A list or one pasted link takes rows. */
 .session-data-modal,
 .session-access-modal,
 .session-hold-modal {
@@ -428,7 +428,8 @@ html:has(.app.covered) {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 		column-gap: var(--gap-column);
 	}
-	.option-rows > .entry:first-child {
+	.option-rows > .entry:first-child,
+	.option-rows > .entry:nth-child(2):last-child {
 		grid-column: 1 / -1;
 	}
 }
@@ -505,22 +506,9 @@ html:has(.app.covered) {
 .archive-peer-modal {
 	width: min(var(--card-rows), 100%);
 }
-/* Where a browser works next is one question with two or three answers, and
-   they are drawn as the same row: what the answer is, the act that takes it,
-   and one sentence saying what taking it does. Closer together than the
-   entries vocabulary sets by default, and told apart by the gap rather than a
-   rule, because a rule between them read as three separate subjects instead
-   of three halves of one choice. */
-.session-moves .entries {
-	gap: var(--gap-row);
-}
-.session-moves .entry + .entry {
-	padding-top: 9px;
-	border-top: none;
-}
 /* On a phone the card stands in from every edge by the same distance.
    `.modal` already pads all four sides equally, so the side gaps are that
-   padding and nothing else; the taller gaps above and below were the cap
+   padding and nothing else. The taller gaps above and below were the cap
    above, which stops the card short of the space it was given and centring
    then splits the remainder. On a 390×844 screen that measured 62px top and
    bottom against 24px at the sides.

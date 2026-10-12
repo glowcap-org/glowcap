@@ -14,6 +14,9 @@ const ID: &str = "11111111-1111-4111-8111-111111111111";
 #[derive(Clone, Default)]
 struct Platform;
 impl rooms_glowcap::client::Deadline for Platform {
+	fn monotonic_millis(&self) -> u64 {
+		0
+	}
 	async fn within<T>(&self, milliseconds: u64, work: impl core::future::Future<Output = T>) -> Option<T> {
 		HostPlatform.within(milliseconds, work).await
 	}

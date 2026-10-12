@@ -28,7 +28,7 @@ pub const Completion = union(enum) { committed: types.Change, unchanged, recover
 
 /// All record changes in this write must persist atomically. Selections borrow
 /// ledger-owned memory until a known outcome or cancellation retires the write.
-/// These records describe proposed data; they grant no publishable authority.
+/// These records describe proposed data. They grant no publishable authority.
 pub const Write = struct {
     ticket: Ticket,
     version: types.Version,

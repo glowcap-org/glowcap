@@ -1,5 +1,5 @@
 //! Immutable file materialization shared by independent application readers.
-//! Capture uses bounded source reads; aligned spans share their allocations.
+//! Capture uses bounded source reads. Aligned spans share their allocations.
 use super::{Deadline, File};
 use rooms_application::files::{CHUNK_BYTES, FileDescription};
 use std::sync::Arc;

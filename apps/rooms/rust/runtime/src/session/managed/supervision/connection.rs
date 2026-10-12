@@ -2,6 +2,30 @@
 use super::*;
 
 impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
+	pub(super) async fn observe_direct_connection(&mut self, operation: &str) -> Result<bool> {
+		if !matches!(self.selected, workspace::InboxSelection::Direct { .. }) {
+			return Ok(true);
+		}
+		let selection = serde_json::to_string(&self.selected).map_err(|_| loam::refusal("invalid direct selection"))?;
+		let args = [
+			self.writer.root()?.into(),
+			selection.into(),
+			self.inbox.reference().clone().into(),
+			operation.into(),
+		];
+		let writer = self.writer.clone();
+		let endpoint = self.workspace.reference().clone();
+		Ok(self
+			.stage(|| async {
+				writer
+					.host
+					.send(&endpoint, "observe-direct-connection", &args)
+					.await
+					.map_err(|failure| failure.with_context("observing the direct route exporter"))
+			})
+			.await?
+			.is_some())
+	}
 	/// Replacing callback/source custody retires its worker, while the open
 	/// conversation can still use the same channel through its successor. Only
 	/// closing or removing the conversation authorizes transport retirement.
@@ -10,7 +34,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 			return Ok(false);
 		};
 		let root = Workspace::local(self.writer.host.clone(), self.platform.clone(), self.writer.root()?);
-		let snapshot = root.snapshot().await.map_err(error)?;
+		let snapshot = root.owner_snapshot(&self.writer.root()?).await.map_err(error)?;
 		Ok(!snapshot
 			.intent
 			.conversations
@@ -22,7 +46,11 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 		let Some(lease) = self.lease else { return Ok(()) };
 		self.recovery.recover();
 		loop {
-			let mut snapshot = self.workspace.snapshot().await.map_err(error)?;
+			let mut snapshot = self
+				.workspace
+				.owner_snapshot(&self.writer.root()?)
+				.await
+				.map_err(error)?;
 			let mut changed = false;
 			match lease {
 				Lease::Direct(inbox) => {
@@ -71,7 +99,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 			// history and explicit reconnect choice stay in their existing rows.
 			let acquisition =
 				self.workspace
-					.prepare_acquisition(snapshot.revision, Vec::new(), &[], &snapshot.intent)?;
+					.prepare_owner_acquisition(&self.writer.root()?, snapshot.revision, &snapshot.intent)?;
 			drop(snapshot);
 			loop {
 				match acquisition.submit().await {

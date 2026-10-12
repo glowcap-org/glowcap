@@ -3,7 +3,7 @@ id: ADR-0130
 status: accepted
 date: 2026-08-25
 tags: [rooms, capabilities, persistence, storage, iroh]
-decision: "The standalone Rooms archive peer hosts ADR-0129's unchanged `put`/`read` object on a durable v1/Syrup Host. One required state directory retains the Host seed, publication entropy, and a bounded synced JSONL revision log; an operating-system lock grants one live writer, strict startup validation refuses corruption before the final append, and atomic compaction recovers only a torn final row. The peer announces one sturdyref, uses authenticated iroh by default, and keeps cleartext TCP for local development and self-contained checks."
+decision: "The standalone Rooms archive peer hosts ADR-0129's unchanged `put`/`read` object on a durable v1/Syrup Host. One required state directory retains the Host seed, publication entropy, and a bounded synced JSONL revision log. An operating-system lock grants one live writer, strict startup validation refuses corruption before the final append, and atomic compaction recovers only a torn final row. The peer announces one sturdyref, uses authenticated iroh by default, and keeps cleartext TCP for local development and self-contained checks."
 supersedes: []
 superseded_by: []
 amends: [ADR-0129]
@@ -52,7 +52,7 @@ The resident index keeps at most 5,000 current records. The log compacts after
 128 MiB. Compaction writes and syncs a same-directory temporary file before
 renaming it over the prior snapshot. Startup validates the header, every
 record, revision order, capacity, row count, and byte ceiling before serving.
-A crash may leave one unterminated final append; startup drops that fragment
+A crash may leave one unterminated final append. Startup drops that fragment
 and immediately compacts the recovered state. Invalid complete rows refuse
 startup.
 
@@ -93,7 +93,7 @@ owns only commit and recovery. Transport code owns only reachability. Neither
 can redefine what an archive record means.
 
 The printed sturdyref is bearer authority to read and write the whole archive.
-Protect it like the archive contents; share a narrowed facet or revocable share
+Protect it like the archive contents. Share a narrowed facet or revocable share
 when a recipient needs less authority.
 
 ## Evidence

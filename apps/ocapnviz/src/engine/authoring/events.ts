@@ -12,7 +12,7 @@ import type { TimeSpan } from "../temporal/time-span.ts";
 import type { AuthoringContext } from "./context.ts";
 
 /** Extend `doc.duration` (and the clock's bound) to cover `event`.
- * Internal — every path that places an observation at a new time
+ * Internal. Every path that places an observation at a new time
  * calls this so the playable range always covers what the timeline
  * can paint. */
 export function growDurationToFit(
@@ -28,13 +28,13 @@ export function growDurationToFit(
 /**
  * The last moment this document states anything at.
  *
- * `growDurationToFit` above asks this of one event; this asks it of the whole
+ * `growDurationToFit` above asks this of one event. This asks it of the whole
  * document, and the two sit together so they cannot disagree about what counts.
  * It is the floor a duration may not go below: a timeline shorter than its own
  * last event hides that event behind an end the scrubber cannot travel past.
  *
  * Stated times, not effective ranges. An effective end is unbounded for anything
- * that never leaves — a peer that joins and stays runs to infinity — so a maximum
+ * that never leaves, a peer that joins and stays runs to infinity, so a maximum
  * over those would answer infinity for most documents. What a duration has to
  * cover is where the marks are.
  *
@@ -130,14 +130,14 @@ export function removeObservations(
 
 /** Put `event` in the observation stream at its sorted position,
  *  replacing whatever `matches` claims first. The one write behind
- *  every "a moment happened here" authoring op — a session's state
- *  change, a peer's update — so the two cannot drift in how the
+ *  every "a moment happened here" authoring op, a session's state
+ *  change, a peer's update, so the two cannot drift in how the
  *  stream is kept sorted or how a moment at the same t is replaced.
- *  The stream stays sorted by `t`; the caller commits.
+ *  The stream stays sorted by `t`. The caller commits.
  *
  *  A replacement KEEPS the id of the moment it replaces: it is the
  *  same moment carrying a new value, and everything that addresses a
- *  moment addresses it by that id — the Inspector row's React key,
+ *  moment addresses it by that id, the Inspector row's React key,
  *  the timeline's focus halo, an open drag. Minting a fresh id on
  *  each write tears the row out from under the user: typing one
  *  character into a trajectory row's value field remounted the input

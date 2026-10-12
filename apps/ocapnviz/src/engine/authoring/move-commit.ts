@@ -75,11 +75,11 @@ function applyPatch(ctx: AuthoringContext, patch: MovePatch): void {
 }
 
 /** Whether moving `ev` to `newT` would land it where the same session
- *  property already states something — and if so, says so.
+ *  property already states something, and if so, says so.
  *
  *  A keyframe track holds one value per instant. Silently merging here
  *  would make a drag delete the moment already at that instant. Refusing
- *  leaves the choice to the reader; a moment of another property remains
+ *  leaves the choice to the reader. A moment of another property remains
  *  valid because the tracks are independent. */
 export function occupiedMoment(
 	ctx: AuthoringContext,

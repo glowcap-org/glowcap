@@ -1,15 +1,15 @@
 //! Host-owned refusal vocabulary.
 //!
 //! These errors name the sans-I/O multi-session product boundary. Protocol
-//! errors remain owned by the session/engine layers; adapters project this
+//! errors remain owned by the session/engine layers. Adapters project this
 //! exact set without inventing failure policy.
 
 const actors = @import("actors");
 
 /// The typed refusals the byte-fed host adds over the shared driver vocabulary.
 pub const HostError = error{
-    /// Deferred Host work could not allocate. No action or authority is lost;
-    /// retry the action drain after allocator pressure subsides.
+    /// Deferred Host work could not allocate. No action or authority is lost.
+    /// Retry the action drain after allocator pressure subsides.
     OutOfMemory,
     /// The Host has crossed its close admission barrier. Existing protocol
     /// work may still be driven to its terminal barrier, but no application
@@ -20,22 +20,22 @@ pub const HostError = error{
     SessionClosing,
     /// This session already owns every operation slot representable by its
     /// compact control word. The attempted operation has not committed any
-    /// effect; settle existing work and retry.
+    /// effect. Settle existing work and retry.
     SessionOperationLimitReached,
     /// The session lost the crossed-hellos tiebreak (ADR-0030) and is
     /// condemned: its typed abort is queued for the embedder to drain, and no
     /// further verb may ride it.
     SessionCondemned,
-    /// A top-level (host-driving) verb was re-entered from inside a listener
-    /// or behavior callback. Every public verb is one of two kinds: top-level
-    /// verbs refuse this error under the latch, and the enqueueing verbs —
-    /// `send`/`tell`, `listenTo`, the vow verbs, `releaseCapability`,
-    /// `setExporterLocation` — are legal there, their effects encoded and
-    /// pumped when the enclosing top-level verb unwinds.
+    /// A top-level (host-driving) verb was re-entered from inside a listener or
+    /// behavior callback. Every public verb is one of two kinds: top-level
+    /// verbs refuse this error under the latch, and the enqueueing verbs
+    /// (`send`/`tell`, `listenTo`, the vow verbs, `releaseCapability`,
+    /// `setExporterLocation`) are legal there, their effects encoded and pumped
+    /// when the enclosing top-level verb unwinds.
     ReenteredHost,
     /// A single-thread Host verb ran from a thread other than the current
     /// driver owner. The caller may retry after the owner explicitly releases
-    /// its claim at a quiescent boundary; the refused call commits nothing.
+    /// its claim at a quiescent boundary. The refused call commits nothing.
     WrongThread,
     /// A host vow id names no live row: never minted, or its session was
     /// released.
@@ -49,15 +49,15 @@ pub const HostError = error{
     /// to no session (ADR-0102): its whole surface is the turn-scoped
     /// forward and the resolver settle verbs.
     SessionlessVow,
-    /// A turn-scoped forward-to-vow named a wire vow. A wire answer belongs
-    /// to the session that minted it and settles through that session's own
-    /// machinery; only a local resolver vow (ADR-0102) can carry a deferred
+    /// A turn-scoped forward-to-vow named a wire vow. A wire answer belongs to
+    /// the session that minted it and settles through that session's own
+    /// machinery. Only a local resolver vow (ADR-0102) can carry a deferred
     /// answer.
     NotALocalVow,
-    /// A send argument is a capability foreign to the session the send
-    /// rides, which would mis-encode the reference for that partner; or a
-    /// capability appeared in a resolver settle, whose plain-data contract
-    /// has no session to home one (ADR-0102). The verb is refused whole.
+    /// A send argument is a capability foreign to the session the send rides,
+    /// which would mis-encode the reference for that partner, or a capability
+    /// appeared in a resolver settle, whose plain-data contract has no session
+    /// to home one (ADR-0102). The verb is refused whole.
     ForeignArgument,
     /// `deferTurn` was given a turn or session not owned by this Host, or a
     /// turn whose Vat/Port/ingress provenance disagrees with that session.
@@ -66,8 +66,8 @@ pub const HostError = error{
     /// `deferTurn` was called for a served tell. A tell carries no answer to
     /// defer, so minting a resolver would create authority with no effect.
     NoAnswer,
-    /// The target capability route's exporter session is gone; the send is dropped,
-    /// not mis-sent (the node's fail-closed contract).
+    /// The target capability route's exporter session is gone. The send is
+    /// dropped, not mis-sent (the node's fail-closed contract).
     CapabilityRouteUnavailable,
     /// `partnerIdentity` was asked for an identity the partner has not sent
     /// yet: its `op:start-session` has not arrived with a key.
@@ -80,24 +80,24 @@ pub const HostError = error{
     /// does not hold (ADR-0105). A peer cannot publish another node's identity.
     UnheldIdentity,
     /// No acceptable location has been selected. Dial targets do not supply
-    /// this host's route; adapters must publish one explicitly before opening
-    /// a session (ADR-0109).
+    /// this host's route. Adapters must publish one explicitly before opening a
+    /// session (ADR-0109).
     MissingAdvertisedLocator,
     /// A CapTP session for this partner is already enrolled (ADR-0012):
     /// dial-to-dial by our dial target, or by a durable peer identity that a
     /// matching channel proof authenticated. A partner's locator claim alone
     /// never enters the durable-peer index. Identity-routed pending dials may
     /// pass a concrete-route match only when the existing session has not
-    /// authenticated the demanded key; crossed hellos may still open an accepted
-    /// session while a dial is in flight. Authenticated pairs then keep at most
-    /// one non-condemned session (ADR-0068).
+    /// authenticated the demanded key. Crossed hellos may still open an
+    /// accepted session while a dial is in flight. Authenticated pairs then
+    /// keep at most one non-condemned session (ADR-0068).
     SessionPairExists,
     /// One live import position was observed under both reference kinds. The
-    /// first lift established its canonical Host identity; accepting the
+    /// first lift established its canonical Host identity. Accepting the
     /// conflicting observation would make one wire name identify two targets.
     ImportKindConflict,
     /// An eventual send targeted a Host promise before its handoff redemption
-    /// completed. Promise-aware verbs queue at this boundary; direct routing
+    /// completed. Promise-aware verbs queue at this boundary. Direct routing
     /// reports the still-pending state rather than guessing a session.
     PromisePending,
     /// A Host promise's handoff redemption settled broken.
@@ -126,7 +126,7 @@ pub const HostError = error{
     /// strong enough for default sturdyref enlivenment.
     PeerIdentityUnverified,
     /// `bindVerifiedChannelKey` was given a designator that does not name a
-    /// durable key. A realizer's proof names a key; a transport that proves an
+    /// durable key. A realizer's proof names a key. A transport that proves an
     /// address has nothing to assert here.
     InvalidChannelKey,
     /// `bindVerifiedChannelKey` named a durable key different from one this
@@ -145,8 +145,8 @@ pub const HostError = error{
     /// through `feedBytes` and outbound leaves through
     /// `HostSession.takeTransportOutbound` as sealed bytes written verbatim.
     SealedSessionBytesOnly,
-    /// The session's sealed channel refused — a handshake message or record
-    /// that did not verify, or a seal that could not complete. The session is
+    /// The session's sealed channel refused: a handshake message or record that
+    /// did not verify, or a seal that could not complete. The session is
     /// condemned without an `op:abort` echo (no plaintext may follow) and the
     /// embedder's close action names it.
     SealedChannelFailed,
@@ -165,5 +165,5 @@ pub const HostError = error{
 /// Refusals from `Host.releaseSession`. Every error is pre-commit: the session
 /// remains owned and may be retried or released with its Host. Ingress errors
 /// name an internal lifecycle disagreement without converting it into process
-/// policy; the release does not free a shell its Vat may still reference.
+/// policy. The release does not free a shell its Vat may still reference.
 pub const SessionReleaseError = HostError || actors.IngressCancellationError;

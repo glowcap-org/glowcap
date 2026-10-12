@@ -48,8 +48,8 @@ export class HostGc {
 	}
 
 	/** Register one projected capability occurrence selected by a GC-enabled
-	 * session. The id is an opaque Host-scoped identity (ADR-0096) — the
-	 * application projection seam scopes tracking, never an id-range branch —
+	 * session. The id is an opaque Host-scoped identity (ADR-0096). The
+	 * Tracking is scoped by the application projection seam, never by an id-range branch,
 	 * and the host resolves it
 	 * to its home connection and real wire import when the release fires. The
 	 * finalizer captures only the bare id bigint, never the `Ref`, so it

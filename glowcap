@@ -17,24 +17,38 @@ done
 ROOT="$(cd "$(dirname "${GLOWCAP_SHIM}")" && pwd)"
 PRODUCT="$ROOT/zig-out/product"
 BIN="${GLOWCAP_BIN:-$PRODUCT/bin/glowcap}"
-unset GLOWCAP_CHECKOUT_ROOT
+REBUILD=(zig build rooms-release)
+prepare_request="${GLOWCAP_PREPARE_CHECKOUT:-}"
+unset GLOWCAP_CHECKOUT_ROOT GLOWCAP_PREPARE_CHECKOUT GLOWCAP_CHECKOUT_PREPARED
 if [[ -z "${GLOWCAP_BIN:-}" ]]; then
+	# The validated CLI requests preparation by replacing itself with this
+	# launcher and its original argv. Consume the request, then mark only this
+	# dispatch as prepared; a later invocation must ask Zig for freshness again.
 	# Run the complete staged product, never partially updated build outputs.
-	# Builds are explicit after bootstrap: operating a session must not require
-	# its compiler, a build lease, or a running development container.
-	if [[ ! -x "$BIN" || ! -f "$PRODUCT/share/glowcap/installation.manifest" ]]; then
-		echo "glowcap: preparing missing checkout product; command has not started yet" >&2
-		if "${ROOT}/.devcontainer/bin/run.sh" --auto zig build rooms-build -Doptimize=ReleaseSafe -Dcpu=baseline </dev/null >&2; then
+	# Operating a session must not require its compiler or development container.
+	if [[ $prepare_request == "$ROOT" || ! -x "$BIN" || ! -f "$PRODUCT/share/glowcap/installation.manifest" ]] ||
+		! grep -Fq '"checkout_preparation":true' "$PRODUCT/share/glowcap/release.json" 2>/dev/null; then
+		echo "glowcap: preparing checkout product; command has not started yet" >&2
+		if "${ROOT}/.devcontainer/bin/run.sh" --auto "${REBUILD[@]}" </dev/null >&2; then
 			echo "glowcap: checkout product ready; starting command" >&2
 		else
 			build_status=$?
 			echo "glowcap: checkout preparation failed; command was not started" >&2
 			exit "$build_status"
 		fi
-		if [[ ! -f "$PRODUCT/share/glowcap/installation.manifest" ]]; then
+		if [[ ! -x "$BIN" || ! -f "$PRODUCT/share/glowcap/installation.manifest" ]] ||
+			! grep -Fq '"checkout_preparation":true' "$PRODUCT/share/glowcap/release.json" 2>/dev/null; then
 			echo "glowcap: build did not prepare a complete product at $PRODUCT" >&2
 			exit 1
 		fi
+		export GLOWCAP_CHECKOUT_PREPARED="$ROOT"
+	fi
+	# Ordinary commands keep their product when the checkout moves. Name both
+	# revisions. Uncommitted edits under an unchanged HEAD are not detected here.
+	built="$(sed -n 's/.*"revision":"\([0-9a-f]*\)".*/\1/p' "$PRODUCT/share/glowcap/release.json" 2>/dev/null || true)"
+	head="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
+	if [[ -n "$built" && -n "$head" && "$built" != "$head" ]]; then
+		echo "glowcap: running the product built from ${built:0:9}, but this checkout is at ${head:0:9}; rebuild it with: .devcontainer/bin/run.sh --auto ${REBUILD[*]}" >&2
 	fi
 	# The Zig CLI uses source context for development image selection; an
 	# installed executable receives no checkout hint.

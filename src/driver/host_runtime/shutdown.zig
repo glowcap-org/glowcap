@@ -175,7 +175,7 @@ pub fn close(self: *HostRuntime, pending: PendingWork) !void {
     if (closeOutcome(self) == .timed_out) return Error.CloseTimedOut;
 }
 
-/// Retire listeners now; close the Host only after every claimed Session leaves.
+/// Retire listeners now. Close the Host only after every claimed Session leaves.
 pub fn beginRetirement(self: *HostRuntime) void {
     enterDriver(self);
     defer leaveDriver(self);

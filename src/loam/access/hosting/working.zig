@@ -23,7 +23,7 @@ pub fn graphAllocationBound(pages: usize, payload_bytes: usize, fields: usize) !
 /// Managed content invocation only: the complete inbound vector includes any
 /// mutate sequence/method wrappers. Reply bounds cover both fresh and persisted
 /// receipts for this profile's lifetime. Held counts application acquisitions,
-/// including repeated fields; receipt captures and replies are added here.
+/// including repeated fields. Receipt captures and replies are added here.
 pub const InvocationBounds = struct {
     arguments: hosting.ValueBounds = .{},
     reply: hosting.ValueBounds = .{ .values = 1 },
@@ -100,7 +100,7 @@ const State = struct {
     }
 
     /// Source-mediated facades recheck their original intent against current
-    /// scalar content. Reuse the admitted graph window; restore no fields.
+    /// scalar content. Reuse the admitted graph window. Restore no fields.
     fn prepareGraph(self: *State) !?hosting.Preparation.Step {
         const content = self.content.?;
         const spec = content.behavior.graph orelse return null;
@@ -482,7 +482,16 @@ pub fn invoke(call: *hosting.Call, _: loam.RecordView, _: []const u8, _: []const
     if (!value.ready) return error.RecordUnloaded;
     switch (value.request) {
         .forward => {
+            const bound = value.content.?;
             const intent = call.dispatch orelse hosting.Call.Intent{ .verb = value.verb, .args = value.args };
+            if (bound.behavior.admit_forward) |admit| {
+                const view = try value.store().currentView(bound.lease);
+                var admission_call = service.ContentCallState.init(call, view, .{ .verb = value.verb, .args = value.args }, false, value.retry);
+                admission_call.operation = value.operation;
+                admission_call.graph = value.content_graph;
+                try admit(bound.behavior.context, admission_call.handle(), try service.ForwardWork.measure(value.verb, intent));
+                if (admission_call.replacement != null or admission_call.edits.items.len != 0 or admission_call.appended.items.len != 0 or admission_call.graph_replaced) return error.InvalidMutation;
+            }
             call.forward = .{ .target = call.dependent_target.?, .verb = intent.verb, .args = intent.args };
             return .{ .void = {} };
         },
@@ -503,6 +512,7 @@ pub fn invoke(call: *hosting.Call, _: loam.RecordView, _: []const u8, _: []const
         const behavior = bound.behavior;
         var content_call = service.ContentCallState.init(call, view, .{ .verb = value.verb, .args = value.args }, value.mutation != null, value.retry);
         content_call.graph = value.content_graph;
+        content_call.operation = value.operation;
         const reply = try behavior.invoke(behavior.context, content_call.handle(), try value.invocation());
         if (value.retry == .read_only and (content_call.replacement != null or content_call.edits.items.len != 0 or content_call.appended.items.len != 0 or content_call.graph_replaced or value.resource_action != null)) return error.InvalidMutation;
         if (value.content_graph != null and content_call.replacement != null) return error.InvalidMutation;

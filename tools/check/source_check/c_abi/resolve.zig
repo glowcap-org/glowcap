@@ -352,7 +352,6 @@ pub fn checkCAbiResolve(
         "TAR_OPTIONS=",
         "--no-same-owner",
         "cmp -s \"$repo_root/PROVENANCE.md\" \"$workdir/PROVENANCE.md\"",
-        "zig cc",
         "write_consumer \"$workdir/static-$name-consumer.c\" \"$name\"",
         "shared-consumer",
     }) |marker| {

@@ -6,13 +6,13 @@
 .sidebar,
 .members {
 	/* How wide the mark column is. Every list in either rail draws the same
-	   shape — a mark, a name, and sometimes a caption under the name that has
-	   to start where the name starts — so the column lives once here, and the
+	   shape (a mark, a name, and sometimes a caption under the name that has
+	   to start where the name starts) so the column lives once here, and the
 	   gap after the mark is the page's --mark-gap. */
 	--mark-col: 14px;
-	/* How far the marks at a row's end sit from its edge, and deliberately less
+	/* How far the marks at a row's end sit from its edge, and less
 	   than the inset the text on the other side gets. A word is inset by the space
-	   around it; a mark is a box that already carries its own padding, so given the
+	   around it. A mark is a box that already carries its own padding, so given the
 	   same number it comes to rest visibly further in than it sits from the top and
 	   bottom of its own row. This is the smaller number that makes the gap around
 	   it even. */
@@ -29,13 +29,13 @@
 /* What each list in either rail is called. A label, not a title competing with
    the names under it: smaller and lighter than they are, with the space above
    doing the separating. The two rails carry the same kind of list, so they carry
-   the same label — set differently on each side, it reads as one of the two
+   the same label, set differently on each side, it reads as one of the two
    being slightly wrong without saying which.
 
    The label is text and whatever sits at the line's end is a mark, so they take
    the two insets their kinds take, which is also what puts a section's "+" on
    the vertical the counts and leave marks below it stand on. The type itself
-   is the shared caption voice, `.overline` in marks.css; this rule keeps
+   is the shared caption voice, `.overline` in marks.css. This rule keeps
    only the rails' layout. */
 .section-head,
 .members h2 {
@@ -44,7 +44,7 @@
 }
 /* A label is the height of its own text. The "+" one of the two rails carries is
    a touch target and taller than a word, so it hangs out of the line rather than
-   stretching it — otherwise it pushes its own label down and the two rails'
+   stretching it, otherwise it pushes its own label down and the two rails'
    headings stop being level, which is the whole reason they are drawn by one
    rule. The same overhang on the phone, where the target is larger again. */
 .section-head .icon-button {
@@ -53,14 +53,14 @@
 .sidebar {
 	border-right: 1px solid var(--rule);
 	/* A zero-width track still holds its contents, and a control nobody can see
-	   is still a control the keyboard walks into — the same trap the roster sheet
+	   is still a control the keyboard walks into: the same trap the roster sheet
 	   had. visibility takes the rail out of the tab order and the accessibility
 	   tree, and it steps discretely, so it goes at the end of the collapse and
 	   comes back at the start of the opening. */
 	min-width: 0;
 	overflow: hidden;
 }
-/* The list arrives from its own edge; the mark above it does not move.
+/* The list arrives from its own edge. The mark above it does not move.
 
    The mark is left out because it is the one thing the two screens share on
    the wide layout: it stands in the rail's header while the list is up and in
@@ -79,8 +79,8 @@
 	opacity: 1;
 	transform: none;
 }
-/* The rail's header measures itself exactly as the topbar does — the same
-   hairline above, the same padding under it, the same control height inside —
+/* The rail's header measures itself exactly as the topbar does (the same
+   hairline above, the same padding under it, the same control height inside)
    rather than centring its contents in a matching total. Both still come to
    --header-h, so the two bottom borders line up as before, but now every row
    inside them lines up too. That is what puts the mark on the same pixel
@@ -117,7 +117,7 @@
 	border-bottom: 1px solid var(--rule);
 }
 /* The conversation's ribbon runs the width of its own column and stops at the
-   rail, which is the boundary the two surfaces actually have. The rail answers
+   rail, which is the boundary the two surfaces have. The rail answers
    with the same ribbon turned down, so the break reads as two headers that know
    about each other rather than one that forgot its flourish. Turned down by
    opacity rather than by a darker colour of its own: the ink in this palette is
@@ -144,8 +144,8 @@
 	background: linear-gradient(90deg in oklch, var(--teal) 0%, var(--accent) 100%);
 	opacity: .38;
 }
-/* One control with two homes. The glowcap mark is three stacked bars already —
-   a hamburger that happens to be breakfast — so the rail carries it beside the
+/* One control with two homes. The glowcap mark is three stacked bars already,
+   a hamburger that happens to be breakfast, so the rail carries it beside the
    wordmark while it is open, and the topbar picks up the same mark when it is
    closed. On the wide layout only one of the two is on screen, so it reads as
    the toggle travelling with the rail rather than as two buttons that agree.
@@ -171,7 +171,7 @@
 	   the glyph step and the control's own geometry is untouched. */
 	transform: translate(-2%, 4%) scale(1.3);
 }
-/* The rail only places the lockup; what the lockup is — every metric of it —
+/* The rail only places the lockup. What the lockup is, every metric of it,
    lives with the mark in mark.css, because a logotype's parts may never move
    relative to each other when the type ramp changes. */
 .workspace .wordmark {
@@ -179,13 +179,13 @@
 	align-self: center;
 }
 /* The lists are one column under the title, above the status line. Slack sits
-   below both sections rather than between them — growing the rooms list to
+   below both sections rather than between them, growing the rooms list to
    fill would park direct messages on the foot, which reads as a rail that
    failed to finish loading. When the stack is taller than the rail, this
-   region scrolls as one, headings included; the lists do not grow scrollers
+   region scrolls as one, headings included. The lists do not grow scrollers
    of their own. The roster is the same kind of region with no title or foot
    of its own, so `.members-body` is that region, and the pane around it is
-   chrome — on a phone, the sheet handle. */
+   chrome, on a phone, the sheet handle. */
 .sidebar-body,
 .members-body {
 	flex: 1 1 auto;
@@ -193,8 +193,8 @@
 	overflow-x: hidden;
 	overflow-y: auto;
 }
-/* What hangs off a row in here — the filter's answers, the picks under a name
-   being typed — is clipped to `.sidebar-body` above, because that is a scroll
+/* What hangs off a row in here (the filter's answers, the picks under a name
+   being typed) is clipped to `.sidebar-body` above, because that is a scroll
    container and it is in the containing-block chain of every one of them. No
    z-index reaches past it, and this box cannot let one through either: it once
    said `overflow: visible`, which is the initial value and bought nothing. A
@@ -229,9 +229,9 @@
 	list-style: none;
 }
 /* Warm rather than grey. The neutral wash is right over a message or a picture,
-   where a tint would stain what it covers; in the rail it is the one surface
-   that never picks up the product's own colour, and a list of rooms — the thing
-   the whole page is for — is where it should. Faint enough that the room being
+   where a tint would stain what it covers. In the rail it is the one surface
+   that never picks up the product's own colour, and a list of rooms, the thing
+   the whole page is for, is where it should. Faint enough that the room being
    read still wins on its own ground. */
 #roomList li:hover {
 	background: color-mix(in srgb, var(--accent) 7%, transparent);
@@ -247,12 +247,14 @@
 	font-size: var(--type-ui);
 	color: var(--ink-soft);
 }
-/* The standing wrapper is inline-flex and hugs its trigger everywhere else; in
+/* The standing wrapper is inline-flex and hugs its trigger everywhere else. In
    the foot the trigger is the whole lockup, so the wrapper spans the row. */
 .sidebar-foot .standing {
 	flex: 1 1 auto;
 	min-width: 0;
 	display: flex;
+	flex-direction: column;
+	gap: var(--gap-tight);
 }
 /* The lockup is a button, and says so the way a rail row does: a quiet wash
    under the pointer, the page's focus ring on the keyboard. Its padding is
@@ -306,9 +308,9 @@
 }
 /* A person's name is typed as a room's name is. It named no step and took the
    page's own fifteen, half a weight heavier, so the two lists a reader sees
-   side by side said the same kind of thing two ways — and the roster paid for
+   side by side said the same kind of thing two ways, and the roster paid for
    it in width, on the side where the direct-line mark stands. Full ink against
-   the soft line under it is what makes it the row's subject; size was saying it
+   the soft line under it is what makes it the row's subject. Size was saying it
    twice.
 
    The rail's foot draws this same lockup, so it moves with it: one person
@@ -350,8 +352,8 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
-/* The state row truncates in both of the foot's arms. The away arm's voice —
-   the italic and the quiet ink — is the page-wide .away-said rule, so the
+/* The state row truncates in both of the foot's arms. The away arm's voice,
+   the italic and the quiet ink, is the page-wide .away-said rule, so the
    reader's own word here reads exactly as it does beside their roster row. */
 .sidebar-foot #status {
 	min-width: 0;
@@ -363,7 +365,7 @@
    names other directories granted, the full list on the row's title.
 
    While this tab holds several marked directories the row wears that
-   directory's own `data-dir`, and a pip in its colour leads the name — the
+   directory's own `data-dir`, and a pip in its colour leads the name: the
    same colour its rooms wear in the rail above, so the name reads as one
    directory's grant rather than as the page's own idea of who you are. */
 .foot-names {
@@ -388,14 +390,14 @@
 	white-space: nowrap;
 }
 /* The menu rises from the lockup's left edge, where the chip and the words
-   are; the shared menu anchors right for a mark at a row's end. */
+   are. The shared menu anchors right for a mark at a row's end. */
 .menu-layer.at-foot .standing-menu {
 	right: auto;
 	left: 0;
 }
-/* The reader's own chip at the foot wears the session dot on its corner; the
+/* The reader's own chip at the foot wears the session dot on its corner. The
    ring is the rail's own surface, so the dot reads as punched out of the chip.
-   The dot's phase shapes below are untouched — only its seat moves. */
+   The dot's phase shapes below are untouched, only its seat moves. */
 .sidebar-foot .avatar-presence .dot {
 	position: absolute;
 	right: -3px;
@@ -431,12 +433,12 @@
 
    Hue alone cannot carry this at nine pixels: two of the four were the same
    amber, and one of those ambers was the accent that means "yours" everywhere
-   else in the same rail. So each phase takes a form a reader can name — filled,
-   open, broken, square — and the colour agrees with it rather than carrying it
+   else in the same rail. So each phase takes a form a reader can name (filled,
+   open, broken, square) and the colour agrees with it rather than carrying it
    alone. Read in grey, the four are still four.
 
    Connecting and reconnecting are separated because they ask for different
-   things: one has never worked, so check what you typed; the other worked a
+   things: one has never worked, so check what you typed. The other worked a
    moment ago, so wait. */
 .dot.connected {
 	background: var(--ok);

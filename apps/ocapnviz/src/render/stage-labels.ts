@@ -16,7 +16,7 @@
  * the stage zooms (`renderFrame`'s `counterScale`), so a label holds a fixed
  * SCREEN size while the layout solves once in world units. The two therefore
  * agree at zoom 1 and the label grows relative to the graph as the reader
- * zooms out; one solve cannot hold separation at every zoom, and
+ * zooms out. One solve cannot hold separation at every zoom, and
  * `endpointLabelText` bounding the worst-case width is what keeps the zoomed
  * out picture readable instead.
  */
@@ -62,7 +62,7 @@ export const MESSAGE_LABEL_GAP_PX = 6;
  * stage labels with.
  *
  * These are an estimate, and they have to be: the layout runs with no text
- * metrics at all — no Pixi context, no DOM — and it must produce the same
+ * metrics at all, no Pixi context, no DOM, and it must produce the same
  * numbers in a test process as in a browser, so measuring is not available to
  * it even in principle. Character count times an average advance is sound
  * here because each family is used for what it measures well. A designator is
@@ -108,7 +108,7 @@ export function pillSize(
  * What the stage writes under a session end: the name it claims, or a plain
  * word for claiming nothing.
  *
- * Never the stage id — `s1::b` names the slot, and a reader who wanted the
+ * Never the stage id, `s1::b` names the slot, and a reader who wanted the
  * slot's name can select it and read it in the Inspector.
  *
  * A claim is a designator, which is a string the network chose and can run to
@@ -126,7 +126,7 @@ export function endpointLabelText(designator: string | undefined): string {
  * What the stage writes under a peer: the caption it wears, shortened when
  * it is too long to draw.
  *
- * The same shortening a session end's claim gets, and for the same reason —
+ * The same shortening a session end's claim gets, and for the same reason,
  * a pill wider than the graph it belongs to pushes every neighbor away and
  * leaves the picture unreadable at the zoom that would show all of it.
  *
@@ -135,7 +135,7 @@ export function endpointLabelText(designator: string | undefined): string {
  *
  * A peer with no stated name wears its id (`PEER_TRAJECTORY.label`'s
  * fallback), so this string is a name or an identifier and nothing on the
- * stage can tell which — the world entity carries the resolved caption, not
+ * stage can tell which, the world entity carries the resolved caption, not
  * where it came from. Clipping the tail off an identifier is the one
  * treatment `ui/identifier.tsx` argues against, because two ids sharing a
  * prefix then draw as the same node, and the stage is where several are read
@@ -146,7 +146,7 @@ export function endpointLabelText(designator: string | undefined): string {
  * information as much as an identifier's does.
  *
  * And a name long enough to reach the threshold is past the length anyone
- * reads off a node anyway; the whole caption is one selection away in the
+ * reads off a node anyway. The whole caption is one selection away in the
  * Inspector, which shows it in a row that can clip it against a real box.
  *
  * `entityLabel` in `ui/inspector/SelectionPanel.tsx` shortens a peer's

@@ -101,6 +101,7 @@ pub(super) fn receiver<P: Tasks + Deadline + Clone + 'static>(
 						let metadata = match &line.metadata {
 							Some(inbox::metadata::Metadata::Presence(value)) => json!({"presence":value}),
 							Some(inbox::metadata::Metadata::Facts(value)) => json!({"facts":value}),
+							Some(inbox::metadata::Metadata::Operation(value)) => json!({"operation":value}),
 							Some(inbox::metadata::Metadata::Receipt(value)) => json!({"receipt":value.to_string()}),
 							None => json!(null),
 						};
@@ -296,9 +297,6 @@ fn envelope(target: &MembershipTarget, notice: Json) -> String {
 		MembershipTarget::Direct(id) => ("direct", id),
 	};
 	json!({"target":{"kind":kind,"id":id},"notice":notice}).to_string()
-}
-pub(super) fn history_data(history: rooms_application::archive::Coordinates) -> Json {
-	json!({"source":history.source,"generation":history.generation,"id":history.id})
 }
 fn line_bytes<'a, P: Tasks + Deadline + Clone + 'static>(
 	id: &str,

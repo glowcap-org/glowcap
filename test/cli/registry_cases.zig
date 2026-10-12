@@ -294,7 +294,7 @@ test "REPL everyday help matches Tab CapTP set" {
         }
     };
     try cli.registry.helpEveryday(HelpW{ .list = &help_buf, .gpa = gpa }, .repl);
-    // Row format is `  {name:<10}  …` — substring "locator" also appears in dial help.
+    // Row format is `  {name:<10}  …`, substring "locator" also appears in dial help.
     try std.testing.expect(std.mem.indexOf(u8, help_buf.items, "  listen    ") != null);
     try std.testing.expect(std.mem.indexOf(u8, help_buf.items, "  locator   ") == null);
     try std.testing.expect(std.mem.indexOf(u8, help_buf.items, "  dial      ") != null);

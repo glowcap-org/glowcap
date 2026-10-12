@@ -1,5 +1,5 @@
 //! Stable failure categories for native driver operations. The I/O-owning
-//! driver classifies failures; observers project the category into their
+//! driver classifies failures. Observers project the category into their
 //! public error vocabulary without reinterpreting Zig error names.
 
 const foundation = @import("foundation");
@@ -9,7 +9,7 @@ pub const OperationFailure = struct {
     kind: Kind,
     cause: anyerror,
     /// Optional archive-crossing name for `cause`. The bytes must remain
-    /// valid for the failure owner's lifetime; ordinary Zig failures use the
+    /// valid for the failure owner's lifetime. Ordinary Zig failures use the
     /// error set's static name and leave this null.
     cause_name: ?[]const u8 = null,
     secondary_cause: ?anyerror = null,
@@ -67,7 +67,7 @@ pub const OperationFailure = struct {
 
     /// Return the neutral failure value behind this driver projection. This is
     /// used when an adapter must attach a later driver-owned cleanup outcome to
-    /// the provider chain that triggered it; it does not reinterpret either
+    /// the provider chain that triggered it. It does not reinterpret either
     /// cause or ordering.
     pub fn toChain(self: OperationFailure) foundation.FailureChain {
         return .{

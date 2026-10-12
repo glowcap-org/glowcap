@@ -2,6 +2,34 @@
 use super::*;
 use rooms_glowcap::client::workspace::Workspace;
 
+/// A validated upstream refusal happens before the subscription effect. The
+/// same membership worker must obtain a new receipt after its finite wait.
+struct RefuseFirstSubscription {
+	inner: Box<dyn Content>,
+	attempts: Rc<Cell<usize>>,
+}
+impl Content for RefuseFirstSubscription {
+	fn dependent_requirement(&self, input: Invocation<'_>) -> Result<Requirement> {
+		self.inner.dependent_requirement(input)
+	}
+	fn requirement(&self, input: Invocation<'_>) -> Result<Requirement> {
+		self.inner.requirement(input)
+	}
+	fn references(&self, input: Invocation<'_>) -> Result<Vec<loam::ReferenceRequest>> {
+		self.inner.references(input)
+	}
+	fn invoke(&self, call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argument> {
+		if input.verb == "subscribe" {
+			let previous = self.attempts.get();
+			self.attempts.set(previous + 1);
+			if previous == 0 {
+				return Err(loam::refusal("rate-limited: retry-after-ms=1; scope=room-join"));
+			}
+		}
+		self.inner.invoke(call, input)
+	}
+}
+
 struct HoldExecution {
 	inner: Box<dyn Content>,
 	platform: Platform,
@@ -33,7 +61,7 @@ async fn supervised_room_keeps_actual_inbox_and_independent_lifetime() {
 	run().await;
 }
 pub(super) async fn run() {
-	for options in [0, 3, 4, 5, 6, 7] {
+	for options in [0, 3, 4, 5, 6, 7, 8] {
 		tokio::task::LocalSet::new()
 			.run_until(async {
 				environment::within(10_000, async {
@@ -128,21 +156,21 @@ pub(super) async fn run() {
 							admitted: admitted.clone(),
 						});
 					}
-					let mut attachment = store
-						.attach(
-							&host,
-							vec![
-								content,
-								membership_results::registration_with_retirement(
-									joins.clone(),
-									Rc::new(Cell::new(0)),
-									Rc::new(Cell::new(0)),
-									options,
-									retirements.clone(),
-								),
-							],
-						)
-						.unwrap();
+					let attempts = Rc::new(Cell::new(0));
+					let mut upstream = membership_results::registration_with_retirement(
+						joins.clone(),
+						Rc::new(Cell::new(0)),
+						Rc::new(Cell::new(0)),
+						options,
+						retirements.clone(),
+					);
+					if options == 8 {
+						upstream.content = Box::new(RefuseFirstSubscription {
+							inner: upstream.content,
+							attempts: attempts.clone(),
+						});
+					}
+					let mut attachment = store.attach(&host, vec![content, upstream]).unwrap();
 					attachment.start_live(None, 64).unwrap();
 					let (root, root_control) = environment::restore(&attachment, resource).await;
 					owner.bind(root, root_control.clone()).unwrap();
@@ -349,6 +377,30 @@ pub(super) async fn run() {
 						live.close().await.unwrap();
 						live.close().await.unwrap();
 						assert_eq!(retirements.get(), 1, "directory cleanup selects its returned name");
+						owner.close().await.unwrap();
+						attachment.close().await.unwrap();
+						host.close(PendingWork::Cancel).await.unwrap();
+						environment::close(&mut store).await;
+						database.remove();
+						return;
+					}
+					if options == 8 {
+						let failure = live.ready().await.unwrap_err();
+						assert!(failure.to_string().contains("rate-limited:"), "{failure}");
+						assert_eq!(attempts.get(), 1);
+						assert_eq!(joins.get(), 0, "refused dispatch cannot acquire a seat");
+						environment::within(2500, async {
+							while attempts.get() < 2 {
+								environment::yield_turn().await;
+							}
+							live.ready().await.unwrap();
+						})
+						.await
+						.expect("the original worker retries affirmative absence");
+						assert_eq!(attempts.get(), 2);
+						assert_eq!(joins.get(), 1);
+						live.close().await.unwrap();
+						assert_eq!(retirements.get(), 1);
 						owner.close().await.unwrap();
 						attachment.close().await.unwrap();
 						host.close(PendingWork::Cancel).await.unwrap();

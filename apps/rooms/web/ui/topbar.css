@@ -1,10 +1,10 @@
 /* ── The topbar ────────────────────────────────────────────────────────
    The conversation's header: the sticky bar, its ribbon, and the title chip
-   that names the room. Split from workarea.css by subject; page.css imports
+   that names the room. Split from workarea.css by subject. The page.css sheet imports
    this sheet immediately after it, so the cascade is unchanged. The column
    and the stream it heads stay in workarea.css. */
 /* The topbar pins to the top as the page scrolls under it (the mobile page-scroll
-   is what makes this visible; on desktop nothing scrolls past it). It stays above
+   is what makes this visible. On desktop nothing scrolls past it). It stays above
    the message stream but below the page's notices and the mobile roster sheet. A
    backdrop blur makes the translucent background read as frosted glass rather than
    letting messages bleed through. */
@@ -54,7 +54,7 @@
 	min-width: 0;
 }
 /* The room's name is a title, and the way to ask about it. Pressing the name
-   opens what this tab knows about the conversation — how it is reached, where
+   opens what this tab knows about the conversation, how it is reached, where
    the session stands. Leaving is still the mark beside it, and that mark keeps
    its place whether or not it is showing, so the title never shifts under the
    pointer. It stays quiet until a pointer is over the heading, so a header at
@@ -71,7 +71,7 @@
 	/* The line box has to fit the glyphs, not the em: at `1` it is shorter than
 	   the text it holds, and the name truncates with `overflow: hidden` on the
 	   narrow layout, so the descender of a `g` was cut off. Nothing here needs a
-	   tight line box — the chip has a fixed height and centres its contents — so
+	   tight line box, the chip has a fixed height and centres its contents, so
 	   the font's own metrics decide it. */
 	line-height: normal;
 	color: var(--ink);
@@ -127,7 +127,7 @@
 /* Before the first join there is no room. A `#` and the word "rooms" would
    read as a room called rooms. The
    sigil is what claims a room, so it stays off until there is one, and the line
-   holds the state instead — in the muted register the roster and the rails use
+   holds the state instead, in the muted register the roster and the rails use
    for the same moment. */
 .topbar .title-chip:has(#roomSigil[hidden]) {
 	color: var(--ink-soft);

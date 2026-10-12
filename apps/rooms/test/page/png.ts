@@ -128,9 +128,9 @@ function pngChunk(type: string, data: Uint8Array): Uint8Array {
 }
 
 /** A valid PNG of any size, for the one proof that needs a picture larger
- * than the stage: the fixture above is deliberately tiny, and actual size on
+ * than the stage: the fixture above is tiny, and actual size on
  * it is the same picture as fitted. Solid colour, so the deflate stays a few
- * kilobytes however many pixels it names; CRCs are correct for the same
+ * kilobytes however many pixels it names. CRCs are correct for the same
  * reason the fixture's are. */
 export function bigPng(width: number, height: number): Uint8Array {
 	const header = new Uint8Array(13);

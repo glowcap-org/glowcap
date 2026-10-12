@@ -38,10 +38,10 @@ export function postedLineResult(session: Session, reply: unknown): PostedLine |
 
 /** A line this member posted, and the authority to change or withdraw it.
  *
- * Holding this is the whole of that authority — the room asks nobody who is
- * calling, because only the member whose `post` made the line was ever handed
- * it. Which means it can be given away: hand it to somebody and they can take
- * the line down, without the room learning what a moderator is. */
+ * Holding this is all of that authority. The room asks nobody who is calling,
+ * because only the member whose `post` made the line was handed it. So it can
+ * be given away: hand it to somebody and they can take the line down, without
+ * the room learning what a moderator is. */
 export class PostedLine {
 	#session: Session;
 	#ref: Ref;

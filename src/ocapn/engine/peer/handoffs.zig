@@ -20,14 +20,14 @@ const outbound = @import("../outbound.zig");
 const Peer = engine.Peer;
 
 /// One inbound `withdraw-gift` parked until its gift is deposited (ADR-0100).
-/// Owns `receive`; freed when the withdrawal settles or at Peer teardown.
+/// Owns `receive`. Freed when the withdrawal settles or at Peer teardown.
 pub const PendingWithdraw = struct {
     receive: bootstrap.PendingReceive,
     answer: model.AnswerName,
 };
 
 /// Parked receives sharing one exact scheduler identity. The signed gift id
-/// remains in every owned receive; the fixed-size key only selects the bounded
+/// remains in every owned receive. The fixed-size key only selects the bounded
 /// group to retry after a deposit or gifter close.
 pub const PendingWithdrawGroup = struct {
     rows: std.ArrayListUnmanaged(PendingWithdraw) = .empty,
@@ -49,7 +49,7 @@ pub fn sendWithdrawSettled(self: *Peer, prepared_in: bootstrap.PreparedWithdraw)
 
 /// Admit one verified early withdrawal without half-installing replay
 /// authority or a Node scheduler row on OOM. A new group reserves both seats
-/// before the replay count moves; everything after acceptance is infallible.
+/// before the replay count moves. Everything after acceptance is infallible.
 pub fn parkPendingWithdraw(
     self: *Peer,
     receive: bootstrap.PendingReceive,
@@ -82,7 +82,7 @@ pub fn parkPendingWithdraw(
 }
 
 /// Record the exact scheduler wake the Host will drive next. The Host consumes
-/// changes one at a time and reaches quiescence between them; a distinct second
+/// changes one at a time and reaches quiescence between them. A distinct second
 /// dependency here would violate that composition.
 pub fn noteHandoffChange(self: *Peer, dependency: node_services.HandoffDependency) void {
     std.debug.assert(
@@ -128,7 +128,7 @@ pub fn applyRelayedHandoffGive(
 
 /// Retry the exact parked group whose gift changed. A standalone Peer with a
 /// custom resolver has no Node scheduler, so it retains the explicit-drive
-/// fallback and scans groups; production Node compositions never pay it.
+/// fallback and scans groups. Production Node compositions never pay it.
 pub fn settlePendingWithdraws(self: *Peer) !void {
     if (self.pending_withdraw_count == 0) {
         self.pending_handoff_change = null;

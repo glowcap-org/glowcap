@@ -1,19 +1,19 @@
-"""Internal: the CapTP :class:`Host` — multi-session CapTP product over the
+"""Internal: the CapTP :class:`Host`: multi-session CapTP product over the
 byte-fed host family (ADR-0072, loaded from ``libglowcap_host``). The Host
 owns ``engine.Node``
 (the sans-io handoff router). Goblins ``mycapn`` is two roles: its product maps
-to Host; its router tables map to ``engine.Node`` — never a single-type
+to Host. Its router tables map to ``engine.Node``: never a single-type
 equation (ADR-0079).
 
 The ``GlowcapHost`` owns every cross-session decision: retained identity, the
 live-session directory, routing, transparent three-party redemption, and the
 gifter half's origination. Each session owns its own gift and replay authority.
 This package owns only what the embedder contract leaves to the binding. Its
-root is the concrete Host state and owner-thread seam; ``lifecycle`` owns
+root is the concrete Host state and owner-thread seam. ``lifecycle`` owns
 adoption and terminal release, ``publication`` owns connector/publication and
 session-directory operations, ``progress`` owns the single action drain, and
 ``vows`` owns vow observation. The action decode+execute switch lives in
-:mod:`glowcap._action`; the pump lives in :mod:`glowcap._pump`; the dial
+:mod:`glowcap._action`. The pump lives in :mod:`glowcap._pump`. The dial
 executor lives in :mod:`glowcap._dial`. :mod:`glowcap._session` owns the
 :class:`Session` they act on. Import from the :mod:`glowcap` package.
 """
@@ -83,13 +83,13 @@ _HOST_FRAME_CAP = _abi.DEFAULT_FRAME_CAP
 class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
     """The CapTP Host: one identity, one session directory, one routing and redeem
     authority, shared by every session minted against it. It owns
-    ``engine.Node`` in the Zig core behind ``libglowcap_host`` (ADR-0072);
-    this is the host-idiom residue over it — the :class:`Session` registry,
+    ``engine.Node`` in the Zig core behind ``libglowcap_host`` (ADR-0072).
+    This is the host-idiom residue over it: the :class:`Session` registry,
     the vow table, the action drain that performs the I/O the host asks for
     (dial, flush, settle, entropy), and the iroh redeem posture.
 
     ``seed`` is the Host's 32-byte Ed25519 identity (``None`` draws a fresh
-    random one — entropy at the binding boundary, never inside the sans-io
+    random one: entropy at the binding boundary, never inside the sans-io
     host). ``profile`` selects the core-authored ``native`` or ``interop``
     codec/version pair. The individual ``codec`` and ``captp_version`` knobs
     remain available when no profile is named. ``features`` completes the Host's
@@ -119,8 +119,8 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         # `_adopt_raw` plus `_driver_loop` is the loop tier's adoption seam
         # (ADR-0112): the native driver archive owns the host handle, and this
         # wrapper adopts it for the application verbs. In that mode the C loop
-        # is the action drain — the kick verbs nudge a loop step instead of
-        # running the Python drain — and close belongs to `DriverLoop.close`.
+        # is the action drain, the kick verbs nudge a loop step instead of
+        # running the Python drain, and close belongs to `DriverLoop.close`.
         if _adopt_raw is not None and _driver_loop is None:
             raise GlowcapError(
                 _ERR_INVALID_ARGUMENT, "loop adoption requires the DriverLoop"
@@ -206,7 +206,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         # advance close-relevant state sets it after the verb returns, so a
         # parked driver cannot miss a wakeup.
         self._close_activity = asyncio.Event()
-        # A popped DIAL no longer exists in the C action queue. Its executor is
+        # A popped DIAL is not in the C action queue. Its executor is
         # therefore Host-owned until it reports success/failure or teardown
         # cancels it; caller cancellation of one drain must not strand a ticket.
         self._dial_tasks: "dict[tuple[int, int], asyncio.Task]" = {}
@@ -217,7 +217,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         # Trampoline ctx of each Host publication, by published name, so
         # `Session.published_ref` can find the one it must bind. The registry is
         # process-global, not host-scoped, so nothing drops these when the host
-        # dies — close() frees them, or one row leaks per Host publication per Host
+        # dies: close() frees them, or one row leaks per Host publication per Host
         # generation.
         self._publications: "dict[str, int]" = {}
         # Every ordinary Session.spawn/publish trampoline on this Host. Actors
@@ -262,7 +262,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         # this binding's entropy boundary, because the library draws none
         # (ADR-0097). The root is fresh per process, so every CapTP session
         # signs with its own key and a restart cannot recreate a prior
-        # session's handoff names; the durable half stays exactly ``seed``,
+        # session's handoff names; the durable half is ``seed``,
         # since a keyed locator's designator derives from it.
         sbuf, sptr = _byte_buf(self._seed + secrets.token_bytes(32))
         assert context is not None
@@ -396,7 +396,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         """Schedule owner-loop cleanup when the caller is off-loop.
 
         Returns ``True`` when ``run`` was handed to the owner loop. This seam
-        is deliberately for teardown only; operational verbs use
+        is for teardown only. Operational verbs use
         :meth:`_assert_owner` and fail instead of silently hopping loops.
         """
         if self._on_owner_loop():
@@ -476,7 +476,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         """Binding-internal (the trampoline's async-behavior arm): defer
         ``turn``'s answer onto a fresh resolver vow and settle it when
         ``pending`` does. The settle runs as its own task on the running
-        loop — the top-level re-entry the host requires — and carries plain
+        loop, the top-level re-entry the host requires, and carries plain
         data only: a value the settle refuses (a capability, per the off-turn
         contract) breaks the answer with the refusal's reason instead of
         stranding it. False when the deferral itself refused."""

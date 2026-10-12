@@ -32,7 +32,7 @@ test "interceptFulfilledRoute claims only a foreign-home reply, entropy as an ef
     const elsewhere = try node.registerPeer(.{});
 
     // No enrollment, or a home on this very connection: not claimed, the embedder
-    // resolves the reply itself — and no entropy is ever requested for an ordinary
+    // resolves the reply itself, and no entropy is ever requested for an ordinary
     // reply. A route homed here is returned to its own owner, so the chokepoint
     // lowers it and no re-gift is needed.
     try std.testing.expect(!try node.interceptFulfilledRoute(here, 51, .from(5)));
@@ -119,7 +119,7 @@ test "a fetched foreign import is enrolled under a node-unique route; two at one
     // Two capabilities fetched over different connections land at the SAME wire
     // position (imports are numbered per session). Enrolling each yields a
     // distinct node-unique route, so the node-global collision the old
-    // position-keyed home map had — where the second fetch clobbered the first —
+    // position-keyed home map had, where the second fetch clobbered the first,
     // cannot happen.
     const wire: model.Reference = .{ .far = model.FarRef.object(1) };
     try node.peer(conn_a).?.session_state.registerImport(.from(1));
@@ -148,7 +148,7 @@ test "a fetched foreign import is enrolled under a node-unique route; two at one
 
     // A served reply returning a route on its OWN home is not re-gifted (the
     // interceptor lowers it); returned elsewhere it would be. Same-home returns
-    // false and queues nothing — proving each route's home is its own connection,
+    // false and queues nothing, proving each route's home is its own connection,
     // not the last one enrolled.
     try std.testing.expect(!try node.interceptFulfilledRoute(conn_a, 70, a));
     try std.testing.expect(!try node.interceptFulfilledRoute(conn_b, 71, b));
@@ -180,8 +180,8 @@ test "lowerForConn swaps a route to its wire reference on its home and fails clo
     try std.testing.expect((try node.lowerForConn(home, near)) == .near);
 
     // A foreign-import route lowers to its real wire import on its home
-    // connection — this is the swap the outbound chokepoint (`Peer.send`) makes so
-    // the route never reaches the wire — and fails closed on any other connection,
+    // connection. This is the swap the outbound chokepoint (`Peer.send`) makes so
+    // the route never reaches the wire, and fails closed on any other connection,
     // where it has no wire name.
     try node.peer(home).?.session_state.registerImport(.from(7));
     const route = try node.enrollForeign(home, .{ .far = model.FarRef.object(7) });
@@ -413,8 +413,8 @@ test "enrollForeign gives one import one route identity, and forgets it when the
     try node.peer(home).?.session_state.registerImport(.from(wire_pos));
 
     // Enrolling the same import twice names it the same way both times. Minting
-    // a second route id would give one capability two identities — a caller
-    // comparing two fetches of the same name would see different references —
+    // a second route id would give one capability two identities, a caller
+    // comparing two fetches of the same name would see different references,
     // and would leave a routing row behind on every enrollment, so a loop that
     // re-fetches would grow the node's table without bound.
     const first = try node.enrollForeign(home, .{ .far = model.FarRef.object(wire_pos) });
@@ -574,8 +574,8 @@ test "a re-enroll under the other kind is answered with the kind the row holds" 
 
     // The kind lives on the enrolled row, because the row is what routing reads
     // when it decides whether a route names a promise a third party can wait on.
-    // Two callers can name one position with different kinds — the wire form is
-    // the same either way — and idempotency means the second one gets the first
+    // Two callers can name one position with different kinds, the wire form is
+    // the same either way, and idempotency means the second one gets the first
     // one's route. So the reference it gets back has to carry the row's kind and
     // not its own request, or the id and the reference describing it would
     // disagree about where the route points.

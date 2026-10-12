@@ -1,11 +1,11 @@
 //! The completion `Loop`, proven end to end on its platform backend: one
 //! single-threaded `net.TcpLoop` accepts several concurrent connections and
 //! serves the bootstrap-fetch scenario on each, the same handshake-to-open
-//! plus `fetch`/auto-`resolve` round-trip the blocking `tcp_test` proves, now
+//! plus `fetch`/auto-`resolve` round-trip the blocking `tcp_test` proves, here
 //! driven by kernel completions. Several clients dial at once, so the
 //! multiplexing (many connections, one loop, one thread) is exercised, not
-//! just the single-connection path; churn and mid-handshake drops recycle the
-//! slot pool for real. The loop logic under test is OS-neutral; only the
+//! just the single-connection path. Churn and mid-handshake drops recycle the
+//! slot pool for real. The loop logic under test is OS-neutral. Only the
 //! backend beneath it is selected for the host. The scripted-backend suites live
 //! beside this file in `completion_loop_{backpressure,stream,reclaim}_test.zig`.
 
@@ -277,7 +277,7 @@ test "completion loop: concurrent clients each fetch the shared bootstrap cap" {
 
     loop_future.await(io);
     // A loop-global failure raised in the same batch that dispatched the last
-    // close was discarded here, and this test has no assertion of its own — so
+    // close was discarded here, and this test has no assertion of its own, so
     // it went green on a loop that had died.
     if (loop_err) |err| return err;
     if (first_err) |err| return err;
@@ -286,8 +286,8 @@ test "completion loop: concurrent clients each fetch the shared bootstrap cap" {
 const actors = glowcap.actors;
 
 /// The object hosted on the loop: answers `greet(name)` with a greeting built in
-/// the turn arena. This is an ordinary `actors` behavior — the same kind the
-/// blocking driver runs — now running on the completion loop.
+/// the turn arena. This is an ordinary `actors` behavior, the same kind the
+/// blocking driver runs, hosted on the completion loop.
 const Greeter = struct {
     pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         _ = self;
@@ -312,7 +312,7 @@ const LoopVat = struct {
         self.vat = actors.Vat.init(allocator.*);
         self.port = actors.Port.init(allocator.*, peer);
         // Spawn the actor and publish it at the bootstrap swissnum the client
-        // fetches, exactly `driver.BlockingSession.publish`, now on the loop.
+        // fetches, as `driver.BlockingSession.publish` does, here on the loop.
         const greeter = try self.vat.spawn(Greeter, .{});
         const position = try peer.registerBootstrapCap("thermostat");
         try self.port.bindExport(&self.vat, greeter, position);
@@ -470,7 +470,7 @@ test "completion loop: churns hundreds of connection lifecycles through a small 
 
     const allocator = std.testing.allocator;
 
-    // Heavy reuse on purpose: more lifecycles than slots, in waves, so each
+    // Heavy reuse: more lifecycles than slots, in waves, so each
     // slot is torn down and re-accepted many times. This is the real stress of
     // the deferred-teardown + slot-reuse machinery the unit path only grazes,
     // if teardown ever stranded a slot (the backend close-while-recv-armed
@@ -486,7 +486,7 @@ test "completion loop: churns hundreds of connection lifecycles through a small 
     }, makeServerPeer, null, .{
         .max_conns = max_conns,
         .listen = 0,
-        // A deliberately tiny ring: one dispatch batch arms far more
+        // A tiny ring: one dispatch batch arms far more
         // operations than eight SQ entries hold, so this churn also pins the
         // io_uring backend's submission-queue self-healing, without the
         // mid-batch flush in `getSqe`, a full queue would close healthy
@@ -529,7 +529,7 @@ test "completion loop: churns hundreds of connection lifecycles through a small 
 /// handshaking. The server accepts, arms a recv, and has its opening
 /// `op:start-session` send pending, so the close lands while ops are in flight.
 /// This is the exact teardown path the completion-backend close-while-recv-armed
-/// bugs lived in; under churn it must drain both ops and reclaim the slot, never
+/// bugs lived in. Under churn it must drain both ops and reclaim the slot, never
 /// strand or crash.
 fn slamOnce(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!void {
     var peer = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });

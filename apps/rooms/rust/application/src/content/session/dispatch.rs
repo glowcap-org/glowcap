@@ -16,6 +16,9 @@ pub struct Dispatch {
 	selection: Selection,
 	pub mutation: Mutation,
 	argument: Option<ArgumentTarget>,
+	// One validated OperationId, at most 128 UTF-16 units, retained until bind
+	// moves it into the original post arguments. No content or authority copy.
+	operation: Option<String>,
 }
 enum ArgumentTarget {
 	Inbox(custody::FieldKey<custody::RoomInbox>),
@@ -55,9 +58,9 @@ pub struct Refusal;
 impl Dispatch {
 	/// Request admission bounds the argument count and bytes. This copies the
 	/// admitted arguments for grammar matching, then owns only the selected ID
-	/// and outgoing mutation. Selection retires before the worker is installed;
-	/// the continuation and receipt retain the actual target instead.
-	/// Preview selection validation owns bounded temporary URLs; only its encoded
+	/// and outgoing mutation. Selection retires before the worker is installed.
+	/// The continuation and receipt retain the actual target instead.
+	/// Preview selection validation owns bounded temporary URLs. Only its encoded
 	/// selection survives in the outgoing mutation, under the same request budget.
 	pub fn parse(request: &Request<'_, impl ArgumentView>) -> Result<Self, Refusal> {
 		let args: Vec<_> = request.args().map(String::from).collect();
@@ -342,7 +345,9 @@ impl Dispatch {
 			}
 			_ => return Err(Refusal),
 		};
+		let operation = matches!(selection, Selection::Post(_)).then(|| request.id().into());
 		Ok(Self {
+			operation,
 			selection,
 			mutation,
 			argument,
@@ -381,7 +386,7 @@ impl Dispatch {
 		}
 	}
 	/// Capture descriptive dispatch data from the same admitted workspace.
-	/// This name never selects authority; the coordinate selects held custody.
+	/// This name never selects authority. The coordinate selects held custody.
 	pub fn bind(mut self, intent: &workspace::Intent) -> Result<(custody::Coordinate, Mutation), Refusal> {
 		let target = self.target(intent)?;
 		if let Selection::Room(id, RoomTarget::Link) = &self.selection
@@ -414,6 +419,13 @@ impl Dispatch {
 				self.mutation.args.insert(1, crate::open_graph::WIRE_TAG.into());
 			}
 			self.mutation.verb = crate::direct::DM.into();
+		}
+		if matches!(self.selection, Selection::Post(_)) && target.role != custody::Role::DirectAccess {
+			if self.mutation.args.len() == 1 {
+				self.mutation.args.push("[]".into());
+			}
+			self.mutation.args.push(self.operation.take().ok_or(Refusal)?.into());
+			self.mutation.verb = crate::room::correlation::POST.into();
 		}
 		if let Some(ArgumentTarget::SelectedRoom(id)) = &self.argument {
 			self.mutation

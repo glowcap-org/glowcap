@@ -18,7 +18,7 @@
  * acquires one label per pill wide enough to carry one, which
  * changes as the user zooms and pans. So one row label winking out
  * on a gutter drag, or one pill growing past the width that earns
- * a label, shifts every label after it one slot along — and each
+ * a label, shifts every label after it one slot along, and each
  * shifted slot rewrites `.text`, which is the re-rasterization
  * this pool exists to avoid. The outer `labelPool` holds only the
  * ruler ticks, and their count changes only when a tick pans off
@@ -36,7 +36,7 @@ export interface TextStyleSpec {
 	fontFamily: string;
 	fontSize: number;
 	fill: number | string;
-	/** "left" anchors at (x, y); "right" subtracts the rendered width. */
+	/** "left" anchors at (x, y), "right" subtracts the rendered width. */
 	align: "left" | "right";
 	/** "alphabetic" matches Canvas 2D's text-baseline default. */
 	baseline: "top" | "middle" | "alphabetic";
@@ -59,7 +59,7 @@ export class TextPool {
 	/** Reserve the next pool slot at (x, y) with the given text +
 	 * style. Slots are indexed by call order, so a call site reuses
 	 * the same `Text` instance for exactly as long as the number of
-	 * acquires before it stays the same — see the header for which
+	 * acquires before it stays the same, see the header for which
 	 * of this pool's callers hold that and which do not. */
 	acquire(label: string, style: TextStyleSpec, x: number, y: number): void {
 		const index = this.#cursor++;
@@ -69,7 +69,7 @@ export class TextPool {
 			this.#items[index] = text;
 			this.#parent.addChild(text);
 		} else {
-			// Mutate in place — Pixi only re-rasterizes when style
+			// Mutate in place, Pixi only re-rasterizes when style
 			// actually differs. Stable-style labels (gutter, ruler) hit
 			// the cheap path of only writing `.text`.
 			if (text.text !== label) text.text = label;

@@ -98,7 +98,7 @@ fn valid_command(command: &str) -> bool {
 }
 
 /// Parse one IRC payload without its CRLF. Unknown commands and tags remain
-/// data; consumers decide which subset they understand.
+/// data. Consumers decide which subset they understand.
 pub fn parse_line(line: &str) -> Result<Message, Error> {
 	if line.is_empty() || line.bytes().any(|b| matches!(b, 0 | b'\r' | b'\n')) {
 		return Err(Error::ForbiddenByte);
@@ -180,7 +180,7 @@ pub fn parse_line(line: &str) -> Result<Message, Error> {
 }
 
 /// Encode one IRC line, including CRLF. A prefix is the server side of the
-/// shared vocabulary; bridge writes omit it. The final parameter becomes
+/// shared vocabulary. Bridge writes omit it. The final parameter becomes
 /// trailing when its form requires it.
 pub fn encode_message(command: &str, params: &[&str], prefix: Option<&str>) -> Result<Vec<u8>, Error> {
 	// Refuse before allocating or copying caller text. The wire limit includes

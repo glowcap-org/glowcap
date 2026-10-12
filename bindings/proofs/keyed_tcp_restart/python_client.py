@@ -1,8 +1,8 @@
 """Per-binding keyed-tcp restart proof: happy path, key-squatter
-refusal, and same-seed-fresh-port restart — the Python sibling of
+refusal, and same-seed-fresh-port restart: the Python sibling of
 ``test/driver/keyed_tcp_restart_test.zig``.
 
-Needs ``python3`` and the installed glowcap archives; run via
+Needs ``python3`` and the installed glowcap archives. Run via
 ``zig build python-keyed-tcp-restart``.
 """
 

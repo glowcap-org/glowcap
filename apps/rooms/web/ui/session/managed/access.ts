@@ -1,5 +1,5 @@
-// Held management is independent of workspace use. Inventory is descriptive;
-// a row becomes editable only through an independently retained control.
+// Held management is independent of workspace use. Inventory is descriptive.
+// A row becomes editable only through an independently retained control.
 import type {
 	RoomsManagedAcquisition,
 	RoomsManagedApplication,
@@ -537,7 +537,7 @@ export class ManagedAccess {
 		}
 	}
 	/** Stop holding a management control: release its saved row, then its
-	 * handle. The access it manages is untouched; revoking is what ends that.
+	 * handle. The access it manages is untouched. Revoking is what ends that.
 	 * Each attempt reads the current row, so a retry after a lost reply finds
 	 * the row already released and only lets go of the handle. */
 	forget(control: HeldControl): Promise<void> {

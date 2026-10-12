@@ -77,9 +77,9 @@ fn conversation<'a>(intent: &'a mut Intent, id: &str) -> Result<&'a mut Conversa
 		.ok_or(Refusal::Missing)
 }
 
-/// Mutate only a callback-owned candidate. Any refusal discards that candidate;
-/// callers must never pass committed state. Argument views borrow admitted
-/// request text; this bounded spine stores no additional argument strings.
+/// Mutate only a callback-owned candidate. Any refusal discards that candidate.
+/// Callers must never pass committed state. Argument views borrow admitted
+/// request text. This bounded spine stores no additional argument strings.
 pub fn apply<R: References>(
 	request: &Request<'_, impl ArgumentView>,
 	intent: &mut Intent,

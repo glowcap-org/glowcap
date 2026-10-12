@@ -2,6 +2,18 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Alignment = std.mem.Alignment;
+const values = @import("values.zig");
+const driver = @import("driver_core");
+
+/// Retained input survives every working-set restart. Host/network and resolver
+/// settlement allocations have their own owners outside this call backing.
+pub fn inputAllocationBound(shape: values.Bounds, verb_bytes: usize, dependent: bool) !AllocationBound {
+    var bound = try values.allocationBound(driver.Value, shape);
+    try bound.include(verb_bytes, 1, 1);
+    try bound.include(try std.math.mul(usize, shape.capabilities, @sizeOf(driver.Host.StagedCapabilityRetain)), @alignOf(driver.Host.StagedCapabilityRetain), 1);
+    if (dependent) try bound.include(@sizeOf(driver.Host.StagedCapabilityRetain), @alignOf(driver.Host.StagedCapabilityRetain), 1);
+    return bound;
+}
 
 /// Positive allocation demand, including worst-case placement padding. Owners
 /// compose their demand before deriving a physical block allowance.
@@ -46,7 +58,7 @@ pub const AllocationBound = struct {
 
     /// A failed tail fit implies old block length < header + used + demand.
     /// Doubling therefore bounds each new block by twice that sum. Summed used
-    /// bytes and new demands are each bounded by bytes; headers by allocations.
+    /// bytes and new demands are each bounded by bytes. Headers by allocations.
     /// Clamping, freeing and shrinking only reduce this conservative bound.
     pub fn physicalBytes(self: AllocationBound) !usize {
         const payload = try std.math.mul(usize, self.bytes, 4);
@@ -61,7 +73,7 @@ pub const Memory = struct {
     working: Arena,
 
     /// Initialize at the operation's final address. Input must outlive inbound
-    /// frames and every preparation restart; working storage ends only after
+    /// frames and every preparation restart. Working storage ends only after
     /// borrowed callbacks, reads and preparation retire. The arenas acquire
     /// incremental fixed blocks, charged with headers, alignment and growth slack.
     /// This replaces the eager ceiling-sized buffer without another payload copy.
@@ -94,7 +106,7 @@ pub const Memory = struct {
 /// allocator owns placement and in-place resizing inside each block. Growth
 /// prefers doubling, capped by the remaining physical allowance: a standard
 /// arena's unconstrained spare-capacity request can otherwise refuse a working
-/// set that fits. Allocation examines only the latest block; reset walks the
+/// set that fits. Allocation examines only the latest block. Reset walks the
 /// chain. Existing blocks never move.
 pub const Arena = struct {
     backing: *Backing,

@@ -1,5 +1,5 @@
 //! Runtime composition for directory-scoped WebRTC. The page's directory
-//! owner resolves routes; each connector attempt captures one held client.
+//! owner resolves routes. Each connector attempt captures one held client.
 use super::dial;
 use crate::ice;
 use glowcap::{Connector, DialOrigin};
@@ -8,8 +8,8 @@ use std::io;
 
 /// Select from the application's existing directory inventory before starting
 /// any awaited effect. For a handoff, the selected client must belong to the
-/// introducing session. An explicit dial needs an explicitly selected route;
-/// the connector never guesses from peer designators or other active attempts.
+/// introducing session. An explicit dial needs an explicitly selected route.
+/// The connector never guesses from peer designators or other active attempts.
 /// Keep and close the ICE source with the application that owns the Runtime.
 pub fn connector<D, F>(select: F, ice: ice::Source) -> glowcap::Result<Connector>
 where

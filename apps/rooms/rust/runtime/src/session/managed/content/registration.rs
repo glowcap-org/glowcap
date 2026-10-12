@@ -11,6 +11,7 @@ pub(in crate::session::managed) fn registration<P: Tasks + Deadline + Clone + 's
 			("initialize", Retry::Receipt),
 			("retire-host-registrations", Retry::Receipt),
 			("snapshot", Retry::ReadOnly),
+			("continue-workspace", Retry::Idempotent),
 			("activity-reader", Retry::ReadOnly),
 			("activity-file", Retry::ReadOnly),
 			("activity-recipe", Retry::ReadOnly),
@@ -90,6 +91,8 @@ pub(in crate::session::managed) fn registration<P: Tasks + Deadline + Clone + 's
 				"signaling-route".into(),
 				"effect-intent".into(),
 				"effect-adopted".into(),
+				"effect-status".into(),
+				"acquire-result-workspace".into(),
 			],
 			schemas: session::records::SCHEMAS
 				.iter()

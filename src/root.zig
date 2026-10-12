@@ -14,7 +14,7 @@
 //!     each do it their own way. Neither one decides what counts as valid.
 //!   - `ocapn.session` is the part that does decide. It holds the authoritative
 //!     state and checks every message against the protocol before applying it.
-//!   - `ocapn.engine` is the `Peer` you actually hold and drive. It's synchronous
+//!   - `ocapn.engine` is the `Peer` you hold and drive. It's synchronous
 //!     and does no I/O of its own: no sockets, no threads, no hidden scheduler.
 //! - `actors` is the Goblins-shaped layer above the engine: a `Vat` of local
 //!   objects, plus session `Port`s that route far sends over the owning peer. It
@@ -28,16 +28,16 @@
 //!   `connect`, `listen`, `fetch`, `publish`, `spawn`, `send`, `tell`,
 //!   `serve`, and `close` (plus `call`, the blocking send-and-await) instead
 //!   of a hand-written pump loop. A `Session` is a view onto a `driver.HostRuntime`, which owns the
-//!   transport I/O around one core `Host`; you construct the `HostRuntime`
+//!   transport I/O around one core `Host`. You construct the `HostRuntime`
 //!   explicitly only when several sessions must share one Host identity, and
 //!   that sharing is what lets an introduction from one partner settle as a
-//!   live capability from another. It composes; it adds no protocol.
+//!   live capability from another. It composes. It adds no protocol.
 //!
 //! More layers live under `src/` but not on this namespace, because a Zig
-//! consumer reaches them through sharper roots. `c_abi` is the C interface; it
+//! consumer reaches them through sharper roots. `c_abi` is the C interface. It
 //! is compiled into archive families, and a C consumer reaches it through the
 //! generated headers. `diagnostics` is an opt-in module root.
-//! `oracle` runs fixed scenarios and hands back their wire bytes; it is the test
+//! `oracle` runs fixed scenarios and hands back their wire bytes. It is the test
 //! suite's reference of truth, not part of the runtime path, and tests import it
 //! directly.
 //!
@@ -53,7 +53,7 @@ pub const foundation = @import("foundation");
 /// The OCapN / CapTP protocol core. These four layers *are* the protocol: the
 /// codec-neutral `model`, the wire `codec`s, the authoritative `session`, and the
 /// `engine` you drive. They are grouped under one namespace because everything
-/// around them — `actors`, the adapters, the surfaces — adds no protocol of its
+/// around them (`actors`, the adapters, the surfaces) adds no protocol of its
 /// own. Reach them as `glowcap.ocapn.engine.Peer`, `glowcap.ocapn.model.Message`,
 /// and so on.
 pub const ocapn = struct {
@@ -77,7 +77,7 @@ pub const Vat = actors.Vat;
 /// The owning application session `driver.connect` and `driver.listen` hand back.
 pub const Session = driver.Session;
 
-/// Owned wire bytes for one frame; the borrowed counterpart is `Frame.view`.
+/// Owned wire bytes for one frame. The borrowed counterpart is `Frame.view`.
 pub const Frame = foundation.Frame;
 
 // `c_abi` is referenced here so its exported `glowcap_*` symbols are compiled

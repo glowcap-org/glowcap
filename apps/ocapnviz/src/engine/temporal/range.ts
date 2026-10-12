@@ -1,13 +1,13 @@
 /**
- * EffectiveRange — a resolved temporal range with concrete start
- * and end. The output of inheritance and effective resolution; the
+ * EffectiveRange. A resolved temporal range with concrete start
+ * and end. The output of inheritance and effective resolution. The
  * primitive every reader (Stage, Scrubber, Inspector indicator)
  * consumes.
  *
  * NOT the same as a TimeSpan. A TimeSpan is *storage* (per
  * axis: stored value + explicit flag). An EffectiveRange is
  * *derived* (concrete numeric start + end). Use TimeSpan for
- * authoring intents; use EffectiveRange for rendering and reads.
+ * authoring intents. Use EffectiveRange for rendering and reads.
  *
  * See `docs/temporal-model.md`.
  */
@@ -32,7 +32,7 @@ export const containsTime = (r: EffectiveRange, t: number): boolean => t >= r.st
 /** Intersect two ranges. For a session with two peer parents,
  *  call `intersect(peerA.effective, peerB.effective)` to produce
  *  the session's context. The result may be empty if the inputs
- *  don't overlap — `isEmpty` catches that. */
+ *  don't overlap, `isEmpty` catches that. */
 export const intersect = (
 	a: EffectiveRange,
 	b: EffectiveRange,
@@ -45,7 +45,7 @@ export const intersect = (
  *  used in effective resolution. SATURATING: both endpoints are
  *  pulled into the outer bounds independently, so the result is
  *  always a valid (start ≤ end, possibly zero-duration) range
- *  somewhere inside outer — even when inner is entirely disjoint.
+ *  somewhere inside outer, even when inner is entirely disjoint.
  *  Disjoint inputs collapse to a zero-duration stamp at the
  *  nearest outer endpoint, which keeps the entity visible and
  *  clickable at the boundary of its parent context. Paired with

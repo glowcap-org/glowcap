@@ -15,15 +15,15 @@ amended_by: []
 ## Context
 
 <What forced the decision? Which boundary, codec, vocabulary term, or principle
-does it sit on? Keep terse. Name which
-[First Principles](../../../AGENTS.md#first-principles) the decision engages,
-settles, relaxes, or clarifies. Cite OCapN behavior, Goblins fixtures, or Zig
-scenarios as evidence; do not cite Rust implementation as the oracle.>
+does it sit on? Keep terse. Name a
+[First Principle](../../../AGENTS.md#first-principles) only when the decision
+settles, relaxes, or clarifies it, never to restate it. Cite OCapN behavior, Goblins fixtures, or Zig
+scenarios as evidence. Do not cite Rust implementation as the oracle.>
 
 ## Decision
 
-<The settled choice, in one paragraph. Mirrors the `decision:` frontmatter line;
-expanded with the why-this-and-not-the-alternatives summary. Cite the Zig
+<The settled choice, in one paragraph. Mirrors the `decision:` frontmatter line.
+Expanded with the why-this-and-not-the-alternatives summary. Cite the Zig
 modules that own it (`src/...`) and the boundary that makes misuse hard.>
 
 ## Scope (what this does not decide)

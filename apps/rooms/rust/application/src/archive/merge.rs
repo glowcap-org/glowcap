@@ -1,5 +1,5 @@
 //! Combined archive views preserve the winning record and its keeper (ADR-0144).
-//! Identity belongs to the archive index; revisions from different accounts are
+//! Identity belongs to the archive index. Revisions from different accounts are
 //! incomparable. Lifecycle wins first, then the current writer, then listed order.
 use super::{
 	Body, Error, LineState, Record,

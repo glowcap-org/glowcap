@@ -22,7 +22,7 @@ pub struct Prepared {
 	pub(super) phase: Rc<Cell<Phase>>,
 	pub(super) next: Option<Candidate>,
 	pub(super) kind: SessionDocument,
-	pub(super) bytes: Option<Vec<u8>>,
+	pub(super) bytes: Vec<u8>,
 	pub(super) started: bool,
 	pub(super) change: Change,
 }
@@ -47,10 +47,7 @@ impl Prepared {
 	}
 	pub async fn persist<S: SessionStorage>(mut self, store: &mut S) -> Result<Persisted, WriteFailure<S::Error>> {
 		self.started = true;
-		match store
-			.replace(self.kind, self.bytes.take().expect("unconsumed prepared bytes"))
-			.await
-		{
+		match store.replace(self.kind, core::mem::take(&mut self.bytes)).await {
 			Ok(()) => Ok(Persisted(self)),
 			Err(WriteFailure::Unchanged(e)) => {
 				self.phase.set(Phase::Ready);
@@ -65,7 +62,7 @@ impl Persisted {
 		if !Rc::ptr_eq(&self.0.phase, &owner.phase) {
 			return Err(Error::WrongOwner);
 		}
-		match self.0.next.take().expect("unconsumed persisted candidate") {
+		match self.0.next.take().ok_or(Error::Reused)? {
 			Candidate::Disk(v) => {
 				if owner.effects.pending.0.iter().any(
 					|e| matches!(e.as_ref(),Pending::Result(e) if e.marker.as_ref().is_some_and(|m|m.revision==v.revision)),

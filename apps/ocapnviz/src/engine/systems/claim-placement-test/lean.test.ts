@@ -189,8 +189,8 @@ layoutTest("attribution moves the end and nothing else", () => {
 layoutTest("a claim at each end takes its own third of the wire", () => {
 	// Neither end has a solved position of its own, so each contributes the
 	// peer IT names and the segment is the one between those two peers. The
-	// lookup is one step deep by construction — a claim never reads another
-	// claim's position — so the two resolve together instead of chasing each
+	// lookup is one step deep by construction, a claim never reads another
+	// claim's position, so the two resolve together instead of chasing each
 	// other.
 	const at = placed(docOf([
 		joined("alice", ALICE_DESIGNATOR),
@@ -228,7 +228,7 @@ layoutTest(
 	() => {
 		// The degenerate segment: the end claims to be Alice and Alice is already
 		// sitting at the other end of this very session. There is no direction to
-		// lean in, so the end is an ordinary solved body — which is also what stops
+		// lean in, so the end is an ordinary solved body, which is also what stops
 		// the resolution from having to ask what a zero-length segment means.
 		const at = placed(docOf([
 			joined("alice", ALICE_DESIGNATOR),
@@ -269,16 +269,13 @@ layoutTest("claims on one peer arrive from their own directions", () => {
 });
 
 layoutTest("two claims on one pair each ride their own lane", () => {
-	// These used to land on the same pixel, and this test recorded that as the
-	// limit of the rule: two sessions between one pair describe one segment, so
-	// two claims leaning along it sat on one point and a reader saw one shape
-	// where there were two ends.
-	//
-	// It also argued the fix was not in the bundling, because a bundle offset
-	// moves a session's control point and never its endpoints. That was true
-	// only while a claim was placed on the straight chord between the two. A
+	// Two sessions between one pair describe one segment, so two claims leaning
+	// along it on a single lane would sit on one point and a reader would see
+	// A bundle offset moves a session's control point and never its endpoints,
+	// so on its own it cannot separate two claims on the straight chord. A
 	// claim placed on the CURVE rides the bow, so the same offset that fans the
-	// two arcs apart now carries their claims apart with them, and the reader
+	// two arcs apart carries their claims apart with them, and the reader sees
+	// two ends because there are two.
 	// sees two ends because there are two.
 	const at = placed(docOf([
 		joined("carol"),
@@ -298,7 +295,7 @@ layoutTest("two claims on one pair each ride their own lane", () => {
 
 layoutTest("authored mode places a claim on its edge too", () => {
 	// Authored mode honors the author for every node it can, and a loose end is
-	// not a node the author named — the session states a claim, and the claim
+	// not a node the author named. The session states a claim, and the claim
 	// states where the end belongs. One rule, both modes.
 	const doc = docOf([
 		joined("carol"),

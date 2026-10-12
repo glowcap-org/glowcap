@@ -1,5 +1,5 @@
 /**
- * The stage-identity ledger — how observations of live wires become
+ * The stage-identity ledger, how observations of live wires become
  * timeline entities.
  *
  * A trace record is one peer's observation: "on this session, my end
@@ -13,13 +13,13 @@
  * other.
  *
  * That is what lets one browser tab be ONE node. The tab publishes
- * its own trace and names itself by its key designator; the room
+ * its own trace and names itself by its key designator. The room
  * server reports the same tab as an unverified claim (a tab dials as
  * an ephemeral client and has no listening address to prove). Neither
  * view can identify the other on its own. Together they can: the side
  * of wire W the room could not name is whichever producer says it is
- * on W. That inference is a CLAIM, not proof — a producer asserts it
- * is an end of W and this endpoint takes its word — so it stands on
+ * on W. That inference is a CLAIM, not proof, a producer asserts it
+ * is an end of W and this endpoint takes its word, so it stands on
  * the same footing as the rest of a development-time loopback feed,
  * and it never overrides a name a durable identity proved.
  *
@@ -28,7 +28,7 @@
  * with the same designator, a restarted producer reuses session ids.
  * The ledger maps each name to its current live incarnation and mints
  * a fresh stage id (`name#2`, `name#3`, …) for each return, so every
- * stage entity lives once — the architecture rule that a bare key
+ * stage entity lives once, the architecture rule that a bare key
  * needs its namespace and its WHEN, applied to the stage.
  *
  * Two kinds of fact come out of this, and the ledger keeps them
@@ -38,7 +38,7 @@
  * about this observer: it learned who was on the far end of a wire
  * it had already drawn. Learning is not an event on the network, so
  * it is never reported as one. A session's identity is its wire
- * name, known from the very first observation and never revised;
+ * name, known from the very first observation and never revised,
  * WHO is on each end is revisable, and that is why an endpoint is a
  * property that changes over the session's life
  * (`session-endpoint-attributed`) rather than a reason to close the
@@ -54,14 +54,14 @@
  * would be inventing a wire fact out of a feed fact.
  *
  * Identity rules the converter leans on:
- * - a VERIFIED partner name is a cross-session identity; an
- *   unverified claim draws no peer at all — the end stays loose,
+ * - a VERIFIED partner name is a cross-session identity. An
+ *   unverified claim draws no peer at all, the end stays loose,
  *   carrying its claim, until a producer speaks for that side;
  * - a peer's row ends when the last wire touching it ends, never
  *   while another still references it, and it ends the way that wire
- *   did — a peer whose last conversation the viewer merely stopped
+ *   did, a peer whose last conversation the viewer merely stopped
  *   watching did not depart;
- * - an explicit close from either endpoint retires the shared wire;
+ * - an explicit close from either endpoint retires the shared wire.
  *   losing telemetry remains observer-counted, so one feed going dark
  *   does not erase a session another producer still reports;
  * - one message is one message however many ends report it: each
@@ -136,7 +136,7 @@ export class StageLedger {
 	 *  session end.
 	 *
 	 *  The two share one node namespace (see `endpointStageId`), and a
-	 *  producer picks the name a peer arrives under — so this cannot
+	 *  producer picks the name a peer arrives under. So this cannot
 	 *  refuse one, the way the author's rename is refused. Refusing a
 	 *  name the network chose refuses a correct producer. Extending it
 	 *  is what the ledger already does when two peers present the same
@@ -154,9 +154,9 @@ export class StageLedger {
 	 *
 	 * `key` is both the ledger's identity for the peer and the durable name
 	 * it answers to on the wire, and those are one string because a peer only
-	 * ever reaches this ledger by being NAMED — a producer's own end, a
+	 * ever reaches this ledger by being NAMED. A producer's own end, a
 	 * verified partner, or a far end another producer spoke for. A side nobody
-	 * can name gets no peer at all; it stays a loose end of its session
+	 * can name gets no peer at all. It stays a loose end of its session
 	 * (`openSession`). The stage id is minted from the same string and differs
 	 * from it only when a name recurs: `bob#2` is a second lifetime of one
 	 * peer, and showing it under that id would report a rename that never
@@ -201,7 +201,7 @@ export class StageLedger {
 			// An implementation is something a caller measured, never something
 			// the stage supplies: the two ways a live feed reaches a verdict are
 			// named on `LedgerNames.learnProfile`, and a peer neither of them reaches joins
-			// unknown and waits. Unknown is not a final answer — the property is
+			// unknown and waits. Unknown is not a final answer. The property is
 			// a keyframe track, so a peer nobody could speak for at the join
 			// changes at the moment somebody can.
 			profile: row.profile,
@@ -218,7 +218,7 @@ export class StageLedger {
 	/** Record one producer's observation of a session, opening the wire's
 	 * stage entity the first time any producer reports it. Returns the
 	 * stage ids the caller emits `session-opened` with, or null when this
-	 * observation joined a wire that is already on stage — the edge is
+	 * observation joined a wire that is already on stage. The edge is
 	 * drawn once however many ends watch it.
 	 *
 	 * `selfKey` is the designator the reporting host names ITSELF by, which is
@@ -227,7 +227,7 @@ export class StageLedger {
 	 * nothing but the text on screen.
 	 *
 	 * `b` is absent when nobody could name the far end, which is the loose
-	 * case; present it carries the peer AND why that end is attached to it
+	 * case. Present it carries the peer AND why that end is attached to it
 	 * (`FarEndBacking`), because the caller has to state what backed the end
 	 * and only the ledger knows which of the two ways it got there. */
 	openSession(
@@ -245,12 +245,12 @@ export class StageLedger {
 			 * `#attributeSide` would otherwise have to wait for: a producer's
 			 * self-assertion that it is an end of this wire.
 			 *
-			 * Deliberately NOT the same fact as `verified`. A verified name
-			 * is one a durable identity proved; this one is correlation
+			 * NOT the same fact as `verified`. A verified name
+			 * is one a durable identity proved. This one is correlation
 			 * across two producers' self-reports, which is weaker and is
 			 * exactly what `#attributeSide` acts on when the reports arrive one
 			 * at a time. Passing it as the partner NAME with
-			 * `verified: true` would put a lie in the vocabulary — so it is
+			 * `verified: true` would put a lie in the vocabulary. So it is
 			 * its own option, and it says its own thing. */
 			partnerOwnName?: string;
 			/** What that same far-end report STATES its producer runs, when the
@@ -267,9 +267,9 @@ export class StageLedger {
 			 * is glowcap-private (ADR-0003) and so names BOTH ends as glowcap
 			 * hosts. The caller passes the fact rather than the version string
 			 * because the version is wire vocabulary and the conclusion is what
-			 * the ledger acts on; `LedgerNames.learnProfile` is where it lands and why.
+			 * the ledger acts on, `LedgerNames.learnProfile` is where it lands and why.
 			 *
-			 * False, or absent, says nothing at all about the far end — a `v1_0`
+			 * False, or absent, says nothing at all about the far end, a `v1_0`
 			 * session is the OCapN interop floor, which two glowcap peers speak
 			 * to each other as readily as either speaks it to a Goblins vat. */
 			glowcapPrivateProfile?: boolean;
@@ -302,13 +302,13 @@ export class StageLedger {
 		}
 		// A partner NAME is an identity only when a durable identity verified
 		// it. An unverified claim (a browser tab behind a relay claims
-		// `127.0.0.1:0` — it has no listening address) must not merge distinct
+		// `127.0.0.1:0`. It has no listening address) must not merge distinct
 		// sessions onto one stage peer, so its side is wire-scoped until a
 		// producer speaks for it.
 		const verified = opts?.verified !== false;
 		// Three ways this side can be named, strongest first. A verified
 		// name is an identity. Failing that, a caller holding the far
-		// end's own report knows whose end this is — no weaker than what
+		// end's own report knows whose end this is. No weaker than what
 		// `#attributeSide` acts on, and available here only when both reports
 		// arrived together. Failing both, nobody can say, and the side is
 		// wire-scoped until someone speaks for it.
@@ -326,13 +326,13 @@ export class StageLedger {
 		// A side nobody can name gets no peer, because there is no peer to
 		// draw: what exists is an end of a session carrying a claim nothing
 		// backed. It is left loose, and a producer speaking for it later
-		// attributes it — which moves the end onto a peer rather than
+		// attributes it, which moves the end onto a peer rather than
 		// retiring one the viewer made up.
 		const attributed = verified || farOwnName !== undefined;
 		// Two things can say what the far end runs at the moment it is drawn, and
 		// both are somebody's words. The far end's OWN statement, when the caller
 		// is holding that end's report of this wire and it is the peer being
-		// drawn here — that producer speaking about itself, exactly as
+		// drawn here. That producer speaking about itself, exactly as
 		// `selfProfile` is for this record. Failing that, the glowcap-private
 		// profile, which names both ends of the session it ran on. Correlating
 		// two reports is neither: it says WHO is there, and who is there is not
@@ -373,7 +373,7 @@ export class StageLedger {
 			stageId: row.stageId,
 			aStage: a.stageId,
 			// Attached because the partner name was taken as an identity, or
-			// because the far end's own report of this wire named it — the same
+			// because the far end's own report of this wire named it, the same
 			// two arms `otherKey` was chosen from, said out loud.
 			b: b === undefined ? undefined : {
 				stage: b.stageId,
@@ -437,7 +437,7 @@ export class StageLedger {
 			mineRow.eternal = true;
 			// And what it runs is whatever it states it runs. An end another
 			// producer drew before anyone could speak for it learns its
-			// implementation here, from that producer's own words — the moment of
+			// implementation here, from that producer's own words. The moment of
 			// learning this property exists for. A producer that states nothing
 			// leaves the end where it was.
 			if (selfProfile !== undefined) {
@@ -492,9 +492,9 @@ export class StageLedger {
 	 *
 	 * One fact, and it is the viewer's: nothing happened on the wire, the
 	 * session opened and is still open. What changed is that the end can now be
-	 * said to be somebody. The end moves onto that peer; nothing is superseded,
+	 * said to be somebody. The end moves onto that peer. Nothing is superseded,
 	 * because nothing was ever drawn in its place. Whether that peer was
-	 * already on stage does not change the path — ensure it is drawn, then move
+	 * already on stage does not change the path, ensure it is drawn, then move
 	 * the end onto it. */
 	#attributeSide(
 		row: LiveWire,
@@ -522,7 +522,7 @@ export class StageLedger {
 			peerId: arrived.stageId,
 			// A producer asserting it is an end of this wire is a correlation
 			// across two producers' self-reports, which is the viewer's own
-			// inference and nobody's measurement — the same standing
+			// inference and nobody's measurement. The same standing
 			// `openSession` gives the arm it calls `correlated` when both
 			// reports arrive together.
 			attributedBy: "viewer-correlated",

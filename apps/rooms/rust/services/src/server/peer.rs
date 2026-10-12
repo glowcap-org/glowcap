@@ -49,13 +49,32 @@ pub struct Ready {
 	pub trace: Option<String>,
 	/// The actual loopback timeline port, including an ephemeral selection.
 	pub trace_port: Option<u16>,
-	pub(crate) local_endpoint: Option<rooms_platform::serving::endpoint::Endpoint>,
+	announcement: String,
 }
 
 impl Ready {
 	/// One versioned supervisor record. Capability tokens stay on stderr.
-	pub fn announcement(&self) -> String {
-		super::readiness::Announcement::new(self.location.clone(), self.trace_port, self.local_endpoint.clone()).line()
+	pub fn announcement(&self) -> &str {
+		&self.announcement
+	}
+	/// The supervisor record, rendered once while the peer can still refuse it.
+	fn render(
+		location: &str,
+		trace: Option<&str>,
+		trace_port: Option<u16>,
+		local_endpoint: Option<&rooms_platform::serving::endpoint::Endpoint>,
+	) -> Result<String, Error> {
+		let mut announcement =
+			super::readiness::Announcement::new(location.to_owned(), trace_port, local_endpoint.cloned());
+		announcement.trace_locator = trace
+			.map(|link| {
+				let parsed = glowcap::parse_sturdyref(link, glowcap::CaptpVersion::V1_0)
+					.map_err(|e| Error::refused(format!("the trace sturdyref is invalid: {e}")))?;
+				glowcap::format_locator_uri(&parsed.locator)
+					.map_err(|e| Error::refused(format!("the trace locator cannot be rendered: {e}")))
+			})
+			.transpose()?;
+		announcement.line().map_err(Error::refused)
 	}
 }
 
@@ -128,14 +147,23 @@ impl Peer {
 		}
 	}
 	/// What the program that started this server prints.
-	pub fn ready(&self) -> Ready {
-		Ready {
-			location: self.state.borrow().location.clone(),
+	pub fn ready(&self) -> Result<Ready, Error> {
+		let location = self.state.borrow().location.clone();
+		let trace = self.owners.trace.as_ref().map(|trace| trace.sturdyref.clone());
+		let trace_port = self.owners.trace.as_ref().map(|trace| trace.port);
+		let announcement = Ready::render(
+			&location,
+			trace.as_deref(),
+			trace_port,
+			self.owners.local_endpoint.as_ref(),
+		)?;
+		Ok(Ready {
+			location,
 			capabilities: self.minted.clone(),
-			trace: self.owners.trace.as_ref().map(|trace| trace.sturdyref.clone()),
-			trace_port: self.owners.trace.as_ref().map(|trace| trace.port),
-			local_endpoint: self.owners.local_endpoint.clone(),
-		}
+			trace,
+			trace_port,
+			announcement,
+		})
 	}
 	/// The locator partners dial, which `advertisedLocation` also answers.
 	pub fn location(&self) -> String {
@@ -222,7 +250,7 @@ impl Peer {
 							report(Notice::Partner(PartnerNotice::TaskFailed(join)));
 						}
 					}
-					Some(work) = work.recv() => match work {
+					Some(work) = work.recv(), if tasks.len() < WORK_LIMIT => match work {
 						Work::Task(task) => { tasks.spawn_local(task); }
 						work => { tasks.spawn_local(deliver(state.clone(), work)); }
 					},
@@ -377,6 +405,7 @@ async fn assemble(
 	owners.operations = Some(writer);
 	let (authority_writer, writer) = authority::queue::open(server);
 	owners.authority = Some(writer);
+	report(Notice::Admission(config.admission.summary()));
 	let state = Rc::new(RefCell::new(State::new(
 		host,
 		authority,
@@ -387,6 +416,7 @@ async fn assemble(
 		work,
 		history,
 		report,
+		config.admission,
 	)));
 	State::share(&state);
 	// The boot capabilities publish before the listener opens, so a reused
@@ -425,7 +455,7 @@ async fn assemble(
 }
 
 /// Serve one accepted partner to its end. Admission shares the owner a first
-/// turn may already have created; the end withdraws everything it held.
+/// turn may already have created. The end withdraws everything it held.
 pub(super) async fn served(state: Rc<RefCell<State>>, session: Session, report: Report) {
 	let session = session;
 	let connection = state.borrow_mut().admit(session.borrowed());

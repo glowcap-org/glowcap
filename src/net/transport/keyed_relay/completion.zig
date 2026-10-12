@@ -2,7 +2,7 @@
 //!
 //! This adapter owns synthetic handles, wrapped platform operations, bounded
 //! parser spill, and WebSocket send storage. Blocking std.Io ownership lives in
-//! resident.zig; this file never constructs a reader or blocks a thread.
+//! resident.zig. This file never constructs a reader or blocks a thread.
 
 const std = @import("std");
 
@@ -233,7 +233,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
 
         /// Distinguish payload buffers owned by this WebSocket adapter from
         /// recv buffers the wrapped platform backend reports for ordinary TCP
-        /// connections. `Completion.borrowed.token` is backend-opaque; without the
+        /// connections. `Completion.borrowed.token` is backend-opaque. Without the
         /// tag, recycling a delegated TCP completion would return its index to
         /// the relay pool and permanently consume the platform buffer.
         const RelayConfig = Types.RelayConfig;
@@ -261,7 +261,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         /// links, so starvation recovery has no allocation failure of its own.
         recv_retries: RecvRetryQueue = .{},
         /// A wrapped receive buffer returned since the previous retry pass.
-        /// Starved receives retry only on this progress edge; polling alone
+        /// Starved receives retry only on this progress edge. Polling alone
         /// cannot spin submissions while the platform pool remains empty.
         recv_recycle_progress: bool = false,
         /// Wrapped close submissions currently refused by the platform. RelayConn
@@ -269,10 +269,10 @@ pub fn CompletionBackend(comptime Platform: type) type {
         /// while trying to allocate their own recovery bookkeeping.
         close_retries: CloseRetryQueue = .{},
         /// Sparse secure-only state. Clear connections retain the historical
-        /// `RelayConn` footprint; this table allocates only after a WSS dial.
+        /// `RelayConn` footprint. This table allocates only after a WSS dial.
         secure: TlsMap = .{},
         /// Secure writes whose platform submission was refused before
-        /// admission. TLS state supplies intrusive links; no ciphertext moves.
+        /// admission. TLS state supplies intrusive links. No ciphertext moves.
         tls_send_retries: TlsSendRetryQueue = .{},
         registration: completion_registration.State,
         next_id: ConnId = 1,
@@ -294,7 +294,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         }
 
         /// Build a TCP backend with keyed-relay dials enabled. `options.url` is
-        /// retained deployment configuration; `options.entropy_seed` is the
+        /// retained deployment configuration. `options.entropy_seed` is the
         /// transport entropy boundary for WebSocket request keys and client
         /// masks and should come from the caller's existing `std.Io`
         /// `randomSecure` boundary. Plain `init` keeps keyed-relay disabled.
@@ -351,20 +351,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 if (options.resolver_io) |resolver_io|
                     resolver = try completion_resolver.Runtime.init(allocator, resolver_io);
                 errdefer if (resolver) |runtime| runtime.deinit();
-                const url = options.url;
-                const bytes = try allocator.dupe(u8, url);
-                errdefer allocator.free(bytes);
-                var tls = if (options.tls_owner) |owner|
-                    try owner.lease()
-                else
-                    null;
-                errdefer if (tls) |*lease| lease.release();
-                relay = .{
-                    .bytes = bytes,
-                    .url = try RelayUrl.parse(bytes),
-                    .tls = tls,
-                };
-                tls = null;
+                relay = try RelayConfig.init(allocator, options);
             }
             return .{
                 .allocator = allocator,
@@ -388,7 +375,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
 
         /// Release an already-drained adapter. The owning completion Loop must
         /// close every synthetic handle and retire its wrapped operations first
-        /// (`Loop.closeAndDrain`); a live send may still borrow `ws_out`, and
+        /// (`Loop.closeAndDrain`). A live send may still borrow `ws_out`, and
         /// io_uring teardown is not an operation-drain primitive.
         pub fn deinit(self: *Self) void {
             std.debug.assert(self.conns.count() == 0);
@@ -408,7 +395,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             self.buffer_pool.deinit();
             self.ready.deinit(self.allocator);
             if (self.resolver) |resolver| resolver.deinit();
-            if (self.relay) |*relay| relay.deinit(self.allocator);
+            if (self.relay) |*relay| relay.deinit();
             self.registration.deinit(self.allocator);
         }
 
@@ -421,7 +408,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         /// on the platform port otherwise.
         /// Adapter work that completes off the caller's thread reaches this
         /// backend through a platform operation, so the platform's descriptor
-        /// reports it; work that completes synchronously waits in the ready
+        /// reports it. Work that completes synchronously waits in the ready
         /// queue for the caller's next `poll`.
         pub fn readinessFd(self: *const Self) Fd {
             return self.platform.readinessFd();
@@ -439,12 +426,18 @@ pub fn CompletionBackend(comptime Platform: type) type {
             return Poll.waitBound(self, self.platform.waitBoundMs(requested_ms));
         }
 
+        /// A relay listener is the platform's own; only a wrapped backend's
+        /// listener can report a pending setup.
+        pub fn listenerPending(self: *Self, fd: Fd) bool {
+            return self.platform.listenerPending(fd);
+        }
+
         pub fn listenerIp4(self: *const Self) [4]u8 {
             return self.platform.listenerIp4();
         }
 
         /// The relay arm registers the listening Host's key, so a backend
-        /// holds at most one relay listener; it needs `Options.registration`.
+        /// holds at most one relay listener. It needs `Options.registration`.
         pub const ListenTarget = union(enum) {
             platform: Platform.ListenTarget,
             relay: crypto.PeerKey,
@@ -615,7 +608,10 @@ pub fn CompletionBackend(comptime Platform: type) type {
         }
 
         fn startRelayDial(self: *Self, user_data: u64, target: @FieldType(ConnectTarget, "keyed_relay")) !Fd {
-            const relay_url = target.relay orelse if (self.relay) |relay| relay.url else return error.NoRendezvousConfigured;
+            const relay_url = if (self.relay) |relay|
+                relay.routes.selectDialRoute(target.relay)
+            else
+                target.relay orelse return error.NoRendezvousConfigured;
             if (crypto.PeerKey.fromDesignator(target.designator) == null) return error.InvalidAddress;
             return LegStart.start(self, .{
                 .url = relay_url,

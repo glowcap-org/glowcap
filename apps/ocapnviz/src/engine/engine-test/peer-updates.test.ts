@@ -51,7 +51,7 @@ engineTest("set-peer-update replaces the value stated at that moment", () => {
 		value: "carol-away",
 	});
 	assertEquals(labelTrack(e), [{ t: 400, value: "carol-away" }]);
-	// One observation, replaced in place — not two renames at one t.
+	// One observation, replaced in place. Not two renames at one t.
 	const renames = primaryObservations(e.doc).filter((ev) => ev.kind === "peer-updated");
 	assertEquals(renames.length, 1);
 });
@@ -169,7 +169,7 @@ engineTest(
 		// Regression: pre-fix, delete-peer dropped events but left
 		// `entities.peers[id]` behind. Then `#applyEternalEntities`
 		// re-added the "deleted" peer from its stranded definition
-		// on the next world rebuild — the peer wouldn't actually
+		// on the next world rebuild. The peer wouldn't
 		// disappear from the stage.
 		const e = new Engine(structuredClone(doc));
 		// Confirm entities exists for 'a' before deletion (parse
@@ -231,7 +231,7 @@ engineTest(
 	() => {
 		// The shared `doc` has no layoutMode, so the default force mode
 		// is in play. Dropping a peer writes its authored position, and
-		// the recomputed keyframes must hold it there EXACTLY — the
+		// the recomputed keyframes must hold it there EXACTLY, the
 		// force sim arranges the free peers around the pin instead of
 		// dragging the pinned one back toward the pack.
 		const e = new Engine(structuredClone(doc));
@@ -261,7 +261,7 @@ engineTest(
 		// The reposition no-op guard compares against the AUTHORED
 		// position, not the live world one (the layout always fills the
 		// world position, so a world comparison would swallow the
-		// Inspector's "Pin here" — the defect this test was validated
+		// Inspector's "Pin here". The defect this test was validated
 		// against). Pinning an unpinned peer where it already sits must
 		// write the pin and mint an undo step.
 		const e = new Engine(structuredClone(doc));
@@ -271,7 +271,7 @@ engineTest(
 		// The detail-oriented half of the contract: pinning changes who
 		// OWNS the position, so the stage must not visibly re-settle.
 		// The warm re-derivation continues the annealing from the
-		// current arrangement, so any residual motion is sub-visual —
+		// current arrangement, so any residual motion is sub-visual,
 		// held to under half a world unit here.
 		const othersBefore = e.layout.keyframes.map((kf) =>
 			new Map(
@@ -316,7 +316,7 @@ engineTest(
 	() => {
 		// The ownership-only round trip: pin a peer exactly where the
 		// layout placed it, then unpin. Both edits change who owns the
-		// position, not the position — so every peer, in every
+		// position, not the position. So every peer, in every
 		// keyframe, stays within sub-visual annealing residue of where
 		// it started.
 		const e = new Engine(structuredClone(doc));

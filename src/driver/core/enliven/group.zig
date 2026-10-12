@@ -20,8 +20,8 @@ const Member = struct {
     next: ?*Member = null,
 };
 
-/// A group owns the sole Port listener and reserved GC carrier. Its members
-/// own separate vows and result retains; settled public vows keep their shared
+/// A group owns the sole Port listener and reserved GC carrier. Its members own
+/// separate vows and result retains. Settled public vows keep their shared
 /// pipeline answer alive until the last handle releases. The Host-wide index
 /// exists only for pending fetches, adding no per-session state. Stable heap
 /// rows allow O(1) cancellation even when the first observer leaves.

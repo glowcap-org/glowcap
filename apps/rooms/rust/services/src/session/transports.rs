@@ -6,7 +6,7 @@ use rooms_platform::serving::{Listener, iroh_config};
 use std::{collections::BTreeSet, rc::Rc};
 
 /// The provider families a locator can name. A family is one provider package
-/// in the binding; every symbol it serves is dialed through the same package.
+/// in the binding. Every symbol it serves is dialed through the same package.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Family {
 	Tcp,
@@ -22,10 +22,20 @@ pub enum Family {
 pub struct Needs {
 	families: BTreeSet<Family>,
 	relay_url: Option<String>,
+	relay_alias_url: Option<String>,
 }
 
 impl Needs {
-	pub fn configured(transports: &[String], relay_url: Option<String>) -> Result<Self, Error> {
+	pub fn configured(
+		transports: &[String],
+		relay_url: Option<String>,
+		relay_alias_url: Option<String>,
+	) -> Result<Self, Error> {
+		if relay_alias_url.is_some() && relay_url.is_none() {
+			return Err(Error::invalid(
+				"a relay alias requires a relay URL reaching the same registry",
+			));
+		}
 		let mut families = BTreeSet::new();
 		for transport in transports {
 			let family = match transport.as_str() {
@@ -39,7 +49,11 @@ impl Needs {
 		if relay_url.is_some() {
 			families.insert(Family::Relay);
 		}
-		Ok(Self { families, relay_url })
+		Ok(Self {
+			families,
+			relay_url,
+			relay_alias_url,
+		})
 	}
 }
 
@@ -97,7 +111,11 @@ impl Transports {
 						// never; the directory row reports it when it tries.
 						continue;
 					};
-					glowcap::relay::provider(glowcap::relay::Config::dial_only(url))
+					let mut config = glowcap::relay::Config::dial_only(url);
+					if let Some(alias) = needs.relay_alias_url.as_deref() {
+						config = config.with_relay_alias(alias);
+					}
+					glowcap::relay::provider(config)
 				}
 				Family::Onion => {
 					let socks = std::env::var("GLOWCAP_ONION_SOCKS")

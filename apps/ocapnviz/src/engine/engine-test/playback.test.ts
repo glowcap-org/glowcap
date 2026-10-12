@@ -160,7 +160,7 @@ engineTest("Engine.restart returns to t=0 state", () => {
 
 engineTest("Engine.enqueue defers all intents until the next tick", () => {
 	const e = new Engine(doc);
-	// Enqueuing alone does nothing — the loop must drain.
+	// Enqueuing alone does nothing. The loop must drain.
 	e.enqueue({ kind: "play" });
 	assertEquals(e.clock.state, "paused");
 	e.tick(0);
@@ -199,7 +199,7 @@ engineTest(
 	() => {
 		const e = new Engine(doc);
 		// Fixture: message m1 sent at t=1000, arriving at t=1500. At the
-		// quarter-point t=1125, smoothstep(0.25) ≈ 0.156, not 0.25 — so
+		// quarter-point t=1125, smoothstep(0.25) ≈ 0.156, not 0.25, so
 		// the eased position must differ measurably from a linear lerp.
 		//
 		// The MessageFlightSystem also adds a perpendicular lane offset
@@ -279,7 +279,7 @@ engineTest("Engine.subscribe fires when state changes", () => {
 });
 
 engineTest("Engine.tick is silent when paused and idle", () => {
-	// Companion to "fires when state changes" — assert the negative
+	// Companion to "fires when state changes", assert the negative
 	// side of the contract directly so a future regression that
 	// re-enables every-frame notify is caught immediately.
 	const e = new Engine(doc);
@@ -310,7 +310,7 @@ engineTest(
 		// "draining" and no message is in flight.
 		assertEquals([...e.queries.messagesInFlight].length, 0);
 		// User clicks play again. With the bug, clock.t resets to 0 but
-		// the world stays in the end-state — no events ever re-fire.
+		// the world stays in the end-state. No events ever re-fire.
 		// With the fix, the engine restarts the world first.
 		e.enqueue({ kind: "play" });
 		e.tick(0);
@@ -352,7 +352,7 @@ engineTest("Engine.subscribe survives a throwing listener", () => {
 		goodCount += 1;
 	});
 	// Suppress the expected console.error for the duration of the tick.
-	// Drive state changes via play+tick — notify is conditional on
+	// Drive state changes via play+tick, notify is conditional on
 	// dirty state now; idle paused ticks are silent.
 	const originalError = console.error;
 	console.error = () => {};

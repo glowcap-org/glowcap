@@ -186,7 +186,7 @@ test "a pipelined call queues until its answer resolves, then delivers locally" 
     try std.testing.expectEqual(engine.EventKind.deliver, local_event.kind());
     const view = try local_event.view();
     // A local delivery to our export is wire-shaped as `<desc:export>`, which
-    // decodes (receiver perspective, ADR-0010) to `.near{export_position=9}` — exactly
+    // decodes (receiver perspective, ADR-0010) to `.near{export_position=9}`, exactly
     // the shape a deliver to our export 9 carries when it arrives off the wire.
     try std.testing.expect(view.deliver.target == .near);
     try std.testing.expectEqual(@as(u64, 9), view.deliver.target.near.export_position.int());

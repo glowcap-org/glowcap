@@ -11,7 +11,7 @@ empty library, so a workspace-wide `cargo` command still succeeds.
 
 ## What the page gets
 
-The exports fall into two layers, and the split is deliberate: the first
+The exports fall into two layers, and the first
 layer opens no Host, so a page can admit its saved state and choose a
 controller before it owns a runtime.
 
@@ -25,6 +25,14 @@ driven executor and Host. It exposes separate use and control handles, retained
 commands and atomic acquisitions. Local, published and remotely attached
 workspaces share the same typed application contract. React projects admitted
 intent/activity and submits reader gestures through these handles.
+
+The constructor accepts an optional third argument: a JSON string containing
+an object of string values for the four admission settings in the
+[admission guide](../../../../docs/rooms/admission.md). It validates policy before
+opening the application. For example, `JSON.stringify({"admission-rates":"message=20/80"})`
+selects a local message rate. Omitted settings use the shared defaults. Saved
+intent cannot change policy while an application is running. A remotely attached
+workspace keeps its server's policy.
 
 `RoomsManagedBlob` and managed archive/history readers retain exact source and
 upstream custody. `RoomsBrowserFileView` and `RoomsBrowserSource` carry bounded
@@ -57,14 +65,14 @@ reconnect, management and recovery.
 `performance.now`, task custody on the page's local executor, and entropy from
 `crypto.getRandomValues`. A tab-hosted session persists its managed workspace,
 capability fields, grants and effect receipts in IndexedDB. Live workers and
-callbacks have one document lifetime; a reload restores the graph and starts a
+callbacks have one document lifetime. A reload restores the graph and starts a
 fresh Host lifetime before exposing access. Preferences and archive records
 retain separate storage owners.
 
 `transport::open` composes one glowcap `Runtime` around the application's
-Host. `WebFront::deployment` names the page's own native web front and
+Host. `WebFront::deployment` names the page's own native web server and
 forwards complete TCP, keyed and Noise TCP, iroh, and onion locators through
-it, keeping their routing hints. For iroh, the front itself authenticates the
+it, keeping their routing hints. For iroh, the web server itself authenticates the
 remote QUIC peer, so that route relies on the deployment for its key proof.
 The other forwarded profiles are given no stand-in proof. Relay routes selected by
 locator use `glowcap::browser::relay`.
@@ -85,8 +93,8 @@ per attempt.
   names an exchange, not a caller key, so the accepting side never invents a
   verified identity.
 
-`ice::Source::deployment` reads the native front's `/ice` endpoint. Concurrent
-readers share one request and each receives its own configuration object; a
+`ice::Source::deployment` reads the native web server's `/ice` endpoint. Concurrent
+readers share one request and each receives its own configuration object. A
 later attempt refreshes credentials rather than caching them. Fetch and
 validation failures are reported as they are, with no fallback server list.
 
@@ -94,15 +102,15 @@ validation failures are reported as they are, with no fallback server list.
 
 `zig build rooms-browser-build` compiles the module and its generated
 JavaScript glue. Every native web build and deployment preparation depends on
-it, and the running `rooms-web` front serves the module by content hash while
+it, and the running `rooms-web` serves the module by content hash while
 keeping the previous generation for pages already loading. After a Rust change
-during development, rebuild and the front notices the new content.
+during development, rebuild and the web server notices the new content.
 
 `lib/application_data.ts`, `web/ui/application_data.ts`, and
 `lib/failure_data.ts` are generated from the Rust limits, boot capability
 catalog, browser timing, and failure definitions by the `browser_metadata`
 example in `rooms-application`. `zig build
-rooms-browser-metadata-check` refuses a stale copy; regenerate with:
+rooms-browser-metadata-check` refuses a stale copy. Regenerate with:
 
 ```sh
 cargo run --manifest-path apps/rooms/rust/Cargo.toml -p rooms-application --example browser_metadata
@@ -113,10 +121,10 @@ Chromium. `zig build rooms-rust-browser-host-test` drives the transport,
 signaling, and ICE parts against the native `rooms-web` directory in
 Chromium. It covers:
 
-- explicit dials and three-party handoffs;
-- calls in both directions over keyed and Noise relay registrations;
-- native TCP and iroh forwarding to distinct rooms;
-- shutdown while an ICE request is pending.
+- explicit dials and three-party handoffs
+- calls in both directions over keyed and Noise relay registrations
+- native TCP and iroh forwarding to distinct rooms
+- shutdown while an ICE request is pending
 These scenarios check socket closure and callback retirement. The managed
 session executor has separate LMDB/IndexedDB contracts through
 `rooms-rust-test` and `rooms-session-executor-browser-test`. Production page

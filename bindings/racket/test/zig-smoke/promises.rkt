@@ -460,7 +460,7 @@
 
 ;; ── Unawaited break + a real disconnect ───────────────────────────────────────
 ;; Two failure contracts over a real socket. First: an unawaited
-;; `session-send-promise` whose reply breaks stays silent — no listener means the
+;; `session-send-promise` whose reply breaks stays silent: no listener means the
 ;; broken vow crashes nothing, and the connection keeps answering. Second: a
 ;; partner that hangs up mid-question settles the pending `session-send` with a
 ;; typed GLOWCAP_ERR_CLOSED failure instead of hanging it forever.

@@ -2,7 +2,11 @@
 
 use crate::abi_constants_gen::{CAPTP_NEXT, CAPTP_V1_0, CODEC_CAPNP, CODEC_SYRUP};
 
-pub(super) fn view(ptr: *const u8, len: usize, field: &str) -> crate::Result<Option<String>> {
+/// # Safety
+///
+/// `ptr` and `len` are one text view of the `GlowcapTraceEvent` the core hands the trace callback, which stays
+/// borrowed until that callback returns.
+pub(super) unsafe fn view(ptr: *const u8, len: usize, field: &str) -> crate::Result<Option<String>> {
 	if len == 0 {
 		return Ok(None);
 	}
@@ -12,6 +16,8 @@ pub(super) fn view(ptr: *const u8, len: usize, field: &str) -> crate::Result<Opt
 			format!("glowcap ABI returned a null trace {field} with nonzero length"),
 		));
 	}
+	// SAFETY: the caller upholds this function's contract, so `ptr` names `len` readable bytes the core wrote; `ptr` is
+	// non-null (checked above), and the text is copied into an owned `String` before returning.
 	let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
 	let text = std::str::from_utf8(bytes).map_err(|_| {
 		crate::Error::with_detail(

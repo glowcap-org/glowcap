@@ -9,19 +9,20 @@ The build gives installation, deployment, and the exhausted query budget
 separate process limits. Individual product commands also retain their deadlines.
 """
 import hashlib
-import fcntl
 import json
 import os
 from pathlib import Path
-import pty
 import selectors
 import shutil
 import signal
 import subprocess
 import sys
 import tempfile
-import termios
 import time
+
+from deployment.confirmation import reset_prompt
+from deployment.checkout import checkout_deployment
+from deployment.volumes import selected_volumes
 
 
 def run(binary, *args, env, ok=True, detached=False):
@@ -145,6 +146,17 @@ if os.environ.get('FAIL_INSPECT') and a[:2] == ['image', 'inspect'] and '--forma
 image = 'sha256:' + 'a' * 64
 if a[:2] == ['volume', 'ls'] and os.environ.get('EXISTING_VOLUME'):
     print('glowcap-rooms-postgres\\nglowcap-rooms-session-state\\nglowcap-rooms-directory-state\\noperator-extra-volume')
+    if os.environ.get('CUSTOM_VOLUMES'): print('custom-session\\ncustom-directory\\ncustom-postgres')
+if a[:1] == ['compose'] and a[-3:] == ['config', '--format', 'json']:
+    prefix = 'custom-' if os.environ.get('CUSTOM_VOLUMES') else 'glowcap-rooms-'
+    names = ['session', 'directory', 'postgres'] if os.environ.get('CUSTOM_VOLUMES') else ['session-state', 'directory-state', 'postgres']
+    model = {'services': {}, 'volumes': {}}
+    for service, source, target, name in zip(['session', 'directory', 'postgres'], ['session-state', 'directory-state', 'postgres'], ['/session-state', '/state', '/var/lib/postgresql'], names):
+        model['services'][service] = {'volumes': [{'type': 'volume', 'source': source, 'target': target}]}
+        model['volumes'][source] = {'name': prefix + name, 'external': bool(os.environ.get('EXTERNAL_VOLUMES'))}
+    if os.environ.get('BIND_VOLUME'): model['services']['session']['volumes'][0]['type'] = 'bind'
+    if os.environ.get('SHARED_VOLUME'): model['volumes']['directory-state']['name'] = model['volumes']['session-state']['name']
+    print(json.dumps(model))
 if a[:2] == ['volume', 'rm'] and os.environ.get('FAIL_VOLUME') == a[-1]:
     sys.exit(9)
 if a[:1] == ['build']:
@@ -163,8 +175,14 @@ if a[:1] == ['build']:
     assert a[a.index('--platform') + 1] in ('linux/amd64', 'linux/arm64')
     assert pathlib.Path(a[a.index('--file') + 1]).is_relative_to(root)
     pathlib.Path(a[a.index('--iidfile') + 1]).write_text(image + '\\n')
+    pathlib.Path(os.environ['DOCKER_LOG'] + '.label').write_text(a[a.index('--label') + 1].split('=', 1)[1])
+elif a[:2] == ['image', 'inspect'] and 'Labels' in ' '.join(a):
+    label = pathlib.Path(os.environ['DOCKER_LOG'] + '.label')
+    print(label.read_text() if label.exists() else '<no value>')
 elif a[:2] == ['image', 'inspect']: print(image)
-elif 'exec' in a: print('ocapn://fixture')
+elif 'exec' in a:
+    if a[-1] == '--print-link': print('ocapn://127.0.0.1%3A9300.tcp/s/eA?captp-websocket=ws%3A%2F%2F127.0.0.1%3A9300%2Fcaptp&trace-publish=ws%3A%2F%2F127.0.0.1%3A9300%2Fpublish')
+    else: print('ocapn://management' if a[-1] == '--file=/session-state/control.sturdyref' else 'ocapn://fixture')
 if a[:1] == ['compose'] and '--project-directory' in a:
     config = pathlib.Path(a[a.index('-f') + 1]).parent
     assert a[a.index('--project-directory') + 1] == str(config)
@@ -196,7 +214,25 @@ def deployment(binary, root, scratch):
     diagnosis = call("doctor")
     assert "selected image: none" in diagnosis.stdout and "database secret: missing" in diagnosis.stdout
     del env["EXISTING_VOLUME"]
-    call("up", "--image", "example/rooms:test")
+    before_up = log.read_text()
+    started = call("up", "--image", "example/rooms:test")
+    assert "Shared-session workspace capability:\nocapn://fixture" in started.stdout, started.stdout
+    assert "Shared-session management capability:\nocapn://management" in started.stdout, started.stdout
+    assert "ROOMS-TRACE-LISTENING ocapn://127.0.0.1%3A9300.tcp/s/" in started.stdout, started.stdout
+    before_trace = len(log.read_text())
+    call("trace", "--json")
+    call("trace")
+    trace_calls = [json.loads(line) for line in log.read_text()[before_trace:].splitlines()]
+    viewers = [a[a.index("run"):] for a in trace_calls if "run" in a]
+    viewer = ["run", "--rm", "--no-deps", "-T", "--entrypoint", "/runtime/bin/glowcap",
+              "directory", "apps", "rooms", "trace", "--state=/state", "--url=http://directory:8080"]
+    assert viewers == [viewer + ["--json"], viewer], trace_calls
+    # Saved capabilities print as complete recipes only with the locator the
+    # directory advertises, which up has just read from it.
+    capabilities = next(json.loads(line) for line in log.read_text()[len(before_up):].splitlines()
+                        if json.loads(line)[-2:] == ["directory", "capabilities"])
+    assert "GLOWCAP_ROOMS_LOCATOR=ocapn://fixture" in capabilities, capabilities
+    assert any(value.startswith("GLOWCAP_ROOMS_TRACE_LOCATOR=ocapn://127.0.0.1%3A9300.tcp") for value in capabilities), capabilities
     secret = workspace / "secrets/storage-db-password"
     password = secret.read_bytes()
     assert len(password.strip()) == 64 and secret.stat().st_mode & 0o777 == 0o600
@@ -227,10 +263,23 @@ def deployment(binary, root, scratch):
     override = workspace / "docker-compose.override.yml"
     override.write_text(override.read_text() + "\n# operator choice\n")
     before = override.read_bytes()
+    before_up = len(log.read_text())
     call("up")
+    up_calls = [json.loads(line) for line in log.read_text()[before_up:].splitlines()]
+    assert not any("--force-recreate" in args for args in up_calls), "unchanged up forcibly replaced healthy services"
     assert override.read_bytes() == before and secret.read_bytes() == password
     assert not (workspace / ".operation-lock").exists()
     assert not list(workspace.glob(".image-build-*"))
+    before_restart = len(log.read_text())
+    call("restart")
+    restart_calls = [json.loads(line) for line in log.read_text()[before_restart:].splitlines()]
+    assert not any(args[0] in ("build", "pull") or args[:2] == ["volume", "rm"] or "down" in args
+                   for args in restart_calls), "restart selected an image or destroyed deployment data"
+    restarted = next(i for i, args in enumerate(restart_calls) if "restart" in args)
+    waited = next(i for i, args in enumerate(restart_calls) if "up" in args and "--wait" in args)
+    assert restarted < waited, "restart returned before checking service health"
+    assert (workspace / "image").read_text() == selection
+    assert override.read_bytes() == before and secret.read_bytes() == password
     # A recoverable probe may trigger a pull, but its diagnostics still belong
     # to the operator rather than disappearing into the presence check.
     env["FAIL_INSPECT"] = "1"
@@ -267,9 +316,16 @@ def deployment(binary, root, scratch):
         rows.append(f"{hashlib.sha256((fixture / name).read_bytes()).hexdigest()} {mode} {name}\n")
     receipt.write_text("".join(rows))
     (fixture / "unlisted-build-cruft").write_text("not part of the product")
-    call("up", "--build", fixture)
+    built = call("up", "--build", fixture)
     assert not list(workspace.glob(".image-build-*"))
-    checkout_deployment(binary, fixture, scratch, env)
+    # The image carries the revision its product recorded, and the operator is
+    # told which image was built and from where.
+    recorded = json.loads(metadata.read_text())
+    revision = recorded["revision"] + ("-dirty" if recorded.get("dirty") else "")
+    build_call = next(json.loads(line) for line in reversed(log.read_text().splitlines()) if json.loads(line)[0] == "build")
+    assert build_call[build_call.index("--label") + 1] == f"org.opencontainers.image.revision={revision}", build_call
+    assert f"Built and selected image sha256:{'a' * 12} from {fixture} at revision {revision}" in built.stderr, built.stderr
+    checkout_deployment(binary, fixture, scratch, env, run)
     before_calls = log.read_text()
     (fixture / "README.md").write_text("changed beneath the recorded inventory")
     call("up", "--build", fixture, ok=False)
@@ -295,7 +351,10 @@ def deployment(binary, root, scratch):
                "storage": "glowcap-rooms-postgres"}
     for unit in (*volumes, "all"):
         before_calls = log.read_text()
-        call("reset", unit, "--yes")
+        reset = call("reset", unit, "--yes")
+        # Reset keeps the selection, and says so with its revision, so fresh
+        # data on an older image is never a silent surprise.
+        assert f"Keeping the selected image sha256:{'a' * 12} at revision {revision}" in reset.stderr, reset.stderr
         new_calls = [json.loads(line) for line in log.read_text()[len(before_calls):].splitlines()]
         removed = [a[-1] for a in new_calls if a[:2] == ["volume", "rm"]]
         assert removed == (list(volumes.values()) if unit == "all" else [volumes[unit]])
@@ -309,71 +368,9 @@ def deployment(binary, root, scratch):
     new_calls = [json.loads(line) for line in log.read_text()[len(before_calls):].splitlines()]
     assert [a[-1] for a in new_calls if a[:2] == ["volume", "rm"]] == list(volumes.values())
     assert not any("up" in a for a in new_calls), "partial reset silently restarted"
+    del env["FAIL_VOLUME"]
+    selected_volumes(call, env, log, secret, password)
     print("glowcap-host-test: verified install, atomic selection, refusal and Docker command lifecycle passed")
-
-
-def reset_prompt(binary, scratch):
-    env = dict(PATH=f"{scratch / 'fake tools'}:/usr/bin:/bin", HOME=str(scratch),
-               DOCKER_LOG=str(scratch / "docker.log"), EXISTING_VOLUME="1")
-    log = Path(env["DOCKER_LOG"])
-    workspace = scratch / "deployment config"
-
-    def controlling_terminal():
-        os.setsid()
-        fcntl.ioctl(0, termios.TIOCSCTTY, 0)
-
-    for answer in (b"yes\n", b"no\n", b"\n", b"\x04", b"\x03"):
-        before = len(log.read_text())
-        master, slave = pty.openpty()
-        child = subprocess.Popen([str(binary), "apps", "rooms", "deployment", "reset", "all",
-                                  "--dir", str(workspace)], env=env, stdin=slave,
-                                 stdout=slave, stderr=slave, preexec_fn=controlling_terminal)
-        os.close(slave)
-        pending = bytearray()
-        transcript = bytearray()
-
-        def prompt():
-            marker = b"Type yes to confirm"
-            expires = time.monotonic() + 5
-            with selectors.DefaultSelector() as selector:
-                selector.register(master, selectors.EVENT_READ)
-                while marker not in pending:
-                    assert time.monotonic() < expires, bytes(transcript)
-                    assert selector.select(max(0, expires - time.monotonic())), bytes(transcript)
-                    try:
-                        chunk = os.read(master, 4096)
-                    except OSError as err:
-                        raise AssertionError(bytes(transcript)) from err
-                    assert chunk, bytes(transcript)
-                    pending.extend(chunk)
-                    transcript.extend(chunk)
-            del pending[:pending.index(marker) + len(marker)]
-            calls = [json.loads(line) for line in log.read_text()[before:].splitlines()]
-            assert not any("down" in a or "up" in a or a[:2] == ["volume", "rm"] for a in calls)
-
-        try:
-            prompt()
-            # Exercise retries, including an overlong line ending in yes: no
-            # truncation or leftover suffix may accidentally confirm deletion.
-            for invalid in (b"y\n", b"maybe\n", b"x" * 80 + b"yes\n"):
-                os.write(master, invalid)
-                prompt()
-            os.write(master, answer)
-            code = child.wait(timeout=5)
-            assert (code == 0) == (answer != b"\x03"), bytes(transcript)
-            calls = [json.loads(line) for line in log.read_text()[before:].splitlines()]
-            removed = [a[-1] for a in calls if a[:2] == ["volume", "rm"]]
-            if answer == b"yes\n":
-                assert removed == ["glowcap-rooms-session-state", "glowcap-rooms-directory-state", "glowcap-rooms-postgres"]
-                assert any("up" in a for a in calls)
-            else:
-                assert not removed and not any("down" in a or "up" in a for a in calls)
-            assert not (workspace / ".operation-lock").exists()
-        finally:
-            if child.poll() is None:
-                child.kill()
-            child.wait(timeout=5)
-            os.close(master)
 
 
 def child_output(binary, scratch):
@@ -431,107 +428,6 @@ def child_output(binary, scratch):
     assert 'docker "version" "--format"' in failed.stderr and "exited with code 9" in failed.stderr
 
 
-def checkout_deployment(binary, product, scratch, original_env):
-    # Existing deployment configuration is moved once by its operator. Both
-    # checkout and installed invocations then use it without extra flags.
-    checkout = scratch / "checkout with spaces"
-    legacy = checkout / "apps/rooms/web/deploy"
-    (legacy / "secrets").mkdir(parents=True)
-    password = b"original-database-password\n"
-    secret = legacy / "secrets/storage-db-password"
-    secret.write_bytes(password)
-    secret.chmod(0o600)
-    override = b"services:\n  directory:\n    volumes:\n      - ./operator-files:/operator:ro\n"
-    (legacy / "docker-compose.override.yml").write_bytes(override)
-    (checkout / "zig-out").mkdir()
-    (checkout / "zig-out/product").symlink_to(product, target_is_directory=True)
-    env = dict(original_env, GLOWCAP_CHECKOUT_ROOT=str(checkout), EXISTING_VOLUME="1",
-               XDG_STATE_HOME=str(scratch / "host state"))
-    state = Path(env["XDG_STATE_HOME"]) / "glowcap/rooms-deployment"
-    log = Path(env["DOCKER_LOG"])
-    def call(*args, **kwargs):
-        return run(binary, "apps", "rooms", "deployment", *args, env=env, **kwargs)
-    def calls_since(before):
-        return [json.loads(line) for line in log.read_text()[before:].splitlines()]
-    def untouched(before):
-        assert not any(a[0] in ("build", "pull") or "up" in a or a[:2] == ["volume", "rm"]
-                       for a in calls_since(before))
-    # Read-only verbs do not create state. The CLI does not search a checkout
-    # for credentials, even when an old deployment directory exists there.
-    before = len(log.read_text())
-    call("doctor")
-    call("status", ok=False)
-    assert not state.exists()
-    untouched(before)
-    result = call("up", "--image", "fixture:test", ok=False)
-    assert "MissingDatabaseSecret" in result.stderr and str(state) in result.stderr
-    assert not (state / "secrets/storage-db-password").exists()
-    untouched(before)
-    call("up", "--dir", scratch / "explicit config", "--image", "fixture:test", ok=False)
-    # Model the manual configuration move without changing real host files.
-    (state / "secrets").mkdir(mode=0o700)
-    (state / "secrets/storage-db-password").write_bytes(password)
-    (state / "secrets/storage-db-password").chmod(0o600)
-    (state / "docker-compose.override.yml").write_bytes(override)
-    before = len(log.read_text())
-    # macOS contributors select a separately prepared Linux product explicitly.
-    args = () if sys.platform.startswith("linux") else ("--build", product)
-    # Reset must work directly after the configuration move: no successful up,
-    # managed Compose file, or saved image exists yet. Preparation must not
-    # start old data, and an unconfirmed reset must not stop or erase anything.
-    result = call("reset", "all", *args, detached=True, ok=False)
-    assert "ConfirmationRequired" in result.stderr, result.stderr
-    assert password.decode().strip() not in result.stdout + result.stderr
-    assert any(a[0] == "build" for a in calls_since(before))
-    assert not any(a[0] == "pull" or "up" in a or "down" in a or a[:2] == ["volume", "rm"] for a in calls_since(before))
-    assert (state / "secrets/storage-db-password").read_bytes() == password
-    assert (state / "secrets/storage-db-password").stat().st_mode & 0o777 == 0o600
-    assert (state / "secrets").stat().st_mode & 0o777 == 0o700
-    assert (state / "docker-compose.override.yml").read_bytes() == override
-    assert "file: ./secrets/storage-db-password" in (state / "compose.yml").read_text()
-    assert secret.read_bytes() == password
-    assert (legacy / "docker-compose.override.yml").read_bytes() == override
-    before = len(log.read_text())
-    call("reset", "all", "--yes")
-    calls = calls_since(before)
-    assert not any(a[0] in ("build", "pull") for a in calls), "reset replaced its selected image"
-    assert [a[-1] for a in calls if a[:2] == ["volume", "rm"]] == [
-        "glowcap-rooms-session-state", "glowcap-rooms-directory-state", "glowcap-rooms-postgres"]
-    assert next(i for i, a in enumerate(calls) if "down" in a) < next(i for i, a in enumerate(calls) if a[:2] == ["volume", "rm"])
-    assert next(i for i, a in enumerate(calls) if "up" in a) > max(i for i, a in enumerate(calls) if a[:2] == ["volume", "rm"])
-    # Host state remains authoritative across subsequent checkout invocations.
-    secret.write_bytes(b"stale-password\n")
-    (state / "docker-compose.override.yml").write_bytes(override + b"# host edit\n")
-    before = len(log.read_text())
-    call("up", "--image", "fixture:explicit")
-    assert not any(a[0] == "build" for a in calls_since(before))
-    assert (state / "secrets/storage-db-password").read_bytes() == password
-    assert (state / "docker-compose.override.yml").read_bytes().endswith(b"# host edit\n")
-    # The installed product uses the same state without checkout context or
-    # compiler output, and keeps its selected image across ordinary up calls.
-    del env["GLOWCAP_CHECKOUT_ROOT"]
-    before = len(log.read_text())
-    call("up")
-    call("status")
-    call("down")
-    assert not any(a[0] in ("build", "pull") or a[:2] == ["volume", "rm"] for a in calls_since(before))
-    # No legacy credential remains a hard refusal for an existing database.
-    # A fresh deployment instead mints a private secret in HOME's state path.
-    fresh_checkout = scratch / "fresh checkout"
-    (fresh_checkout / "zig-out").mkdir(parents=True)
-    (fresh_checkout / "zig-out/product").symlink_to(product, target_is_directory=True)
-    env["GLOWCAP_CHECKOUT_ROOT"] = str(fresh_checkout)
-    env["HOME"] = str(scratch / "fresh home")
-    del env["XDG_STATE_HOME"]
-    fresh_state = Path(env["HOME"]) / ".local/state/glowcap/rooms-deployment"
-    before = len(log.read_text())
-    result = call("up", *args, ok=False)
-    assert "MissingDatabaseSecret" in result.stderr
-    assert not (fresh_state / "secrets/storage-db-password").exists()
-    untouched(before)
-    del env["EXISTING_VOLUME"]
-    call("up", *args)
-    assert len((fresh_state / "secrets/storage-db-password").read_bytes().strip()) == 64
 
 
 def deadline(binary, scratch):

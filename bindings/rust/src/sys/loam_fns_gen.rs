@@ -33,6 +33,13 @@ unsafe extern "C" {
 		out_bytes: *mut usize,
 	) -> c_int;
 	pub fn glowcap_loam_call_source(call: *mut GlowcapLoamCall, out_reference: *mut GlowcapReference) -> c_int;
+	pub fn glowcap_loam_call_accounting_path(
+		call: *mut GlowcapLoamCall,
+		out_path: *mut GlowcapLoamObject,
+		capacity: usize,
+		out_count: *mut usize,
+	) -> c_int;
+	pub fn glowcap_loam_call_refuse_copying(call: *mut GlowcapLoamCall, reason: *const c_uchar, len: usize) -> c_int;
 	pub fn glowcap_loam_call_retain_prepared_reference(
 		call: *mut GlowcapLoamCall,
 		reference: *const GlowcapReference,

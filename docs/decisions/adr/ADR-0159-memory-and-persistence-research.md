@@ -14,12 +14,12 @@ amended_by: [ADR-0161, ADR-0165]
 
 ## Context
 
-The managed access storage plan selected SQLite before comparing native graph and memory
-persistence designs. Resource access lifecycle is one consumer of those
-mechanisms. Ordinary glowcap actors should be able to benefit from generic
+The managed access storage plan selected SQLite before native graph and memory
+persistence designs were compared. Resource access lifecycle is one consumer of
+those mechanisms. Ordinary glowcap actors should be able to benefit from generic
 persistence without acquiring the access module's resource and grant model.
 
-The [research plan](../../planning/loam/research/memory-persistence.md) examines
+The [research plan](../../loam/research/memory-persistence.md) examines
 embedded transactional stores, persistent regions, reference reconstruction,
 and memory ownership together. It distinguishes persistent data, durable
 capabilities, and recoverable execution, with primary sources and experiments.
@@ -27,7 +27,7 @@ capabilities, and recoverable execution, with primary sources and experiments.
 ## Decision
 
 Reopen ADR-0157's unconditional first-native-backend choice. SQLite is a
-transactional baseline; LMDB is a competing physical-store candidate. Test a
+transactional baseline. LMDB is a competing physical-store candidate. Test a
 packed immutable-region layout separately from engine recovery, initially
 using an existing engine for atomic root publication. A custom engine remains
 an option if measured constraints justify its cost.
@@ -44,9 +44,9 @@ operation share one persistence transaction rather than independent commits.
 Sleepy actors are required in the first durable actor integration. Held
 references retain identity while eligible behavior state leaves RAM. Eventual
 delivery activates cold targets through the existing executor and Vat queues.
-Synchronous near calls require resident pinned targets or explicit acquisition;
-they cannot hide disk I/O or replay effects. The
-[sleepy-actor contract](../../planning/loam/actors.md)
+Synchronous near calls require resident pinned targets or explicit acquisition.
+They cannot hide disk I/O or replay effects. The
+[sleepy-actor contract](../../loam/actors.md)
 owns activation, eviction, commit visibility, retention, and acceptance tests.
 
 Inventory and reuse the existing Rooms session, grant, archive, filesystem,
@@ -57,14 +57,14 @@ generic integration must preserve those recovery and authority guarantees.
 
 Reuse the existing Host, Vat, reference custody, promises, and embedding
 executor. Persistent execution must specify durable acceptance and external
-effects separately; graph snapshots do not establish either. No new scheduler
+effects separately. Graph snapshots do not establish either. No new scheduler
 or protocol table is authorized by the choice of storage representation.
 
 ## Consequences and evidence
 
 The next backend step is comparative implementation and recovery evidence,
 not automatic adoption of SQLite or a bespoke mmap allocator. Native pointer
-access is not a sandbox for arbitrary unsafe code; remote reference authority
+access is not a sandbox for arbitrary unsafe code. Remote reference authority
 continues to come through CapTP. Historical content snapshots cannot restore
 historical grant authority for an ordinary managed call.
 

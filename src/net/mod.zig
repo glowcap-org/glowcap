@@ -4,7 +4,7 @@
 //! and does no I/O. This layer is where a host's `std.Io` drives an `engine.Peer`
 //! over a live stream. `Connection` unwraps the byte-stream envelope, applies each
 //! body as one whole frame, and writes outbound frames through the same envelope.
-//! It is not part of the core; `net` and the driver adapters own `std.Io`.
+//! It is not part of the core. `net` and the driver adapters own `std.Io`.
 //!
 //! ## Bring your own transport (ADR-0030)
 //!
@@ -48,7 +48,7 @@ pub const classifyApplyError = connection.classifyApplyError;
 
 pub const FrameStream = frame_stream.FrameStream;
 /// Where stream bytes wait when they have arrived but do not yet make a whole
-/// frame. Shared with the byte-fed host tier as `foundation.Spill`; at this tier
+/// frame. Shared with the byte-fed host tier as `foundation.Spill`. At this tier
 /// it is the bounded overflow behind a read buffer (ADR-0041).
 pub const Spill = frame_stream.Spill;
 /// What a drained spill keeps here: nothing. See `frame_stream.spill_retain_bytes`.
@@ -74,7 +74,7 @@ pub const clock = @import("clock.zig");
 pub const poll = @import("poll.zig");
 
 /// Transport-neutral TLS engine state and buffer-ownership contract. Concrete
-/// engines live at the adapter edge; TCP remains a raw byte transport.
+/// engines live at the adapter edge. TCP remains a raw byte transport.
 pub const tls = struct {
     pub const engine = @import("tls/engine.zig");
     pub const pollable_stream = @import("tls/pollable_stream.zig");
@@ -85,14 +85,14 @@ pub const tls = struct {
 
 /// The native TCP transport provider and its `plain`, `keyed`, and `noise`
 /// profiles. The namespace owns their shared socket realization and fixed
-/// provider composition; drivers consume it without enumerating the profiles.
+/// provider composition. Drivers consume it without enumerating the profiles.
 pub const tcp = @import("transport/tcp.zig");
 
 /// The `onion` netlayer, the one transport symbol the OCapN draft standardizes:
 /// the two headless byte helpers (SOCKS5 out, the Tor control protocol for
 /// hosting), the streams that carry them, and the resident that dials and accepts
 /// over the netlayer contract (ADR-0108). Reached through a Tor daemon the
-/// deployment runs; glowcap starts none.
+/// deployment runs. Glowcap starts none.
 pub const onion = @import("transport/onion/mod.zig");
 
 /// The socket library: raw OS socket + stream plumbing beneath a netlayer,
@@ -101,13 +101,13 @@ pub const onion = @import("transport/onion/mod.zig");
 pub const socket = @import("socket.zig");
 
 /// Short-critical-section spin-lock for adapter-level synchronization. The
-/// sans-io core bans `std.atomic`; net and transport C-ABI adapters share this
+/// sans-io core bans `std.atomic`. Net and transport C-ABI adapters share this
 /// home. See `sync.zig`.
 pub const sync = @import("sync.zig");
 
 /// The cross-thread wake channel: a nonblocking socketpair a waiting thread
 /// polls (or arms a completion recv on) and any thread nudges. `WouldBlock` is
-/// explicit coalesced success; every other write or drain fault is returned
+/// explicit coalesced success. Every other write or drain fault is returned
 /// and first-failure latched by owners under ADR-0089. The off-turn settle
 /// mailbox rides it (ADR-0102). See `wake_channel.zig`.
 pub const wake_channel = @import("wake_channel.zig");
@@ -118,7 +118,7 @@ pub const OperationLatch = operation_owner.OperationLatch;
 pub const TransportOperationCompletion = @import("transport/operation_completion.zig").Completion;
 
 /// Opt-in TCP keepalive (idle/interval/count). One public door: the socket
-/// library. NAT hold-open / dead-remote-host reclaim — not orphan-process
+/// library. NAT hold-open / dead-remote-host reclaim, not orphan-process
 /// reaping. See `socket.Keepalive`.
 pub const Keepalive = socket.Keepalive;
 
@@ -147,13 +147,13 @@ pub const relay = @import("transport/relay.zig");
 
 /// Sans-I/O RFC 6455 client protocol machinery shared by relay transports.
 /// Relay implementations import the leaf by relative path to avoid a
-/// `net` -> `relay` -> `net` cycle; consumers reach it here.
+/// `net` -> `relay` -> `net` cycle. Consumers reach it here.
 pub const websocket = @import("websocket.zig");
 
 /// Shared `std.Io` Reader/Writer scaffolding for byte-source residents
 /// (inproc, iroh). Pub because the out-of-graph iroh resident is its own
 /// module root under `transport/` and cannot `@import("../stream_shim.zig")`
-/// — that path sits outside its module directory (ADR-0040).
+/// because that path sits outside its module directory (ADR-0040).
 pub const stream_shim = @import("stream_shim.zig");
 
 /// The netlayer contract the driver dials and hosts against, as its own named
@@ -161,16 +161,16 @@ pub const stream_shim = @import("stream_shim.zig");
 /// `[]const Netlayer` is the set a host speaks, and `net.netlayer.resolve`
 /// dispatches a transport symbol against that slice. `net.netlayer.Listener` is
 /// the listener a netlayer yields. Providers compose related realizations into
-/// the slice; `net.tcp.Provider`, for example, owns plain, keyed, and sealed TCP.
+/// the slice. `net.tcp.Provider`, for example, owns plain, keyed, and sealed TCP.
 /// Adding a profile changes its provider, not the driver or bindings. The OCapN
-/// concept itself — the locator and its `transport` symbol —
-/// lives in `model`; this is only its I/O realization.
+/// concept itself, the locator and its `transport` symbol,
+/// lives in `model`. This is only its I/O realization.
 pub const netlayer = @import("netlayer.zig");
 pub const OperationOptions = netlayer.OperationOptions;
 
 /// The multiplexed-resident contract (ADR-0112): a transport that multiplexes
-/// its connections behind one readiness descriptor — the iroh and WebRTC
-/// shape — as a runtime vtable a `driver.HostRuntime` hosts beside its
+/// its connections behind one readiness descriptor, the iroh and WebRTC
+/// shape, as a runtime vtable a `driver.HostRuntime` hosts beside its
 /// per-descriptor wires.
 pub const multiplexed_resident = @import("multiplexed_resident.zig");
 pub const MultiplexedResident = multiplexed_resident.MultiplexedResident;
@@ -185,7 +185,7 @@ pub const readiness = @import("readiness.zig");
 pub const ReadySet = readiness.ReadySet;
 
 /// The portable completion-loop server, generic over its platform backend. The
-/// connection orchestration is OS-neutral; the platform completion primitive is a
+/// connection orchestration is OS-neutral. The platform completion primitive is a
 /// `Backend` it is parameterized over. See `completion/loop.zig`.
 pub const completion = loop_mod;
 /// Stable phase and exact causal chain reported by transport carriers. The
@@ -193,7 +193,7 @@ pub const completion = loop_mod;
 pub const carrier_failure = @import("carrier_failure.zig");
 
 /// The io_uring completion backend (Linux). Empty off Linux so other builds stay
-/// clean; it implements the `completion` backend interface and is reached
+/// clean. It implements the `completion` backend interface and is reached
 /// through `Loop` below.
 const uring = if (@import("builtin").os.tag == .linux) @import("completion/uring.zig") else struct {};
 const linux_completion = if (@import("builtin").os.tag == .linux) @import("completion/linux.zig") else struct {};
@@ -206,7 +206,7 @@ pub const epoll_white_box = if (@import("builtin").is_test and @import("builtin"
     epoll.white_box
 else
     struct {};
-/// Test-only access to Linux backend invariants; empty in production builds.
+/// Test-only access to Linux backend invariants. Empty in production builds.
 pub const uring_white_box = if (@import("builtin").is_test and @import("builtin").os.tag == .linux)
     uring.white_box
 else
@@ -241,8 +241,8 @@ else
 /// per-OS backend selection. The OCapN conformance harness does exactly that
 /// (`conformance/ocapn-conformance/glowcap_peer.zig`), binding a locator whose
 /// address lives in the locator hints. `Backend.initWithListenerIp4` selects a
-/// native listener interface before the value is moved into `TcpLoop`; the
-/// ordinary constructor deliberately defaults to loopback. An empty struct off
+/// native listener interface before the value is moved into `TcpLoop`. The
+/// ordinary constructor defaults to loopback. An empty struct off
 /// the supported platforms.
 pub const Backend = if (@import("builtin").os.tag == .linux)
     linux_completion.Backend
@@ -300,14 +300,14 @@ else
     struct {};
 
 /// The ready-to-use native onion completion loop. Tor conversations stay in
-/// `OnionBackend`; `completion.Loop` remains transport-blind.
+/// `OnionBackend`. `completion.Loop` remains transport-blind.
 pub const OnionLoop = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
     completion.Loop(OnionBackend, OnionDialResolver)
 else
     struct {};
 
 /// The host platform backend wrapped with native keyed-relay outbound dials.
-/// TCP accept/dial still ride the platform backend directly; `keyed-relay`
+/// TCP accept/dial still ride the platform backend directly. `keyed-relay`
 /// dials are evented WebSocket client legs to a configured relay. Use
 /// `initWithBackend` with `relay.CompletionBackend(Backend).initWithRelay`
 /// when constructing the loop so the relay URL, WebSocket entropy, and optional

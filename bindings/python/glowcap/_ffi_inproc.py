@@ -4,12 +4,12 @@ The in-process transport ships as its own à-la-carte archive (ADR-0059),
 symbol-disjoint from the core ``libglowcap_ocapn``: it carries the
 ``glowcap_inproc_*`` family plus its own thread-local last-error
 (``glowcap_inproc_last_error`` / ``_clear``). It is the socket-free sibling of
-the TCP connections — two peers in one process wired by in-process pipes, with no
-kernel transport; the listener wake descriptor carries no application bytes —
+the TCP connections, two peers in one process wired by in-process pipes, with no
+kernel transport. The listener wake descriptor carries no application bytes,
 and a listener binds to an opaque
 string designator rather than a ``host:port``. This module loads only that
 archive, reusing the shared ``Structure`` types from :mod:`glowcap._ffi_ocapn` by
-layout. Nothing here is public; :mod:`glowcap.inproc` is the ergonomic surface
+layout. Nothing here is public. :mod:`glowcap.inproc` is the ergonomic surface
 over it.
 """
 

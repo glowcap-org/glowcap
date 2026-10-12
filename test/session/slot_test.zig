@@ -54,13 +54,13 @@ test "slot projection through real syrup codec matches oracle corpus descriptors
     // Oracle fixtures (generate.rkt): resolve fulfill carrying each desc:*.
     // Fixture names are historical; bytes are the wire truth.
     const oracle_cases = [_]struct { []const u8, slot.Slot }{
-        // `<…<desc:export 5+>>` — remote value → far on encode
+        // `<…<desc:export 5+>>`, remote value → far on encode
         .{ "op_resolve_fulfill_far.bin", .{ .remote_value = 5 } },
-        // `<…<desc:import-object 9+>>` — local value → near object on encode
+        // `<…<desc:import-object 9+>>`, local value → near object on encode
         .{ "op_resolve_fulfill_near.bin", .{ .local_value = 9 } },
-        // `<…<desc:answer 11+>>` — remote unresolved → promise/answer on encode
+        // `<…<desc:answer 11+>>`, remote unresolved → promise/answer on encode
         .{ "op_resolve_fulfill_promise.bin", .{ .remote_unresolved = 11 } },
-        // `<…<desc:import-promise 99+>>` — local unresolved → near promise on encode
+        // `<…<desc:import-promise 99+>>`, local unresolved → near promise on encode
         .{ "op_resolve_fulfill_import_promise.bin", .{ .local_unresolved = 99 } },
     };
 

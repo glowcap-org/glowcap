@@ -1,8 +1,8 @@
 """Session byte-pump and terminal-lifecycle ownership.
 
 The public :class:`Session` owns the fields. This leaf owns every transition
-from a live byte channel to one published terminal outcome. It deliberately
-has no initializer or finalizer: construction belongs to the package root,
+from a live byte channel to one published terminal outcome. It has no
+initializer or finalizer: construction belongs to the package root,
 and explicit close remains the only release policy.
 """
 
@@ -133,7 +133,7 @@ class _LifecycleMixin:
 
     @property
     def terminal_failures(self) -> tuple[BaseException, ...]:
-        """Terminal failures in observation order; the first is authoritative."""
+        """Terminal failures in observation order. The first is authoritative."""
         return tuple(getattr(self, "_terminal_failures", ()))
 
     @property
@@ -226,7 +226,7 @@ class _LifecycleMixin:
         await asyncio.shield(task)
 
     def _request_loop_close(self, loop_ref, ptr, options) -> "asyncio.Task[None]":
-        """Start one loop request; the coordinator retains and observes it."""
+        """Start one loop request. The coordinator retains and observes it."""
         task = asyncio.get_running_loop().create_task(
             loop_ref.close_session(ptr, options)
         )

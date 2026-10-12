@@ -13,12 +13,12 @@
 //!
 //! Two passes per N:
 //!
-//!   1. **Batch mean** — no per-turn clock reads, total elapsed / turns. The
+//!   1. **Batch mean**: no per-turn clock reads, total elapsed / turns. The
 //!      N=1 row of this pass is the same measurement `bench-codec`'s dispatch
 //!      makes, the cross-check that the harness reproduces the warm headline.
-//!   2. **Per-turn samples** — one clock read pair per turn, sorted for
+//!   2. **Per-turn samples**: one clock read pair per turn, sorted for
 //!      p50/p99. Each sample carries the timer-read overhead, which is
-//!      measured and reported alongside so the percentiles read honestly.
+//!      measured and reported alongside so the percentiles read accurately.
 //!
 //! Run `zig build bench-dispatch-scaling` (use `-Doptimize=ReleaseFast` for
 //! absolute figures) to measure and write the report under
@@ -34,7 +34,7 @@ const glowcap = @import("glowcap");
 const engine = glowcap.ocapn.engine;
 const model = glowcap.ocapn.model;
 
-/// One inbound `op:deliver` to live local export 7 — the steady-state turn the
+/// One inbound `op:deliver` to live local export 7, the steady-state turn the
 /// alloc-budget test pins and `bench-codec`'s dispatch drives, so the N=1 row
 /// is directly comparable.
 // No-answer (`#f` answer position) deliver: re-applied to one peer across the
@@ -45,7 +45,7 @@ const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
 /// (ReleaseFast). docs/ladder.md step 2 owns this number. It is a tripwire at
 /// roughly an order of magnitude over the measured figure, so crossing it
 /// means a structural regression (an accidental copy in the loop, a Debug-only
-/// path leaking into hot code, an asymptotic slip), never machine noise —
+/// path leaking into hot code, an asymptotic slip), never machine noise,
 /// which is also why it gates: a threshold tight enough to catch a 20% drift
 /// would flake across hardware, and a gate that flakes is worse than a print.
 pub const gate_warm_dispatch_ceiling_ns: f64 = 2_000;
@@ -54,7 +54,7 @@ const gate_batches = 5;
 const gate_turns_per_batch = 20_000;
 
 /// The `--gate` arm: one warmed peer, `gate_batches` batch means over
-/// `gate_turns_per_batch` turns each, gated on the minimum batch mean — the
+/// `gate_turns_per_batch` turns each, gated on the minimum batch mean, the
 /// right estimator for CPU-bound work, since a contention spike inflates some
 /// batches but almost never all of them. Exits red past the ceiling.
 fn runGate(io: std.Io, backing: std.mem.Allocator) !void {
@@ -116,7 +116,7 @@ const Measurement = struct {
 
 /// Time `rounds` passes over `peers` in the visiting order `order` gives:
 /// a batch pass for the mean (no per-turn clock reads), then a sampled pass
-/// for p50/p99 (one clock-read pair per turn; the caller reports that
+/// for p50/p99 (one clock-read pair per turn. The caller reports that
 /// overhead alongside).
 fn runOrder(
     io: std.Io,
@@ -159,7 +159,7 @@ fn runOrder(
 /// Stand up `n` warmed peers and drive `rounds` delivers through each, once
 /// in array order and once in a shuffled order. By the time a round returns
 /// to a peer, the other n-1 turns evicted its session state, so every turn at
-/// large `n` touches cold tables — the regime a many-connection server
+/// large `n` touches cold tables, the regime a many-connection server
 /// actually runs in. The shuffled order additionally defeats the prefetcher's
 /// ascending-address pattern, which is what real arrival order looks like.
 fn measure(

@@ -45,11 +45,11 @@ pub const TryWrite = union(enum) {
 
 /// `Ops` binds the machine to one backend:
 ///
-///   * `Entry`, the connection row, with a `pending: HintedPending` field;
+///   * `Entry`, the connection row, with a `pending: HintedPending` field.
 ///   * `tryRead(entry, buf) TryRead` and `tryWrite(entry, bytes) TryWrite`,
 ///     the sidecar verbs;
-///   * `closeOnFailure(entry) void`, run once when a failure latches;
-///   * `borrowToken(index) u32`, the token a lent pool buffer carries;
+///   * `closeOnFailure(entry) void`, run once when a failure latches.
+///   * `borrowToken(index) u32`, the token a lent pool buffer carries.
 ///   * `reserveSeats(backend, count) !void` and `publish(backend, completion)
 ///     void`, the ready queue's admission and its infallible append;
 ///   * `holds_admission_seat`, whether an admitted read or write keeps its

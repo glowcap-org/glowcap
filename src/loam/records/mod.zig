@@ -1,5 +1,5 @@
-//! Bounded storage records. The Syrup envelope owns schema and reference fields;
-//! its checksum detects accidental corruption, not a hostile storage operator.
+//! Bounded storage records. The Syrup envelope owns schema and reference fields.
+//! Its checksum detects accidental corruption, not a hostile storage operator.
 const std = @import("std");
 const syrup = @import("syrup");
 const syntax = syrup.RecordSyntax;
@@ -38,7 +38,7 @@ pub const Edge = struct {
     target: ObjectId,
     strength: enum { strong, weak } = .strong,
     /// The hosting layer interprets recipe records. Tracing follows the same
-    /// strong dependency in either case; the portable core never restores it.
+    /// strong dependency in either case. The portable core never restores it.
     restoration: enum { object, recipe } = .object,
 
     /// All persisted identities and flags have one fixed encoded width.
@@ -53,7 +53,7 @@ pub const Schema = struct {
     max_payload: usize,
     max_edges: usize,
     /// Optional immutable 128-bit discovery name inside the payload. The
-    /// storage transaction indexes it by schema; a name never changes targets.
+    /// storage transaction indexes it by schema. A name never changes targets.
     name_offset: ?usize = null,
 
     /// Maximum physical bytes for this schema, including envelope and checksum.
@@ -138,7 +138,7 @@ pub const Record = struct {
 };
 
 /// All slices borrow the encoded record. Decode validates every edge before
-/// returning; iteration performs no allocation and does not load its targets.
+/// returning. Iteration performs no allocation and does not load its targets.
 pub const View = struct {
     id: ObjectId,
     revision: u64,

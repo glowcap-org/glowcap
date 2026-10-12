@@ -215,9 +215,9 @@
 
 ;; The park thread: sleep on the readiness fd (the place's rktio poller wakes
 ;; the semaphore when it is readable, so every other green thread keeps
-;; running), and on each wake run the ordinary drain — GC, parked releases,
+;; running), and on each wake run the ordinary drain (GC, parked releases,
 ;; one zero-timeout step, the event dispatch, the post-lock effects, and the
-;; progress bump every parked pump waits on. Descriptor readiness advances
+;; progress bump every parked pump waits on). Descriptor readiness advances
 ;; I/O; the timeout comes from the native driver's complete nearest-deadline
 ;; calculation, so Racket never re-encodes which operation needs a clock.
 (define (park-run lp)
@@ -252,9 +252,9 @@
 
 ;; The loop arm of `drain-host-actions!` (installed below): bracketed
 ;; zero-timeout steps plus event drains through quiescence, under the host lock
-;; the caller already holds. Mid-turn there is no step — behaviors fire inside the
+;; the caller already holds. Mid-turn there is no step: behaviors fire inside the
 ;; enclosing step, and everything a turn enqueued surfaces when it unwinds
-;; into this same drain — and a released loop drains nothing.
+;; into this same drain. A released loop drains nothing.
 (define (loop-drain! m lp)
   (cond
     [(or (inside-turn?) (not (loop-running? lp))) no-drain-effects]
@@ -340,7 +340,7 @@
   (reverse (pop-events-onto! lp '())))
 
 ;; Dispatch drained events under the host lock, returning the post-lock
-;; fires: settle listeners and dead-session retirement, exactly the split
+;; fires: settle listeners and dead-session retirement, the split
 ;; the byte-fed drain keeps.
 (define (dispatch-events! m lp events)
   (define fires

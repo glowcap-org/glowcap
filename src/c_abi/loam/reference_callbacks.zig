@@ -27,7 +27,7 @@ fn callSizeBound(restores: usize, saves: usize, uri_bytes: usize) !usize {
 }
 
 /// Extra retained-call bytes for opt-in restoration URI copies. No I/O or
-/// allocation occurs here; normal reference preparation is counted separately.
+/// allocation occurs here. Normal reference preparation is counted separately.
 pub fn glowcap_loam_reference_uri_call_size_bound(count: usize, uri_bytes: usize, out_bytes: ?*usize) callconv(.c) i32 {
     common.shared.lastErrorClear();
     const out = out_bytes orelse return common.shared.GLOWCAP_ERR_NULL_POINTER;
@@ -62,7 +62,7 @@ pub fn declare(ctx: ?*anyopaque, arena: std.mem.Allocator, invocation: common.ac
 }
 
 /// The synchronous declaration borrows C buffers. The retained preparation
-/// owns its bounded request spine and URI copies of at most GLOWCAP_LOAM_MAX_URI_BYTES;
+/// owns its bounded request spine and URI copies of at most GLOWCAP_LOAM_MAX_URI_BYTES.
 /// Host save quotas bound active enlivenment. No callback borrow survives.
 pub fn save(raw: ?*c.GlowcapLoamReferences, reference: common.shared.GlowcapReference, uri: ?[*]const u8, uri_len: usize) !void {
     const declaration: *Declaration = @ptrCast(@alignCast(raw orelse return error.NullPointer));
@@ -73,7 +73,7 @@ pub fn save(raw: ?*c.GlowcapLoamReferences, reference: common.shared.GlowcapRefe
 }
 
 /// Explicit live declaration copies only the request spine. Shared preparation
-/// reserves exact capability custody before waits; no runtime ID is persisted.
+/// reserves exact capability custody before waits. No runtime ID is persisted.
 pub fn saveLive(raw: ?*c.GlowcapLoamReferences, reference: common.shared.GlowcapReference) !void {
     const declaration: *Declaration = @ptrCast(@alignCast(raw orelse return error.NullPointer));
     if (declaration.requests.items.len >= declaration.capacity) return error.ReferenceCapacity;

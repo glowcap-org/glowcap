@@ -21,7 +21,7 @@ export function RailSection(
 		/** A control standing in for the plain label, given this section's title
 		 * to draw and the head it stands in. A section says what it is called.
 		 * Whether those words are also something to press belongs to whoever
-		 * hands one in; the head is for a control whose panel spans the section
+		 * hands one in. The head is for a control whose panel spans the section
 		 * rather than the words, so it can measure against the line it labels. */
 		heading?: (title: string, head: { current: HTMLDivElement | null }) => ReactNode;
 		/** This section's own "+" and the field under it, when it has one. Where

@@ -152,8 +152,8 @@ impl<T: Clone> Drop for Ticket<T> {
 }
 
 /// Reuse a fresh result or one in-flight effect. The last cancelled waiter
-/// removes the pending owner and therefore drops the unpolled network future;
-/// completion caches only the exact pending generation it started.
+/// removes the pending owner and therefore drops the unpolled network future.
+/// Completion caches only the exact pending generation it started.
 pub async fn coalesce<T, F>(pool: &Rc<RefCell<Pool<T>>>, key: String, make: F) -> T
 where
 	T: Clone + 'static,

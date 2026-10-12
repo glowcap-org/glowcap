@@ -3,7 +3,7 @@ id: ADR-0147
 status: accepted
 date: 2026-09-06
 tags: [rooms, rust, wasm, application]
-decision: "Rooms application policy and capability custody belong to one portable Rust implementation, compiled for process execution and linked with the Zig Host in browser Wasm; rendering and platform I/O remain adapters."
+decision: "Rooms application policy and capability custody belong to one portable Rust implementation, compiled for process execution and linked with the Zig Host in browser Wasm. Rendering and platform I/O remain adapters."
 supersedes: []
 superseded_by: []
 amends: []
@@ -45,7 +45,7 @@ services. Their platform crate supplies listeners, TLS, storage and process
 readiness. The browser supplies IndexedDB, Web Crypto, timers, WebSocket and
 RTCDataChannel adapters. Both consume the same session executor and grants.
 
-Direct linking preserves one memory; platform transports retain bounded queues
+Direct linking preserves one memory. Platform transports retain bounded queues
 and physical close ownership. Host-owned tasks finish admitted transitions after
 observer cancellation and retire on shutdown. Retirement waits before releasing
 channels, callbacks or their parent RTC connection.

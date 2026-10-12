@@ -1,7 +1,7 @@
 //! Managed driver and byte-fed connection composition.
 //!
 //! A [`Runtime`] is the one durable owner of a Host and its transport authority.
-//! Providers are installed once into one driver loop; byte-fed connectors
+//! Providers are installed once into one driver loop. Byte-fed connectors
 //! are installed once into the Host's transport registry. A connect operation
 //! selects only the already-installed transport, so provider construction and
 //! connector retention never sit on the wire path.
@@ -33,7 +33,7 @@ enum Composition {
 /// Configuration for one managed [`Runtime`].
 ///
 /// A configuration chooses one transport ownership model. Driver providers
-/// make the Runtime the owner of one driver loop; connectors retain the
+/// make the Runtime the owner of one driver loop. Connectors retain the
 /// embedder's byte-channel callbacks on the Runtime's Host. The configuration
 /// owns the selected values until [`Runtime::open`] commits them.
 pub struct RuntimeConfig {

@@ -172,7 +172,7 @@
     (bcom (^counter bcom next) next)))
 
 ;; The `local` mode (see contract.md): the reference row measures only the
-;; in-vat figure — a Goblins actor in one vat, `n` sequential send→settle
+;; in-vat figure: a Goblins actor in one vat, `n` sequential send→settle
 ;; units, each settled through the vat before the next. There is no C host
 ;; under Goblins, so the via_host fields and the ratio are JSON null; the
 ;; orchestrator's host/port arguments are unused.

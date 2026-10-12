@@ -1,0 +1,3 @@
+# One `// SAFETY:` comment above a statement covers every unsafe block in it,
+# so `check(unsafe { ... })` needs one comment, not one per block.
+accept-comment-above-statement = true

@@ -28,7 +28,7 @@ pub const Attachment = struct {
     work_slots: []@import("work.zig").Work,
     live_scope: ?*common.hosting.LiveScope = null,
     /// Startup reserves declaration/behavior arrays and cache_slots + 1 Work
-    /// slots. Their independent admission limit bounds executor custody;
+    /// slots. Their independent admission limit bounds executor custody.
     /// The pool refuses pressure rather than allocating handles in a turn.
     /// Both inventories survive suspended calls and are freed only after detach.
     pub fn create(store: *common.Store, host: ?*common.host.GlowcapHost, contents: []const c.GlowcapLoamContent, entropy: c.GlowcapLoamEntropyFn, ctx: ?*anyopaque) !*Attachment {

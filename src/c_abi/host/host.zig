@@ -4,7 +4,7 @@
 //! Host publish, GC release, and the archive's own last-error
 //! slot. The advertised-locator verbs live in `locators.zig`, the per-session
 //! verbs in `session.zig`, the turn-time verbs in `turn.zig`, and the
-//! convenience drain in `pump.zig`; the module root (`mod.zig`) owns the
+//! convenience drain in `pump.zig`. The module root (`mod.zig`) owns the
 //! public C types these exports fill.
 
 const std = @import("std");
@@ -62,7 +62,7 @@ pub fn hostNewIn(
         return GLOWCAP_ERR_INVALID_ARGUMENT;
     }
     // One buffer, two independent inputs (ADR-0097). The first 32 bytes are
-    // the host's durable identity and must stay stable across restarts — a
+    // the host's durable identity and must stay stable across restarts: a
     // keyed locator's designator is derived from them. The next 32 are the
     // session-key root, and they must be *fresh per process*: they are what
     // makes each session sign with its own key, and what stops a restarted
@@ -125,9 +125,9 @@ pub fn hostNewIn(
 /// Create a byte-fed host bound to a caller-drawn 64-byte seed buffer: the
 /// durable Ed25519 identity in the first 32 bytes, then a fresh per-process
 /// session-key root (ADR-0097). The host never draws entropy. `frame_cap`
-/// sizes every session's maximum admissible frame;
-/// a nonzero `verify_partner` keeps partner-signature verification on (the
-/// secure default); `codec`, `captp_version`, and `features` are this host's
+/// sizes every session's maximum admissible frame.
+/// A nonzero `verify_partner` keeps partner-signature verification on (the
+/// secure default). `codec`, `captp_version`, and `features` are this host's
 /// preferred profile offer. The signed hello carries them as locator hints,
 /// and each session settles them with its partner. `local_turn_budget` caps
 /// local-turn amplification per session (ADR-0076):
@@ -182,7 +182,7 @@ pub fn glowcap_host_diagnostic_id(host: ?*GlowcapHost, out_id: ?*u64) callconv(.
 }
 
 /// Seal application admission and begin or escalate terminal Host close. The
-/// byte-fed embedder supplies its monotonic clock reading; shared Zig state
+/// byte-fed embedder supplies its monotonic clock reading. Shared Zig state
 /// retains the first deadline and owns expiry semantics.
 pub fn glowcap_host_close(
     host: ?*GlowcapHost,
@@ -205,7 +205,7 @@ pub fn glowcap_host_close_progress(host: ?*GlowcapHost, now_ms: i64, out_state: 
 /// grace deadline, the Host's own or any session's, clamped at zero. Writes -1
 /// when no finite deadline is pending, meaning only feed, action-drain,
 /// settle, or escalation activity can advance terminal progress, so the
-/// embedder may park on activity alone. Poll-shaped on purpose: the value
+/// embedder may park on activity alone. Poll-shaped: the value
 /// drops straight into a wait primitive's timeout argument.
 pub fn glowcap_host_close_wait_ms(host: ?*GlowcapHost, now_ms: i64, out_wait_ms: ?*i64) callconv(.c) i32 {
     shared.lastErrorClear();
@@ -224,10 +224,10 @@ pub fn glowcap_host_lifecycle_state(host: ?*GlowcapHost, out_state: ?*u32) callc
 /// freed with the rest of the action queue), the vow map, parked actions,
 /// the node, and the publication rows (each publication's `free` runs exactly once
 /// here). Null is a no-op. HostSession (`GlowcapHostSession`) handles this host minted
-/// are freed with it — release the sessions first if you hold them, and never
+/// are freed with it. Release the sessions first if you hold them, and never
 /// touch one after its host is gone. Because release is terminal, an embedder
 /// may transfer exclusive ownership to a finalizer thread after every Host call
-/// has returned; no live Host verb gains cross-thread permission. Refused (with
+/// has returned. No live Host verb gains cross-thread permission. Refused (with
 /// the last error set) from inside a callback.
 pub fn release(host: ?*GlowcapHost) i32 {
     return host_lifecycle.release(host);
@@ -241,7 +241,7 @@ pub fn glowcap_host_release(host: ?*GlowcapHost) callconv(.c) i32 {
 // ── Dial / accept planning (driver_core.planDial / planAccept) ────────────────
 //
 // The transport dispatch, designator validation, host:port resolution, and
-// peer-id reachability decision every language binding used to re-express in
+// peer-id reachability decision that every language binding would otherwise repeat in
 // its own connect / dial_exporter / Server.accept. A binding calls the planner,
 // opens the byte channel the plan names in its own runtime, then feeds it back
 // through glowcap_host_session_open_dialed_locator /
@@ -282,7 +282,7 @@ pub fn glowcap_host_pending_dial_introducer(
 /// after a send to distinguish a capability homed on the sending session from
 /// one redeemed onto another exporter session. The result comes from the
 /// reference's own Host row, with no dial-completion capture window. The handle
-/// is Host-owned and lives with that session; do not release it here.
+/// is Host-owned and lives with that session. Do not release it here.
 pub fn glowcap_host_reference_exporter(
     host: ?*GlowcapHost,
     reference: ?*const shared.GlowcapReference,
@@ -292,7 +292,7 @@ pub fn glowcap_host_reference_exporter(
     return host_plan.referenceExporter(host, reference, out_session);
 }
 
-/// Project one pure Zig dial plan; all output views borrow the caller's input.
+/// Project one pure Zig dial plan. All output views borrow the caller's input.
 pub fn glowcap_host_plan_dial(
     transport: ?[*]const u8,
     transport_len: usize,
@@ -340,7 +340,7 @@ pub fn glowcap_host_set_trace_queue(
     return host_trace.setTraceQueue(host, capacity, payload_cap);
 }
 
-/// Pop one trace record, borrowed until the next pop; WOULD_BLOCK when empty.
+/// Pop one trace record, borrowed until the next pop. WOULD_BLOCK when empty.
 pub fn glowcap_host_next_trace(
     host: ?*GlowcapHost,
     out: ?*c.GlowcapTraceEvent,
@@ -379,8 +379,8 @@ pub fn glowcap_host_resolver_break(
 }
 
 /// Abandon a deferred answer, top-level. A resolver already consumed by session
-/// teardown or settlement is complete cleanup. Unminted ids remain errors;
-/// every other refusal leaves the operation retryable.
+/// teardown or settlement is complete cleanup. Unminted ids remain errors.
+/// Every other refusal leaves the operation retryable.
 pub fn glowcap_host_resolver_abandon(
     host: ?*GlowcapHost,
     resolver_id: u64,
@@ -391,7 +391,7 @@ pub fn glowcap_host_resolver_abandon(
     return host_actions.resolverAbandon(host, resolver_id, message, message_len);
 }
 
-/// Enliven a sturdyref now or stage its dial; settlement returns as an action.
+/// Enliven a sturdyref now or stage its dial. Settlement returns as an action.
 pub fn glowcap_host_enliven(
     host: ?*GlowcapHost,
     sturdyref_uri: ?[*]const u8,
@@ -436,7 +436,7 @@ pub fn glowcap_host_fetch_at(
 
 /// Pop one borrowed Host action, or WOULD_BLOCK without consuming anything.
 /// Before the pop, queued Host work resumes and may synchronously invoke a
-/// `GlowcapHostBehavior`; binding runtimes must install their Host delivery
+/// `GlowcapHostBehavior`. Binding runtimes must install their Host delivery
 /// context around every drain call.
 pub fn glowcap_host_next_action(host: ?*GlowcapHost, out_action: ?*GlowcapHostAction) callconv(.c) i32 {
     shared.lastErrorClear();
@@ -444,7 +444,7 @@ pub fn glowcap_host_next_action(host: ?*GlowcapHost, out_action: ?*GlowcapHostAc
 }
 
 /// Internal half of `glowcap_host_pump_drain`'s transactional callback
-/// contract. The public pull queue remains consume-on-pop; only the convenience
+/// contract. The public pull queue remains consume-on-pop. Only the convenience
 /// pump can reject an arm before commit and ask for the same borrowed action to
 /// be projected again.
 pub fn retryBorrowedAction(host: ?*GlowcapHost) bool {
@@ -453,8 +453,8 @@ pub fn retryBorrowedAction(host: ?*GlowcapHost) bool {
 
 /// Report a DIAL action's success: `session` is an `open_dialed_locator` against
 /// the pending dial for that ticket and route (`glowcap_host_pending_dial`), driven to an
-/// open session. The node adopts it for every give waiting on the ticket;
-/// the bounded Host pump advances resulting work before return, with pressure
+/// open session. The node adopts it for every give waiting on the ticket.
+/// The bounded Host pump advances resulting work before return, with pressure
 /// retained for the next action drain. A stale or non-running attempt is a
 /// no-op success with `out_adopted` set to zero.
 pub fn glowcap_host_dialed(
@@ -502,9 +502,9 @@ pub fn glowcap_host_gift_id_failed(host: ?*GlowcapHost, ticket: u64) callconv(.c
 // ── Host-wide publish ────────────────────────────────────────────────────────
 
 /// Publish one hosted object in the Vat owned by this Host and bind `name` as its host-wide
-/// alias. Fetch lazily projects the actor onto the requesting Port; a deposited
+/// alias. Fetch lazily projects the actor onto the requesting Port. A deposited
 /// gift retains the exact actor and never consults the alias at withdrawal. The
-/// publication row owns `ctx` —
+/// publication row owns `ctx`:
 /// `free`, if non-null, runs exactly once: at `glowcap_host_release` on
 /// success, or before this returns on any non-OK outcome (except the
 /// null-pointer and reentry refusals, which touch nothing and leave ctx the
@@ -527,10 +527,10 @@ pub fn glowcap_host_publish(
 /// (ADR-0098): the reserved-prefix namespace, unpredictable, never
 /// reassigned, removable only through `glowcap_host_remove_durable`, and
 /// structurally disjoint from every mutable alias. `entropy` supplies
-/// exactly GLOWCAP_HOST_DURABLE_ENTROPY_LEN caller-drawn random bytes — the
+/// exactly GLOWCAP_HOST_DURABLE_ENTROPY_LEN caller-drawn random bytes: the
 /// embedder owns the entropy boundary, as it does for gift ids. The minted
 /// swiss (the name to place in a sturdyref beside this host's own locator)
-/// is written into `out_swiss`; `swiss_cap` must be at least
+/// is written into `out_swiss`. `swiss_cap` must be at least
 /// GLOWCAP_HOST_DURABLE_SWISS_LEN or the call refuses BUFFER_TOO_SMALL and
 /// publishes nothing. Returns the written length. `ctx`/`free` follow
 /// `glowcap_host_publish`'s ownership exactly.
@@ -558,7 +558,7 @@ pub fn glowcap_host_publish_durable(
 }
 
 /// Publish an already-held local capability under a durable name. The
-/// publication retains its own root; the caller's reference stays owned by
+/// publication retains its own root. The caller's reference stays owned by
 /// the caller on success and failure. Entropy and output use the same bounds
 /// as glowcap_host_publish_durable. Foreign capabilities are refused.
 pub fn glowcap_host_publish_reference(
@@ -573,11 +573,11 @@ pub fn glowcap_host_publish_reference(
     return host_publications.publishReference(host, reference, entropy, entropy_len, out_swiss, swiss_cap);
 }
 
-/// Remove a minted durable publication (ADR-0098): the old sturdyref misses
-/// from now on, while capabilities already issued and deposited gifts keep
+/// Remove a minted durable publication (ADR-0098): the sturdyref misses
+/// afterward, while capabilities already issued and deposited gifts keep
 /// the exact actor. A swiss outside the reserved durable namespace returns
 /// GLOWCAP_ERR_INVALID_ARGUMENT (mutable aliases leave through
-/// `glowcap_host_unpublish`); an unknown durable name returns
+/// `glowcap_host_unpublish`). An unknown durable name returns
 /// GLOWCAP_ERR_NOT_FOUND.
 pub fn glowcap_host_remove_durable(
     host: ?*GlowcapHost,
@@ -606,11 +606,11 @@ pub fn glowcap_host_unpublish(
 // ── GC and diagnostics ───────────────────────────────────────────────────────
 
 /// Release `delta` application retains on one opaque Host capability. The Host
-/// resolves the owning session itself; callers never pair a handle with a
+/// resolves the owning session itself. Callers never pair a handle with a
 /// session-local wire position. If that session already closed, its
-/// already-issued application units remain releaseable as wire-free success;
-/// every other use is stale. A non-OK return commits no release, so the same
-/// `(ref, delta)` may be retried. OK consumes the release; any later pump
+/// already-issued application units remain releaseable as wire-free success.
+/// Every other use is stale. A non-OK return commits no release, so the same
+/// `(ref, delta)` may be retried. OK consumes the release. Any later pump
 /// cleanup failure is converted into typed session close and must not invite a
 /// duplicate release. Single-thread affinity applies.
 pub fn glowcap_host_ref_release(host: ?*GlowcapHost, ref: ?*const shared.GlowcapReference, delta: u64) callconv(.c) i32 {

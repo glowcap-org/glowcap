@@ -9,10 +9,10 @@
  * automatically.
  *
  * Mitigation: every entry here is keyed by entity kind, and the
- * post-commit schema check (forthcoming with the transaction API)
+ * post-commit schema check
  * validates the doc against zod after every transaction. An
  * unregistered id-list will surface either as a stale-id collision
- * or as a zod parse failure — slow but guaranteed.
+ * or as a zod parse failure, slow but guaranteed.
  *
  * Convention: any new top-level `string[]`-of-entity-ids field in
  * `TimelineDocument` MUST register here in the same PR that adds it.
@@ -25,10 +25,10 @@
  *   - `read(doc)`: returns the current list, or `undefined` if the
  *     field is absent. Pure.
  *   - `replace(doc, next)`: produces an updated doc with the list
- *     replaced. Pure (returns a new doc; doesn't mutate).
+ *     replaced. Pure (returns a new doc, doesn't mutate).
  *
  * The cascade operations use `read` + `replace` uniformly: to drop a
- * dependent, it filters the list; to rewrite, it maps; to remap, it
+ * dependent, it filters the list. To rewrite, it maps. To remap, it
  * maps via a lookup table.
  */
 
@@ -47,7 +47,7 @@ export type DocIndexEdge = {
 
 /** Build the four-way (rowOrder + 3 rowHidden variants) × three-
  * category (peers/sessions/messages) registry. Each field is a
- * `{ peers?, sessions?, messages? }` object; this generates 12
+ * `{ peers?, sessions?, messages? }` object. This generates 12
  * `DocIndexEdge`s with the right read/replace closures. */
 function makeRowIndexes(): DocIndexEdge[] {
 	const fields = [

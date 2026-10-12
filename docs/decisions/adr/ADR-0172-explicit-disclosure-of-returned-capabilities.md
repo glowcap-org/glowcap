@@ -14,16 +14,14 @@ amended_by: [ADR-0173, ADR-0182]
 
 ## Context
 
-ADR-0169 gives managed use endpoints their reply path, and ADR-0170 lets a
-reply carry a capability only when the service itself minted it through
-derivation. What was missing is the application's half: a `ContentBehavior`
-received a `ContentCall` that could not produce a capability at all, so a
-managed content method could not disclose a stored reference field even when
-that disclosure was the method's entire purpose. The
-[managed storage plan](../../planning/loam/access/storage.md) requires the
-opposite of an ambient escape: applications declare which methods disclose a
-reference, and a limited view must not unwrap a stored original merely
-because it can read one.
+ADR-0169 gives managed use endpoints their reply path, and ADR-0170 lets a reply
+carry a capability only when the service itself minted it through derivation.
+The application's half is missing: a `ContentBehavior` receives a `ContentCall`
+that cannot produce a capability, so a managed content method cannot disclose a
+stored reference field even when that disclosure is its purpose. The [managed
+storage plan](../../loam/access-storage.md) forbids an ambient escape:
+applications declare which methods disclose a reference, and a limited view must
+not unwrap a stored original merely because it can read one.
 
 ## Decision
 
@@ -42,11 +40,11 @@ The declaration is explicit per invocation, not per schema: the trusted
 application names the disclosure where it happens, and the machinery fails
 closed when the reply carries a capability the method never named, including
 an attachment-local capability obtained from outside the call.
-Declared disclosure restores at invocation, while the Store is idle; a
+Declared disclosure restores at invocation, while the Store is idle. A
 revision restart re-runs the method and converges on the same target entry.
 Derivation replies are unaffected: the service builds and bounds those
 itself (ADR-0170). Owning replies still obey the local-resolver rule
-(`OwningReplyRequired`); capability disclosure settles through a Host
+(`OwningReplyRequired`). Capability disclosure settles through a Host
 resolver.
 
 ## Scope (what this does not decide)
@@ -55,14 +53,13 @@ This decision covers exact disclosure only. ADR-0173 adds a dependent mode
 whose per-call admission checks both the invoking endpoint and the stored
 target. Stored foreign references, capability-valued content fields, and the C
 ABI and Rust projection of the disclosure API remain in the
-[managed storage plan](../../planning/loam/access/storage.md).
+[managed storage plan](../../loam/access-storage.md).
 
 ## Alternatives Considered
 
 - **Let `ContentBehavior.invoke` return capabilities and trust the
   application.** Rejected: the disclosure policy would stay ambient in
-  application code, invisible to the authority model, which is exactly the
-  shape the plan forbids.
+  application code, invisible to the authority model, the shape the plan forbids.
 - **Model disclosure as a per-schema declaration on `ContentBehavior`.**
   Rejected: the plan asks for per-method declarations, and a schema-level
   flag cannot distinguish a container view handing out an original from one
@@ -94,5 +91,5 @@ unknown-field refusal plus the local-resolver rule.
 `test/loam/access/hosting_wire_test.zig` covers nested wire delivery,
 callability, and refusal over a live session. The native LMDB
 managed-hosting suite reopens a store and proves the stored reference field
-discloses after restart. All run under `zig build check`; the existing
+discloses after restart. All run under `zig build check`. The existing
 derivation and managed-turn suites are unchanged by this check.

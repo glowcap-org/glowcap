@@ -1,6 +1,6 @@
 /**
  * The endpoint a session is born with, and the open that can draw an
- * end nothing has attributed — including a host that dials itself.
+ * end nothing has attributed, including a host that dials itself.
  */
 
 import { assert, assertEquals } from "@std/assert";
@@ -81,7 +81,7 @@ engineTest("an end's claim is editable, and an empty claim is none", () => {
 
 engineTest("an endpoint edit mirrors onto the opening observation", () => {
 	// The definition is the authority, and the recording says what the
-	// definition says — the same pairing a peer's identity edit keeps
+	// definition says. The same pairing a peer's identity edit keeps
 	// with its join.
 	const e = new Engine(looseDoc());
 	e.updateSessionEndpoint("s1", "b", { peer: "b" });
@@ -120,7 +120,7 @@ engineTest("dispatch routes update-session-endpoint, and guards it", () => {
 engineTest("a session may have one peer on both of its ends", () => {
 	const e = new Engine(buildDoc());
 	// A host that dials itself reports exactly this, and
-	// `updateSessionEndpoint` writes it after the fact — so the creation
+	// `updateSessionEndpoint` writes it after the fact. So the creation
 	// door refusing it, in silence, was the one place the answer differed.
 	const sessionId = e.dispatch({
 		kind: "open-session",

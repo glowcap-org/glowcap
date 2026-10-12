@@ -20,7 +20,7 @@ you are typing. Nobody can speak as you, because nobody else holds your
 seat.
 
 Every line you post comes back with its own reference for editing or
-deleting it. A private room opens from a link. An invitation works exactly
+deleting it. A private room opens from a link. An invitation works
 once. Admin and archive access are references too, so a host can hand out
 one narrow thing without adding roles to every message on the wire.
 
@@ -35,13 +35,12 @@ objects and the calls they answer.
 
 # What a click promises
 
-Starting something is never taken as proof that it worked. A click first
-becomes a note of what you asked for. Rooms then does the work, on disk or
-over the network, and either records what actually happened or keeps the
-exact problem it hit. What you see on screen comes from that record,
-including work still going and work that needs you.
+A click first becomes a note of what you asked for. Rooms then does the work,
+on disk or over the network, and records either what happened or the
+problem it hit. The screen shows that record, including work still going
+and work that needs you.
 
-[A click becomes a saved request, Rooms does the work, the result is confirmed, and the screen shows what actually happened. A refused or unconfirmed request stays beside the same note, in view.]($image.siteAsset('diagram-rooms-intent.svg'))
+[A click becomes a saved request, Rooms does the work, the result is confirmed, and the screen shows what happened. A refused or unconfirmed request stays beside the same note, in view.]($image.siteAsset('diagram-rooms-intent.svg'))
 
 You meet this in everyday actions:
 
@@ -83,7 +82,7 @@ page meets WebAssembly.
 | `rooms-glowcap` | The clients for each Rooms reference, and the checks on what arrives over the wire, on top of glowcap's C ABI. |
 | `rooms-runtime` | The order work runs in, what gets accepted, recovery, cleanup, and turning saved state into what the screen shows. |
 | `rooms-platform` | Tokio, clocks, randomness, files, listening sockets, TLS, and WebSocket connections. |
-| `rooms-services` | The server programs: the room server, the session service, the archive, the web front end, and the IRC bridge and gateway. |
+| `rooms-services` | The server programs: the room server, the session service, the archive, the web server, and the IRC bridge and gateway. |
 | `rooms-browser` | Browser storage, WebRTC, the JavaScript side, the WebAssembly entry points, and the screen. |
 
 Checks in the build keep the arrows pointing one way. The shared crates
@@ -109,16 +108,14 @@ channel, and the server only passes along the connection details.
 # When something goes wrong
 
 A known problem has a stable code, a subject, a plain sentence, and, where
-there is one, a suggested next step. A problem Rooms did not expect still
-arrives in the same shape, with a short diagnostic attached. If cleaning up
-after a problem also fails, the second failure is kept beside the first
-rather than replacing it.
+there is one, a suggested next step. A problem Rooms did not expect arrives in
+the same shape with a short diagnostic. If cleaning up after a problem also
+fails, the second failure is kept beside the first.
 
-That shape is shared between Rust and TypeScript. The screen can tell a
-taken name from a route it cannot reach, an expired invitation, a denied
-reference, a storage failure, and a request it cannot confirm, without
-reading whichever sentence happened to be written. A code it has never seen
-is shown as unknown, never mistaken for success.
+Rust and TypeScript share that shape, so the screen tells a taken name from an
+unreachable route, an expired invitation, a denied reference, a storage
+failure, or an unconfirmed request by its code, not its wording. A code it has
+never seen is shown as unknown, never mistaken for success.
 
 # What is stored where
 
@@ -128,14 +125,13 @@ the others. The session service keeps your saved state, the record of
 unfinished work, your identity, which servers to connect to, your links, and
 which archive you picked. An archive keeps messages and whatever files it
 accepted. A device attached to a shared session keeps only its display
-settings and its local archive; a session kept locally is the device's own,
+settings and its local archive. A session kept locally is the device's own,
 saved in the browser's storage.
 
-That is what lets a shared session outlive every device it is opened on,
-while each one keeps its own theme, open panels, and local history. Drafts and
-conversation selection belong to the shared session.
-It also makes deleting exact: clearing a session does not erase an archive
-somebody else still holds.
+So a shared session outlives every device it is opened on, while each device
+keeps its own theme, open panels, and local history. Drafts and the selected
+conversation belong to the shared session. Clearing a session does not erase
+an archive somebody else still holds.
 
 Continue with [Operate Rooms]($link.page('rooms/operations')) to host it, or
 [Run Rooms]($link.page('rooms/start')) to see all of this on screen.

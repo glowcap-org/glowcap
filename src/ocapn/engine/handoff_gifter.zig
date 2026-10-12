@@ -1,7 +1,7 @@
 //! Gifter-side handoff helpers (ADR-0009): building the signed
 //! `desc:handoff-give`, and the Peer outbound choreography that deposits a
 //! gift and resolves (or relays) it. Crypto/encoding primitives stay at the
-//! top; free functions over `*Peer` below are the same shape as
+//! top. Free functions over `*Peer` below are the same shape as
 //! `inbound.zig` / `outbound.zig`.
 
 const std = @import("std");
@@ -41,7 +41,7 @@ pub const ExporterLocatorPolicy = struct {
 /// The give must equal the exporter's hello *as the receiver sees it*: the
 /// pinned Goblins keys its withdrawal lookup by the full node value, hints
 /// included. `id` gives lower only when its admitted bundle contains a
-/// recipient-compatible baseline route; otherwise it fails closed. Private
+/// recipient-compatible baseline route. Otherwise it fails closed. Private
 /// route hints (`via`) are stripped from a baseline locator instead of leaking
 /// private vocabulary. On onion the
 /// hello is hinted only toward a known-glowcap partner (ADR-0118), an unknown
@@ -50,7 +50,7 @@ pub const ExporterLocatorPolicy = struct {
 /// Bytes this walker cannot read still ship verbatim: both sources (our own
 /// record encode, the partner's codec-validated hello) are already validated,
 /// so the arm is unreachable rather than a policy. The decode-and-re-encode
-/// is paid only when a give needs lowering or stripping; the caller owns
+/// is paid only when a give needs lowering or stripping. The caller owns
 /// non-null bytes.
 pub fn exporterLocationForRecipient(
     allocator: std.mem.Allocator,
@@ -195,12 +195,12 @@ fn cloneLocatorForRecipient(
 /// gifter–exporter session key (ADR-0097), pick the exporter-location form
 /// the recipient can use, and sign. Signed by the gifter's key on that
 /// session, so the exporter verifies it against the partner key it already
-/// proved; any other key — including the node's durable one — would not
+/// proved. Any other key, including the node's durable one, would not
 /// verify once sessions stop sharing a key.
 ///
 /// The location form (ADR-0118/ADR-0125): a recipient that negotiated route
 /// vocabulary keeps route advice only when the exporter session admitted it
-/// too. A baseline-compatible configured location remains valid; only private
+/// too. A baseline-compatible configured location remains valid. Only private
 /// route vocabulary falls back to the exporter's session location. The chosen
 /// source is then lowered again when the recipient is baseline.
 pub fn mintGive(
@@ -246,7 +246,7 @@ pub fn mintGive(
 
 /// Build a signed `desc:handoff-give` the gifter returns to the recipient,
 /// signed with the gifter's exporter-session key `secret`. `recipient_key` is
-/// the recipient's session public key (32 bytes); `exporter_location_raw` is the
+/// the recipient's session public key (32 bytes). `exporter_location_raw` is the
 /// exporter's verbatim `op:start-session` locator bytes, embedded exactly so a
 /// peer comparing the give's exporter location to the session location matches.
 /// `gifter_exporter_session` is the session name shared by the gifter and the
@@ -277,7 +277,7 @@ pub fn buildSignedGive(
 
 /// The exporter half of one engine-owned handoff transaction. Public only so
 /// the sibling Node coordinator can hold several exporters while it prepares
-/// one recipient message; adapters never receive this token. Its infallible
+/// one recipient message. Adapters never receive this token. Its infallible
 /// commit relies on no intervening exporter mutation after preparation.
 pub const PreparedDepositGift = struct {
     message: model.Message,
@@ -348,7 +348,7 @@ pub const GiveDestination = union(enum) {
 
 /// Admit both local halves of one originated handoff as one sans-I/O queue
 /// transaction. Every exporter-side failure is acquired before the recipient
-/// queue can own `give_bytes`; after that recipient commit, the exporter queue
+/// queue can own `give_bytes`. After that recipient commit, the exporter queue
 /// append is infallible. Their independent transports may deliver either half
 /// first, which the handoff protocol permits. The peers must be distinct: an
 /// aliased recipient could mutate the prepared exporter session between those
@@ -394,7 +394,7 @@ pub fn sendResolveHandoffGive(peer: *Peer, answer: session.AnswerTarget, give_by
 }
 
 /// Store a signed `desc:handoff-give` as the relayed resolution of
-/// `import_position`. `give_bytes` is borrowed; ownership of the decoded
+/// `import_position`. `give_bytes` is borrowed. Ownership of the decoded
 /// handoff passes to `applyRelayedResolution`.
 pub fn applyRelayedHandoffGive(
     peer: *Peer,
@@ -407,8 +407,8 @@ pub fn applyRelayedHandoffGive(
 }
 
 /// Decode and box one borrowed signed give, transferring the complete owned
-/// handoff to the caller. Both recipient destinations use this ownership edge;
-/// neither needs to deep-clone an already-owned signed tree.
+/// handoff to the caller. Both recipient destinations use this ownership edge.
+/// Neither needs to deep-clone an already-owned signed tree.
 pub fn decodeHandoffGive(allocator: std.mem.Allocator, give_bytes: []const u8) !*model.Handoff {
     const give = try codec.signed.decodeGiveOwned(allocator, give_bytes);
     const handoff = allocator.create(model.Handoff) catch |err| {

@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-three-mode-probe.ts — Verifies that each top-level
+ * playwright-three-mode-probe.ts: Verifies that each top-level
  * mode (Live, Play, Build) shows / hides the right UI per the
  * spec. Cycles through all three and asserts the mode-specific
  * affordances are present, the others absent.
@@ -56,7 +56,7 @@ async function check(mode: "live" | "play" | "build") {
 	const wsInput = await present('input[placeholder^="ws://"]');
 	const followLive = await page.getByRole("switch", { name: /follow live/i })
 		.count();
-	// Fixture picker — the dropdown that has an <optgroup label="Fixtures">.
+	// Fixture picker. The dropdown that has an <optgroup label="Fixtures">.
 	const fixtureSelect = await page.locator(
 		'select.ocv-select optgroup[label="Fixtures"]',
 	).count();

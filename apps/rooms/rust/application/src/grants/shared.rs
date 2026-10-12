@@ -1,4 +1,4 @@
-//! Live policy handles borrow the one ledger; they retain no policy snapshot.
+//! Live policy handles borrow the one ledger. They retain no policy snapshot.
 use super::{Change, Command, Error, Grant, GrantLedger, PersistedGrant, PreparedGrant};
 use alloc::{
 	rc::{Rc, Weak},
@@ -30,7 +30,7 @@ impl GrantState {
 		if ledger.needs_recovery() {
 			return Err(Error::RecoveryRequired);
 		}
-		Ok(Ref::map(held, |value| value.as_ref().expect("checked ledger")))
+		Ref::filter_map(held, Option::as_ref).map_err(|_| Error::RecoveryRequired)
 	}
 	pub fn prepare(&mut self, command: Command) -> Result<PreparedGrant, Error> {
 		self.0

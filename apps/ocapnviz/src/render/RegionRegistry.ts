@@ -1,10 +1,10 @@
 /**
- * Tracks the bounding rects of "scene regions" — DOM marker divs
+ * Tracks the bounding rects of "scene regions", DOM marker divs
  * that tell each PixiJS scene where on the unified canvas to draw.
  *
  * Polling (not ResizeObserver) because a sibling-panel resize moves
  * a region's POSITION (which ResizeObserver doesn't fire on) as
- * well as its size. `getBoundingClientRect` captures both; polling
+ * well as its size. `getBoundingClientRect` captures both. Polling
  * once per Pixi frame is O(regions) and we only have a few.
  *
  * Subscribers fire once on registration (so a mid-frame attach

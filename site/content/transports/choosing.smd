@@ -8,32 +8,21 @@
 
 The CapTP session stays the same when you change transports. What changes is
 who you can reach and what the path between you proves.
-[Transports]($link.page('transports')) explains that layer. Pick a symbol from
-the table below.
-
-Rows are grouped by the path's standing: implemented paths first, then a
-network you already trust, then testing only. **Implemented** means that
-glowcap has the path. It is not a release, security audit, or endorsement for
-irreplaceable data. The **When** column is the situation. The last column is
-what proves who answered, and what someone on the path can do.
+**Implemented** means glowcap has the path, not that it is released, audited,
+or fit for irreplaceable data.
 
 | Use | Standing | When | What the path proves |
 | --- | --- | --- | --- |
-| `iroh` | Implemented | Native peers that need discovery or NAT traversal; also Goblins via this repository's adapter | The node id is a key, so dialing it proves who answered. QUIC encrypts the channel. |
+| `iroh` | Implemented | Native peers that need discovery or NAT traversal, and Goblins through this repository's adapter | The node id is a key, so dialing it proves who answered. QUIC encrypts the channel. |
 | `webrtc` | Implemented | Browsers talking directly | The DataChannel is encrypted. Who the peer is comes from the signaling authority that introduced it. |
 | `noise-tcp` | Implemented | Glowcap peers with a direct TCP route | The Noise handshake proves the dialed key and seals the stream end to end. Glowcap to glowcap only. |
-| `noise-relay` | Implemented | Native glowcap peers through a relay, sealed | Same Noise handshake peer to peer; the relay only forwards ciphertext. |
+| `noise-relay` | Implemented | Native glowcap peers through a relay, sealed | Same Noise handshake peer to peer. The relay only forwards ciphertext. |
 | `onion` | Implemented | Meeting unmodified Goblins on the standardized path | Tor proves the dialed service and hides both ends' network location. Tor's check runs in the Tor daemon and only covers the side that dialed, so glowcap does not treat it as proof of who the CapTP peer is. |
 | `keyed-tcp` | Trusted network only | A stable key name on a network you already trust | Dialing demands that key, but nothing proves possession, and the frames are cleartext. |
-| `keyed-relay` | Trusted network only | Native peers through a relay, cleartext | Same key demand; the relay reads every frame, and nothing proves who is on the far side. |
+| `keyed-relay` | Trusted network only | Native peers through a relay, cleartext | Same key demand. The relay reads every frame, and nothing proves who is on the far side. |
 | `tcp` | Testing only | Cleartext Goblins testing (adapter this repository wrote) | A host:port. Nothing is proved and nothing is encrypted. |
 | `inproc` | Testing only | Both peers in one process | No network between them, so nothing to prove and nothing to encrypt. |
 
-A browser that must reach a native peer uses the [relay]($link.page('relay')):
-WebSocket on the browser side, TCP or iroh on the native side.
-
-`noise-relay` seals the relay path for native providers and the browser's
-managed WebSocket connector. WebRTC is the direct browser-side sealed path.
 [What you can depend on]($link.page('stability')) lists the checks.
 
 # Browser traffic
@@ -43,10 +32,10 @@ A browser cannot open raw TCP or iroh QUIC. It has two choices:
 - **WebRTC** opens a direct encrypted DataChannel, usually between two
   browsers. Both peers need a shared signaling capability, and ICE must find a
   path. Real NAT traversal may need STUN or TURN.
-- **The relay** carries a browser's WebSocket bytes to a native peer over TCP
-  or iroh. It forwards bytes; CapTP stays between the two peers. Use it for
-  browser-to-native traffic, and as a fallback when a direct WebRTC channel
-  cannot form.
+- **The [relay]($link.page('relay'))** carries a browser's WebSocket bytes to a
+  native peer over TCP or iroh, and CapTP stays between the two peers. Use it
+  for browser-to-native traffic, and as a fallback when WebRTC cannot connect.
+  `noise-relay` seals it.
 
 Offer both only when direct browser-to-browser traffic is worth the extra
 signaling and NAT work. Otherwise the relay is simpler to run.
@@ -54,10 +43,10 @@ signaling and NAT work. Otherwise the relay is simpler to run.
 # Similar transports
 
 - `keyed-tcp`, `noise-tcp`, and iroh all name a peer by key. `noise-tcp` and
-  iroh encrypt and authenticate; only iroh adds discovery and NAT traversal.
+  iroh encrypt and authenticate. Only iroh adds discovery and NAT traversal.
 - iroh and WebRTC are both encrypted peer-to-peer channels. iroh is the native
-  path; WebRTC is the browser path.
-- `tcp` and `keyed-tcp` use the same sockets. `tcp` names an address;
+  path. WebRTC is the browser path.
+- `tcp` and `keyed-tcp` use the same sockets. `tcp` names an address.
   `keyed-tcp` names an identity and carries the address as a hint.
 - Three paths reach Goblins. `onion` is the draft's transport and the one
   Goblins ships. `tcp` and `iroh` meet the vat through adapters this repository
@@ -67,10 +56,9 @@ The `id` symbol is not a row here because it is not a byte path: it
 bundles several of these routes under one durable key.
 [Multi-home peers]($link.page('multihome')) explains it.
 
-Once you know which path you want, the setup pages are
-[Noise]($link.page('transports/noise')),
+Setup lives on the [Noise]($link.page('transports/noise')),
 [iroh]($link.page('transports/iroh')),
 [WebRTC]($link.page('transports/webrtc')),
-[onion]($link.page('transports/onion')), and the
-[relay]($link.page('relay')). Locator designators for each symbol live with
-those guides and on [Transports]($link.page('transports')).
+[onion]($link.page('transports/onion')), and
+[relay]($link.page('relay')) pages. [Transports]($link.page('transports'))
+explains how each symbol names a peer.

@@ -205,8 +205,8 @@ export async function run(managed: Runtime): Promise<void> {
 
 	// The codec selector end-to-end: both nodes minted with the Cap'n Proto wire
 	// grammar complete the keyed handshake and carry a deliver whose arguments
-	// round-trip through the capnp codec — a big integer past int64 and a Kw
-	// (keyword) included, so the two rare marshal arms are witnessed alongside the
+	// round-trip through the capnp codec (a big integer past int64 and a Kw
+	// (keyword) included), so the two rare marshal arms are witnessed alongside the
 	// codec.
 	{
 		await using capnpHost = new Host(undefined, { codec: "capnp" });
@@ -418,7 +418,7 @@ export async function run(managed: Runtime): Promise<void> {
 	}
 
 	// Listen (CapTP op:listen, ADR-0095): a held capability is listened on, and
-	// the vow settles with its resolution — any value, not only a capability. A
+	// the vow settles with its resolution: any value, not only a capability. A
 	// listen on an already-settled capability answers at once, proving the round
 	// trip rather than a pending promise.
 	{

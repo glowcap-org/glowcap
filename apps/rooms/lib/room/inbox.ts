@@ -1,4 +1,4 @@
-// Admission and custody for calls to one room membership inbox.
+// Admission and ownership for calls to one room membership inbox.
 
 import { type Behavior, type Session } from "@glowcap/runtime";
 import { attachmentCapabilities, readAttachments } from "../attachment.ts";

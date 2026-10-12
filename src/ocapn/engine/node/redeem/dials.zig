@@ -20,7 +20,7 @@ pub const PendingId = u64;
 pub const PendingDialView = struct {
     locator: model.PeerLocator,
     /// Session that supplied the oldest remaining give. A shared dial may
-    /// serve several introducing sessions; this is one source for realizing
+    /// serve several introducing sessions. This is one source for realizing
     /// its route, not authority to act on behalf of every waiter. A purely
     /// application-owned dial has no introducer.
     introducer: ?PeerHandle = null,
@@ -453,7 +453,7 @@ pub fn claimExporterRetirement(self: *Node, exporter_peer: PeerHandle) bool {
 }
 
 /// Report one route failure. Strong identity routes keep a bounded race window
-/// full; weak fallbacks remain serial. Every waiter settles only after the last
+/// full. Weak fallbacks remain serial. Every waiter settles only after the last
 /// eligible route fails.
 pub fn failed(self: *Node, pending: PendingId, route_index: usize, reason: []const u8) !Failure {
     const state = &self.redeems.dials;

@@ -74,7 +74,9 @@ glowcap_pins_require_hex64() {
 # ---------------------------------------------------------------------------
 # The dependency table. One row per dep: its pins.sh variable, its class, and
 # the gate that proves a bump. Classes:
-#   safe   - outside the build graph; rebuild + verify-toolchains proves it
+#   safe   - outside the build graph; the named gate proves it (a rebuild for
+#            image-installed tools, a managed-tool ensure or smoke run for the
+#            harness seeds)
 #   gated  - in the build graph; the named gate must pass after the rebuild
 #   manual - a generation move; bump prints the procedure instead of editing
 # ---------------------------------------------------------------------------
@@ -132,15 +134,21 @@ glowcap_pins_dep_gate() {
         playwright) echo "rebuild (new baked Chromium), then zig build rooms-web-page and siblings" ;;
         python) echo "zig build ocapn-conformance" ;;
         racket | goblins) echo "zig build check-external" ;;
+        claude | codex | opencode | cursor-agent) echo "container: bash .devcontainer/test/tool-install.sh <name> (cold-seed smoke; no rebuild; adopt with tools.sh ensure)" ;;
         *) echo "rebuild + post-create.sh (verify-toolchains)" ;;
     esac
 }
 
 # Most pins are installed into the development image. PostgreSQL is consumed
 # only by the production Compose project, so rebuilding the devcontainer would
-# not adopt or prove it.
+# not adopt or prove it. The harness seeds are not image content either: a
+# bump is proven by the cold-seed smoke run, and the running cache adopts it
+# on the next explicit ensure or a cold first use.
 glowcap_pins_dep_requires_devcontainer_rebuild() {
-    [[ "$1" != postgres && "$1" != distroless ]]
+    case "$1" in
+        postgres | distroless | claude | codex | opencode | cursor-agent) return 1 ;;
+        *) return 0 ;;
+    esac
 }
 
 # Every consumer below reads its whole input: under `set -o pipefail`, an

@@ -97,8 +97,8 @@ test "a pinned peer opens when the partner's start-session carries exactly the e
 /// The exact `<ocapn-peer …>` record a hint-sending partner (a Goblins
 /// `tcp-testing-only` netlayer) puts in its `op:start-session`. The wire bytes
 /// are written verbatim rather than produced by glowcap's encoder, because
-/// the point under test is verification over the *received* bytes — whatever
-/// hint representation the partner chose — not over a re-encode.
+/// the point under test is verification over the *received* bytes, whatever
+/// hint representation the partner chose, not over a re-encode.
 const hinted_locator_bytes = "<10'ocapn-peer3'tcp14\"127.0.0.1:9001{4\"host9\"127.0.0.14\"port9001+}>";
 
 /// Build the complete keyed `op:start-session` frame a partner would send for
@@ -152,7 +152,7 @@ test "a verifying peer accepts a hinted-locator handshake (signature checked on 
 
     // The partner's hello carries hint entries in its locator. Borrowed decode
     // projects them through `BorrowedHints`, but the signing domain is the
-    // received `acceptable_location_raw` octets — re-encoding the structured
+    // received `acceptable_location_raw` octets, re-encoding the structured
     // locator can miss the partner's exact representation and fail a valid signature.
     const frame = try hintedStartSessionFrame(allocator, partner_secret, hinted_locator_bytes);
     try verifier.feedOwned(frame);
@@ -251,8 +251,8 @@ test "v1.0 resolver-callback accepts a record-shaped break reason (Goblins inter
 
     const break_frame = pair.p2.takeOutbound().?;
     try pair.p1.feedOwned(break_frame);
-    // Before the fix this faulted (MalformedView → dispatch error); now p1
-    // surfaces a resolve-break carrying the record's tag as the reason.
+    // p1 surfaces a resolve-break carrying the record's tag as the reason, not
+    // a dispatch error from a MalformedView fault.
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p1.step());
 
     var event = pair.p1.pollEvent().?;

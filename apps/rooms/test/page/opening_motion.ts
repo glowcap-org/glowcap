@@ -17,7 +17,7 @@ import { fail } from "./harness.ts";
  * stillness whatever anyone adds, and proves only that the rule works
  * somewhere. This gives the opening screen an animation of its own while the
  * screen is up, and holds that the page takes it away. Remove that rule and
- * this fails; add an animation to the splash and this still passes, which is
+ * this fails. Add an animation to the splash and this still passes, which is
  * the right answer, because the reader still gets none.
  *
  * The mark answers the preference inside the shader's own loop, by holding one

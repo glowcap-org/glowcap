@@ -6,12 +6,12 @@
 //! `tools/gen/header/ocapn.zig`, the function signatures are *reflected* from the real
 //! `src/c_abi/net_transport/inproc/mod.zig` exports, so the header cannot
 //! disagree with the implementation, and the prose lives here.
-//! `zig build gen-header-net-transport-inproc-check` is the staleness gate;
+//! `zig build gen-header-net-transport-inproc-check` is the staleness gate,
 //! `zig build gen-header-net-transport-inproc` is the fixer.
 //!
 //! The shared frame/peer/context vocabulary (`GlowcapFrame`,
 //! `GlowcapManagedFrame`, `GlowcapContext`) is declared in `glowcap_ocapn.h`,
-//! which this header includes; only the three in-process handles and the
+//! which this header includes. Only the three in-process handles and the
 //! `glowcap_inproc_*` prototypes are new here.
 
 const std = @import("std");

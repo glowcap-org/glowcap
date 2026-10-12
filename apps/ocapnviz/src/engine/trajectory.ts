@@ -1,5 +1,5 @@
 /**
- * A peer's trajectory — the properties of a peer that change while
+ * A peer's trajectory, the properties of a peer that change while
  * it is alive, and everything the app needs to know about each one.
  *
  * A peer arrives with values (the name it joined under) and can
@@ -20,11 +20,11 @@
  *
  * A row whose editor is marked `closed` accepts the values it lists
  * and no others: `write` refuses anything else rather than storing
- * it, because a stored undeclared value would not fail here — it
+ * it, because a stored undeclared value would not fail here, it
  * would fail later, as a document whose keyframe track will not
  * parse. An open picker, and a free-text row, take any string.
  *
- * What this deliberately does NOT do is make the stored shape
+ * What this does NOT do is make the stored shape
  * generic. A `{ type, value }` row on the wire would cost every
  * reader a runtime narrowing and would put the meaning of `value` in
  * prose instead of in the type. The observation keeps typed optional
@@ -35,11 +35,11 @@
  * Sessions have the same shape one level over, in a second table at
  * the foot of this file: a genesis value, a keyframe track, an
  * observation that states a change, and a numbered Inspector row.
- * Three properties live there — the lifecycle the session moves
+ * Three properties live there, the lifecycle the session moves
  * through, and which peer is on each of its two ends. The two tables
  * stay separate because a peer restates several properties in ONE
  * observation while a session's moment is one observation stating one
- * thing; that difference is the whole of their storage halves.
+ * thing. That difference is the whole of their storage halves.
  */
 
 import type { PeerDefinition, SessionDefinition, TimelineDocument, TimelineEvent } from "./timeline.ts";
@@ -57,7 +57,7 @@ import {
  *  named as `doc.entities` names its categories. */
 export type MomentLane = "peers" | "sessions";
 
-/** One `peer-updated` observation — the wire form of a moment on a
+/** One `peer-updated` observation. The wire form of a moment on a
  *  peer's trajectory. */
 export type PeerUpdate = Extract<TimelineEvent, { kind: "peer-updated" }>;
 
@@ -71,7 +71,7 @@ export type PeerProperty = "label" | "profile";
  *
  *  `closed` is about the WRITE, not the control. When it is true the
  *  options are the whole domain and `write` refuses anything else, because a
- *  stored undeclared value would not fail here — it would fail later, as a
+ *  stored undeclared value would not fail here. It would fail later, as a
  *  document whose keyframe track will not parse. When it is false the
  *  options are the well-known values and any other string is legal: an OCapN
  *  peer can run an implementation this build has never heard of, and calling
@@ -101,7 +101,7 @@ export type TrajectoryEditor =
 		 *
 		 *  `peers` is empty in the table because the offer is the document's own
 		 *  peers, which a static table cannot know and which change as an author
-		 *  adds and removes them; `sessionRowDisplay` fills it as a row paints.
+		 *  adds and removes them, `sessionRowDisplay` fills it as a row paints.
 		 *  `attributions` is the whole domain and rides here the way `enum`
 		 *  carries its options, so the control reads both lists from one place. */
 		readonly kind: "attachment";
@@ -133,13 +133,13 @@ export type TrajectoryProperty = TrajectoryDisplay & {
 	readonly clear: (ev: PeerUpdate) => PeerUpdate;
 	/** The derived keyframe track on a peer's definition. */
 	readonly track: (def: PeerDefinition) => KeyframeTrack<string> | undefined;
-	/** A `keyframes` object carrying `track` for this property;
+	/** A `keyframes` object carrying `track` for this property,
 	 *  `undefined` drops it. Returns undefined when nothing is left. */
 	readonly withTrack: (
 		def: PeerDefinition,
 		track: KeyframeTrack<string> | undefined,
 	) => PeerDefinition["keyframes"];
-	/** The value the peer arrives with, before any moment — a
+	/** The value the peer arrives with, before any moment, a
 	 *  session's `initialState` in peer form. */
 	readonly genesis: (def: PeerDefinition) => string | undefined;
 	/** What the property carries when neither a keyframe nor the
@@ -149,7 +149,7 @@ export type TrajectoryProperty = TrajectoryDisplay & {
 	 *  at every moment it exists, even when the document says nothing
 	 *  about them. Declaring that here rather than at
 	 *  each reader is what lets a caller ask for a property it does
-	 *  not know the name of and still get a real value back — which is
+	 *  not know the name of and still get a real value back, which is
 	 *  the whole job of `peerPropertyAt`, and the reason the insert
 	 *  control can offer a starting value a closed enum will accept.
 	 *  A property whose fallback needs the peer itself (a name falls
@@ -185,7 +185,7 @@ export const PEER_TRAJECTORY: Readonly<
 		// The flavor a peer is known by is as temporal as its name: a peer
 		// drawn before anyone could say what it runs changes at the moment
 		// somebody can, rather than rewriting its whole life. A live feed
-		// reaches that verdict too — `LedgerNames.learnProfile` states one
+		// reaches that verdict too, `LedgerNames.learnProfile` states one
 		// when a producer speaks for an end it had been holding a place on.
 		// The offer is `PROFILE_OPTIONS`, the same list the Details picker
 		// reads, because "what a profile picker offers" is one fact and a
@@ -226,8 +226,8 @@ export type SessionProperty = "state" | SessionSide;
 
 /** What a session property's track carries at a moment.
  *
- *  The lifecycle is one word. An end is a PAIR — the peer and what backed
- *  the end attaching to it — because attribution and identity arrive
+ *  The lifecycle is one word. An end is a PAIR, the peer and what backed
+ *  the end attaching to it, because attribution and identity arrive
  *  together and a value that named only the peer would drop half of what
  *  happened (`EndpointAttachment` in `schema/session-end.ts` argues it).
  *
@@ -242,8 +242,8 @@ export type SessionValue = string | EndpointAttachment;
 /** What a session property needs beyond its description: how a moment
  *  of it is stored, and how a reader resolves one.
  *
- *  A session's moment is one observation stating one property — a
- *  state change, or an end being attributed to a peer — so it is
+ *  A session's moment is one observation stating one property, a
+ *  state change, or an end being attributed to a peer, so it is
  *  minted and removed whole. That is why this half mints an
  *  observation where the peer table's edits fields on one: a peer
  *  restates several properties at a single instant and each has to be
@@ -261,7 +261,7 @@ export type SessionValue = string | EndpointAttachment;
  *  property's name. */
 export type SessionTrajectoryProperty = TrajectoryDisplay & {
 	/** What this observation states about `sessionId`'s property, or
-	 *  null when it states something else — another session, another
+	 *  null when it states something else, another session, another
 	 *  end, or another property entirely. */
 	readonly read: (
 		ev: TimelineEvent,
@@ -294,9 +294,9 @@ export type SessionTrajectoryProperty = TrajectoryDisplay & {
 	) => SessionDefinition["keyframes"];
 	/** The value the session is born with, before any moment. */
 	readonly genesis: (def: SessionDefinition) => SessionValue | undefined;
-	/** The one string that NAMES this value — what a lane paints, what a
+	/** The one string that NAMES this value, what a lane paints, what a
 	 *  reference check reads, and what a caller asking "which peer" wants.
-	 *  For an end that is the peer it names; what backed the attachment is
+	 *  For an end that is the peer it names. What backed the attachment is
 	 *  the pair's other half and does not fit in one word. */
 	readonly stated: (value: SessionValue) => string;
 	/** Reads what a write carried into the value this property stores.
@@ -325,7 +325,7 @@ function asAttachment(value: SessionValue): EndpointAttachment {
 
 /** One end's row. Both ends are the same property twice, differing
  *  only in which side they read and write, so they are built rather
- *  than written out — the second spelling is where the two would
+ *  than written out. The second spelling is where the two would
  *  drift apart. */
 function endpointProperty(side: SessionSide): SessionTrajectoryProperty {
 	return {
@@ -334,7 +334,7 @@ function endpointProperty(side: SessionSide): SessionTrajectoryProperty {
 		// Pick a peer, and what attributed it. A moment ATTACHES an end:
 		// the observation behind this track names a peer, so there is no
 		// "attaches to nobody here". An end comes loose by losing the
-		// moment, or by being born that way — which is what the genesis
+		// moment, or by being born that way, which is what the genesis
 		// endpoint on the session definition says, and where "no peer" is
 		// a choice. What backed the attachment is the other half of the
 		// same value, and it may be nothing.
@@ -447,17 +447,17 @@ export function sessionRowDisplay(
 /** One moment on a session's trajectory: a property, the time it took a
  *  value, and the value.
  *
- *  `eventId` is the moment's identity — the id of the observation that
+ *  `eventId` is the moment's identity, the id of the observation that
  *  states it. That is what a row is keyed on, what a drag addresses, and
  *  what the focus halo lights, and it is the same identity a peer's
  *  trajectory row already carries (`peerTrajectoryRows` hands back the
  *  observation itself). It has to be something that survives the edit
  *  being made: keyed on `t`, the row unmounts under the drag that is
  *  changing it, which takes the pointer capture with it and ends the
- *  gesture after one step;
+ *  gesture after one step,
  *  `scripts/playwright-trajectory-scrub-probe.ts` measures that (30px of
  *  drag moved the time 37.5ms instead of 300). Keyed on the keyframe's
- *  index within its track — which is what this carried before — the row
+ *  index within its track, which is what this carried before, the row
  *  survives a drag but is stolen by any insert or removal earlier in the
  *  same track, because every later index shifts by one and React hands a
  *  mounted row's fiber to a different keyframe.
@@ -473,7 +473,7 @@ export type SessionMoment = {
 	 *  lifecycle word, or the pair an end attached by (the peer, and what
 	 *  backed it). A row shows and edits this, and it is the whole value
 	 *  rather than the `stated` string because a row that could only show
-	 *  the name could only write the name — restating a peer would drop the
+	 *  the name could only write the name, restating a peer would drop the
 	 *  word a signed handoff put there. A caller that wants the one name
 	 *  asks the property's `stated`. */
 	value: SessionValue;
@@ -482,12 +482,12 @@ export type SessionMoment = {
 /** Every moment on a session's trajectory, in the order the Inspector
  *  and the timeline list them: by time, then by the property order
  *  declared above. A row is "this property took this value here",
- *  which is what the reader is looking at — the session sibling of
+ *  which is what the reader is looking at, the session sibling of
  *  `peerTrajectoryRows`.
  *
  *  A moment IS an observation. `setSessionKeyframe` mints one for every
  *  property, the endpoint tracks are the projection's product of them,
- *  and the state track is written beside its own — so reading the stream
+ *  and the state track is written beside its own, so reading the stream
  *  here is reading the one authority, and it is what gives each row a
  *  name that outlives the edits made to it. A track entry with no
  *  observation stating it is not a moment this list can address, and
@@ -515,10 +515,10 @@ export function sessionTrajectoryRows(
 }
 
 /** Which of a session's properties an observation states, and for which
- *  session — null when it states none of them.
+ *  session, null when it states none of them.
  *
  *  The table above already knows, property by property, which observation
- *  carries it; asking every property is how a caller finds out without
+ *  carries it. Asking every property is how a caller finds out without
  *  learning any of their names. A second list of "these kinds are session
  *  moments" kept beside it would be the same fact twice, and adding a
  *  fourth property would then mean remembering both. */
@@ -536,7 +536,7 @@ export function sessionMomentOf(
 }
 
 /** What one observation states, property by property. Empty when it
- *  states nothing — that observation changes nothing about the peer
+ *  states nothing. That observation changes nothing about the peer
  *  and is not a moment. */
 export function peerUpdateStates(
 	ev: PeerUpdate,

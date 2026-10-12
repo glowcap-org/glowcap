@@ -1,7 +1,7 @@
 //! Borrowed and owned frame layouts at the C waist.
 //!
 //! Managed frames transfer their existing allocation into opaque storage in
-//! the caller-owned descriptor; no allocation or frame-byte copy is introduced
+//! the caller-owned descriptor. No allocation or frame-byte copy is introduced
 //! at the ABI boundary.
 
 const std = @import("std");
@@ -34,8 +34,8 @@ pub const GlowcapFrame = extern struct {
 pub const ReleaseFn = *const fn (*GlowcapManagedFrame) callconv(.c) void;
 
 /// Private descriptor words reserved for glowcap's owned-frame metadata. The
-/// count is target-independent so the public C declaration has one shape;
-/// comptime assertions below prove that the native `foundation.Frame` fits on
+/// count is target-independent so the public C declaration has one shape.
+/// Comptime assertions below prove that the native `foundation.Frame` fits on
 /// each compiled target.
 pub const managed_frame_private_word_count = 8;
 
@@ -58,7 +58,7 @@ fn ownedFrame(frame: *GlowcapManagedFrame) *foundation.Frame {
 }
 
 /// Move one owned frame into a self-releasing C descriptor. The caller supplies
-/// the descriptor storage; wrapping is allocation-free and infallible.
+/// the descriptor storage. Wrapping is allocation-free and infallible.
 pub fn managed(owned: foundation.Frame) GlowcapManagedFrame {
     var result = std.mem.zeroes(GlowcapManagedFrame);
     const stored = ownedFrame(&result);

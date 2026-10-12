@@ -1,13 +1,13 @@
 # Session lifecycle
 
-Anchors: CapTP Specification § CapTP Overview, § op:start-session, § Ending a
-session, § Crossed Hellos Resolution.
+These diagrams follow the CapTP Specification sections CapTP Overview,
+op:start-session, Ending a session, and Crossed Hellos Resolution.
 
 ## SL-1: Session state machine
 
 The lifecycle is one-way: a session moves from `Negotiating` to `Open` to
-`Closed`; a refused handshake is terminal like every other abort. No
-transition reverses; a closed session never reopens.
+`Closed`. A refused handshake is terminal like every other abort. No
+transition reverses. A closed session never reopens.
 
 ```mermaid
 stateDiagram-v2
@@ -22,7 +22,7 @@ stateDiagram-v2
 ## SL-2: op:start-session handshake
 
 Anchor: CapTP Specification § op:start-session. Each side sends one
-`op:start-session`; the session opens when both halves have been observed and
+`op:start-session`. The session opens when both halves have been observed and
 verified. The bootstrap object is installed at export position 0.
 
 ```mermaid
@@ -57,8 +57,8 @@ sequenceDiagram
 
 Anchor: CapTP Specification § Crossed hellos. Two peers dialing each other
 simultaneously produce two half-open sessions for one peer pair. A deterministic
-tie-break over the two sessions' key material selects the survivor; the losing
-session is aborted. Exactly one open session per peer pair survives.
+tie-break over the two sessions' key material selects the survivor. The losing
+session is aborted. One open session per peer pair survives.
 
 ```mermaid
 sequenceDiagram
@@ -78,7 +78,7 @@ sequenceDiagram
 ## SL-5: Per-state message admission
 
 What a session admits depends only on its state. While negotiating, only the
-handshake itself (`op:start-session`) and `op:abort` get through; authority-
+handshake itself (`op:start-session`) and `op:abort` get through. Authority-
 bearing traffic (`op:deliver`, gc ops, `op:listen`, `op:get`,
 `op:index`, handoffs) requires Open.
 
@@ -115,6 +115,6 @@ flowchart TD
 ```
 
 Handoff replay authority follows the same lifecycle. Each live
-Receiver–Exporter session owns one monotonic accepted count; closing it destroys
+Receiver–Exporter session owns one monotonic accepted count. Closing it destroys
 that counter. Deposited gifts likewise die with their Gifter–Exporter session.
 See [06-handoffs.md](06-handoffs.md) HO-7.

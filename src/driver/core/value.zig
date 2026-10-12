@@ -1,11 +1,11 @@
 //! The owning tier's passable-value vocabulary (ADR-0096): `Value` is what an
 //! application passes to and receives from the opaque-capability verbs on the
 //! owning host face. It mirrors the codec-neutral `model.Argument` data arms,
-//! with one difference that is the point: a capability is the opaque
+//! with one difference: a capability is the opaque
 //! Host-scoped `Capability`, never a wire position or an actor id. The
-//! translation bodies live in `host/capabilities/lower.zig` and `lift.zig`;
+//! translation bodies live in `host/capabilities/lower.zig` and `lift.zig`.
 //! `driver_core.Host` exposes their direct aliases where the session context
-//! both directions need is in scope — the same boundary the C ABI crosses.
+//! both directions need is in scope, the same boundary the C ABI crosses.
 
 const std = @import("std");
 
@@ -16,7 +16,7 @@ const capability = @import("capability.zig");
 pub const Capability = capability.Ref;
 
 /// A passable value on the owning host tier. Data arms mirror
-/// `model.Argument`; a capability mention is opaque. There is no handoff arm
+/// `model.Argument`. A capability mention is opaque. There is no handoff arm
 /// because the host redeems a give before the application sees it. An Error is
 /// a first-class value and remains distinct from `Reply.broken`: returning one
 /// fulfills with an Error, while breaking rejects the reply.
@@ -49,6 +49,8 @@ pub const Value = union(enum) {
 
     /// Visit every capability in this value without allocation. Composite
     /// values are bounded to the same depth as owning-tier copy and retention.
+    /// The visitor keeps an `anyerror` return set: implementors are unknown at
+    /// this declaration.
     pub fn forEachCapability(
         self: Value,
         ctx: anytype,
@@ -87,7 +89,7 @@ pub const Value = union(enum) {
 /// How an owning-tier `call` / `fetchSettled` / `listenSettled` settled. Both
 /// arms are materialized into the caller-supplied arena, and every capability
 /// in a fulfilled value is already lifted to its opaque Host identity. Reset
-/// the arena to reclaim the reply; there is no `deinit`, because the lifted
+/// the arena to reclaim the reply. There is no `deinit`, because the lifted
 /// tree's spine and leaves share the arena with the capture that produced it.
 pub const Reply = union(enum) {
     fulfilled: Value,

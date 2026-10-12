@@ -1,15 +1,15 @@
 // The relay contract's backpressure proof, parameterized over the relay program.
 // A stalled reader on the browser-bound leg must stall the far sender, so the
 // relay never buffers unbounded. This is the one non-optional clause of the
-// ADR-0086 contract — it catches a runtime whose WebSocket `send` returns before
-// its buffer drains — and one harness pins it for every runtime's relay.
+// ADR-0086 contract. It catches a runtime whose WebSocket `send` returns before
+// its buffer drains, and one harness pins it for every runtime's relay.
 //
 // It needs no browser peer or wasm: the relay moves opaque bytes, so a raw bulk
 // TCP sender and a raw stalled WebSocket client exercise the pump directly.
 //
 // Shape: a bulk TCP sender floods whatever connects to it, counting bytes it
 // manages to write. The relay dials that sender. A raw WebSocket client upgrades
-// through the relay, then never reads — its OS receive buffer fills, closing the
+// through the relay, then never reads. Its OS receive buffer fills, closing the
 // window to the relay, whose browser-bound send then blocks, so it stops reading
 // the sender, whose write then blocks. If that chain holds, the sender is stuck
 // after a few buffers' worth. If the relay drained the sender into an unbounded
@@ -29,7 +29,7 @@ const deadline = setTimeout(
 );
 
 // 1. Bulk TCP sender: floods every connection as fast as it drains, counting the
-//    bytes it actually got written (i.e. that were not backpressured).
+//    bytes it got written (i.e. that were not backpressured).
 let bulkWritten = 0;
 const bulkListener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
 const bulkPort = (bulkListener.addr as Deno.NetAddr).port;
@@ -69,7 +69,7 @@ try {
 	if (n === null || !new TextDecoder().decode(resp.subarray(0, n)).includes("101")) {
 		fail("relay did not accept the WebSocket upgrade");
 	}
-	// Deliberately never read from `conn` again — this is the stall.
+	// Deliberately never read from `conn` again: this is the stall.
 
 	// 4. Give the flood time to run, then check the sender was backpressured.
 	await new Promise((r) => setTimeout(r, STALL_OBSERVE_MS));

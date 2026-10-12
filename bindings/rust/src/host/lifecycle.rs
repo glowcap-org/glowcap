@@ -81,7 +81,7 @@ impl HostShared {
 	}
 
 	/// Wake every close driver parked on host activity. Call it after any
-	/// native verb that can advance close-relevant state; waiters re-check
+	/// native verb that can advance close-relevant state. Waiters re-check
 	/// progress on every wake, so a spare signal costs one check and a missed
 	/// one is a hang.
 	pub(crate) fn note_close_activity(&self) {
@@ -100,10 +100,12 @@ impl HostShared {
 	/// close progress: the time until the nearest FINISH grace deadline (the
 	/// Host's own or any session's), clamped at zero, or `None` when no finite
 	/// deadline is pending and only host activity can advance terminal
-	/// progress. Native refusal reaches the close driver; treating it as "no
+	/// progress. Native refusal reaches the close driver. Treating it as "no
 	/// deadline" would turn a diagnosable failure into an unbounded park.
 	pub(crate) fn close_wait(&self) -> Result<Option<Duration>> {
 		let mut wait_ms: i64 = -1;
+		// SAFETY: `self.raw()` is this `HostShared`'s handle from `glowcap_host_new_in`, which the callee refuses as a
+		// null host once teardown has cleared it; `wait_ms` is a local out-parameter the callee writes.
 		let rc = unsafe { ffi::glowcap_host_close_wait_ms(self.raw(), monotonic_ms(), &mut wait_ms) };
 		check_host(rc)?;
 		decode_close_wait(wait_ms)
@@ -175,6 +177,9 @@ impl HostShared {
 					Error::with_detail(sys::ERR_INTERNAL, format!("dial task failed: {join}"))
 				};
 				let cancellation =
+					// SAFETY: `observer.raw()` is the `HostShared` handle held by the `Rc` this task cloned, which the
+					// callee refuses as a null host once teardown has cleared it; `ticket` and `route_index` are plain
+					// integers and no pointer is passed.
 					check_host(unsafe { ffi::glowcap_host_dial_cancelled(observer.raw(), ticket, route_index) });
 				observer.record_background_failure(crate::retain_cleanup_failure(primary, cancellation));
 			}
@@ -207,6 +212,9 @@ impl HostShared {
 		} else {
 			None
 		};
+		// SAFETY: `self.raw()` is this `HostShared`'s handle from `glowcap_host_new_in`, which the callee refuses as a
+		// null host once teardown has cleared it; `ticket` and `route_index` are plain integers and no pointer is
+		// passed.
 		let cancellation = check_host(unsafe { ffi::glowcap_host_dial_cancelled(self.raw(), ticket, route_index) });
 		match task_failure {
 			Some(primary) => Err(crate::retain_cleanup_failure(primary, cancellation)),
@@ -214,8 +222,8 @@ impl HostShared {
 		}
 	}
 	/// Terminally release this Host. A callback cannot free the native Host
-	/// whose actor cell is on its stack, so it parks one Host-owned transaction;
-	/// the outer feed or local-run drain performs the same ordered teardown.
+	/// whose actor cell is on its stack, so it parks one Host-owned transaction.
+	/// The outer feed or local-run drain performs the same ordered teardown.
 	pub(crate) fn close_host(self: &Rc<HostShared>, pending: PendingWork) -> Result<()> {
 		pending.to_ffi()?;
 		match self.close_barrier.get() {
@@ -254,13 +262,15 @@ impl HostShared {
 	fn request_native_release(self: &Rc<HostShared>, pending: PendingWork) -> Result<()> {
 		self.drain_parked_sessions()?;
 		let options = pending.to_ffi()?;
+		// SAFETY: as `close_wait` above for the handle; `options` is the local `GlowcapCloseOptions` from
+		// `pending.to_ffi()`, borrowed for the call, and the callee reads it only during the call.
 		let rc = unsafe { ffi::glowcap_host_close(self.raw(), &options, monotonic_ms()) };
 		if rc != sys::OK {
 			return check_host(rc);
 		}
 		self.native_close_committed();
 		// A close request or escalation is close-relevant activity: a driver
-		// parked on a now-superseded wait must re-check progress.
+		// parked on a superseded wait must re-check progress.
 		self.note_close_activity();
 		if !self.close_task_started.get() {
 			let host = Rc::clone(self);
@@ -287,6 +297,7 @@ impl HostShared {
 			tokio::pin!(notified);
 			notified.as_mut().enable();
 			let mut lifecycle = 0;
+			// SAFETY: as `close_wait` above for the handle; `lifecycle` is a local out-parameter the callee writes.
 			let rc = unsafe { ffi::glowcap_host_close_progress(self.raw(), monotonic_ms(), &mut lifecycle) };
 			if rc != sys::OK && rc != sys::ERR_TIMEOUT {
 				self.fail_close(host_refusal(rc, "advancing host close"));
@@ -373,6 +384,9 @@ impl HostShared {
 			self.fail_close(background_failure.map_or(error.clone(), |primary| primary.with_secondary(error)));
 			return;
 		}
+		// SAFETY: `raw` is the non-null handle this `HostShared` read from `self.raw` above, from
+		// `glowcap_host_new_in`; the close barrier is `Running`, the owned tasks, parked sessions and vows have
+		// drained, and this is the only release, after which `retire_native_host` clears the handle.
 		let rc = unsafe { ffi::glowcap_host_release(raw) };
 		if rc != sys::OK {
 			let release = host_refusal(rc, "releasing host");
@@ -444,6 +458,9 @@ impl Drop for HostShared {
 			crate::finalizer::park_host(raw, self.context.take(), false);
 		} else {
 			crate::trace::detach_host(raw);
+			// SAFETY: `raw` is the non-null handle read from `self.raw` above, from `glowcap_host_new_in`; `Drop` runs
+			// once, outside any behavior turn (`inside_turn` is false), and a consumed release clears `self.raw` while
+			// a refused one parks the handle for a later release.
 			let rc = unsafe { ffi::glowcap_host_release(raw) };
 			if crate::lifecycle::release_consumed(rc) {
 				self.raw.set(core::ptr::null_mut());

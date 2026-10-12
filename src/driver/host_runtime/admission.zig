@@ -35,7 +35,7 @@ pub fn acquireOpenAdmission(self: *HostRuntime, authority: OpenAdmissionAuthorit
 }
 
 /// Refuse new application work after either retirement or Host close.
-/// Concrete Runtime verbs own this check; adapters may project the error
+/// Concrete Runtime verbs own this check. Adapters may project the error
 /// but never need a shadow admission state.
 pub fn admitApplicationOperation(self: *const HostRuntime) AdmissionError!void {
     try checkRuntimeApplicationAdmission(self);

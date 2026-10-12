@@ -19,7 +19,7 @@ export { waitForHttp } from "../support/rooms_server.ts";
 
 /** Measure hovered ink against every painted ancestor, including opaque file
  * chips inside a gradient bubble. The shared contrast owner handles browser
- * colour syntax and alpha; no descendant skips its actual ground. */
+ * colour syntax and alpha. No descendant skips its actual ground. */
 export async function bubbleInkContrast(
 	page: Page,
 	selector: string,
@@ -35,7 +35,7 @@ export async function bubbleInkContrast(
  * back. A render landing between those two (a settling join, a directory
  * arriving) restores the old text under the write, and the event that follows
  * carries the restored value rather than the intended one. Nobody typing sees
- * this, because a keystroke is one event with a render either side of it; a
+ * this, because a keystroke is one event with a render either side of it. A
  * driver filling forty characters at once is the only thing fast enough.
  *
  * So a fill is not done when `fill` returns, it is done when the field agrees.
@@ -67,6 +67,15 @@ export async function say(tab: Page, text: string): Promise<void> {
 	await tab.press("#line", "Enter");
 }
 
+/** A line's edit authority proves receipt settlement. Quiet progress does not. */
+export async function waitForPostedLine(tab: Page, text: string): Promise<void> {
+	const bubble = tab.locator(".row.mine .bubble").filter({ hasText: text });
+	await bubble.hover();
+	await bubble.getByLabel("More for this message", { exact: true }).click();
+	await tab.getByRole("menuitem", { name: "Edit", exact: true }).waitFor();
+	await tab.keyboard.press("Escape");
+}
+
 /** Press the direct-message control beside `peer` in the member list and wait
  * until that conversation is the selected rail row and its composer is live.
  * The title alone names the destination while the conversation is still being
@@ -81,7 +90,7 @@ export async function openDmTo(tab: Page, peer: string): Promise<void> {
 }
 
 /** The direct line to `peer` is the open conversation and takes a message. A
- * press only starts the opening; the conversation the reader was in keeps its
+ * press only starts the opening. The conversation the reader was in keeps its
  * own composer meanwhile, so an enabled composer alone proves nothing. */
 export async function directOpened(tab: Page, peer: string, timeout = 30_000): Promise<void> {
 	await tab.waitForFunction(
@@ -96,7 +105,7 @@ export async function directOpened(tab: Page, peer: string, timeout = 30_000): P
 	);
 }
 
-/** Wait for a bubble containing `text` to render in `tab`; on timeout, dump the
+/** Wait for a bubble containing `text` to render in `tab`. On timeout, dump the
  * page's #log so the failure says what the page actually showed. */
 export async function awaitBubble(tab: Page, text: string, who: string): Promise<void> {
 	await tab.waitForFunction(
@@ -111,7 +120,7 @@ export async function awaitBubble(tab: Page, text: string, who: string): Promise
 }
 
 /** End the conversation on screen with the title's mark. The mark asks in that
- * conversation's card; this confirms. */
+ * conversation's card. This confirms. */
 export async function confirmTitleLeave(tab: Page): Promise<void> {
 	await tab.click("#leaveBtn");
 	const commit = tab.locator("#convcardLeave, #dircardLeave");
@@ -126,7 +135,7 @@ export async function confirmTitleLeave(tab: Page): Promise<void> {
  * tab has not reached takes two presses: one that reaches it, and one that
  * joins. A directory already reached needs no first press, which is why this
  * looks at what the button says rather than counting. It returns once the room
- * field is there to be typed into; the caller presses Join itself when this
+ * field is there to be typed into. The caller presses Join itself when this
  * returns `question`. A card that already names the room finishes the whole
  * request on that one press: the directory is reached and the room entered
  * before the press is over, and the same happens when a reconnect restores an
@@ -152,7 +161,8 @@ export async function reachDirectoryOnCard(
 					(document.getElementById("roomName")?.textContent ?? "").trim() === expectedRoom &&
 					(document.getElementById("line") as HTMLTextAreaElement | null)?.disabled === false;
 			}
-			if (button.dataset.busy === "true") return false;
+			// Progress is delayed; readiness follows the control.
+			if (button.disabled) return false;
 			const room = document.getElementById("room");
 			if (room !== null && (room as HTMLInputElement).offsetParent !== null) return true;
 			return expectedRoom !== null &&
@@ -218,7 +228,7 @@ export async function openDirectoryCardFromCaption(tab: Page, caption: Locator):
 	await openDirectoryCard(tab);
 }
 
-/** Settings names the directory; the button opens that conversation, and the
+/** Settings names the directory. The button opens that conversation, and the
  * title chip opens the card. */
 export async function openDirectoryCardFromSettings(tab: Page): Promise<void> {
 	await tab.click("#settingsAboutDir");

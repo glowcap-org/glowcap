@@ -1,5 +1,5 @@
 //! Raw accept custody. The caller holds the mutex across generation checks
-//! and queue mutations; async establishments carry only a generation token.
+//! and queue mutations. Async establishments carry only a generation token.
 
 use super::{EV_ACCEPT, Readiness};
 use std::collections::VecDeque;

@@ -22,7 +22,7 @@ pub fn ignore_port_args() -> Result<(), Fail> {
 }
 
 /// Serve every iroh session a proof server accepts for the life of its local
-/// task set. The owning session handle stays in the serve task; retaining an
+/// task set. The owning session handle stays in the serve task, retaining an
 /// accepted handle without serving it leaves published objects reachable in
 /// name but unable to answer.
 #[cfg(feature = "iroh")]

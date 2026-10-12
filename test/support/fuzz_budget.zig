@@ -4,7 +4,7 @@
 //! codebase documents most and tests least. `.agents/rules/memory.md` names
 //! roughly twenty-five allocations as bounded, owned, or freed on every path,
 //! and each of those claims has an unwind behind it that only runs when an
-//! allocation fails. A parse can only fail where the bytes are wrong; an
+//! allocation fails. A parse can only fail where the bytes are wrong. An
 //! allocation can fail anywhere, including halfway down a tree with a boxed arm
 //! already built and nothing left to build the next one with.
 //!
@@ -55,7 +55,7 @@ pub const Budget = struct {
 
     /// For a step whose refusal is a legitimate answer: parsing bytes nobody
     /// promised were well formed, or encoding a message the codec declines to
-    /// put on the wire. The property simply ends for this input.
+    /// put on the wire. The property ends for this input.
     ///
     /// Running out of memory is not one of those. It ends the property when the
     /// failure was induced here, and is a real error when it was not.

@@ -5,7 +5,7 @@
 //! the client on the test fiber. We prove (1) the handshake drives both peers to
 //! `open` over the wire, and (2) a bootstrap fetch. That fetch is an
 //! `op:deliver` answered by an auto-`op:resolve` that round-trips end to end,
-//! the same oracle scenario now framed by `recvStreamPrefix` over a byte stream.
+//! the same oracle scenario framed by `recvStreamPrefix` over a byte stream.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -36,7 +36,7 @@ const ServerError = anyerror;
 
 /// Accept one connection, complete the handshake, and serve the bootstrap fetch
 /// by pumping until the client closes (graceful EOF). The responder half is
-/// automatic in the runtime; the server only drives bytes.
+/// automatic in the runtime. The server only drives bytes.
 fn serveOnce(listener: *tcp.Listener, allocator: std.mem.Allocator) ServerError!void {
     var peer = stubNegotiatingPeer(allocator);
     defer peer.deinit();
@@ -183,7 +183,7 @@ test "tcp listener restarted onto its port reclaims it from TIME_WAIT" {
     // lets a rebind reclaim past them only when both listener generations set
     // SO_REUSEADDR (`socket.openListenerReuseAddr` documents the contract),
     // so before that landed this rebind lost the port for the TIME_WAIT
-    // minute — exactly how a stateful server restarted onto its pinned port
+    // minute, exactly how a stateful server restarted onto its pinned port
     // failed under load.
     var client = try io.concurrent(readUntilEof, .{ io, address });
     const served = try first.acceptStream();

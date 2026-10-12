@@ -3,11 +3,11 @@
  *
  * An era is one topology along the timeline and the arrangement solved for it.
  * This module owns that list: which moments get an era, what problem each one
- * answers, when a prior arrangement can be reused, and — once the list is
- * known — where the picture actually is when each era begins (`sealEras`).
+ * answers, when a prior arrangement can be reused, and, once the list is
+ * known, where the picture is when each era begins (`sealEras`).
  * `KeyframeLayoutSystem` asks for the list and writes positions at `t`.
  *
- * `force-layout.ts` owns the anneal itself; `stage-topology.ts` owns who
+ * `force-layout.ts` owns the anneal itself, `stage-topology.ts` owns who
  * stands at a moment. Cost, reuse, and why the era count stays unbounded
  * are recorded on `KeyframeLayoutSystem` and in `docs/era-collapse.md`.
  */
@@ -36,13 +36,13 @@ type Layout = Map<string, Vec2>;
  * whole timeline.
  *
  * It is not a claim that the arrangement is the one a cold solve would produce.
- * `recomputeForPlacement` deliberately keeps an era's existing arrangement when a
+ * `recomputeForPlacement` keeps an era's existing arrangement when a
  * pin lands within epsilon of where that era already had the peer, because
  * re-annealing would settle a different basin and move every free peer to
  * announce a pin that changed nothing. That arrangement is stamped with its
  * problem and reused from then on, so a document grown by dragging can hold an
  * arrangement a freshly loaded copy of the same document would not. That
- * placement history is the older decision and this one preserves it; what
+ * placement history is the older decision and this one preserves it. What
  * neither of them is, is a pure function of the document alone.
  */
 /**
@@ -52,7 +52,7 @@ type Layout = Map<string, Vec2>;
  * Everything that produces eras produces these, and `sealEras` is the only way
  * to get a `Keyframe` out of them. That is deliberate. `start` is a property of
  * an era's position in the LIST rather than of the era itself, so a site
- * building one by hand cannot know it — and a site that guessed it wrong made
+ * building one by hand cannot know it, and a site that guessed it wrong made
  * every era it touched snap instead of ease, which is a defect no type caught
  * while the field was simply there to be set.
  */
@@ -77,7 +77,7 @@ export type Keyframe = Era & {
 	 * Derived by walking the eras in order, because it is a pure function of the
 	 * list: each era's start is the previous era's start eased toward the previous
 	 * era's arrangement by as much time as that era actually had. Doing it there
-	 * rather than in `update` is what keeps the runtime at one lerp per node —
+	 * rather than in `update` is what keeps the runtime at one lerp per node,
 	 * reconstructing the chain per frame is O(eras) per node, and on a document
 	 * whose eras all sit closer together than the window that is every era, every
 	 * frame.
@@ -100,17 +100,17 @@ const SINGLE_KEYFRAME = "(single)";
  *
  *   "per-topology"  Every distinct topology along the timeline gets
  *                   its own d3-force convergence. Peers lerp between
- *                   keyframes when the topology changes — visually
+ *                   keyframes when the topology changes, visually
  *                   honest about reconfiguration, but peers move.
  *
  *   "static-union"  One d3-force convergence at engine construction
  *                   over the *union* of every peer and session that
  *                   ever exists. Peers stay put for the entire
- *                   scenario; new sessions just appear as edges
+ *                   scenario. New sessions just appear as edges
  *                   between already-positioned nodes.
  *
  *   "authored"      Honors the `position` field on each peer-joined
- *                   event verbatim; no d3-force runs. Used when a
+ *                   event verbatim. No d3-force runs. Used when a
  *                   fixture has placed every peer explicitly.
  *                   Peers without an authored position land at the
  *                   origin (caller is expected to provide them).
@@ -118,7 +118,7 @@ const SINGLE_KEYFRAME = "(single)";
  * In both force modes an authored position is a PIN: the peer sits
  * at exactly that position in every keyframe (fixed `fx`/`fy` in
  * the simulation) while its links still pull neighbors into place
- * around it. Default is "per-topology" — fixtures that prefer
+ * around it. Default is "per-topology", fixtures that prefer
  * stillness opt in via `layoutMode: "static-union"`.
  */
 export type LayoutMode = "per-topology" | "static-union" | "authored";
@@ -171,7 +171,7 @@ export const DEFAULT_LAYOUT_CONFIG: LayoutConfig = {
  *
  * It exists because a recompute is expensive and the force solver is
  * multi-stable, so re-annealing on a document change that touches none of these
- * both costs a solve and can settle a different basin — free peers visibly
+ * both costs a solve and can settle a different basin, free peers visibly
  * jumping while a reader watches and does nothing. A live feed makes that
  * constant: every message that arrives is a document change, and none of them
  * is a layout change.
@@ -182,7 +182,7 @@ export const DEFAULT_LAYOUT_CONFIG: LayoutConfig = {
  * timing and moves no observation, so every other part of this key is unchanged
  * while the peer has stopped standing anywhere past that moment. Without the
  * ranges the recompute declined, and the peer stayed a body in every later era's
- * solve — pushing the arrangement around from a place the stage draws nothing.
+ * solve, pushing the arrangement around from a place the stage draws nothing.
  *
  * Messages are the obvious absence and the reason this is here. Session state
  * and payloads are absent for the same reason: the solver never reads them.
@@ -230,8 +230,8 @@ export function layoutInputSignature(
  * one thing an era cannot know about itself.
  *
  * The only producer of a `Keyframe`. Anything that changes which layout an era
- * carries — a fresh derivation, or a placement edit swapping a reused
- * arrangement back in — passes back through here, because moving a layout moves
+ * carries, a fresh derivation, or a placement edit swapping a reused
+ * arrangement back in, passes back through here, because moving a layout moves
  * what the era AFTER it eases from as well.
  *
  * A node absent from the running arrangement but present in an era appears at
@@ -317,7 +317,7 @@ const PIN_EQUILIBRIUM_EPSILON = 1e-6;
 /** If every pinned peer sits within epsilon of where `prev` already
  * has it, `prev` is still an equilibrium of the pinned system:
  * return it with pinned entries snapped to their exact pins.
- * Otherwise null — the edit genuinely disturbs this era.
+ * Otherwise null. The edit disturbs this era.
  *
  * The caller has already proved the era's bodies are in `prev`, so the
  * reuse carries no stale members for those. Claims are refreshed by
@@ -346,7 +346,7 @@ function reuseIfEquilibrium(
 /**
  * A single era at t=0 reading each peer's authored `position`
  * field from its `peer-joined` event. No d3-force runs. A peer
- * without an authored position lands at the origin — the caller
+ * without an authored position lands at the origin, the caller
  * (typically the builder) is expected to provide one whenever it
  * emits a `peer-joined` under `layoutMode: "authored"`.
  */
@@ -365,7 +365,7 @@ function computeAuthoredEra(
 	// solved modes use. An end the author has placed holds a pin and keeps it:
 	// the author put it there, which is the whole contract of this mode. A
 	// loose end that is not a claim has no authored position and no solver to
-	// give it one, so it stays wherever the world minted it — authored mode
+	// give it one, so it stays wherever the world minted it, authored mode
 	// asks the author for every node's place, and that includes those.
 	const nodes = new Set(layout.keys());
 	for (const stageId of claimed.keys()) nodes.add(stageId);
@@ -395,7 +395,7 @@ function computePerTopologyEras(
 	/** The eras being replaced, whose arrangements can be reused for every
 	 *  moment whose problem is unchanged. Omitted for a first computation. */
 	previous?: readonly Era[],
-	/** Placement-only prior layouts; see `computeEras`. */
+	/** Placement-only prior layouts. See `computeEras`. */
 	placementPrevByT?: ReadonlyMap<number, Layout>,
 ): Era[] {
 	const pins = authoredPins(doc);
@@ -433,7 +433,7 @@ function computePerTopologyEras(
 		// A moved pin changes this era's problem key, so the held map misses even
 		// when the prior arrangement is still an equilibrium (pin within epsilon
 		// of where the era already had it, or the pin names a node this era does
-		// not hold). Check that before annealing — the old placement path annealed
+		// not hold). Check that before annealing. The old placement path annealed
 		// first and threw the result away.
 		if (placementPrevByT) {
 			const prev = placementPrevByT.get(t);
@@ -474,7 +474,7 @@ function computePerTopologyEras(
  * Everything `runForce` reads for this era: the nodes, the pairs they are linked
  * in, and per node the pin holding it, the peer it claims, and the box it
  * occupies. All of it, because the key is compared across computations as well
- * as within one — an era whose arrangement is reused has to be answering the
+ * as within one. An era whose arrangement is reused has to be answering the
  * same question in every respect, and a pin cleared or a claim landing changes
  * the answer without changing the node set. Leaving those out reused a layout
  * that still held a peer at a pin nobody had asked for any more.
@@ -520,7 +520,7 @@ function solverProblemKey(
 /**
  * A single era at t=0 over the union of every peer and session
  * that ever exists in the document. Subsequent topology changes
- * (peer-left, session-closed) don't drop nodes from the layout —
+ * (peer-left, session-closed) don't drop nodes from the layout,
  * the position stays reserved so the rest of the graph doesn't
  * shuffle when a peer leaves.
  */
@@ -533,7 +533,7 @@ function computeStaticUnionEra(
 	const sessions = new Map<string, { a: string; b: string }>();
 	// Every arrival the timeline holds and no departure: the union is the point
 	// of this mode. The same moments the per-topology walk steps through, read
-	// for what they add rather than for when they add it — so an entity only
+	// for what they add rather than for when they add it. So an entity only
 	// the document declares joins the union exactly as an observed one does.
 	//
 	// An unattributed end holds a place like a peer: it has a position, and it

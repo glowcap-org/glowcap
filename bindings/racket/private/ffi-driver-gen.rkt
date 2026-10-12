@@ -83,6 +83,7 @@
   (_fun _pointer (_or-null _GlowcapReference-pointer) _pointer -> _int32)
   #:c-id glowcap_driver_claim_reference_exporter)
 (define glowcap_driver_claim_reference_exporter (wrap-out1 glowcap_driver_claim_reference_exporter* _pointer #f))
+(define-driver-loop glowcap_driver_claim_exporter_session (_fun _pointer _pointer -> _int32))
 (define-driver-loop glowcap_driver_session_close
   (_fun _pointer _pointer (_or-null _GlowcapCloseOptions-pointer) -> _int32))
 (define-driver-loop glowcap_driver_session_lifecycle_state*

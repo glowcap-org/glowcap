@@ -1,11 +1,11 @@
 //! Resource bounds a session enforces against its partner.
 //!
 //! These are loud caps: crossing one refuses the transition with a typed error
-//! instead of silently clamping state. Most are enforced by `Session`;
+//! instead of silently clamping state. Most are enforced by `Session`,
 //! `max_local_deliveries` is enforced by the engine drain that spends it.
 
 /// Default inbound frame cap (1 MiB). SessionLimits uses this for
-/// `max_frame_bytes`; the driver C ABI publishes the same value as
+/// `max_frame_bytes`. The driver C ABI publishes the same value as
 /// `GLOWCAP_DEFAULT_FRAME_CAP` so bindings stop hardcoding the shift.
 const default_max_frame_bytes: usize = 1 << 20;
 
@@ -43,7 +43,7 @@ pub const SessionLimits = struct {
     /// Max element visits spent proving set/struct uniqueness after equal-hash
     /// grouping. This bounds the adversarial multiset-compare case.
     max_compare_visits: usize = 1 << 16,
-    /// Max inbound frame bytes admitted from a byte stream. Already-framed
-    /// transports enforce their packet boundary before handing bytes to Session.
+    /// Max inbound frame bytes. Peer enforces this before whole-frame copying
+    /// or queueing, packet admission, and stream materialization.
     max_frame_bytes: usize = default_max_frame_bytes,
 };

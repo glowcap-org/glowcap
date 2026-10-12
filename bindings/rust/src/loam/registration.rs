@@ -1,4 +1,4 @@
-//! Stable registration projection. Zig copies declaration data during attach;
+//! Stable registration projection. Zig copies declaration data during attach.
 //! Rust callback addresses remain fixed until the attachment retires.
 use super::{Graph, Method, Registration, Retry, content};
 use crate::{context::ContextInner, sys::loam as ffi};
@@ -123,6 +123,10 @@ impl Prepared {
 				method_count: methods.len(),
 				requirement: Some(content::requirement),
 				invoke: Some(content::invoke),
+				admit_forward: callback
+					.content
+					.forward_admission()
+					.map(|_| content::admit_forward as ffi::GlowcapLoamForwardFn),
 				references: Some(content::references),
 				dependent_requirement: Some(content::dependent_requirement),
 				graph: graph.as_ref().map_or(core::ptr::null(), |graph| graph as *const _),

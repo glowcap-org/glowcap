@@ -21,7 +21,7 @@ import { spawnWeb } from "../support/web_front.ts";
 //     same tab from the other end of the same wire. Those two views join on the
 //     name both ends of a CapTP session derive, so one tab is one node.
 //   - a direct message is a session between the two tabs, with the room off its
-//     path — and it draws once, from two ends reporting it, because each message
+//     path, and it draws once, from two ends reporting it, because each message
 //     carries a tag over its own wire bytes.
 //   - room lines travel on the room sessions and direct lines on the direct one.
 //   - leaving a room does NOT close the session to the room server: the
@@ -51,7 +51,7 @@ import { freePort, waitForHttp } from "../support/rooms_server.ts";
 type FeedRecord = Record<string, unknown>;
 type StageEvent = Record<string, unknown>;
 
-// ocapnviz is its own Deno scope — the root `deno.json` excludes it — so its
+// ocapnviz is its own Deno scope, the root `deno.json` excludes it, so its
 // converter is reached by URL rather than by a specifier the root scope's
 // type-checker would follow into imports it cannot resolve. What runs is the
 // real one: the picture below is ocapnviz's own projection rather than a
@@ -60,7 +60,7 @@ type StageEvent = Record<string, unknown>;
 //
 // The schema comes with it, and that is what makes the arrangement safe. A
 // dynamic import is untyped, so a structural copy of `TimelineEvent` declared
-// here would be an assertion nothing checks — and it drifted exactly that way
+// here would be an assertion nothing checks, and it drifted exactly that way
 // once, leaving three assertions reading fields and kinds the viewer had
 // stopped emitting while the run still said PASS. So there is no copy. Every
 // converted event is parsed by `Observation`, ocapnviz's own definition of what
@@ -91,7 +91,7 @@ const HANDLED_KINDS = [
 ] as const;
 
 /** The kinds ocapnviz's `Observation` declares. It is a zod discriminated
- * union, so the kinds are its members' `kind` literals; anything else here is
+ * union, so the kinds are its members' `kind` literals. Anything else here is
  * this reader having gone stale against zod itself, which fails loudly rather
  * than answering an empty set. */
 function schemaKinds(): Set<string> {
@@ -153,7 +153,7 @@ class Picture {
 	edges = new Map<string, Edge>();
 	messages: { session: string; from: string; to: string; op: string | undefined }[] = [];
 	/** Every event the converter produced, in order. The counts above say what
-	 * is on screen now; this says what the timeline CLAIMS happened, and the two
+	 * is on screen. This says what the timeline CLAIMS happened, and the two
 	 * are different questions. A blip that opens and closes between two polls
 	 * leaves the counts untouched and this record damning. */
 	journal: StageEvent[] = [];
@@ -161,7 +161,7 @@ class Picture {
 	apply(record: FeedRecord): void {
 		for (const raw of this.#convert(record)) {
 			// The boundary check: an event the viewer's own schema will not accept
-			// is a converter this proof no longer understands, and it stops here
+			// is a converter this proof does not understand, and it stops here
 			// rather than being read field by field on a guess.
 			const ev = Observation.parse(raw);
 			this.journal.push(ev);
@@ -190,7 +190,7 @@ class Picture {
 					break;
 				// The viewer learned who is on one end of a session it had already
 				// drawn. The session keeps its identity, because on the wire nothing
-				// happened: an end that was only a claim is now attached to a peer.
+				// happened: an end that was only a claim becomes attached to a peer.
 				case "session-endpoint-attributed": {
 					const edge = this.edges.get(sessionId);
 					const side = str(ev, "side");
@@ -257,7 +257,7 @@ class Picture {
 /** The property the rest of this file rests on: a stretch of timeline may not
  * state a departure or a close the protocol never produced.
  *
- * A viewer learns who is on the far end of a wire AFTER it has drawn the wire —
+ * A viewer learns who is on the far end of a wire AFTER it has drawn the wire,
  * a browser tab dials with no address to prove, so the accepting end reports
  * the session before anyone can say whose it is. Learning that is a fact about
  * the viewer. Reporting it as `session-closed` and `peer-left` makes it a claim
@@ -426,7 +426,7 @@ try {
 	// ── A direct message: a third session, between the two members ──
 	// Everything the timeline says while this is happening is recorded, because
 	// the count-based assertion below cannot see a session that opens and ends
-	// between two polls — and an invented ending is exactly what this step used
+	// between two polls, and an invented ending is exactly what this step used
 	// to produce.
 	const duringDm = picture.journal.length;
 	await openDmTo(tab1, NICK2);
@@ -454,7 +454,7 @@ try {
 	// ── A second viewer sees the same picture and never had to learn it ──
 	// Stopping a recording and starting another builds a fresh converter and
 	// asks the endpoint for the topology again. Every live session's open comes
-	// back — and one wire is TWO of those, because both its ends report it. Fed
+	// back, and one wire is TWO of those, because both its ends report it. Fed
 	// one at a time that would re-run the whole learning sequence, which is
 	// honest live and a fabrication here: both ends are in the batch before
 	// anything is drawn, so there was never a moment the viewer did not know.
@@ -525,7 +525,7 @@ try {
 		"the room line travelled on the room sessions",
 		(p) => {
 			const since = p.messages.slice(beforeRoom);
-			return since.some((m) => m.op === "post" && m.session === roomEdge1) &&
+			return since.some((m) => m.op === "postCorrelated" && m.session === roomEdge1) &&
 				since.some((m) => m.op === "notify" && m.session === roomEdge2);
 		},
 	);

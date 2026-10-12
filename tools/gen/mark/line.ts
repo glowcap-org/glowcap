@@ -1,4 +1,4 @@
-// The line mark, drawn as the rim band it actually is rather than as a stroke
+// The line mark, drawn as the rim band it is rather than as a stroke
 // of even width.
 //
 // The shader's orange outline is a band whose thickness varies all the way

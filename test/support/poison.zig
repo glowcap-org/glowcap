@@ -9,7 +9,7 @@
 //! dangling read yields the scribble and the assertion fails where the defect
 //! is.
 //!
-//! Wrap whatever allocator the test would otherwise use — normally
+//! Wrap whatever allocator the test would otherwise use, normally
 //! `std.testing.allocator`, so leak and double-free detection still apply.
 
 const std = @import("std");
@@ -62,7 +62,7 @@ pub const PoisonOnFree = struct {
 
 test "freeing a block scribbles over its bytes" {
     // Backed by a buffer this test owns, so the freed bytes can be inspected
-    // through the buffer rather than through the dangling pointer — reading
+    // through the buffer rather than through the dangling pointer, reading
     // that pointer is the very thing this helper exists to catch.
     var backing: [256]u8 = undefined;
     var fixed = std.heap.FixedBufferAllocator.init(&backing);

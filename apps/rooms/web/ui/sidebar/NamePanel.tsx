@@ -21,8 +21,8 @@ import { railChange, railChangeDirectory, railIn } from "../../../lib/text/rail.
 
 /** One "+" and the field under it, wherever it is being held.
  *
- * The panel and the toggle are two elements in two parents — the toggle sits on
- * a heading's line and the field opens under it — so they are named to each
+ * The panel and the toggle are two elements in two parents, the toggle sits on
+ * a heading's line and the field opens under it, so they are named to each
  * other by `id` rather than by a shared ref: `id` is the toggle's `aria-controls`
  * and the dismissal region already names both halves that way, and one contract
  * is better than two that can drift. */
@@ -90,7 +90,7 @@ export interface AddField {
 	 * advertising, or the people it says are reachable.
 	 *
 	 * Offered rather than enforced. Both fields name something that may not exist
-	 * yet — a room is made by opening it — so what is typed always wins and the
+	 * yet, a room is made by opening it, so what is typed always wins and the
 	 * list is a shortcut past typing a name in full, never a set to choose from.
 	 * Absent leaves the field exactly as it was. */
 	offers?: readonly string[];
@@ -98,7 +98,7 @@ export interface AddField {
 	 * named looks like the things already named. */
 	sigil: string;
 	/** Where what is typed here will land, and which mark that directory wears.
-	 * Absent when the panel has no destination to state — a direct line is
+	 * Absent when the panel has no destination to state: a direct line is
 	 * opened on whichever directory the person is already on. */
 	where?: { name: string; mark?: string };
 	onError: (text: string) => void;
@@ -132,9 +132,9 @@ export function AddButton({ id, label, open, canAdd, onOpen }: {
 /** The field itself.
  *
  * What is typed into it is this component's own state and nowhere else. It is
- * not a store fact, because nothing outside reads a half-typed name; and it is
+ * not a store fact, because nothing outside reads a half-typed name, and it is
  * not left in the DOM, because a value the element holds outlives the field
- * being closed, the conversation being switched, and the room being lost — the
+ * being closed, the conversation being switched, and the room being lost: the
  * page would then reopen a field still carrying a name from some earlier
  * intention. */
 export function NamePanel(
@@ -160,8 +160,8 @@ export function NamePanel(
 ) {
 	const field = useRef<HTMLInputElement>(null);
 	// The destination menu, when this panel has one. Its holder is the panel
-	// itself, so a press on the line that opens it — or anywhere else the panel
-	// offers — is not "somewhere else".
+	// itself, so a press on the line that opens it, or anywhere else the panel
+	// offers, is not "somewhere else".
 	const { open: picking, setOpen: setPicking, holder: panel, trigger: elsewhere, layer } = useMenu();
 	const [localValue, setLocalValue] = useState("");
 	const [localRoomPreset, setLocalRoomPreset] = useState<RoomPreset>("open");
@@ -200,7 +200,7 @@ export function NamePanel(
 	// the menu's open state would outlive the panel and the next opening would
 	// find rows hanging under a line nobody had pressed; the draft would come
 	// back naming something the reader meant a while ago. Both are kept here,
-	// on the panel actually closing, rather than in the verb that closes it,
+	// on the panel closing, rather than in the verb that closes it,
 	// because the panel is also put away by a conversation opening and that
 	// path calls no verb of this component's. Only the unlinked draft is this
 	// panel's to forget: linked, the value belongs to the other form, which is
@@ -280,8 +280,8 @@ export function NamePanel(
 					// going to the toggle that owns it. The toggle is about to
 					// decide the field's fate and would otherwise find it already
 					// closed and open it straight back. Everything else the panel
-					// offers — the lock, the line that names the destination, the
-					// rows of the menu that line opens — lives inside it, so closing
+					// offers (the lock, the line that names the destination, the
+					// rows of the menu that line opens) lives inside it, so closing
 					// on the way to any of them put the panel away before the press
 					// could land. That is exactly what a keyboard reader does, since
 					// reaching them means tabbing off the field.
@@ -376,7 +376,7 @@ export function NamePanel(
 				// views of one answer, and a reader who can retype the room name
 				// in either should not have to cross the page to retarget it.
 				// Without a card there is nothing to be a second view of, so the
-				// press steps out to the one surface that can dial an address —
+				// press steps out to the one surface that can dial an address,
 				// carrying whatever has been typed, and the directory this panel
 				// was naming, so nothing has to be picked again.
 				<Button
@@ -396,7 +396,7 @@ export function NamePanel(
 					// the focus shift and nothing else, so the click still follows.
 					//
 					// The action belongs on the click and not on the press, because a
-					// button reached by keyboard fires click alone — Enter and Space
+					// button reached by keyboard fires click alone, Enter and Space
 					// raise no mousedown at all, and neither does a screen reader's
 					// activation. Acting on mousedown left this control focusable,
 					// visibly focused, and dead.

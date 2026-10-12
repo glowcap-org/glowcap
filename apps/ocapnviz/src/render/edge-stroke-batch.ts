@@ -1,11 +1,11 @@
 /**
  * One Pixi `Graphics` for every session wire.
  *
- * Dirty wires mark the batch; `flush` clear+restrokes once so a moving
+ * Dirty wires mark the batch. `flush` clear+restrokes once so a moving
  * peer pays one upload instead of one per incident edge. How a curve is
  * inked (`strokeCurve` / `strokeDashedCurve` in `edge-stroke.ts`) and
- * per-session hit proxies, halos, and chips stay outside this class —
- * only GPU buffer ownership for the wire ink lives here.
+ * per-session hit proxies, halos, and chips stay outside this class.
+ * Only GPU buffer ownership for the wire ink lives here.
  */
 
 import { Graphics } from "pixi.js";
@@ -25,7 +25,7 @@ export type EdgeStrokeSpec = {
 export class EdgeStrokeBatch {
 	readonly gfx: Graphics;
 	readonly #entries = new Map<string, EdgeStrokeSpec>();
-	/** Paint order — later ids draw on top (high session z last). */
+	/** Paint order, later ids draw on top (high session z last). */
 	#order: string[] = [];
 	#dirty = true;
 	#membershipDirty = true;
@@ -94,7 +94,7 @@ export class EdgeStrokeBatch {
 	}
 
 	/** Authoritative paint order for this frame. Entries not listed are
-	 *  dropped — the order is the set of body-visible wires. */
+	 *  dropped. The order is the set of body-visible wires. */
 	setOrder(ids: readonly string[]): void {
 		const unchanged = sameOrder(this.#order, ids);
 		if (unchanged && !this.#membershipDirty) return;

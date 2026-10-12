@@ -59,7 +59,7 @@ export async function runTraceRoundtrip(managed: Runtime): Promise<void> {
 		"an open states the implementation this producer runs",
 	);
 	// Identity and label are separate facts. `a` is the host's own key
-	// designator—the only name two producers can agree on.
+	// designator: the only name two producers can agree on.
 	assert(
 		opened.every((event) => /^[0-9a-f]{64}$/.test(event.a ?? "")),
 		"an open's `a` endpoint is the reporting host's key designator",

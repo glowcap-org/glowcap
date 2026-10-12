@@ -28,7 +28,7 @@ function keys(...k: string[]): ReadonlySet<EntityRefKey> {
 }
 
 /** Three peers, three sessions and a message. `alice` and `bob` hold
- *  both ends of `alice-bob`; `carol-loose` has one end nobody has
+ *  both ends of `alice-bob`, `carol-loose` has one end nobody has
  *  attributed. `ghost` is a peer with no `peer-joined` event, so
  *  nothing in the recording says when it begins. */
 function doc(): TimelineDocument {
@@ -179,7 +179,7 @@ Deno.test("the span reaches from the earliest start to the latest end", () => {
 		keys("message:m1", "session:alice-bob"),
 	);
 	// The session opens before the message is sent; the message lands
-	// after — and the session, which nothing closes, runs to the end of
+	// after, and the session, which nothing closes, runs to the end of
 	// the document, which is where the timeline draws it too.
 	assertEquals(facts.span, { start: 2000, end: 10000 });
 
@@ -339,7 +339,7 @@ Deno.test("the caveats say which set they counted, in the plural it takes", () =
 
 Deno.test("every selected entity is accounted for exactly once", () => {
 	// The two caveat counts plus the planned events must cover the
-	// whole selection — a member that is neither moved nor mentioned is
+	// whole selection. A member that is neither moved nor mentioned is
 	// the silent skip this panel exists to stop.
 	const selection = keys(
 		"peer:alice",

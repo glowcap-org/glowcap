@@ -44,8 +44,9 @@ engineTest(
 engineTest(
 	"a transaction coalesces layout recomputes for Unpin-all-shaped clears",
 	() => {
-		// Each clear-peer-position used to cold-anneal; Unpin all on a pinned
-		// composition paid that per peer. Inside a transaction the writes land
+		// Each clear-peer-position cold-anneals, so Unpin all on a pinned
+		// composition would pay that per peer. Inside a transaction the writes
+		// land
 		// and one recompute runs at endTransaction.
 		const e = new Engine(structuredClone(doc));
 		e.dispatch({
@@ -78,8 +79,8 @@ engineTest(
 engineTest(
 	"a transaction coalesces seeks for multi-delete and refreshes layout",
 	() => {
-		// Deletes used to rematerialize the world per member and leave deleted
-		// peers in keyframes until something else recomputed.
+		// Deletes rematerialize the world once, and leave no deleted peers in
+		// keyframes.
 		const e = new Engine(structuredClone(doc));
 		let recomputes = 0;
 		const origRecompute = e.layout.recompute.bind(e.layout);
@@ -217,7 +218,7 @@ engineTest(
 	() => {
 		// Pin, then unpin. After the clear, neither position carrier
 		// holds the authored point, the intent is a no-op the second
-		// time, and undo restores the pin — the full inverse of
+		// time, and undo restores the pin. The full inverse of
 		// reposition-peer's pin.
 		const e = new Engine(structuredClone(doc));
 		e.dispatch({
@@ -233,7 +234,7 @@ engineTest(
 			}
 		}
 		// Unpinning an OUTLIER pin hands the peer back to the layout,
-		// which pulls it toward the pack — visible motion here is the
+		// which pulls it toward the pack, visible motion here is the
 		// correct feedback that the simulation owns it again.
 		const freed = e.layout.keyframes[0]!.layout.get("a");
 		assert(freed);
@@ -304,7 +305,7 @@ engineTest(
 		// `entities.sessions` for sessions whose `session-opened`
 		// event is later in the timeline. The eternal-entities pass
 		// must not register them at t=0 just because they exist in
-		// the entities map — they have an explicit creation event
+		// the entities map. They have an explicit creation event
 		// that hasn't fired yet.
 		const futureSessionDoc = TimelineDocument.parse({
 			id: "test",
@@ -326,7 +327,7 @@ engineTest(
 				},
 				{
 					id: "s_future",
-					t: 3000, // FUTURE — session-opened hasn't replayed at t=0
+					t: 3000, // FUTURE: session-opened hasn't replayed at t=0
 					kind: "session-opened",
 					sessionId: "future-session",
 					a: { peer: "a" },
@@ -349,7 +350,7 @@ engineTest(
 			),
 			false,
 		);
-		// Seek past the opened event — now it should be in the world.
+		// Seek past the opened event, now it should be in the world.
 		e.seekTo(3500);
 		assertEquals(
 			[...e.world.with("session")].some(
@@ -383,7 +384,7 @@ engineTest(
 	() => {
 		const e = new Engine(structuredClone(doc));
 		// Define message m_new on session s1 with no message-sent
-		// event — implicit start should cascade to session s1's
+		// event, implicit start should cascade to session s1's
 		// effective start.
 		(e.doc as TimelineDocument).entities = {
 			...e.doc.entities,
@@ -408,8 +409,8 @@ engineTest(
 		// its implicit start; its effective end = start + duration.
 		assertEquals(e.effectiveStart("messages", "m_new"), 0);
 		assertEquals(e.effectiveEnd("messages", "m_new"), 200);
-		// Setting message start at t=2000 lies within session bounds
-		// — accepted; entity.timing.start becomes explicit.
+		// Setting message start at t=2000 lies within session bounds,
+		// accepted; entity.timing.start becomes explicit.
 		e.dispatch({ kind: "set-message-start", messageId: "m_new", t: 2000 });
 		assertEquals(
 			e.doc.entities?.messages?.m_new?.timing?.start,
@@ -464,7 +465,7 @@ engineTest(
 	"set-session-start rejects t before both endpoints exist",
 	() => {
 		const e = new Engine(structuredClone(doc));
-		// Add the new session to the existing (projected) entities map —
+		// Add the new session to the existing (projected) entities map,
 		// replacing it wholesale would drop the projector's peer defs
 		// and break bound resolution downstream.
 		(e.doc as TimelineDocument).entities = {
@@ -490,7 +491,7 @@ engineTest(
 		if (afterReject !== undefined) {
 			assertEquals(afterReject.explicit, false);
 		}
-		// t=900 lies after both endpoints — accepted.
+		// t=900 lies after both endpoints, accepted.
 		e.dispatch({ kind: "set-session-start", sessionId: "s_new", t: 900 });
 		assertEquals(
 			e.doc.entities?.sessions?.s_new?.timing?.start,

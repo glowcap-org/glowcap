@@ -5,18 +5,18 @@
 //! Syrup's byte records. There's no schema compiler in the loop: we read the
 //! struct and list layout directly against the wire primitives in `wire.zig`
 //! (ADR-0026), so the codec stands on its own and the layout tracks the model.
-//! Rendering lives in `encode.zig`; the layout and reader vocabulary both
+//! Rendering lives in `encode.zig`. The layout and reader vocabulary both
 //! sides share lives in `shared.zig`.
 //!
 //! Decode reads before it copies. `decodeBody` projects the borrowed
 //! codec-neutral view over the frame without copying anything, and
-//! `decodeOwned` is just that followed by `model.view.Body.toOwned` — one
-//! decode vocabulary, the same shape as `syrup.decodeOwned` — so owned
+//! `decodeOwned` is just that followed by `model.view.Body.toOwned`, one
+//! decode vocabulary, the same shape as `syrup.decodeOwned`, so owned
 //! materialization only happens when you ask for it.
 //!
 //! References flip perspective every time they cross the wire (ADR-0010), the
 //! same way Syrup does. Something we export goes out as a `near`, and the partner
-//! reads it back as a `far` import; the reverse happens too. The flip is a fixed
+//! reads it back as a `far` import. The reverse happens too. The flip is a fixed
 //! relabel of the wire arm. It never consults a table, so the codec still holds
 //! no authority.
 //!
@@ -51,7 +51,7 @@ const Reader = shared.Reader;
 // ── Views ────────────────────────────────────────────────────────────────────
 
 /// Borrowed projection of a decoded message: the reader plus the located body
-/// struct and its discriminant. Copies nothing; `toOwned` materializes through
+/// struct and its discriminant. Copies nothing. `toOwned` materializes through
 /// the same codec-neutral view walk `decodeBody` projects.
 pub const MessageView = struct {
     reader: Reader,
@@ -80,8 +80,8 @@ pub fn decodeMessageView(frame: foundation.FrameView) Error!MessageView {
 
 /// Materialize an owned `model.Message` from a complete `frame`: the
 /// borrowed codec-neutral projection (`decodeBody`) followed by
-/// `model.view.Body.toOwned`. One decode vocabulary — every argument arm the
-/// encoder emits reads back with full fidelity — mirroring `syrup.decodeOwned`,
+/// `model.view.Body.toOwned`. One decode vocabulary, every argument arm the
+/// encoder emits reads back with full fidelity, mirroring `syrup.decodeOwned`,
 /// so the owned path can never drift from the view path the engine dispatches.
 pub fn decodeOwned(allocator: std.mem.Allocator, frame: foundation.FrameView) !model.Message {
     return (try decodeBody(frame)).toOwned(allocator);
@@ -90,7 +90,7 @@ pub fn decodeOwned(allocator: std.mem.Allocator, frame: foundation.FrameView) !m
 /// Frame the front of `bytes` as one Cap'n Proto message. The segment table at
 /// the head of the frame is self-delimiting: the single-segment header word
 /// gives the frame length directly, so the frame boundary comes from the same
-/// header the decoder reads — there is no separate scanner. The body is then
+/// header the decoder reads. There is no separate scanner. The body is then
 /// decoded over exactly that slice and ratifies the length.
 pub fn decodePrefix(bytes: []const u8, max_frame_bytes: usize) framing.Prefix {
     return decodePrefixForProfile(.v1_0, bytes, max_frame_bytes);
@@ -109,7 +109,7 @@ pub fn decodePrefixForProfile(profile: model.CaptpVersion, bytes: []const u8, ma
 
 /// Delimit one structurally valid Cap'n Proto frame without assigning
 /// profile-dependent meaning to it. In particular, raw listen mode 1 means
-/// different things in V1.0 and next; a peer-less `FrameStream` must carry the
+/// different things in V1.0 and next. A peer-less `FrameStream` must carry the
 /// bytes to the session rather than guess.
 pub fn framePrefix(bytes: []const u8, max_frame_bytes: usize) framing.Boundary {
     const frame = switch (prefixFrame(bytes, max_frame_bytes)) {
@@ -143,8 +143,8 @@ fn prefixFrame(bytes: []const u8, max_frame_bytes: usize) PrefixFrameResult {
         Error.UnsupportedSegmentCount => return .malformed,
         // The header word is complete, so `Truncated` means the declared frame
         // end lies past the buffer. While the declared length still fits the
-        // cap the frame is `.incomplete` (read more); a length past the cap —
-        // including one that overflows `usize` on a 32-bit target — can never
+        // cap the frame is `.incomplete` (read more); a length past the cap,
+        // including one that overflows `usize` on a 32-bit target, can never
         // complete within it, so it is `.too_large` (ADR-0041).
         Error.Truncated => {
             const declared = declaredFrameLen(bytes) orelse return .too_large;
@@ -176,7 +176,7 @@ fn declaredFrameLen(bytes: []const u8) ?usize {
 /// trailing bytes the same way (`expectEnd`), and without the rule two
 /// different byte strings decode to the same message, so anything that treats
 /// a frame's bytes as its identity ends up with two names for one thing. The
-/// framing layer is where a buffer legitimately holds more than one frame;
+/// framing layer is where a buffer legitimately holds more than one frame.
 /// `shared.readerFromFrame` stays lenient for it, and this is the entry point
 /// that has already been handed a single frame.
 pub fn decodeBody(frame: foundation.FrameView) Error!model.view.Body {
@@ -216,12 +216,12 @@ pub const max_charge_depth: usize = limits.max_decode_nesting;
 // elements through `neutralArgsAt` on demand, and Cap'n Proto pointers may
 // alias/overlap, so a small frame whose composite-list elements resolve to one
 // shared child (repeated D levels, K children each) drives K^D node visits on
-// the later walk — a remote, unauthenticated DoS on the single-threaded turn
+// the later walk, a remote, unauthenticated DoS on the single-threaded turn
 // loop. `chargeBody` closes it at decode time: it walks the whole logical tree
 // once with a single per-frame word budget (seeded from the segment size,
 // spent in `Reader.word`/`byteSlice` and per composite element resolved), so an
 // aliasing DAG that re-reads the same words burns the one shared counter and is
-// refused in bounded time — before any borrowed view escapes `neutralBody`.
+// refused in bounded time, before any borrowed view escapes `neutralBody`.
 // Because the charge pass follows the same edges the lazy walk would, a frame
 // that passes it has a bounded total node count, so the later lazy walk is
 // bounded too. A legitimate tree reads each segment word a small constant
@@ -233,8 +233,8 @@ pub const max_charge_depth: usize = limits.max_decode_nesting;
 
 /// Spend one node plus recurse into an `Argument`'s composite children,
 /// mirroring `neutralArgument`. `neutralArgument` reads and validates this
-/// node's own words (charging through the metered reader); the switch adds the
-/// recursion the lazy backings defer. `depth` is the value-nesting level; it
+/// node's own words (charging through the metered reader). The switch adds the
+/// recursion the lazy backings defer. `depth` is the value-nesting level. It
 /// increments once at each composite descent so it tracks `toOwnedSliceDepth`.
 fn chargeArgument(reader: Reader, loc: StructLoc, depth: usize) Error!void {
     if (depth > max_charge_depth) return Error.MalformedFrame;
@@ -258,8 +258,8 @@ fn chargeArgument(reader: Reader, loc: StructLoc, depth: usize) Error!void {
 }
 
 /// Enumerate one locator's hint list on the eager metered pass. The value leaf
-/// discovers the list while projecting and calls this observer exactly once;
-/// ordinary projection passes null and stays lazy.
+/// discovers the list while projecting and calls this observer exactly once.
+/// Ordinary projection passes null and stays lazy.
 fn chargeHintList(reader: Reader, hints: CompositeList) Error!void {
     for (0..hints.element_count) |i| {
         try reader.spend(1);
@@ -303,7 +303,7 @@ fn chargeStructField(reader: Reader, loc: StructLoc, i: u16, depth: usize) Error
 
 /// Walk the whole logical tree once against the metered `reader`, spending its
 /// per-frame budget so an aliasing DAG is refused before any borrowed view
-/// escapes. Mirrors `projectBody`; the non-recursive arms delegate to it so
+/// escapes. Mirrors `projectBody`. The non-recursive arms delegate to it so
 /// their leaf reads are charged and validated identically. Dispatch is
 /// exhaustive over `Kind` (the Cap'n Proto wire ids in `shared.zig`).
 fn chargeBody(reader: Reader, kind: Kind, body: StructLoc, depth: usize) Error!void {
@@ -370,9 +370,9 @@ fn neutralBodyForProfile(view: MessageView, profile: model.CaptpVersion) Error!m
     return projectBody(view.reader, view.kind, view.body);
 }
 
-/// One body projector per Cap'n Proto `Kind` wire id — the same comptime table
+/// One body projector per Cap'n Proto `Kind` wire id, the same comptime table
 /// shape Syrup uses with `decoderFor` / `messageOp`. `Kind`'s explicit `enum(u16)`
-/// values in `shared.zig` are the stable wire discriminants; `inline else` plus
+/// values in `shared.zig` are the stable wire discriminants. `inline else` plus
 /// `bodyProjector` make a new arm a compile error in both places at once.
 const BodyProjector = *const fn (reader: Reader, body: StructLoc) Error!model.view.Body;
 

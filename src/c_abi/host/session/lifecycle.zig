@@ -1,7 +1,7 @@
 //! Byte-fed Host session creation, close progression, and final release.
 //!
 //! This family owns the complete transport-session shell lifetime. Byte
-//! pumping and CapTP verbs live in `session.zig`; neither may invent a second
+//! pumping and CapTP verbs live in `session.zig`. Neither may invent a second
 //! close policy or consume the shell outside this barrier.
 
 const model = @import("model");
@@ -52,7 +52,7 @@ fn progressSessionCloses(inst: *common.Instance, now_ms: i64) i32 {
 }
 
 /// Seal application admission for one session and begin or escalate its
-/// terminal close. The caller supplies time; the core retains the deadline and
+/// terminal close. The caller supplies time. The core retains the deadline and
 /// owns escalation while the embedder keeps driving bytes.
 pub fn glowcap_host_session_close(
     raw: ?*GlowcapHostSession,
@@ -86,7 +86,7 @@ pub fn glowcap_host_session_close_progress(
 }
 
 /// Observe one byte-fed session's owner lifecycle. CLOSED means the retryable
-/// close action crossed its delivery boundary; release remains separate and
+/// close action crossed its delivery boundary. Release remains separate and
 /// frees the retained shell.
 pub fn glowcap_host_session_lifecycle_state(raw: ?*GlowcapHostSession, out_state: ?*u32) callconv(.c) i32 {
     shared.lastErrorClear();
@@ -104,7 +104,7 @@ pub fn glowcap_host_session_lifecycle_state(raw: ?*GlowcapHostSession, out_state
 /// duplicate-dial refusal and, on a key transport, demands the partner's
 /// durable key, while route hints carry no semantics here because the
 /// caller's dial executor spent them realizing the channel. A DIAL action
-/// carries only `ticket` — borrow the pending view with
+/// carries only `ticket`: borrow the pending view with
 /// `glowcap_host_pending_dial` and pass it back here after opening the
 /// channel. The host retains its own dial default for the locator's
 /// transport first, never displacing an advertised locator the embedder
@@ -114,9 +114,9 @@ pub fn glowcap_host_session_lifecycle_state(raw: ?*GlowcapHostSession, out_state
 /// before this returns, so drain `take_outbound` (a FLUSH action is queued) and
 /// drive the handshake byte-fed. Host-wide aliases remain lazily discoverable
 /// through the new session. Sealed sessions derive their Noise ephemeral from
-/// the Host's unique per-session seed under a separate KDF domain; callers do
+/// the Host's unique per-session seed under a separate KDF domain. Callers do
 /// not branch on transport policy or supply per-open entropy.
-/// `*out_session` is host-owned; release with `glowcap_host_session_release`.
+/// `*out_session` is host-owned. Release with `glowcap_host_session_release`.
 pub fn glowcap_host_session_open_dialed_locator(
     host: ?*GlowcapHost,
     locator: ?*const shared.GlowcapLocatorView,
@@ -143,7 +143,7 @@ pub fn glowcap_host_session_open_dialed_locator(
 /// Mint the accepting half of a session over the connection the embedder's
 /// listener produced. `designator_scheme`, `server_designator`, and
 /// `accepted_local_addr` resolve what this accept would sign (the listener's
-/// signing designator for a key transport; the accepted local address for an
+/// signing designator for a key transport. The accepted local address for an
 /// address transport), and the host retains that locator without displacing an
 /// acceptable location the embedder already selected: an explicit
 /// `glowcap_host_set_advertised_locator` is deployment policy and wins, and
@@ -184,12 +184,12 @@ pub fn glowcap_host_session_open_accepted(
 }
 
 /// Release one session: its still-parked far vows break (their FAIL
-/// completions queue inside this call), the node retires it — stranded
+/// completions queue inside this call) and the node retires it. Stranded
 /// withdraws fail closed, so *sibling* sessions' vows may break here
-/// too — and the shell is freed. Null is a no-op; refused (last error set,
+/// too. The shell is freed. Null is a no-op. Refused (last error set,
 /// the session kept) from inside a callback. Once teardown commits this returns
-/// success. Targeted handoff wake work remains queued across allocator pressure;
-/// another cleanup failure condemns surviving sessions because retrying this
+/// success. Targeted handoff wake work remains queued across allocator pressure.
+/// Another cleanup failure condemns surviving sessions because retrying this
 /// consumed handle would be invalid.
 pub fn glowcap_host_session_release(raw: ?*GlowcapHostSession) callconv(.c) i32 {
     shared.lastErrorClear();
@@ -213,8 +213,8 @@ pub fn glowcap_host_session_is_open(raw: ?*GlowcapHostSession) callconv(.c) i32 
 
 /// Read the complete profile this session settled with its partner. All three
 /// outputs are required and written together. Before the keyed handshake opens,
-/// no settled profile exists and the call returns `GLOWCAP_ERR_WOULD_BLOCK`;
-/// after the CapTP session becomes terminal it returns `GLOWCAP_ERR_CLOSED`.
+/// no settled profile exists and the call returns `GLOWCAP_ERR_WOULD_BLOCK`.
+/// After the CapTP session becomes terminal it returns `GLOWCAP_ERR_CLOSED`.
 pub fn glowcap_host_session_profile(
     raw: ?*GlowcapHostSession,
     out_captp_version: ?*u32,

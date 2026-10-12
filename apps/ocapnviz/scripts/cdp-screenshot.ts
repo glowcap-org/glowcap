@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run --allow-net
 /**
- * cdp-screenshot.ts — capture a Chrome DevTools Protocol screenshot
+ * cdp-screenshot.ts: capture a Chrome DevTools Protocol screenshot
  * via the WebSocket debugger URL. Used by visual-verify.sh because
  * chromium's `--screenshot=` shortcut fires too early for SPAs that
  * do their work asynchronously.

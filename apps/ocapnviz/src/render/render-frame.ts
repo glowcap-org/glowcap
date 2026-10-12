@@ -1,7 +1,7 @@
 /**
- * `renderFrame` — per-tick world → scene-graph projection.
+ * `renderFrame`, per-tick world → scene-graph projection.
  *
- * The React host is `Stage.tsx`; the Pixi graph lives in
+ * The React host is `Stage.tsx`. The Pixi graph lives in
  * `use-stage-scene.ts`. This module is the world→sprite projection that
  * graph's ticker calls. Pure function: takes everything via
  * `RenderFrameArgs`, mutates the passed-in Pixi containers + sprite
@@ -10,7 +10,7 @@
  * Per-entity sprite create/update lives in `./sprites/`. This module
  * owns visibility, z-order, the live-set sweep, and the call to each
  * kind's sync. Sprite shapes are an implementation detail of those
- * syncs — `Stage` allocates the Maps but never reaches into a sprite's
+ * syncs, `Stage` allocates the Maps but never reaches into a sprite's
  * internals. `PeerActivity` is the one type external panels (Sidebar,
  * EntityChips) also need, and it lives in `./types.ts` where they read it.
  */
@@ -51,7 +51,7 @@ export type RenderFrameArgs = {
 	 *  with a peer id, so the two node maps stay disjoint by construction. */
 	endpointSprites: Map<string, EndpointSprite>;
 	edgeSprites: Map<string, EdgeSprite>;
-	/** One Graphics for every session wire — see `edge-stroke-batch.ts`. */
+	/** One Graphics for every session wire, see `edge-stroke-batch.ts`. */
 	edgeStrokeBatch: EdgeStrokeBatch;
 	messageSprites: Map<string, MessageSprite>;
 	onSelect:
@@ -60,18 +60,18 @@ export type RenderFrameArgs = {
 			opts?: { mode?: SelectMode },
 		) => void)
 		| undefined;
-	/** THE selection — sole source of truth for the selected halo
+	/** THE selection, sole source of truth for the selected halo
 	 * gate. Peers, sessions, and messages by entity key. */
 	selection: ReadonlySet<EntityRefKey>;
-	/** Anchor — the Inspector-follow entity (and range-extension
+	/** Anchor, the Inspector-follow entity (and range-extension
 	 * pivot). Always inside `selection` when set. Used to paint
 	 * an additional inner ring on the anchor's halo so the user
 	 * can see WHICH selected entity the Inspector is tracking
 	 * when more than one is selected. Single-select case looks
-	 * the same as before — anchor + selection collapse. */
+	 * the same as before, anchor + selection collapse. */
 	anchor: EntityRefKey | null;
 	/** Entities currently inside the in-flight marquee rect.
-	 * Painted as a "would be selected" affordance — visually
+	 * Painted as a "would be selected" affordance, visually
 	 * identical to hover. Empty when no drag is in flight. */
 	previewSelection: ReadonlySet<EntityRefKey>;
 	hover: StageHover;
@@ -79,7 +79,7 @@ export type RenderFrameArgs = {
 	/** Race-safe: only clears if WE're the recorded hover. */
 	leaveHover: (kind: NonNullable<StageHover>["kind"], id: string) => void;
 	colors: ThemedColors;
-	/** `1 / viewport.scale.x` — applied to label containers so text
+	/** `1 / viewport.scale.x`, applied to label containers so text
 	 * stays at constant screen size while positions remain in world
 	 * space. */
 	counterScale: number;
@@ -94,20 +94,20 @@ export type RenderFrameArgs = {
 	 * the gesture. Args: which kind of node and its id, pointer id, cursor
 	 * screen coords, the node's current world position.
 	 *
-	 * Both node kinds take a position an author can pin, so both drag; the
+	 * Both node kinds take a position an author can pin, so both drag. The
 	 * kind rides along because the id alone cannot say which table holds
 	 * that position. */
 	startNodeDrag: StartNodeDrag;
-	/** Which ends this frame draws as claims, and the peer each names —
+	/** Which ends this frame draws as claims, and the peer each names,
 	 * `engine.frameGeometry.claimsToward`. Passed in rather than derived
 	 * here because the Stage's own overlays ask the same question of the
 	 * same frame, and two answers would size a ring differently from the
 	 * body it rings. */
 	claimsToward: ReadonlyMap<string, string>;
-	/** Per-session curves from the same `frameGeometry` flight used —
+	/** Per-session curves from the same `frameGeometry` flight used,
 	 * rebuild here and a wire and its dots disagree. */
 	sessionCurves: ReadonlyMap<string, SessionCurve>;
-	/** Per-frame scratch buffers — owned by the Stage closure and
+	/** Per-frame scratch buffers, owned by the Stage closure and
 	 * cleared at the top of each `renderFrame` so the hot path
 	 * doesn't allocate fresh `Map`/`Set` instances each tick. */
 	scratchActivity: Map<string, PeerActivity>;
@@ -118,7 +118,7 @@ export type RenderFrameArgs = {
 };
 
 /** Per-frame world → scene-graph projection. Sprites are created on
- * first sight, destroyed when their entity disappears; the scene
+ * first sight, destroyed when their entity disappears. The scene
  * graph is materialized ECS, never authoritative. */
 export function renderFrame(args: RenderFrameArgs): void {
 	const {
@@ -163,14 +163,10 @@ export function renderFrame(args: RenderFrameArgs): void {
 		args.scratchActivity,
 	);
 
-	// Per-entity stage-visibility cascades `all → category → entity`
-	// — `engine.effectiveRowVisMode(category, id)` owns the resolver.
-	// This file used to reimplement the cascade locally (build Sets
-	// from `engine.doc.rowHidden?.*`, compute per-category overrides,
-	// run a `resolveMode` closure). The local copy was structurally
-	// identical to the engine version, so any cascade-bug fix in the
-	// engine wouldn't reach the Stage. Delegating keeps a single
-	// source of truth. Mode `"body"` keeps the label and drops the
+	// Per-entity stage-visibility cascades `all → category → entity`:
+	// `engine.effectiveRowVisMode(category, id)` owns the resolver.
+	// A local copy of the cascade would drift from the engine's, so the
+	// Stage delegates and keeps a single source of truth. Mode `"body"` keeps the label and drops the
 	// mark; sync* clears stroked Graphics so hidden bodies do not
 	// retain tessellated GPU buffers.
 
@@ -181,7 +177,7 @@ export function renderFrame(args: RenderFrameArgs): void {
 	// `last - index`, so the first entity in the ordered list
 	// paints last (highest z) and ends up on top. Pixi's
 	// `sortableChildren` flag (set on the layers above) makes the
-	// sort fire lazily — only when a zIndex actually changes.
+	// sort fire lazily. Only when a zIndex changes.
 
 	const livePeers = args.scratchPeerIds;
 	livePeers.clear();
@@ -240,9 +236,9 @@ export function renderFrame(args: RenderFrameArgs): void {
 	liveEndpoints.clear();
 	// Which ends are claims about somebody on stage, asked the way the layout
 	// asked it: the document's own resolution, narrowed to what this moment
-	// draws. The drawing has to agree with the placement — an end the layout sat
+	// draws. The drawing has to agree with the placement, an end the layout sat
 	// on an edge two thirds of the way to Alice is drawn as the lesser of the
-	// two shapes, and one standing on its own is drawn at full weight — and it
+	// two shapes, and one standing on its own is drawn at full weight, and it
 	// is one map, because the same answer sizes the body, keys the bundle, and
 	// cuts the wire below.
 	const claimsToward = args.claimsToward;
@@ -288,7 +284,7 @@ export function renderFrame(args: RenderFrameArgs): void {
 
 	const liveSessions = args.scratchSessionIds;
 	liveSessions.clear();
-	// Curves from the frame geometry flight already used — edge
+	// Curves from the frame geometry flight already used, edge
 	// rendering and `MessageFlightSystem` share one table so a dot and
 	// its wire track.
 	const curves = args.sessionCurves;
@@ -350,7 +346,7 @@ export function renderFrame(args: RenderFrameArgs): void {
 			edgeSprites.delete(id);
 		}
 	}
-	// Later strokes paint on top — reverse so high session z (drawn
+	// Later strokes paint on top, reverse so high session z (drawn
 	// first in `orderedSessions`) wins at crossings, matching hitArea
 	// zIndex (`lastSessionIdx - i`).
 	strokeOrder.reverse();
@@ -394,7 +390,7 @@ export function renderFrame(args: RenderFrameArgs): void {
 			const z = lastMessageIdx - i;
 			sprite.container.zIndex = z;
 			sprite.label.zIndex = z;
-			// Per-axis visibility from the cascaded `messageMode` —
+			// Per-axis visibility from the cascaded `messageMode`,
 			// same semantic as peers / sessions: `body` drops the
 			// dot but keeps the label; `label` keeps the dot but
 			// hides the floating name.

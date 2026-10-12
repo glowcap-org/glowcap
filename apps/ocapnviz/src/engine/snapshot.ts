@@ -1,5 +1,5 @@
 /**
- * Doc snapshot helpers — clone the parts of `TimelineDocument`
+ * Doc snapshot helpers, clone the parts of `TimelineDocument`
  * that participate in undo/redo (the recording's mutable observation
  * streams + visibility state + row order + entities map + the
  * authoring-grown duration), and restore them in place from a
@@ -8,7 +8,7 @@
  * Pure: no engine internals. The Engine wraps `restoreSnapshotInto`
  * with its `layout.recompute()` + `seekTo()` calls because those
  * are engine-orchestration concerns (rebuild the world from the
- * restored entities). Sits next to `history.ts` — `DocSnapshot` lives
+ * restored entities). Sits next to `history.ts`, `DocSnapshot` lives
  * there since `History<DocSnapshot>` is the consumer.
  */
 
@@ -95,7 +95,7 @@ export function restoreSnapshotInto(
  * functions. A snapshot restores what UNDO covers, so a document field
  * outside that list is a field undo never claimed. A reset restores the
  * WHOLE document, so a field outside a list here would be an edit that
- * survived a command whose name promises it discarded everything —
+ * survived a command whose name promises it discarded everything,
  * a partial reset nothing on screen would report. This one therefore
  * takes every key the document has off it and takes every key the
  * source has back, and a field added to `TimelineDocument` tomorrow is

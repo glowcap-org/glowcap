@@ -15,7 +15,7 @@ pub fn check(
     violations: *std.ArrayList([]const u8),
 ) !void {
     {
-        // Binding pump feed posture: one borrowed call per chunk — the core
+        // Binding pump feed posture: one borrowed call per chunk, the core
         // owns framing and the unconsumed stream tail, so a binding-side
         // inbox must not come back.
         const pump_borrow = [_]struct { path: []const u8, required: []const []const u8, banned: []const []const u8 }{
@@ -206,7 +206,7 @@ pub fn check(
                 }
             }
         }
-        // Rooms iroh dials parse first; hint→Direct, else discovery — never
+        // Rooms iroh dials parse first; hint→Direct, else discovery, never
         // blanket Direct on `://`. Reachability belongs to the iroh provider;
         // Runtime.connect receives the unchanged parsed locator.
         const rooms_iroh_dial = [_]struct {
@@ -451,7 +451,7 @@ pub fn check(
         }{
             .{ .path = "bindings/python/glowcap/_locator.py", .signature = "def format_sturdyref(locator: Locator,", .forbidden = "parse_locator(locator" },
             .{ .path = "bindings/ts/runtime/locator.ts", .signature = "locator: Locator,", .forbidden = "parseLocator(locator" },
-            .{ .path = "bindings/rust/src/uri.rs", .signature = "format_sturdyref(locator: &Locator,", .forbidden = "parse_locator(locator" },
+            .{ .path = "bindings/rust/src/uri/format.rs", .signature = "format_sturdyref(locator: &Locator,", .forbidden = "parse_locator(locator" },
             .{ .path = "bindings/racket/private/locator.rkt", .signature = "(define (format-sturdyref loc swissnum #:captp-version captp-version)", .forbidden = "(parse-locator loc" },
         };
         for (sturdyref_formatters) |entry| {

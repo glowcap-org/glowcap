@@ -69,8 +69,8 @@ test "a resolve fulfilling with an unheld far is refused, while a near still exp
     // An import position names the partner's export on *this* session and
     // nowhere else. Import 3 is held here; import 4 is not, so a fulfill
     // naming it would put `<desc:export 4>` on the wire for an export this
-    // partner never made. A partner that numbers its exports low — as Goblins
-    // does — is liable to hold a live, unrelated object at that number, so the
+    // partner never made. A partner that numbers its exports low, as Goblins
+    // does, is liable to hold a live, unrelated object at that number, so the
     // reference designates the wrong capability rather than failing. Refuse it
     // here, the same rule the deliver path already holds for its arguments.
     try std.testing.expectError(session.Error.InvalidReference, s.recordSend(.{

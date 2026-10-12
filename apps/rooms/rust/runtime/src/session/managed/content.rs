@@ -1,10 +1,11 @@
-//! Shared admission owns policy; this callback owns workspace and receipt data.
+//! Shared admission owns policy. This callback owns workspace and receipt data.
 mod acquisition;
 mod activity;
 mod archive_connection;
 mod authority;
 pub(super) mod commands;
 mod connection;
+mod continuing;
 mod grammar;
 mod host_registrations;
 mod references;
@@ -77,13 +78,69 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 					| "bridge-witnesses"
 					| "accept-direct-introduction"
 					| "adopt-direct-route"
+					| "continue-workspace"
 			) {
 			return Err(refuse("session is closing"));
 		}
 		Ok(owner)
 	}
 }
+impl<P: Tasks + Deadline + Clone + 'static> loam::ForwardAdmission for SessionContent<P> {
+	fn admit_forward(&self, call: &mut Call<'_>, input: loam::ForwardWork<'_>) -> Result<()> {
+		let owner = self.owner(input.selector)?;
+		if super::admission::admitted_effect(input.selector) {
+			return Ok(());
+		}
+		use rooms_application::{admission::Class, protocol_data as wire};
+		let class = match input.method {
+			"leave"
+			| "withdraw"
+			| "discard"
+			| "revoke"
+			| rooms_application::signaling::DONE
+			| "close"
+			| "removeLease"
+			| "closeConnection" => Class::Cleanup,
+			wire::POST
+			| wire::POST_FILES
+			| wire::EDIT
+			| wire::DM
+			| wire::REFILE
+			| wire::SET_TOPIC
+			| rooms_application::room::receipt::POST
+			| rooms_application::room::receipt::POST_FILES
+			| rooms_application::room::correlation::POST
+			| rooms_application::room::correlation::POST_FILES
+			| rooms_application::open_graph::ROOM_POST_VERB
+			| rooms_application::open_graph::ROOM_POST_FILES_VERB => Class::Message,
+			"typing" | "away" => Class::Transient,
+			"subscribe" => Class::Join,
+			"ready" => Class::Recipient,
+			wire::WRITE => Class::Transfer,
+			wire::ATTACH | rooms_application::room::receipt::ATTACH => Class::Upload,
+			"offerRoom"
+			| "handRoom"
+			| "offerArchive"
+			| "handArchive"
+			| "addLease"
+			| rooms_application::room::invitation::MINT
+			| rooms_application::bridge::SUBMIT => Class::Create,
+			"read" if matches!(input.selector, "activity-file" | "file-reader") => Class::Transfer,
+			_ if input.selector == "signaling-route" => Class::Signal,
+			_ => Class::Read,
+		};
+		owner.admission.borrow_mut().work(
+			call,
+			class,
+			(class == Class::Message).then_some(input.material_bytes),
+			owner.platform.monotonic_millis(),
+		)
+	}
+}
 impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
+	fn forward_admission(&self) -> Option<&dyn loam::ForwardAdmission> {
+		Some(self)
+	}
 	fn dependent_requirement(&self, input: Invocation<'_>) -> Result<Requirement> {
 		let _owner = self.owner(input.verb)?;
 		use rooms_application::protocol_data as protocol;
@@ -102,6 +159,8 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 			| protocol::POST
 			| rooms_application::open_graph::ROOM_POST_VERB
 			| rooms_application::room::receipt::POST
+			| rooms_application::room::correlation::POST
+			| rooms_application::room::correlation::POST_FILES
 			| protocol::POST_FILES
 			| rooms_application::open_graph::ROOM_POST_FILES_VERB
 			| rooms_application::room::receipt::POST_FILES
@@ -140,9 +199,10 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 		}
 	}
 	fn requirement(&self, input: Invocation<'_>) -> Result<Requirement> {
+		let owner = self.owner(input.verb)?;
+		let input = continuing::input(self, input)?;
 		// Forwarding bypasses invoke; application lifetime belongs to admission
 		// too, including the fresh source check after every upstream wait.
-		let owner = self.owner(input.verb)?;
 		if matches!(
 			input.verb,
 			"restore-custody" | "settle-history-erasure" | "retention-intent"
@@ -206,24 +266,25 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 				};
 				effect_requirement(intent, &[])
 			}
-			"effect-intent" | "effect-adopted" | "resume-effect" | "release-effect" | "effect-inventory" => {
-				receipts::requirement(input)
-			}
+			"effect-status" | "effect-intent" | "effect-adopted" | "resume-effect" | "release-effect"
+			| "effect-inventory" => receipts::requirement(input),
 			"import-result" | "acquire-result-workspace" | "acquire-created-room" => {
 				let request = imports::Request::parse(input.verb, input.args)?;
-				let additional: &[Permission] = if input.verb != "import-result" {
-					&[ManageCustody, ReplaceWorkspace]
-				} else {
-					&[ManageCustody]
-				};
+				let additional: &[Permission] =
+					if input.verb == "acquire-result-workspace" && request.participation(input)? {
+						&[]
+					} else if input.verb != "import-result" {
+						&[ManageCustody, ReplaceWorkspace]
+					} else {
+						&[ManageCustody]
+					};
 				effect_requirement(request.intent, additional)
 			}
-			"effect-status" => Requirement::new(&[ResolvePending.key()], &[]),
 			"effect-reader" => {
 				let [_, intent] = input.args else {
 					return Err(refuse("effect-reader takes operation id and original intent"));
 				};
-				effect_requirement(intent, &[ResolvePending])
+				effect_requirement(intent, &[])
 			}
 			"snapshot" | "resource-key" | "bridge-witnesses" => Requirement::new(&[ObserveWorkspace.key()], &[]),
 			"check-inbox" => {
@@ -252,6 +313,13 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 	}
 	fn invoke(&self, call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argument> {
 		let owner = self.owner(input.verb)?;
+		if let Some(class) = super::admission::invocation_class(input.verb) {
+			owner
+				.admission
+				.borrow_mut()
+				.work(call, class, None, owner.platform.monotonic_millis())?;
+		}
+		let input = continuing::input(self, input)?;
 		if input.verb == "retire-host-registrations" {
 			return host_registrations::invoke(call, input, &owner.writer.root()?);
 		}
@@ -345,7 +413,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 				custody: custody::Custody::<References>::default(),
 				outgoing: List::default(),
 				bridges: Default::default(),
-				effects: List::new(Vec::new()).expect("empty effects"),
+				effects: List::default(),
 			};
 			records::replace(call, input, &mut record)?;
 			return Ok(Argument::Void);
@@ -435,13 +503,19 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 			let record = records::metadata(input)?;
 			let id = operation(&input.args[0])?;
 			if record.effects.as_slice().iter().any(|receipt| receipt.operation == id) {
+				owner.admission.borrow_mut().work(
+					call,
+					rooms_application::admission::Class::Read,
+					None,
+					owner.platform.monotonic_millis(),
+				)?;
 				let source = call.source()?;
 				authenticate(call, input, &record, &id, &source)?;
 				let intent = Text::new(canonical(input.args)?.into())
 					.ok_or_else(|| refuse("effect intent exceeds receipt capacity"))?;
 				let receipt = effects::inspect(&record.effects, &id, &location(&record, &id)?, &intent)
 					.map_err(|_| refuse("effect witness or intent differs"))?
-					.expect("selected receipt");
+					.ok_or_else(|| refuse("effect receipt is not retained"))?;
 				return Ok(status(
 					receipt,
 					owner.receipt_running(text(&input.args[0])?, record.intent.history_erasure.as_ref()),

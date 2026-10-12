@@ -5,8 +5,8 @@
 //! and answers a yes/no, or applies a pre-validated decrement. The session's
 //! validate/apply spine (`validate.zig` / `apply.zig`) calls them, and they are
 //! re-exported from `mod.zig` so a caller still writes `session.checkGcExportDecrement`.
-//! Validators run a full pass before any `apply*` mutates, so apply stays atomic;
-//! a host allocation failure is propagated as itself, never disguised as a
+//! Validators run a full pass before any `apply*` mutates, so apply stays atomic.
+//! A host allocation failure is propagated as itself, never disguised as a
 //! partner protocol violation.
 
 const std = @import("std");
@@ -17,14 +17,14 @@ const Error = session.Error;
 const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
 
 /// Unique positions a typical `op:gc-*` folds on the stack before spilling to a
-/// heap map. Real releases are almost always one or a few positions; the map
+/// heap map. Real releases are almost always one or a few positions. The map
 /// exists only so an adversarial vector of many distinct ids still validates in
 /// one pass without an O(n²) re-scan.
 const fold_stack_cap = 8;
 
 /// Scratch that folds repeated positions in one message: a fixed stack for the
 /// common small case, then `AutoHashMapUnmanaged` once unique count exceeds the
-/// stack. Freed before apply; recv callers feed the session's `recv_scratch`.
+/// stack. Freed before apply. Recv callers feed the session's `recv_scratch`.
 const PendingFold = struct {
     stack: [fold_stack_cap]Entry = undefined,
     stack_len: usize = 0,
@@ -82,14 +82,14 @@ const PendingFold = struct {
 /// partner protocol violation.
 /// `table` is whichever wire-delta refcount table the message releases: the
 /// inbound `op:gc-exports` releases our exports, the outbound one releases our
-/// imports, so this is generic over `ExportTable` / `ImportTable` — it reads
+/// imports, so this is generic over `ExportTable` / `ImportTable`, it reads
 /// only `releasable` and never the cap. Validating against `releasable` rather
-/// than `count` is load-bearing on both sides. An export row carries a local
+/// than `count` matters on both sides. An export row carries a local
 /// baseline the wire never granted, so an untrusted peer releasing one more
 /// than it was ever sent must be refused loudly instead of deleting the row
 /// (and with it our own live capability). An import row may carry retains the
-/// session keeps for a release of its own — a linked V1.0 resolver's, a
-/// pending listener's, a stable shortening edge's — and a caller releasing
+/// session keeps for a release of its own, a linked V1.0 resolver's, a
+/// pending listener's, a stable shortening edge's, and a caller releasing
 /// past that remainder is the same defect refused the same way, so a pending
 /// settlement can never address a row the partner was told is gone.
 pub fn checkGcExportDecrement(
@@ -104,7 +104,7 @@ pub fn checkGcExportDecrement(
     // typical small vectors stay on the stack, and only a many-unique spill
     // allocates. It is GC-validation scratch, freed before apply.
     // The bulk gc vectors carry raw wire `u64` positions; the typed table keys
-    // on its own `Id` (export or import). Convert at this seam — the one place a
+    // on its own `Id` (export or import). Convert at this seam, the one place a
     // wire position becomes a typed id for the table it releases.
     const Id = @TypeOf(table.*).Id;
     var pending: PendingFold = .{};
@@ -112,8 +112,8 @@ pub fn checkGcExportDecrement(
     for (gc_export.positions, gc_export.deltas) |pos, delta| {
         // The bootstrap position is pinned outside send-side export accounting,
         // so a partner
-        // releasing its bootstrap import — Goblins' import-0 will handler
-        // emits exactly that — is a no-op, never an underflow and never the
+        // releasing its bootstrap import, Goblins' import-0 will handler
+        // emits exactly that, is a no-op, never an underflow and never the
         // death of the bootstrap export.
         if (pos == BOOTSTRAP_POSITION) continue;
         const total = try pending.add(allocator, pos, delta);
@@ -132,7 +132,7 @@ pub fn applyGcExportDecrement(table: anytype, gc_export: model.GcExport) Error!v
 
 /// Reject an `op:gc-answers` whose per-id occurrence count exceeds the answer's
 /// (single-reference) refcount, or that names an unknown answer-pos. Single pass
-/// with O(1) per-position `count`; the fold scratch collapses repeated positions
+/// with O(1) per-position `count`. The fold scratch collapses repeated positions
 /// without re-scanning the message. A host allocation failure is propagated as
 /// itself, never disguised as a partner protocol violation.
 pub fn checkGcAnswerDecrement(

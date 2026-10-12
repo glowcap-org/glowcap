@@ -44,6 +44,7 @@ fn restored(page: &records::Page<'_, References>) -> records::RestoredPage<Refer
 pub fn run() {
 	outgoing::run();
 	bridge::run();
+	terminal_refusals();
 	let mut custody = custody::Custody::<References>::default();
 	custody
 		.insert_directory_access(custody::Held {
@@ -193,6 +194,38 @@ pub fn run() {
 	assert_eq!(restored.room_access(key(256, 1)).unwrap().reference.0, 256);
 	#[cfg(not(target_arch = "wasm32"))]
 	register_family();
+}
+
+fn terminal_refusals() {
+	for diagnostic in [
+		"rate-limited: retry-after-ms=1000; scope=message",
+		"glowcap error -2: target was not admitted",
+	] {
+		let receipt = custody::EffectReceipt::<References> {
+			introduction: None,
+			operation: Text::new("refused".into()).unwrap(),
+			outgoing: None,
+			adopted: false,
+			canonical_intent: Text::new("original intent".into()).unwrap(),
+			resource_generation: nz(1),
+			source: custody::Held {
+				key: key(1, 1),
+				reference: Source(7),
+			},
+			targets: List::default(),
+			outcome: custody::Outcome::Refused {
+				reason: Text::new(diagnostic.into()).unwrap(),
+			},
+		};
+		let pages = records::encode_effect(&receipt).unwrap();
+		let decoded = records::decode_effect(pages.iter().map(restored).collect()).unwrap();
+		let custody::Outcome::Refused { reason } = decoded.outcome else {
+			panic!("known absence must remain distinct from uncertainty")
+		};
+		assert_eq!(reason.text().as_str(), Some(diagnostic));
+		assert!(!decoded.adopted);
+		assert_eq!(decoded.source.reference.0, 7);
+	}
 }
 
 fn graph(encoded: &records::Encoded<'_, References, i32>) {

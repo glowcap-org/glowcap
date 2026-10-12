@@ -1,7 +1,7 @@
 //! Host thread ownership, reentrancy, and operation admission.
 //!
 //! This internal owner is the one gate for configuration, application, and
-//! session work. The Host keeps the counters and lifecycle state; supported
+//! session work. The Host keeps the counters and lifecycle state. Supported
 //! queries and admissions remain direct aliases on `Host`.
 
 const std = @import("std");
@@ -29,9 +29,9 @@ fn currentOwnerThreadId() OwnerThreadId {
     return OwnerThread.token(@intCast(std.Thread.getCurrentId()));
 }
 
-/// A committed owner-level operation whose terminal outcome still has to
-/// cross an adapter boundary. The Host owns close accounting; the adapter owns
-/// only this linear completion authority while its effect is live.
+/// A committed owner-level operation whose terminal outcome still has to cross
+/// an adapter boundary. The Host owns close accounting. The adapter owns only
+/// this linear completion authority while its effect is live.
 pub const PendingWorkLease = struct {
     host: ?*Host,
 
@@ -48,7 +48,7 @@ pub const PendingWorkLease = struct {
     }
 
     /// Derive child custody from an actual live operation. Finish preserves
-    /// this authority; cancellation and completed leases cannot mint work.
+    /// this authority. Cancellation and completed leases cannot mint work.
     pub fn fork(self: *const PendingWorkLease) !PendingWorkLease {
         const host = self.host orelse return error.NoPendingWork;
         try (WorkAdmission{ .retained = self }).check(host);
@@ -108,11 +108,10 @@ pub fn assertOwner(self: *Host) void {
     }
 }
 
-/// Relinquish the single-thread driver claim at a quiescent adapter
-/// boundary. The current owner calls this only after it has stopped
-/// dispatching Host work; a later public verb may then claim the Host from
-/// another thread. This is a sequential ownership transfer, not permission
-/// for concurrent access.
+/// Relinquish the single-thread driver claim at a quiescent adapter boundary.
+/// The current owner calls this only after it has stopped dispatching Host
+/// work. A later public verb may then claim the Host from another thread. This
+/// is a sequential ownership transfer, not permission for concurrent access.
 pub fn releaseDriverOwnership(self: *Host) void {
     if (comptime !tracks_thread_affinity) return;
     std.debug.assert(!self.in_callback);
@@ -142,8 +141,8 @@ pub fn checkOwnerIfClaimed(self: *const Host) error{WrongThread}!void {
 }
 
 /// Admit setup/configuration mutation without claiming an unowned Host.
-/// Construction may configure a Host before handing it to its driver
-/// thread; once claimed, the same mutation obeys ordinary affinity.
+/// Construction may configure a Host before handing it to its driver thread.
+/// Once claimed, the same mutation obeys ordinary affinity.
 pub fn admitConfigurationMutation(self: *Host) error{ ReenteredHost, WrongThread, HostClosing }!void {
     try checkOwnerIfClaimed(self);
     try admitApplicationOperation(self);
@@ -157,9 +156,9 @@ pub fn refuseReentry(self: *Host) error{ ReenteredHost, WrongThread }!void {
     if (withinCallback(self)) return error.ReenteredHost;
 }
 
-/// Whether a Host callback or Vat execution owns the current boundary.
-/// This lifetime query keeps borrowed callback storage alive; top-level
-/// admission uses refuseReentry instead.
+/// Whether a Host callback or Vat execution owns the current boundary. This
+/// lifetime query keeps borrowed callback storage alive. Top-level admission
+/// uses refuseReentry instead.
 pub fn withinCallback(self: *const Host) bool {
     return self.in_callback or self.vat.isExecuting();
 }
@@ -171,18 +170,17 @@ pub fn checkLive(session: *const HostSession) HostError!void {
     }
 }
 
-/// Prove both halves of the application boundary: the session belongs to
-/// this Host, then it is still usable. A peer handle alone is insufficient;
-/// every Host starts its own handle space at the same value.
+/// Prove both halves of the application boundary: the session belongs to this
+/// Host, then it is still usable. A peer handle alone is insufficient. Every
+/// Host starts its own handle space at the same value.
 pub fn checkSession(self: *const Host, session: *const HostSession) HostError!void {
     try checkOwnedSession(self, session);
     return checkLive(session);
 }
 
-/// Core-internal preflight shared with the sibling application-verb
-/// modules. It must run before any retry-visible state moves. Cleanup and
-/// terminal traffic deliberately bypass it so a full queue cannot pin
-/// authority or prevent closure.
+/// Core-internal preflight shared with the sibling application-verb modules. It
+/// must run before any retry-visible state moves. Cleanup and terminal traffic
+/// bypass it so a full queue cannot pin authority or prevent closure.
 pub fn checkOutboundAdmission(self: *Host, session: *HostSession) HostError!void {
     try checkOwnedSession(self, session);
     if (!session.sessionOpen()) return;
@@ -203,9 +201,9 @@ pub fn admitSessionOperation(self: *const Host, session: *const HostSession) Hos
         return HostError.SessionOperationLimitReached;
 }
 
-/// Account one committed session operation at the row authority that owns
-/// its terminal settlement. Core-internal; sibling implementation files
-/// share the Host type through public aliases.
+/// Account one committed session operation at the row authority that owns its
+/// terminal settlement. Core-internal. Sibling implementation files share the
+/// Host type through public aliases.
 pub fn beginSessionOperation(self: *Host, session: *HostSession) void {
     assertOwner(self);
     std.debug.assert(session.lifecyclePhase() == .active);

@@ -1,5 +1,5 @@
 //! Local views hold the managed use/control endpoints independently. Event
-//! delivery is bounded and lag is explicit; it cannot change session authority.
+//! delivery is bounded and lag is explicit. It cannot change session authority.
 use glowcap::Host;
 use rooms_glowcap::client::{access::Control, workspace::Workspace};
 use rooms_platform::HostPlatform;

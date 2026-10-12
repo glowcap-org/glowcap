@@ -6,7 +6,7 @@ import { engineTest } from "./harness.ts";
 import { emptyAuthoredDoc } from "./fixtures.ts";
 
 // ---------------------------------------------------------------------------
-// Error channel — `validate`, `onError`, drain/dispatch/subscriber capture
+// Error channel, `validate`, `onError`, drain/dispatch/subscriber capture
 // ---------------------------------------------------------------------------
 
 engineTest("validate accepts ordinary playback and builder intents", () => {
@@ -72,7 +72,7 @@ engineTest(
 		assertEquals(first, undefined);
 		assertEquals(captured, ["internal"]);
 
-		// Second dispatch succeeds — the engine is not wedged.
+		// Second dispatch succeeds. The engine is not wedged.
 		const second = e.dispatch({
 			kind: "add-peer",
 			profile: "goblins",
@@ -167,7 +167,7 @@ engineTest(
 
 		// Force a throw partway through dispatch. `add-peer` bumps
 		// `#authoredCounter`, runs `#definePeer`, then calls
-		// commitEntityAuthoring → recomputeLayout — stub recompute to
+		// commitEntityAuthoring → recomputeLayout, stub recompute to
 		// throw on the first call. Without rollback the counter + entities
 		// advance and leak; without record-on-success the history
 		// would gain a dead entry.
@@ -191,7 +191,7 @@ engineTest(
 		assertEquals(first, undefined);
 		assertEquals(captured, ["internal"]);
 
-		// Doc state byte-identical to baseline — full atomic rollback.
+		// Doc state byte-identical to baseline, full atomic rollback.
 		assertEquals(
 			JSON.stringify({
 				entities: e.doc.entities,
@@ -199,10 +199,10 @@ engineTest(
 			}),
 			baselineState,
 		);
-		// No undo entry recorded — recordBefore only fires on success.
+		// No undo entry recorded, recordBefore only fires on success.
 		assertEquals(e.canUndo, false);
 
-		// Next dispatch succeeds and mints `peer-1` — the throw didn't
+		// Next dispatch succeeds and mints `peer-1`. The throw didn't
 		// burn the counter (otherwise we'd see `peer-2`).
 		const second = e.dispatch({
 			kind: "add-peer",
@@ -314,7 +314,7 @@ engineTest(
 );
 
 // ---------------------------------------------------------------------------
-// Rename — engine/authoring/identity.ts
+// Rename, engine/authoring/identity.ts
 // ---------------------------------------------------------------------------
 
 engineTest("renamePeer rewrites entities + events + row state", () => {
@@ -490,11 +490,11 @@ engineTest("renameMessage rewrites sent + delivered events", () => {
 });
 
 engineTest("update-message swap after rename mutates entity from/to", () => {
-	// Regression: the update-message no-op guard previously looked up
-	// the message via observation events, but cascadeRewrite leaves
-	// observations untouched. After rename, the renamed id wasn't
+	// Regression: the update-message no-op guard must not look up the message
+	// via observation events, because cascadeRewrite leaves observations
+	// untouched. After rename, the renamed id wasn't
 	// findable that way, so every subsequent update-message silently
-	// no-op'd — including direction-swap from the Inspector.
+	// no-op'd, including direction-swap from the Inspector.
 	const e = new Engine(emptyAuthoredDoc());
 	const a = e.dispatch({
 		kind: "add-peer",

@@ -5,6 +5,7 @@ const Io = std.Io;
 const Config = @import("config.zig").Config;
 const config = @import("config.zig");
 const Docker = @import("docker.zig").Client;
+const volumes_config = @import("volumes.zig");
 const log = @import("../../../operability/log.zig");
 const stdout = @import("../../../argv.zig").writeStdout;
 
@@ -24,14 +25,18 @@ pub fn selectImage(state: Config, docker: Docker, image: []const u8, build: []co
         defer output.close(state.io);
         try @import("../../../installation/mod.zig").snapshot(state.io, state.gpa, build, output);
         const context = try std.fs.path.join(state.gpa, &.{ state.path, name, "product" });
-        const platform = try config.linuxPlatform(state.io, state.gpa, context);
+        const release = try config.productRelease(state.io, state.gpa, context);
         const dockerfile = try std.fs.path.join(state.gpa, &.{ context, "share/glowcap/deployment/rooms.Dockerfile" });
         const result = try std.fs.path.join(state.gpa, &.{ state.path, name, "image" });
-        try docker.run(&.{ "build", "--platform", platform, "--file", dockerfile, "--iidfile", result, context }, 1800);
-        const id = try temporary.readFileAlloc(state.io, "image", state.gpa, .limited(128));
-        try state.select(std.mem.trim(u8, id, " \r\n\t"));
+        const label = try std.fmt.allocPrint(state.gpa, "{s}={s}", .{ config.revision_label, release.revision orelse "unrecorded" });
+        try docker.run(&.{ "build", "--platform", release.platform, "--label", label, "--file", dockerfile, "--iidfile", result, context }, 1800);
+        const id = std.mem.trim(u8, try temporary.readFileAlloc(state.io, "image", state.gpa, .limited(128)), " \r\n\t");
+        try state.select(id);
+        log.writeMsg(state.io, try std.fmt.allocPrint(state.gpa, "Built and selected image {s} from {s} at revision {s}.\n", .{
+            short(id), build, release.revision orelse "unrecorded",
+        }));
     } else {
-        if (image.len == 0 and try state.image() != null) return;
+        if (image.len == 0 and try state.image() != null) return announceKept(state, docker);
         const requested = if (image.len == 0) default_image else image;
         const present = try docker.capture(&.{ "image", "inspect", requested });
         if (!present.term.success()) {
@@ -40,22 +45,69 @@ pub fn selectImage(state: Config, docker: Docker, image: []const u8, build: []co
                 return err;
             };
         }
-        try state.select(try docker.query(&.{ "image", "inspect", "--format", "{{.Id}}", requested }));
+        const id = try docker.query(&.{ "image", "inspect", "--format", "{{.Id}}", requested });
+        try state.select(id);
+        log.writeMsg(state.io, try std.fmt.allocPrint(state.gpa, "Selected image {s} ({s}) at revision {s}.\n", .{
+            short(id), requested, try imageRevision(docker, id),
+        }));
     }
+}
+
+/// An `up` or `reset` that keeps the selected image says so, with the revision
+/// that image was built from: an operator who rebuilt the product and ran
+/// reset otherwise sees fresh data on old code and no reason why.
+pub fn announceKept(state: Config, docker: Docker) !void {
+    const id = try state.image() orelse return;
+    log.writeMsg(state.io, try std.fmt.allocPrint(state.gpa, "Keeping the selected image {s} at revision {s}. Pass --build <product> or --image <reference> to deploy another.\n", .{
+        short(id), try imageRevision(docker, id),
+    }));
+}
+
+/// The revision an image recorded when it was built from a product, or
+/// `unrecorded` for an image that carries no revision label.
+fn imageRevision(docker: Docker, id: []const u8) ![]const u8 {
+    const format = "{{index .Config.Labels \"" ++ config.revision_label ++ "\"}}";
+    const value = docker.query(&.{ "image", "inspect", "--format", format, id }) catch return "unrecorded";
+    return if (value.len == 0 or std.mem.eql(u8, value, "<no value>")) "unrecorded" else value;
+}
+
+/// An image ID as an operator compares two of them: the digest's first twelve.
+fn short(id: []const u8) []const u8 {
+    return if (config.imageId(id)) id[0 .. "sha256:".len + 12] else id;
 }
 
 pub fn up(docker: Docker) !void {
     const networks = try docker.query(&.{ "network", "ls", "--format", "{{.Name}}" });
     if (!config.containsLine(networks, "glowcap-rooms-net")) try docker.run(&.{ "network", "create", "glowcap-rooms-net" }, 30);
-    docker.run(try docker.composeArgs(&.{ "up", "-d", "--force-recreate", "--wait", "--wait-timeout", "210" }), 240) catch |err| {
+    docker.run(try docker.composeArgs(&.{ "up", "-d", "--wait", "--wait-timeout", "210" }), 240) catch |err| {
         log.err(docker.io, "deployment did not become healthy; inspect `glowcap apps rooms deployment logs` using the same --dir", .{});
         return err;
     };
-    const locator = try docker.query(try docker.composeArgs(&.{ "exec", "-T", "directory", "/runtime/bin/glowcap", "apps", "rooms", "locator" }));
-    const revision = try docker.query(try docker.composeArgs(&.{ "exec", "-T", "directory", "/runtime/bin/glowcap", "apps", "rooms", "revision" }));
-    const session = try docker.query(try docker.composeArgs(&.{ "exec", "-T", "session", "/runtime/bin/glowcap", "apps", "rooms", "session", "ready", "--file=/run/rooms-session/admin.sturdyref" }));
-    const capabilities = try docker.query(try docker.composeArgs(&.{ "exec", "-T", "directory", "/runtime/bin/glowcap", "apps", "rooms", "directory", "capabilities" }));
-    try stdout(docker.io, try std.fmt.allocPrint(docker.gpa, "\nDirectory operator capabilities:\n{s}\n\nRoom locator:\n{s}\n\nBrowser revision:\n{s}\n\nShared-session administrator capability:\n{s}\n", .{ capabilities, locator, revision, session }));
+    const locator = try rooms(docker, "directory", &.{}, &.{"locator"});
+    const revision = try rooms(docker, "directory", &.{}, &.{"revision"});
+    const session = try rooms(docker, "session", &.{}, &.{ "session", "ready", "--file=/run/rooms-session/admin.sturdyref" });
+    const management = try rooms(docker, "session", &.{}, &.{ "session", "ready", "--file=/session-state/control.sturdyref" });
+    // Saved capabilities print as complete recipes only with the locator the
+    // running directory advertises, which the read above just answered.
+    const trace = try rooms(docker, "directory", &.{}, &.{ "trace", "--state=/state", "--print-link" });
+    var routes: std.ArrayList([]const u8) = .empty;
+    try routes.appendSlice(docker.gpa, &.{ "-e", try std.fmt.allocPrint(docker.gpa, "GLOWCAP_ROOMS_LOCATOR={s}", .{locator}) });
+    if (trace.len != 0) {
+        const uri = @import("glowcap").ocapn.model.uri;
+        const held = try uri.parseSturdyref(docker.gpa, trace);
+        const trace_locator = try uri.writePeer(docker.gpa, held.peer);
+        try routes.appendSlice(docker.gpa, &.{ "-e", try std.fmt.allocPrint(docker.gpa, "GLOWCAP_ROOMS_TRACE_LOCATOR={s}", .{trace_locator}) });
+    }
+    const capabilities = try rooms(docker, "directory", routes.items, &.{ "directory", "capabilities" });
+    try stdout(docker.io, try std.fmt.allocPrint(docker.gpa, "\nDirectory operator capabilities:\n{s}\n\nRoom locator:\n{s}\n\nBrowser revision:\n{s}\n\nShared-session workspace capability:\n{s}\n\nShared-session management capability:\n{s}\n", .{ capabilities, locator, revision, session, management }));
+    if (trace.len != 0) try stdout(docker.io, try std.fmt.allocPrint(docker.gpa, "\nROOMS-TRACE-LISTENING {s}\nFollow protocol events: glowcap apps rooms deployment trace\n", .{trace}));
+}
+
+/// Ask a running service's own `glowcap apps rooms` for an answer, with any
+/// `exec` options (such as `-e NAME=value`) before the service.
+fn rooms(docker: Docker, service: []const u8, options: []const []const u8, operands: []const []const u8) ![]const u8 {
+    const command: []const []const u8 = &.{ service, "/runtime/bin/glowcap", "apps", "rooms" };
+    return docker.query(try docker.composeArgs(try std.mem.concat(docker.gpa, []const u8, &.{ &.{ "exec", "-T" }, options, command, operands })));
 }
 
 pub const Unit = enum {
@@ -64,19 +116,34 @@ pub const Unit = enum {
     storage,
     all,
 
-    fn volume(self: Unit) []const u8 {
+    fn description(self: Unit) []const u8 {
         return switch (self) {
-            .session => "glowcap-rooms-session-state",
-            .state => "glowcap-rooms-directory-state",
-            .storage => "glowcap-rooms-postgres",
-            .all => unreachable,
+            .session => "the shared workspace, session identity, and all session access links",
+            .state => "the directory identity, grants, and issued room links",
+            .storage => "kept public-room history",
+            .all => "all Rooms data, identities, grants, and access links",
         };
     }
 };
 
 pub fn reset(docker: Docker, unit: Unit, confirmed: bool) !void {
+    const selected = try volumes_config.Selected.load(docker);
+    defer selected.deinit();
+    var targets: [3][]const u8 = undefined;
+    var count: usize = 0;
+    for ([_]Unit{ .session, .state, .storage }) |candidate| {
+        if (unit != .all and unit != candidate) continue;
+        const kind = std.meta.stringToEnum(volumes_config.Kind, @tagName(candidate)).?;
+        const target = try selected.name(kind, true);
+        for (targets[0..count]) |previous| {
+            if (std.mem.eql(u8, previous, target)) return error.AmbiguousDeploymentVolume;
+        }
+        targets[count] = target;
+        count += 1;
+    }
     const volumes = try docker.query(&.{ "volume", "ls", "--quiet" });
-    if (unit != .all and !config.containsLine(volumes, unit.volume())) return error.MissingDeploymentVolume;
+    if (unit != .all and !config.containsLine(volumes, targets[0])) return error.MissingDeploymentVolume;
+    log.writeMsg(docker.io, try std.fmt.allocPrint(docker.gpa, "Reset {s} permanently removes {s}. To restart while keeping data and links, use `deployment restart`.\n", .{ @tagName(unit), unit.description() }));
     if (!confirmed and !try confirmReset(docker, unit)) {
         log.writeMsg(docker.io, "Reset cancelled; no services or volumes were changed.\n");
         return;
@@ -84,10 +151,10 @@ pub fn reset(docker: Docker, unit: Unit, confirmed: bool) !void {
     try docker.run(try docker.composeArgs(&.{"down"}), 120);
     // The override may declare other volumes. Even `all` only removes the
     // three explicit custody units, never every volume Compose can name.
-    for ([_]Unit{ .session, .state, .storage }) |candidate| {
-        if ((unit == .all or unit == candidate) and config.containsLine(volumes, candidate.volume())) {
-            docker.run(&.{ "volume", "rm", candidate.volume() }, 60) catch |err| {
-                log.err(docker.io, "reset could not remove {s}; the stack remains stopped and earlier selected volumes may already have been removed. Inspect the data before running deployment up", .{candidate.volume()});
+    for (targets[0..count]) |target| {
+        if (config.containsLine(volumes, target)) {
+            docker.run(&.{ "volume", "rm", target }, 60) catch |err| {
+                log.err(docker.io, "reset could not remove {s}; the stack remains stopped and earlier selected volumes may already have been removed. Inspect the data before running deployment up", .{target});
                 return err;
             };
         }
@@ -103,7 +170,7 @@ fn confirmReset(docker: Docker, unit: Unit) !bool {
     defer tty.close(docker.io);
     var buffer: [64]u8 = undefined;
     var reader = tty.readerStreaming(docker.io, &buffer);
-    const prompt = try std.fmt.allocPrint(docker.gpa, "Destroy {s} permanently and restart? Type yes to confirm, or no to cancel [no]: ", .{@tagName(unit)});
+    const prompt = try std.fmt.allocPrint(docker.gpa, "Proceed with reset {s}? Type yes to confirm, or no to cancel [no]: ", .{@tagName(unit)});
     while (true) {
         log.writeMsg(docker.io, prompt);
         var line: [16]u8 = undefined;

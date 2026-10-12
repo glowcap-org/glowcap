@@ -1,6 +1,6 @@
 //! Validated version-one shared session checkpoints. Transport syntax stays
-//! with the existing binding; document shape, relationships and visibility
-//! belong here. Checkpoints retain bearer material; the requested facet decides
+//! with the existing binding. Document shape, relationships and visibility
+//! belong here. Checkpoints retain bearer material. The requested facet decides
 //! whether it leaves the owner.
 use super::fields;
 pub mod commands;
@@ -56,7 +56,7 @@ impl Checkpoint {
 		self.0.dm_mode == model::DmMode::Relay
 	}
 	/// Retained graph size, including spare text/list capacity. Allocator metadata
-	/// is excluded; callers separately bound the number of allocations/requests.
+	/// is excluded. Callers separately bound the number of allocations/requests.
 	pub fn retained_bytes(&self) -> usize {
 		use footprint::HeapBytes;
 		core::mem::size_of::<Self>().saturating_add(self.0.heap_bytes())
@@ -74,9 +74,9 @@ impl Checkpoint {
 	pub fn fork(&self) -> Self {
 		let mut state = self.0.clone();
 		for directory in &mut state.directories.0 {
-			directory.nick = fields::Field::new("".into()).expect("empty nickname");
+			directory.nick = fields::Field::default();
 		}
-		state.join.nick = fields::Field::new("".into()).expect("empty nickname");
+		state.join.nick = fields::Field::default();
 		Self(state)
 	}
 	/// Restore the directory serving this browser page without replacing any
@@ -106,7 +106,7 @@ impl Checkpoint {
 				locator: address,
 				home: true,
 				reached: Some(false),
-				nick: fields::Field::new("".into()).expect("empty nickname"),
+				nick: fields::Field::default(),
 				nick_allocation: crate::directory::registration::NicknameAllocation::Exact,
 				standing: fields::Nullable::Null,
 			});

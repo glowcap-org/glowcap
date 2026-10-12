@@ -83,7 +83,7 @@ pub fn open(
 }
 
 /// The registered half: one background-owned registration socket, replaced as
-/// each accept consumes it — the rendezvous shape of a bound TCP listener. The
+/// each accept consumes it, the rendezvous shape of a bound TCP listener. The
 /// task answers relay control frames and wakes the listener only when dialer
 /// data is ready, so the caller's readiness wait performs no network I/O.
 pub const Box = struct {
@@ -151,7 +151,7 @@ pub const Box = struct {
     }
 
     /// Publish a finished registration task into `ready`. Called under
-    /// `operation_gate`; the acquire pairs with the task's release store.
+    /// `operation_gate`. The acquire pairs with the task's release store.
     fn collectRegistration(box: *Box) netlayer.AcceptError!void {
         if (!box.registration_active or !box.registration.done.load(.acquire)) return;
         box.registration_active = false;
@@ -309,9 +309,9 @@ fn listenerClose(ctx: *anyopaque) ?netlayer.ListenerCloseFailure {
 pub const WaitTarget = enum { established, acceptable };
 
 /// The one deadline/poll loop for the listener's two distinct readiness
-/// questions. Established means the first registration succeeded; acceptable
+/// questions. Established means the first registration succeeded. Acceptable
 /// means a dialer has delivered application bytes and `accept` will not park. The
-/// background task owns connect, upgrade, and control-frame I/O; this function
+/// background task owns connect, upgrade, and control-frame I/O. This function
 /// owns only the wake descriptor, so zero and finite timeouts are hard bounds.
 pub fn wait(box: *Box, timeout_ms: i32, target: WaitTarget) netlayer.AcceptError!bool {
     return switch (waitOutcome(box, timeout_ms, target)) {
@@ -449,7 +449,7 @@ fn acceptFailure(box: *Box, fallback: netlayer.AcceptError) netlayer.AcceptFailu
 }
 
 /// The dialable designator is the registered identity key's canonical hex.
-/// The locator describes the stable route the listener repairs; it is not a
+/// The locator describes the stable route the listener repairs. It is not a
 /// reachability probe for the current registration leg.
 pub fn localLocator(box: *Box, allocator: std.mem.Allocator) netlayer.ListenError!model.PeerLocator {
     if (box.stopping.load(.acquire)) return error.BindFailed;

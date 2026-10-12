@@ -38,10 +38,9 @@ const iroh_sidecar_stub = @import("iroh_sidecar_stub");
 comptime {
     // The `cli/` sources carry unit tests, and Zig only collects tests from
     // files it actually analyzes. A `pub const` nothing references is not
-    // analyzed, so those tests were never in any binary: a test asserting
-    // `false` inside `cli/repl/` passed the whole step. Naming the files that
-    // carry tests is what puts them in one. `zig build cli-test` roots this
-    // file for exactly that.
+    // analyzed, so its tests are in no binary: a test asserting `false` inside
+    // `cli/repl/` would pass. Naming the files that carry tests puts them in
+    // one. `zig build cli-test` roots this file for that.
     _ = repl_blocks;
     _ = repl_history;
     _ = repl_links;

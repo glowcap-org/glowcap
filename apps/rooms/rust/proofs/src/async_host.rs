@@ -1,5 +1,5 @@
 //! Real shared binding execution under a browser-driven LocalSet. The byte
-//! channel is deterministic; browser sockets are a separate integration seam.
+//! channel is deterministic. Browser sockets are a separate integration seam.
 #[path = "browser_archive.rs"]
 mod browser_archive;
 #[path = "browser_channels.rs"]

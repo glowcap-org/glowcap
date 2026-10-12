@@ -131,7 +131,7 @@ test "Syrup refuses to encode a Struct carrying a duplicate key" {
 
 test "Syrup refuses to encode a Set carrying a duplicate element" {
     // Symmetric refusal (ADR-0003): the decoder rejects a set with a duplicate
-    // element, so the encoder must not emit one — otherwise a model with a
+    // element, so the encoder must not emit one, otherwise a model with a
     // duplicate-element set would encode locally and glowcap's own decoder would
     // reject it. Refused at encode with UnsupportedArgument, like a duplicate key.
     const allocator = std.testing.allocator;
@@ -173,8 +173,8 @@ test "an integer argument outside i64 decodes as a canonical big_integer" {
 }
 
 test "the i64 boundary values stay on the integer fast path" {
-    // The arm split is canonical: a value representable as i64 — including both
-    // exact bounds — decodes as `integer`, so the two arms never spell one
+    // The arm split is canonical: a value representable as i64, including both
+    // exact bounds, decodes as `integer`, so the two arms never spell one
     // arithmetic value and big-integer equality stays bytewise.
     const max_frame = "<10'op:deliver<11'desc:export7+>[9223372036854775807+]42+f>";
     const max_body = try syrup.decodeBody(.{ .bytes = max_frame, .shape = .byte });
@@ -254,7 +254,7 @@ test "neutral Args iterator walks the codec backing in one forward pass" {
     const decoded_args = body.deliver.args;
 
     // The forward iterator yields exactly the same sequence as random access,
-    // and the same count as `len()` — proving the cursor advances correctly
+    // and the same count as `len()`, proving the cursor advances correctly
     // without the per-element re-walk that `at(i)` performs.
     const count = try decoded_args.len();
     try std.testing.expectEqual(@as(usize, 4), count);

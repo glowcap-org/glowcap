@@ -2,7 +2,7 @@
 //! for embedders that cannot hand the library a C function pointer.
 //!
 //! `glowcap_host_set_trace` reports each fact through a callback, which is
-//! what a native embedder wants — synchronous, allocation-free, and exact.
+//! what a native embedder wants: synchronous, allocation-free, and exact.
 //! A browser cannot take that seam: the wasm module admits exactly the fixed
 //! behavior and hosted-retirement callback imports (`zig build
 //! wasm-import-check` holds that set), so a trace callback has nowhere to land.
@@ -10,12 +10,12 @@
 //! surfaces its effects as rows the embedder drains on its own schedule
 //! (`glowcap_host_next_action`). This is the same shape for the same reason.
 //!
-//! It is a separate queue from the action queue, and deliberately so. An
+//! It is a separate queue from the action queue. An
 //! action is a promise the host must keep, so the action FIFO reserves
 //! capacity ahead of every push and can never refuse one
 //! (`host_action.reserveActions`). A trace record is an observation: it must
 //! never make the protocol wait, fail a send, or grow without bound. So this
-//! ring is fixed at install, refuses nothing, and drops instead — counting
+//! ring is fixed at install, refuses nothing, and drops instead, counting
 //! what it dropped so a consumer reads a gap rather than inventing continuity.
 //!
 //! Storage is two allocations, both made at install and neither resized: the
@@ -46,7 +46,7 @@ const Slot = struct {
     transport_len: usize = 0,
     session_id_len: usize = 0,
     verb_len: usize = 0,
-    /// What was captured of the frame; `frame_total` is how long it really was.
+    /// What was captured of the frame. `frame_total` is how long it really was.
     frame_len: usize = 0,
     frame_total: usize = 0,
     /// Records dropped between the previous captured record and this one.
@@ -62,13 +62,13 @@ const Slot = struct {
 /// A fixed ring of captured trace records.
 pub const TraceQueue = struct {
     slots: []Slot,
-    /// `slots.len * payload_cap` bytes; slot `i` owns the window at
+    /// `slots.len * payload_cap` bytes. Slot `i` owns the window at
     /// `i * payload_cap`.
     payload: []u8,
     payload_cap: usize,
     head: usize = 0,
     len: usize = 0,
-    /// Records dropped since the last one that was captured; folded into the
+    /// Records dropped since the last one that was captured. Folded into the
     /// next captured record's `dropped` so the count reaches the consumer
     /// attached to the gap it describes.
     pending_dropped: u64 = 0,
@@ -99,7 +99,7 @@ pub const TraceQueue = struct {
 
     /// Capture one fact. A full ring drops the NEWEST record rather than the
     /// oldest: the oldest is the causal prefix a consumer keys everything
-    /// else by — a lost `session-open` mis-files every message after it,
+    /// else by: a lost `session-open` mis-files every message after it,
     /// where a lost tail is just a gap. The drop is counted either way.
     pub fn push(self: *TraceQueue, event: driver_core.trace.Event) void {
         if (self.len == self.slots.len) {

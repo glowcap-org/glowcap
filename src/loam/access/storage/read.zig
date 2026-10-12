@@ -66,7 +66,7 @@ pub const Read = struct {
     const Cursor = struct { node: ?loam.ObjectId, level: u3 = 0 };
 
     /// Store and operation stay at stable addresses during view use. Capacity
-    /// bounds pinned model records; directory pages borrow one extra cache slot.
+    /// bounds pinned model records. Directory pages borrow one extra cache slot.
     pub fn init(allocator: std.mem.Allocator, store: *loam.Store, owner: loam.ObjectId, capacity: usize) !Read {
         if (owner.store != store.metadata.store) return error.ForeignObject;
         if (capacity == 0 or capacity > store.limits.max_leases -| 1) return error.InvalidLimits;

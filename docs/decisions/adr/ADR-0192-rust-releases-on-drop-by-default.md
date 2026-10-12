@@ -38,7 +38,7 @@ Host-level call has no arrival session to consult.
 
 ## Consequences
 
-A Rust application no longer pins partner exports by holding nothing. An
+A Rust application does not pin partner exports by holding nothing. An
 application that hands capabilities across its own threads of ownership and
 releases them explicitly turns the setting off.
 

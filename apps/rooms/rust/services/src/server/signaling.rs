@@ -1,6 +1,6 @@
 //! The signaling verbs: an offer is admitted, delivered, and only then
-//! acknowledged; answers and candidates are relayed in the turn they arrive;
-//! a delivery the recipient refused retires its exchange with a reason.
+//! acknowledged. Answers and candidates are relayed in the turn they arrive.
+//! A delivery the recipient refused retires its exchange with a reason.
 use super::{
 	behavior::{Reply, Shared, busy, capability, text},
 	notice::Notice,
@@ -58,6 +58,14 @@ fn offer(state: &Shared, connection: u64, args: &[Argument]) -> Reply {
 	let mut state = state.borrow_mut();
 	let state = &mut *state;
 	let now = state.now();
+	let target = state
+		.policy
+		.signaling_recipient(connection, designator)
+		.map_err(|r| r.reason())?;
+	let (caller, _) = super::rooms::caller(state)?;
+	let (sender, _, _) = state.admission_context(caller)?;
+	let (recipient, _, _) = state.admission_context(target)?;
+	state.admission.signaling(sender, recipient, now)?;
 	// The delivery's seat is reserved before the exchange is admitted, so a
 	// full queue refuses without an exchange nobody will deliver.
 	let seat = state.work.try_reserve().map_err(|_| busy())?;
@@ -141,7 +149,7 @@ fn failed(state: &mut State, id: &str, what: &str) {
 }
 
 /// Deliver an offer and, once its target has taken it, acknowledge it to the
-/// originator. Runs outside any turn; the loop owns the task. A target whose
+/// originator. Runs outside any turn. The loop owns the task. A target whose
 /// connection has already gone is a failed delivery with nobody to report.
 pub(super) async fn deliver_offer(
 	state: Shared,

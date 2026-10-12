@@ -1,5 +1,5 @@
 #lang racket/base
-;; rooms-client.rkt — the rooms chat, spoken by a real Spritely Goblins vat.
+;; rooms-client.rkt: the rooms chat, spoken by a real Spritely Goblins vat.
 ;;
 ;; The rooms fleet is written in glowcap and advertises its private CapTP
 ;; profile, `glowcap-next` over Cap'n Proto. A Goblins vat speaks the OCapN v1.0
@@ -22,7 +22,7 @@
 ;; same conversation either way.
 ;;
 ;; Everything here that touches a capability must be called from inside a vat
-;; turn — `(vat 'run …)` or a handler — because that is where Goblins lets an
+;; turn, `(vat 'run …)` or a handler, because that is where Goblins lets an
 ;; actor be spawned or a message be sent.
 
 (require goblins
@@ -72,9 +72,9 @@
 ;;
 ;; Goblins parses the URI form: `string->url` splits the scheme, the host and the
 ;; percent-encoded query, and `url->ocapn-node` splits that host into a transport
-;; symbol and a designator. What it cannot express is the hints — it builds every
+;; symbol and a designator. What it cannot express is the hints, it builds every
 ;; node with `#f` there, and its contracted constructor would refuse the mapping
-;; the draft carries anyway — so the query is folded into a mapping here and the
+;; the draft carries anyway, so the query is folded into a mapping here and the
 ;; hinted node is built through the wire constructor above.
 (define (locator->node locator)
   (if (string-prefix? locator "ocapn:")
@@ -207,7 +207,7 @@
 ;; `session-trace` is the sink the netlayer reports its CapTP sessions to, or #f
 ;; to report nothing. Both netlayers take the same sink and report the same
 ;; facts; what differs is the transport they name and what a session over them
-;; can honestly claim to have proved.
+;; can accurately claim to have proved.
 (define (spawn-netlayer-for node local-port session-trace)
   (case (ocapn-node-transport node)
     [(tcp)
@@ -332,7 +332,7 @@
   ;; An iroh locator as a rooms server announces one: the designator is the
   ;; endpoint's Ed25519 key and the addresses ride percent-encoded in the query.
   ;; Every `:` in the list arrives as `%3A`, and a bracketed IPv6 address arrives
-  ;; as `%5B%3A%3A1%5D`, so decoding is the whole of what this has to get right —
+  ;; as `%5B%3A%3A1%5D`, so decoding is the whole of what this has to get right,
   ;; a dialer handed the encoded spelling has nothing it can connect to.
   (let* ([designator (make-string 64 #\a)]
          [node (locator->node
@@ -370,7 +370,7 @@
   (check-exn #rx"rooms locator" (lambda () (locator->node "ocapn://no-transport-here")))
 
   ;; A member registers by the locator other peers reach it at, so rendering a
-  ;; node back to text is as load-bearing as reading one: what this produces is
+  ;; node back to text is as essential as reading one: what this produces is
   ;; what a browser redeems an introduction against.
   ;;
   ;; A TCP node renders as the shorthand, the only spelling that carries an

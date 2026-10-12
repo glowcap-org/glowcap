@@ -4,14 +4,14 @@
 //! session ruled it a protocol violation, the right thing to do is tell the
 //! partner with a typed `op:abort` rather than swallow a host error and leave
 //! the other side hanging. That's the fail-loud posture. This module is the
-//! pure mapping from a dispatch error to the abort shape; `engine.Peer` plugs
+//! pure mapping from a dispatch error to the abort shape. `engine.Peer` plugs
 //! it into both inbound entry points, the inbound-dispatch arm of `Peer.step`
 //! and `Peer.recvBorrowed`. Every projected abort is
 //! terminal: CapTP does not admit a corrected message after either side aborts.
 //!
 //! Session `Error` values don't carry a payload, so the abort's `message` is a
 //! fixed per-kind string, not something with an id in it. The part a well-behaved
-//! partner actually keys on is the `kind`.
+//! partner keys on is the `kind`.
 
 const model = @import("model");
 
@@ -23,7 +23,7 @@ pub const InboundAbort = struct {
     message: []const u8,
 };
 
-/// The wire-meaning domain of a dispatch error — the codec-vs-session split a C
+/// The wire-meaning domain of a dispatch error, the codec-vs-session split a C
 /// consumer keys on, plus `foreign` for host-internal failures (allocation, …)
 /// that carry no protocol meaning. One enum, derived everywhere, so the
 /// codec/session error space is enumerated in exactly one switch (`classify`).
@@ -31,7 +31,7 @@ pub const Domain = enum {
     /// The codec could not decode the bytes as a frame (malformed, an
     /// unsupported wire shape, or a borrowed-view projection failure).
     codec,
-    /// The session's authoritative validate/apply rejected the frame — a
+    /// The session's authoritative validate/apply rejected the frame, a
     /// protocol violation, a resource cap, or an already-closed session.
     session,
     /// Neither: a host-internal failure (out of memory, …).
@@ -40,7 +40,7 @@ pub const Domain = enum {
 
 /// The full classification of a dispatch error: which abort (if any) to project
 /// onto the wire, and which `Domain` a higher layer reports it as. This is the
-/// single place the codec + session error space is enumerated; `abortForError`
+/// single place the codec + session error space is enumerated. `abortForError`
 /// and the C ABI's `feedErrorToCode` both derive from it, so they cannot drift.
 /// Completeness over the codec / session / projection error sets is pinned by
 /// `test/engine/error_taxonomy_test.zig`.
@@ -52,7 +52,7 @@ pub const Classification = struct {
 };
 
 /// Classify a dispatch `err`. Every projected abort closes the session after a
-/// successful outbound push; if the push fails, the caller still closes.
+/// successful outbound push. If the push fails, the caller still closes.
 pub fn classify(err: anyerror) Classification {
     return switch (err) {
         // ── codec decode / projection failures to malformed_frame ─────
@@ -61,7 +61,7 @@ pub fn classify(err: anyerror) Classification {
         // Cap'n Proto structural failures (`Truncated` short/over-claimed
         // segment, `InvalidPointer` bad pointer word, `UnsupportedSegmentCount`
         // multi-segment frame) are decode malformations exactly like Syrup's
-        // `MalformedFrame` — the partner sent bytes that are not a valid frame.
+        // `MalformedFrame`, the partner sent bytes that are not a valid frame.
         error.MalformedFrame,
         error.InvalidFrameShape,
         error.MalformedView,
@@ -90,7 +90,7 @@ pub fn classify(err: anyerror) Classification {
             .message = "op:start-session location signature failed to verify",
         } },
         // The durable-identity claim check (ADR-0097): the hello claimed an
-        // identity this session did not expect — a key-designator dial that
+        // identity this session did not expect, a key-designator dial that
         // reached someone else, or a remote naming what it never proved.
         // Handshake-time refusal: the session never reached `open`, but the
         // abort is still terminal for this CapTP session.

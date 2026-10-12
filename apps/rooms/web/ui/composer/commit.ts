@@ -1,5 +1,5 @@
-// Commit a submission to its originating conversation. Rust interprets commands;
-// commands retain their submitted plan while the UI accepts the next draft.
+// Commit a submission to its originating conversation. Rust interprets commands.
+// Commands retain their submitted plan while the UI accepts the next draft.
 
 import * as store from "../store.ts";
 import type { CommandPowers } from "../commands.ts";

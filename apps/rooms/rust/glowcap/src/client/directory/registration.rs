@@ -57,7 +57,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Directory<D> {
 		self.client.directory_names.named(&self.reference)
 	}
 	/// Create an independent name owner. Keep and reuse it for replacements on
-	/// this directory connection; the server decides which registration is live.
+	/// this directory connection. The server decides which registration is live.
 	pub fn registration(&self) -> Registration<D> {
 		Registration::new(self.client.clone(), self.reference.clone(), self.introductions.clone())
 	}
@@ -272,16 +272,12 @@ async fn attempt<D: Deadline>(
 		if let Some(Notice::Event(event)) = &notice
 			&& event.kind == policy::Kind::Introducible
 		{
-			notifications.notify(
-				&event.registration,
-				event
-					.opening
-					.as_ref()
-					.expect("validated opening")
-					.text()
-					.as_str()
-					.expect("opening text"),
-			);
+			let opening = event
+				.opening
+				.as_ref()
+				.and_then(|opening| opening.text().as_str())
+				.ok_or("the introducible notice carries no opening text")?;
+			notifications.notify(&event.registration, opening);
 		}
 		let (waiter, result) = {
 			let mut i = inbox.borrow_mut();
@@ -343,7 +339,7 @@ async fn attempt<D: Deadline>(
 		inbox,
 		_root: root,
 	})?;
-	admission.committed();
+	admission.committed()?;
 	Ok(grant)
 }
 fn close(state: &Rc<RefCell<State>>) {

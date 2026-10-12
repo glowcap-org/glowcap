@@ -1,13 +1,13 @@
 //! A Sigstore-shaped Merkle transparency log over Episode bytes.
 //!
 //! Application vocabulary above glowcap. Each appended leaf is the Blake3 hash of
-//! one Episode's canonical bytes; the root is recomputed over all leaves on every
+//! one Episode's canonical bytes. The root is recomputed over all leaves on every
 //! append. The log is the tamper-evidence layer: an auditor who has the root can
 //! confirm an Episode was logged and that the log was not rewritten.
 //!
 //! This owns no protocol semantics. It is a local file-backed structure the
 //! accountability adapter writes to. The hash is Blake3 (matching the identity
-//! layer); the tree is a standard binary Merkle tree with duplicate-promotion of
+//! layer). The tree is a standard binary Merkle tree with duplicate-promotion of
 //! a lone right node, the RFC 6962 shape minus its domain-separation prefixes
 //! (named here so the simplification is not mistaken for the IETF profile).
 
@@ -33,7 +33,7 @@ fn nodeHash(left: Digest, right: Digest) Digest {
     return out;
 }
 
-/// An append-only transparency log. Owns its leaf vector; `deinit` frees it.
+/// An append-only transparency log. Owns its leaf vector, `deinit` frees it.
 pub const Log = struct {
     allocator: std.mem.Allocator,
     leaves: std.ArrayList(Digest) = .empty,
@@ -51,7 +51,7 @@ pub const Log = struct {
     }
 
     /// Recompute the Merkle root over the current leaves. An empty log has the
-    /// all-zero root; a single leaf is its own root.
+    /// all-zero root. A single leaf is its own root.
     pub fn root(self: *const Log) std.mem.Allocator.Error!Digest {
         if (self.leaves.items.len == 0) return std.mem.zeroes(Digest);
 

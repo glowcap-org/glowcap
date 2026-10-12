@@ -2,8 +2,8 @@
 //!
 //! This is the decode half of the Syrup codec. It owns the borrowed
 //! codec-neutral projection (`decodeBody` / `decodePrefix`), the structural
-//! stream framer (`framePrefix`; ADR-0110), the owned materializer (`decodeOwned`,
-//! which is `decodeBody` followed by `model.view.Body.toOwned` — one decode
+//! stream framer (`framePrefix`, ADR-0110), the owned materializer (`decodeOwned`,
+//! which is `decodeBody` followed by `model.view.Body.toOwned`, one decode
 //! vocabulary, full fidelity). Borrowed Passable projection lives in `values`,
 //! locator/hint projection in `locator`, and untrusted-byte leaves in `syntax`.
 //! The streaming entry still owns cap timing and this module owns profile and
@@ -45,13 +45,13 @@ pub const SignatureView = syntax.SignatureView;
 /// stay symbols, numeric/list/set/tagged arms included), mirroring
 /// `capnp.decodeOwned` and the symmetric-refusal posture of ADR-0003. Non-empty
 /// locator hints ride `BorrowedHints` and materialize through `toOwned`
-/// (same path as Cap'n Proto); empty `#f` / `{}` spellings are the `.empty` arm.
+/// (same path as Cap'n Proto). Empty `#f` / `{}` spellings are the `.empty` arm.
 pub fn decodeOwned(allocator: std.mem.Allocator, frame: foundation.FrameView) !model.Message {
     return (try decodeBody(frame)).toOwned(allocator);
 }
 
 /// Project the borrowed codec-neutral `model.view.Body` over a complete
-/// `frame`. A frame is exactly one message with no trailing bytes; a short
+/// `frame`. A frame is exactly one message with no trailing bytes. A short
 /// read is therefore a malformed frame here. Streaming callers with incomplete
 /// input use `decodePrefix`, which shares the same parser.
 pub fn decodeBody(frame: foundation.FrameView) Error!model.view.Body {
@@ -140,12 +140,12 @@ pub fn scanStream(bytes: []const u8, state: *framing.StreamScan, max_frame_bytes
 ///
 /// `max_frame_bytes` caps an accepted frame, and the cap is enforced *during*
 /// the decode (ADR-0029): a length prefix that declares a body past the cap is
-/// refused `.too_large` the moment the prefix is read — before those bytes ever
-/// arrive — and a walk that crosses the cap element by element is refused as it
+/// refused `.too_large` the moment the prefix is read, before those bytes ever
+/// arrive, and a walk that crosses the cap element by element is refused as it
 /// crosses. A frame that is merely longer than `bytes` (still arriving, within
-/// the cap) reports `.incomplete`; an incomplete prefix already *longer* than
+/// the cap) reports `.incomplete`. An incomplete prefix already *longer* than
 /// the cap can never complete within it, so it is `.too_large`, never
-/// `.incomplete` — streaming callers bound their buffering on exactly this
+/// `.incomplete`, streaming callers bound their buffering on exactly this
 /// (ADR-0041), so it is a contract, not a courtesy.
 pub fn decodePrefix(bytes: []const u8, max_frame_bytes: usize) framing.Prefix {
     return decodePrefixWithPosture(.v1_0, bytes, max_frame_bytes);
@@ -187,8 +187,8 @@ pub fn framePrefix(bytes: []const u8, max_frame_bytes: usize) framing.Boundary {
 /// Decode exactly one message starting at `cursor.*`, advancing `cursor` to the
 /// byte just past it and leaving any trailing bytes untouched. The cursor it
 /// leaves *is* the frame boundary. `Error.Incomplete` means the buffer ends
-/// mid-message (read more); `Error.FrameTooLarge` means the message cannot fit
-/// inside `limit` bytes no matter how many more arrive; every other error means
+/// mid-message (read more). `Error.FrameTooLarge` means the message cannot fit
+/// inside `limit` bytes no matter how many more arrive. Every other error means
 /// the bytes are structurally invalid regardless of how many more arrive.
 fn decodeBodyAt(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.Body {
     try syntax.readByte(bytes, cursor, '<');
@@ -197,7 +197,7 @@ fn decodeBodyAt(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit
     // Length-bucketed dispatch: `op.len` first, then equality only among the
     // `messageOp` strings that share that length. Exhaustiveness still rides on
     // `shared.messageOp` and `decoderFor` both switching over
-    // `std.meta.Tag(model.Message)` — a new kind cannot compile without a wire
+    // `std.meta.Tag(model.Message)`, a new kind cannot compile without a wire
     // op *and* a decoder, and this table picks it up automatically.
     if (messageOpDecoder(op)) |decode| {
         return decode(posture, bytes, cursor, limit);
@@ -398,9 +398,9 @@ fn decodeStartSessionBody(posture: DecodePosture, bytes: []const u8, cursor: *us
 
 /// Turn a V1.0 abort wire string back into a typed reason. V1.0 writes aborts
 /// as `"<Label>: <message>"`. If the label is one the model recognizes, that
-/// kind is recovered; otherwise the whole string is kept as an `.other` reason.
+/// kind is recovered. Otherwise the whole string is kept as an `.other` reason.
 /// The inverse lives beside this in `encode`: `writeAbortWireString` builds
-/// the `"<label>: <message>"` form from `kind.wireName()` — the codec owns the
+/// the `"<label>: <message>"` form from `kind.wireName()`, the codec owns the
 /// wire string format in both directions, the model only the typed reason.
 fn parseAbortWireString(wire: []const u8) model.AbortReason {
     if (std.mem.indexOf(u8, wire, ": ")) |split| {

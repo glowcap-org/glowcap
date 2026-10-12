@@ -41,7 +41,7 @@ pub use crate::protocol_data::{
 };
 
 /// A caller-held recovery key must survive an uncertain creation result.
-/// Reusing it retries that creation; generating a new one requests a new room.
+/// Reusing it retries that creation. Generating a new one requests a new room.
 pub struct RecoveryKey(String);
 impl RecoveryKey {
 	pub fn accepts(value: &str) -> bool {

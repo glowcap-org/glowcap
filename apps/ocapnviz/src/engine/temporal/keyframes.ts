@@ -1,10 +1,10 @@
 /**
- * Keyframes — per-property piecewise-constant value over time.
+ * Keyframes, per-property piecewise-constant value over time.
  *
  * A keyframe is `(t, value)`. A keyframe **track** is a list of
  * keyframes sorted by `t`. Reading `keyframeAt(track, t)` returns
  * the value of the most recent keyframe with `keyframe.t <= t`
- * (half-open `[start, end)` semantics — the keyframe takes effect
+ * (half-open `[start, end)` semantics, the keyframe takes effect
  * AT `t`, not the instant after).
  *
  * Used for entity properties that change value during the entity's
@@ -14,7 +14,7 @@
  *     (10, "open"),
  *     (15, "draining"),
  *   ]
- * At t=10 exactly, state is "open" — the new keyframe just kicked
+ * At t=10 exactly, state is "open", the new keyframe just kicked
  * in. At t=14.999, still "open". At t=15, "draining".
  *
  * See `docs/data-model.md` for the larger architecture.
@@ -22,7 +22,7 @@
 
 import { z } from "zod";
 
-/** Generic factory — call with the value schema, get back a
+/** Generic factory, call with the value schema, get back a
  *  Keyframe<T> schema. e.g. `Keyframe(SessionState)`. */
 export function Keyframe<TValue extends z.ZodTypeAny>(
 	value: TValue,
@@ -45,10 +45,10 @@ export type KeyframeTrack<T> = readonly Keyframe<T>[];
  *  if `keyframe.t === t`, that keyframe is in effect at `t`.
  *
  *  Returns `undefined` when the track is empty OR `t` is before
- *  the first keyframe — callers fall back to a default (e.g.
+ *  the first keyframe, callers fall back to a default (e.g.
  *  entity.identity.initialState).
  *
- *  Linear scan; tracks are expected to be tiny (single digits per
+ *  Linear scan. Tracks are expected to be tiny (single digits per
  *  property per entity). Bump to binary search if a real workload
  *  ever needs it. */
 export function keyframeAt<T>(

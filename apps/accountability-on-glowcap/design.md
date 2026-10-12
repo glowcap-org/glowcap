@@ -17,20 +17,20 @@ socket:
    log.
 6. The host validates the log, binds its current key to the claimed AID, and
    verifies the request signature.
-7. A tampered signature breaks with `UnattestedCaller`; the host writes no
+7. A tampered signature breaks with `UnattestedCaller`. The host writes no
    Episode.
-8. A valid signature made with a retired key breaks with `UnboundCaller`; the
+8. A valid signature made with a retired key breaks with `UnboundCaller`. The
    host writes no Episode.
 9. The accepted Outcome Episode names the caller's AID. The run verifies its
    payload signature, countersignature, and transparency root.
 
-The caller records intent before the send. The host records an outcome inside
-the actor turn. These records wrap the public glowcap application boundary;
-the app imports the `glowcap` module and does not reach into protocol internals.
+The caller records the attempt before the send. The host records an outcome inside
+the actor turn. These records wrap the public glowcap application boundary.
+The app imports the `glowcap` module and does not reach into protocol internals.
 
 ## Validating a key-event log
 
-`zig/identity.zig` owns the controller; `zig/kel.zig` implements the walk in `currentVerkey`. SAID rendering and
+`zig/identity.zig` owns the controller. `zig/kel.zig` implements the walk in `currentVerkey`. SAID rendering and
 keys live in `zig/said.zig`. Native, Deno, and Python callers are checked the
 same way:
 
@@ -49,7 +49,7 @@ broken predecessor link, an uncommitted next key, a rotation signed by the
 wrong key, an AID the history does not derive, and a request signed by a retired
 key.
 
-The host validates the history it is given; it cannot know that the caller has
+The host validates the history it is given. It cannot know that the caller has
 not withheld a newer event. Witness receipts or retained cross-session state
 would be needed to close that gap.
 
@@ -58,13 +58,13 @@ would be needed to close that gap.
 `zig build demo-accountability` starts a new `accountability-host` process for
 each caller. Deno and Python independently:
 
-1. create an AID;
-2. rotate once;
-3. sign the request;
+1. create an AID
+2. rotate once
+3. sign the request
 4. send the key-event history with the invocation.
 
 The Zig host derives the same identifier from the received history. The
-accepted response is `ack:read-thermostat`; the two rejection cases use
+accepted response is `ack:read-thermostat`. The two rejection cases use
 `UnattestedCaller` and `UnboundCaller`.
 
 The host serves one connection and exits, which is why this demo has no attach
@@ -75,8 +75,8 @@ mode.
 `zig build accountability-three-party` runs three owning Hosts over loopback
 TCP. A fetches C's Affordance, returns that foreign-homed capability to B, and
 B's Host redeems the handoff by dialing C through the ordinary `Session.call`
-path. B rotates before invoking the introduced capability; C's Outcome Episode
-attributes B rather than A. The scenario deliberately separates the identity
+path. B rotates before invoking the introduced capability. C's Outcome Episode
+attributes B rather than A. The scenario separates the identity
 check, which belongs to this application, from the introduction, which belongs
 to OCapN. The bare TCP route is isolated test transport, not a deployment
 recommendation.
@@ -95,7 +95,7 @@ recommendation.
 | `zig/host.zig` | Single-caller Zig host for foreign-language runs. |
 | `zig/three_party_test.zig` | Attribution after a three-Host TCP handoff. |
 | `deno/caller.ts`, `deno/identity.ts` | TypeScript identity and caller. |
-| `deno/blake3.ts`, `python/blake3.py` | Blake3-256 for SAIDs; the host platforms do not carry it. |
+| `deno/blake3.ts`, `python/blake3.py` | Blake3-256 for SAIDs. The host platforms do not carry it. |
 | `python/caller.py`, `python/identity.py` | Python identity and caller. |
 | `deno/demo.ts` | Cross-language orchestrator. |
 

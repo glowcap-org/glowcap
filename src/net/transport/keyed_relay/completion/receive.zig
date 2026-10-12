@@ -1,7 +1,7 @@
 //! WebSocket receive progression for the completion-backed relay carrier.
 //!
 //! The owning backend supplies the small set of reactor effects through
-//! `Access`. This module owns parsing and buffer-lifetime decisions; it does
+//! `Access`. This module owns parsing and buffer-lifetime decisions. It does
 //! not own connection admission, platform polling, or terminal teardown.
 
 const std = @import("std");
@@ -199,12 +199,12 @@ pub fn Machine(
         }
 
         const Drained = enum {
-            /// Every retained byte was a control; more input may follow.
+            /// Every retained byte was a control. More input may follow.
             needs_input,
             /// An application frame is next.
             data,
             /// A queued reply, a close, a fault, or a send borrowing `ws_out`
-            /// stops the drain; a later completion resumes it.
+            /// stops the drain. A later completion resumes it.
             blocked,
         };
 

@@ -11,6 +11,8 @@ use alloc::{rc::Rc, string::String};
 pub struct Attachment {
 	prior: Controller,
 	next: Controller,
+	/// The validated sturdyref `next` carries, as scalar text.
+	link: String,
 	pub same_peer: bool,
 	pub unchanged: bool,
 }
@@ -31,19 +33,20 @@ impl Attachment {
 		}
 		let next = Controller::Attached { sturdyref: Text(text) };
 		super::validate_controller(&next, routes).map_err(|_| "The shared session capability is invalid")?;
-		let link = next.link().expect("validated scalar capability");
+		let link = next.link().ok_or("The shared session capability is invalid")?;
 		let authority = routes.sturdyref_authority(link);
 		Ok(Self {
 			same_peer: prior
 				.link()
 				.is_some_and(|prior| routes.sturdyref_authority(prior) == authority),
 			unchanged: prior.link() == Some(link),
+			link: String::from(link),
 			prior: prior.clone(),
 			next,
 		})
 	}
 	pub fn link(&self) -> &str {
-		self.next.link().expect("validated scalar capability")
+		&self.link
 	}
 	pub fn adopts_local(&self) -> bool {
 		matches!(self.prior, Controller::Local {})

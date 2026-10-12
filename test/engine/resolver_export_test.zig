@@ -2,10 +2,9 @@
 //!
 //! A resolver export is one of our exports bound to an outbound answer it
 //! settles, and a deliver to it carrying `['fulfill|'break, payload]` is the
-//! partner settling that answer (ADR-0095). The link was reached only on V1.0
-//! sessions once, because a V1.0 resolver callback was the only thing that
-//! minted one; an `op:listen` listener export is settled by that same shape on
-//! any profile, so the probe now runs on every session. These tests pin what
+//! partner settling that answer (ADR-0095). A V1.0 resolver callback mints
+//! such an export, and an `op:listen` listener export is settled by that same
+//! shape on any profile, so the probe runs on every session. These tests pin what
 //! that widening does, what it must not do (an over-broad probe would swallow
 //! ordinary calls).
 

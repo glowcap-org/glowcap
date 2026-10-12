@@ -1,12 +1,12 @@
 #lang racket
-;; gift-exporter-host.rkt — Goblins Bob, the exporter in the glowcap-as-gifter
+;; gift-exporter-host.rkt: Goblins Bob, the exporter in the glowcap-as-gifter
 ;; three-party handoff proof. Hosts a `^greeter` cap behind a fixed swiss-num,
 ;; emits an NDJSON readiness line (listen address + greeter swiss), then sleeps.
 ;;
 ;; In this scenario glowcap is the *gifter*: it fetches this greeter, deposits it
 ;; back here as a gift over its own connection, and mints a `desc:handoff-give`.
 ;; A Goblins recipient then withdraws the gift directly from this vat. So this
-;; host proves two cross-implementation directions at once — Goblins accepting
+;; host proves two cross-implementation directions at once, Goblins accepting
 ;; glowcap's `deposit-gift`, and Goblins serving the recipient's `withdraw-gift`.
 ;;
 ;; Usage:

@@ -131,7 +131,7 @@ impl RoomsManagedRecoveredEffect {
 				.map_err(|error| error.to_string())
 		})
 	}
-	/// Give up on this receipt for good; see `RecoveredEffect::release`.
+	/// Give up on this receipt for good. See `RecoveredEffect::release`.
 	pub fn release(&self) -> js_sys::Promise {
 		let effect = self.effect.clone();
 		self.driver.submit(0, move |_| async move {

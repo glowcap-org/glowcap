@@ -10,7 +10,7 @@
 //! fresh caller-owned cell the wrapper allocates, while a caller-provided
 //! buffer stays an argument. A wrapper's remaining argument names come from
 //! the generated C header. Each eager archive's output is a sibling module
-//! the hand-authored `ffi-*.rkt` file re-provides; the iroh output exports
+//! the hand-authored `ffi-*.rkt` file re-provides. The iroh output exports
 //! one table-building function the lazy hand loader calls with the opened
 //! library and the config cstruct type, so the generated module stays below
 //! the hand module that declares it. `zig build gen-binding-racket-ffi-check`

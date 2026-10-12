@@ -189,7 +189,7 @@ fn startAcceptedConn(
 /// Drain a resident connection until the runtime window refuses, feeding each
 /// chunk. A drained ready record is consumed, so bytes left unread here would
 /// wait for a future readiness transition instead of the next wait. A resident
-/// that lends its received bytes feeds the core from the loan; any other
+/// that lends its received bytes feeds the core from the loan. Any other
 /// copies into the runtime's one read scratch.
 pub fn readAndFeed(self: *HostRuntime, wire: *Wire) !usize {
     const rl = &wire.link;
@@ -228,7 +228,7 @@ pub fn readAndFeed(self: *HostRuntime, wire: *Wire) !usize {
 /// The core pauses a chunk at the frame that opens its session so the
 /// embedder can publish before the partner's first frames dispatch, but a
 /// later chunk would dispatch at once. A stream wire reads one chunk per
-/// step, so the open commits in between; a resident read stops here for the
+/// step, so the open commits in between. A resident read stops here for the
 /// same reason and defers the rest, because its drained record will not be
 /// reported again.
 fn stopAtOpen(wire: *Wire, was_open: bool) bool {

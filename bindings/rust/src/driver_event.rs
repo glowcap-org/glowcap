@@ -81,7 +81,8 @@ pub(crate) fn decode(event: &GlowcapDriverEvent) -> Result<LoopEvent> {
 fn decode_failure(event: &GlowcapDriverEvent) -> Result<DriverEventFailure> {
 	Ok(DriverEventFailure {
 		primary_result: event.primary_result,
-		primary_name: text(event.primary_name, event.primary_name_len, "primary failure name")?,
+		// SAFETY: `event` is the `GlowcapDriverEvent` `decode_event` borrows for the whole decode.
+		primary_name: unsafe { text(event.primary_name, event.primary_name_len, "primary failure name") }?,
 		secondary_result: event.secondary_result,
 		secondary_count: event.secondary_count,
 		carrier: crate::carrier_failure::decode(
@@ -91,11 +92,16 @@ fn decode_failure(event: &GlowcapDriverEvent) -> Result<DriverEventFailure> {
 			event.carrier_peer_alert,
 			event.carrier_engine_code,
 		)?,
-		secondary_name: text(event.secondary_name, event.secondary_name_len, "secondary failure name")?,
+		// SAFETY: as `primary_name` above.
+		secondary_name: unsafe { text(event.secondary_name, event.secondary_name_len, "secondary failure name") }?,
 	})
 }
 
-fn text(ptr: *const u8, len: usize, field: &str) -> Result<String> {
+/// # Safety
+///
+/// `ptr` and `len` are one name view of the `GlowcapDriverEvent` being decoded, which the driver keeps borrowed for
+/// the whole decode.
+unsafe fn text(ptr: *const u8, len: usize, field: &str) -> Result<String> {
 	if len == 0 {
 		return Ok(String::new());
 	}
@@ -105,6 +111,8 @@ fn text(ptr: *const u8, len: usize, field: &str) -> Result<String> {
 			format!("driver returned null {field} with nonzero length"),
 		));
 	}
+	// SAFETY: the caller upholds this function's contract, so `ptr` names `len` readable bytes the driver wrote; `ptr`
+	// is non-null (checked above), and the text is copied into an owned `String` before returning.
 	let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
 	let value = core::str::from_utf8(bytes)
 		.map_err(|_| Error::with_detail(sys::ERR_INTERNAL, format!("driver returned non-UTF-8 {field}")))?;

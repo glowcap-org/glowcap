@@ -17,14 +17,17 @@ use std::{cell::Cell, rc::Rc};
 /// Own the two-element post reply until CapTP consumes it. The notification ID
 /// and line capability must settle together so a sender can acquire exact edit
 /// authority without correlating callback arrival or text. One fixed list spine
-/// carries a scalar ID and moves the existing capability occurrence; neither
+/// carries a scalar ID and moves the existing capability occurrence. Neither
 /// payload nor capability custody is copied. Text and file posts share it.
-pub(super) fn posted_reply(state: &State, key: LineKey, actor: glowcap::Ref) -> Argument {
+pub(super) fn posted_reply(state: &State, key: LineKey, actor: glowcap::Ref) -> Result<Argument, String> {
 	let id = state
 		.rooms
 		.line_id(key)
-		.expect("published line owns its notification identity");
-	Argument::List(vec![(id.get() as i64).into(), Argument::Reference(actor)])
+		.ok_or("published line has no notification identity")?;
+	Ok(Argument::List(vec![
+		(id.get() as i64).into(),
+		Argument::Reference(actor),
+	]))
 }
 
 /// The line capability `post` answers: `edit`, `refile`, and `withdraw`.
@@ -36,6 +39,13 @@ pub(super) fn line(
 		let values: Vec<Value<'_>> = args.iter().map(Value).collect();
 		let mut state = shared.borrow_mut();
 		let (connection, _) = rooms::caller(&mut state)?;
+		if verb != rooms_application::protocol_data::WITHDRAW {
+			state.ingress(connection)?;
+			state.admit_message(connection, args.first().and_then(Argument::as_str).map_or(0, str::len))?;
+		}
+		if verb == rooms_application::protocol_data::WITHDRAW {
+			state.admit_work(connection, rooms_application::admission::Class::Cleanup, 1)?;
+		}
 		let key = key.get().ok_or("that line has not been published")?;
 		let now = state.now();
 		history::mutate(&mut state, |rooms| {
@@ -59,7 +69,10 @@ pub(super) fn topic(shared: Shared, room: RoomKey) -> impl FnMut(&str, &[Argumen
 		let (Some(said), 1) = (args.first().and_then(Argument::as_str), args.len()) else {
 			return Err("setTopic needs one text value".into());
 		};
-		let state = shared.borrow();
+		let mut state = shared.borrow_mut();
+		let (connection, _) = rooms::caller(&mut state)?;
+		state.ingress(connection)?;
+		state.admit_message(connection, said.len())?;
 		match state
 			.rooms
 			.prepare_topic(&room, said, &state.authority)

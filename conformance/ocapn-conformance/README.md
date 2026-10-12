@@ -1,8 +1,8 @@
 # conformance/ocapn-conformance
 
-Native wrapper for the upstream
+Wrapper for the upstream
 [OCapN test suite](https://github.com/ocapn/ocapn-test-suite). The suite lives
-in the `upstream/` submodule; this directory owns only the invocation wrapper.
+in the `upstream/` submodule. This directory holds only the invocation wrapper.
 
 ## Setup
 
@@ -37,10 +37,10 @@ bash conformance/ocapn-conformance/run.sh shell
 
 ## Running Against glowcap
 
-The suite can be pointed at a _glowcap_ peer, not only Goblins.
+The suite can also be pointed at a glowcap peer.
 `glowcap_peer.zig` serves the canonical conformance swiss-nums over the
 `tcp-testing-only` netlayer, and `run-against-glowcap.sh` starts it and runs the
-suite against it. The peer is the production Host stack, plus what the Host
+suite against it. The peer is the production Host stack plus what the Host
 cannot know: the conformance actors and three suite-required interceptors on
 the serve path (a promise-resolver bootstrap object, the recipient's give
 redeem, and the gifter's enliven claim), each driving library seams. The
@@ -56,9 +56,9 @@ The wrapper derives its module list from the upstream tree itself
 (`upstream/tests/*.py`), so a submodule bump that adds a module fails the run
 until glowcap targets it. It runs every upstream module except `tests.op_abort`:
 that test does not accept Linux's TCP-reset form of teardown. The wrapper's
-abort probe uses the suite's own netlayer and message types for the same case
-and requires observable EOF, reset, or broken pipe; timeout fails. The raw
-upstream module remains available as an explicit diagnostic.
+abort probe uses the suite's netlayer and message types for the same case and
+requires observable EOF, reset, or broken pipe. A timeout fails. The raw
+upstream module remains available as a diagnostic.
 
 | Module                       | What it exercises                                                                        |
 | ---------------------------- | ---------------------------------------------------------------------------------------- |
@@ -72,9 +72,9 @@ upstream module remains available as an explicit diagnostic.
 Crossed-hellos cases in `op_start_session` can use most of a module's time
 budget, so a slow machine can hit the 5s per-module cap on a module that would
 have passed. Raise it with `OCAPN_MODULE_TIMEOUT` (and the probe's with
-`OCAPN_PROBE_TIMEOUT`) rather than reading the timeout as a protocol failure.
+`OCAPN_PROBE_TIMEOUT`) before reading a timeout as a protocol failure.
 `handshake_abort_probe.py` covers invalid signature, invalid version, and
-pre-setup abort teardown on their own. The default
+pre-setup abort teardown alone. The default
 `zig build ocapn-conformance` wrapper runs that probe (10s cap) before the suite
 modules. Pass `--port=N` or set `GLOWCAP_OCAPN_CONFORMANCE_PORT` to match the
 peer. To run one module or the probe alone:
@@ -86,29 +86,28 @@ uv run --project conformance/ocapn-conformance --locked \
   python conformance/ocapn-conformance/handshake_abort_probe.py --port=22055
 ```
 
-Two details keep the suite's verdict honest. The Syrup codec consumes a
+Two details keep the suite's verdict valid. The Syrup codec consumes a
 non-empty hints map, because the suite's `tcp-testing-only` netlayer carries the
-address in the locator hints (`{host …, port …}`), a peer that rejected
+address in the locator hints (`{host …, port …}`). A peer that rejected
 non-empty hints would abort the handshake before any signature was checked,
-passing the invalid-version and invalid-signature tests for the wrong reason.
-And signature verification reads the captured raw locator bytes, never a
-re-encode of them.
+and would pass the invalid-version and invalid-signature tests for the wrong
+reason. Signature verification also reads the captured raw locator bytes, not
+a re-encode of them.
 
-## What This Proves
+## What a green run shows
 
-The suite is external conformance pressure. A green run against `goblins-peer/`
-proves the upstream suite, the native wrapper, the slim Goblins target, and its
-testing TCP netlayer compose; a run against `glowcap_peer.zig` turns the same
-authority on glowcap itself. It is not the `zig build check` gate and it is not
-the semantic oracle for Zig code by itself.
+A green run against `goblins-peer/` shows that the upstream suite, the wrapper,
+the slim Goblins target, and its testing TCP netlayer work together. A run
+against `glowcap_peer.zig` applies the same suite to glowcap itself. Neither is
+part of `zig build check`, and neither alone is the semantic authority for Zig
+code.
 
-Glowcap's in-tree gate remains `zig build oracle-check` / `zig build check`.
-Those gates cover the checked protocol scenarios and glowcap-authored Syrup
-fixtures consumed by the Zig implementation.
+The in-tree checks are `zig build oracle-check` and `zig build check`. They
+cover the protocol scenarios and the Syrup fixtures the Zig implementation
+consumes.
 
 ## Posture
 
-- `upstream/` is read-only. Bump the submodule pin; do not edit it in place.
-- `run.sh` is glowcap-owned and should stay a thin native wrapper.
-- `tcp-testing-only` is a conformance/testing transport, not a production
-  transport claim.
+- `upstream/` is read-only. Bump the submodule pin instead of editing it.
+- `run.sh` is glowcap's own and stays a thin wrapper.
+- `tcp-testing-only` is a testing transport, not a production one.

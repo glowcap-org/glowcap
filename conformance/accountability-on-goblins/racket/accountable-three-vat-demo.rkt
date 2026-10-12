@@ -1,5 +1,5 @@
 #lang racket/base
-;; accountable-three-vat-demo.rkt — three-party introduction wired into
+;; accountable-three-vat-demo.rkt: three-party introduction wired into
 ;; the substrate's accountability loop. Goblins/CapTP/TCP carries the
 ;; introduction; Bob's invoked cap runs the substrate's accountability
 ;; loop:
@@ -11,7 +11,7 @@
 ;; persisted in its own data directory. Bob's invoked cap emits a
 ;; real signed Episode (RDF-Star-shaped JSON-LD line, Sigstore-shaped
 ;; ephemeral signature countersigned by Bob's KEL key) for each call,
-;; recording **the true caller (Carol)** as the actor — not Alice the
+;; recording **the true caller (Carol)** as the actor, not Alice the
 ;; introducer, who isn't in the data path at all.
 ;;
 ;; What this validates that the previous three-vat-demo.rkt didn't:
@@ -60,7 +60,7 @@
 (define carol-data (peer-data-dir "carol"))
 
 ;; ============================================================================
-;; The capability Bob hosts — an Affordance that runs the substrate's
+;; The capability Bob hosts, an Affordance that runs the substrate's
 ;; accountability loop on every invocation.
 ;; ============================================================================
 ;;
@@ -79,7 +79,7 @@
 ;;   4. Return the result.
 ;;
 ;; ACCOUNTABILITY INVARIANT: *every attempt is an Episode*. The deny
-;; branch below also emits an Episode — refusals are observable,
+;; branch below also emits an Episode, refusals are observable,
 ;; exactly as the substrate's design requires.
 
 (define (^accountable-affordance _bcom my-aid my-data-dir my-place)
@@ -93,11 +93,11 @@
            (char=? (string-ref caller-aid 0) #\E)))
     (cond
       [(not admitted?)
-       ;; Refusal is observable — emit a deny Episode so Bob's Log
+       ;; Refusal is observable: emit a deny Episode so Bob's Log
        ;; carries the rejected attempt. Per the substrate's
        ;; accountability invariant, silent refusal is a
        ;; substrate-correctness bug. Use Bob's AID as the actor (the
-       ;; refusal is Bob's, attributed to a "no-valid-caller" event —
+       ;; refusal is Bob's, attributed to a "no-valid-caller" event,
        ;; there's no caller AID to record).
        (printf "  [Bob/affordance] DENY: caller-aid ~v not admitted (emitting deny Episode)~n"
                caller-aid)
@@ -127,7 +127,7 @@
        (ep:emit-episode!
         my-data-dir
         #:actor caller-aid          ; WHO INVOKED (Carol, the remote peer)
-        #:signing-aid my-aid         ; WHO RECORDS (us, Bob — local KEL)
+        #:signing-aid my-aid         ; WHO RECORDS (us, Bob, local KEL)
         #:place my-place
         #:affordance "accountable-three-vat-demo"
         #:result result-payload
@@ -272,8 +272,8 @@
 
 ;; --- Assertion 2: Bob has a real Episode for Carol's call ---
 ;; Per episode.rkt, the invoking actor lands in two payload fields:
-;;   subject = "did:keri:<aid>"      — RDF-Star subject (the Actor)
-;;   graph   = "goblins:vat/<aid>"   — named-graph-per-Vat
+;;   subject = "did:keri:<aid>", RDF-Star subject (the Actor)
+;;   graph   = "goblins:vat/<aid>", named-graph-per-Vat
 ;; The Episode is signed by Bob (the local Vat); kel_anchor.aid = bob.
 (printf "~n  [2] Bob emitted a real signed Episode for Carol's invocation~n")
 (define bob-eps (ep:load-episodes bob-data))

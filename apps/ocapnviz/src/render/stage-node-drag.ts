@@ -4,7 +4,7 @@
  *
  * `Stage.tsx` is the React host. `use-stage-scene.ts` owns the Pixi scene.
  * This module owns the gesture that
- * starts on a peer or endpoint body — threshold, axis lock, sibling
+ * starts on a peer or endpoint body, threshold, axis lock, sibling
  * offsets, and closing the engine transaction on the same handler
  * that opened it. Empty-stage rubber-band stays in
  * `use-stage-empty-gestures.ts`.
@@ -95,8 +95,8 @@ export function createStageNodeDrag(host: StageNodeDragHost): StageNodeDrag {
 	// `boundHandler` is captured at the moment the gesture
 	// commits to a real drag (first move past the threshold) so
 	// the entire start/move/end lifecycle uses ONE handler. Prop
-	// changes mid-drag — spacebar pressed, tool switched, mode
-	// flipped — can't orphan an open engine transaction by
+	// changes mid-drag, spacebar pressed, tool switched, mode
+	// flipped, can't orphan an open engine transaction by
 	// pointing the ref at `undefined` between `start` and `end`.
 	type NodeDragHandler = (
 		kind: "peer" | "endpoint",
@@ -127,7 +127,7 @@ export function createStageNodeDrag(host: StageNodeDragHost): StageNodeDrag {
 		nodeId: string;
 		siblings: DragSibling[];
 	};
-	/** Lead plus siblings at the lead's current target — one list the
+	/** Lead plus siblings at the lead's current target. One list the
 	 *  host pins in a single placement pass. */
 	const dragGroup = (
 		drag: ActiveDrag,
@@ -165,7 +165,7 @@ export function createStageNodeDrag(host: StageNodeDragHost): StageNodeDrag {
 			 *  reports it to `onSelect` so a no-drag tap on a peer
 			 *  applies the right semantic. */
 			modeAtDown: SelectMode;
-			/** Lead peer's starting world position; siblings move
+			/** Lead peer's starting world position. Siblings move
 			 *  with `lead.target + sibling.offset`. */
 			leadStartX: number;
 			leadStartY: number;
@@ -269,7 +269,7 @@ export function createStageNodeDrag(host: StageNodeDragHost): StageNodeDrag {
 		cursor.hasValue = true;
 		let targetX = dragPt.x + activeDrag.pickupOffsetX;
 		let targetY = dragPt.y + activeDrag.pickupOffsetY;
-		// Shift-axis-lock (Adobe / Macromedia convention). Live —
+		// Shift-axis-lock (Adobe / Macromedia convention). Live,
 		// recomputed each move, not latched at shift-press, so
 		// crossing the 45° line from origin flips the locked
 		// axis (matches Photoshop / Illustrator Move tool with
@@ -278,7 +278,7 @@ export function createStageNodeDrag(host: StageNodeDragHost): StageNodeDrag {
 		// re-lock returns the user to a predictable axis.
 		// Releasing shift drops the lock; the cursor snaps back
 		// to its actual position immediately. Group drag inherits
-		// the lock for free — siblings translate by the SAME
+		// the lock for free, siblings translate by the SAME
 		// delta from `targetX/Y`, so a locked lead pulls the
 		// whole group along one axis.
 		if (ev.shiftKey) {
@@ -293,7 +293,7 @@ export function createStageNodeDrag(host: StageNodeDragHost): StageNodeDrag {
 		activeDrag.lastTargetX = targetX;
 		activeDrag.lastTargetY = targetY;
 		// Sub-threshold movement is bookkeeping only; crossing the
-		// threshold commits to drag — bind the host handler NOW
+		// threshold commits to drag, bind the host handler NOW
 		// and fire `"start"` against it. The same `boundHandler`
 		// services every subsequent `"move"` and the eventual
 		// `"end"` so a mid-drag prop change (spacebar pressed,
@@ -308,7 +308,7 @@ export function createStageNodeDrag(host: StageNodeDragHost): StageNodeDrag {
 				// Which mode we are in, asked of the tool rather than inferred from
 				// the missing handler. "No translate handler" was standing in for
 				// "a two-click tool is active", and it is also true in Play and
-				// Live, where nothing can be moved and nothing can be armed — so
+				// Live, where nothing can be moved and nothing can be armed, so
 				// dragging a peer there ran the arming path and selected it, and a
 				// reader who saw the peer stay put had opened the Inspector on it
 				// without asking.
@@ -330,8 +330,8 @@ export function createStageNodeDrag(host: StageNodeDragHost): StageNodeDrag {
 				// No test holds any of this: the suite cannot drive a Pixi viewport
 				// through a captured pointer drag, so what the drag closure does
 				// with a gesture is browser evidence rather than suite evidence.
-				// Checked by hand across the cases the change reaches — in Play and
-				// with the Add-peer tool a drag off a peer now moves nothing and
+				// Checked by hand across the cases the change reaches, in Play and
+				// with the Add-peer tool a drag off a peer moves nothing and
 				// selects nothing, a tap still selects in every mode, a marquee
 				// still replaces, and Open Session still opens a session when
 				// dragged from one peer to another.
@@ -341,8 +341,8 @@ export function createStageNodeDrag(host: StageNodeDragHost): StageNodeDrag {
 			activeDrag.boundHandler = handler;
 			// One start for the whole gesture: lead plus every sibling at
 			// its baseline-offset position. The host opens ONE engine
-			// transaction and pins the group in one placement pass —
-			// N sibling start/move/end callbacks used to mean N layout
+			// transaction and pins the group in one placement pass,
+			// N sibling start/move/end callbacks would mean N layout
 			// solves per pointermove. Skip `"move"` on this same event:
 			// start already wrote these coordinates, and without a no-op
 			// guard a second placement pass would anneal twice.
@@ -370,7 +370,7 @@ export function createStageNodeDrag(host: StageNodeDragHost): StageNodeDrag {
 		// while we hold the pointer, so without this the hover ring
 		// never lights up over the prospective second-pick peer.
 		// Render path already gates the hover affordance through
-		// `resolveGesture` — for `two-click-pick` over `stage-peer`
+		// `resolveGesture`, for `two-click-pick` over `stage-peer`
 		// it returns a verb that arms, so just setting `hoverRef`
 		// is enough to light the ring.
 		if (activeDrag.armedDuringDrag) {
@@ -438,13 +438,13 @@ export function createStageNodeDrag(host: StageNodeDragHost): StageNodeDrag {
 		//    For two-click tools (no `onPeerDrag` handler bound,
 		//    matching the `if (!handler)` arm in globalpointermove),
 		//    a release on a DIFFERENT peer than the press fires
-		//    onSelect twice — arm A then complete on B — so a
+		//    onSelect twice, arm A then complete on B, so a
 		//    single drag gesture is equivalent to two taps through
 		//    `advanceTwoClick`. Release on the same peer, off-peer,
-		//    or in Select tool falls back to the historic
+		//    or in Select tool falls back to the
 		//    single-tap arm. Asked of the active tool, the same way
 		//    the threshold-cross arm above asks: a missing translate
-		//    handler used to stand in for this, and it is also
+		//    handler cannot stand in for this, because it is also
 		//    missing in Play and Live.
 		const upPeerId = isTwoClickTool(resolvedGestureCtxRef.current.activeTool)
 			? peerIdAtLocal(upLocalX, upLocalY)
@@ -479,17 +479,17 @@ export function createStageNodeDrag(host: StageNodeDragHost): StageNodeDrag {
 		"pointerupoutside",
 		(ev: FederatedPointerEvent) => finishDrag(ev.pointerId, false, ev.global.x, ev.global.y),
 	);
-	// Window fallback for off-canvas / off-document releases —
+	// Window fallback for off-canvas / off-document releases,
 	// without this, `activeDrag` leaks and corrupts the next
 	// gesture. The pointer-id check leaves unrelated pointers
 	// (other touches, panel-resize handles) alone.
 	// `safeListener` so a throw inside `finishDrag` surfaces once
 	// through the error bus instead of escaping into the browser's
-	// event dispatch path — drag/rename/paste land in this surface
+	// event dispatch path, drag/rename/paste land in this surface
 	// soon and need the quarantine.
 	const handleWindowPointerUp = safeListener<PointerEvent>(
 		(ev) => {
-			// Window-level release is off-host by definition —
+			// Window-level release is off-host by definition,
 			// `fireSelect: false` skips both the tap-arm and the
 			// two-click drag-to-peer completion. Coords are unused
 			// in that branch; pass 0 to satisfy the signature.

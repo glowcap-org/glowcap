@@ -1,5 +1,5 @@
-//! Saving proves a recipe names the capability actually held by the caller.
-//! Host owns all remote restoration; local capture requires no networking.
+//! Saving proves a recipe names the capability held by the caller.
+//! Host owns all remote restoration. Local capture requires no networking.
 const std = @import("std");
 const model = @import("model");
 const core = @import("loam_core");

@@ -45,7 +45,12 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 		self.backend
 			.change_share(rooms_application::archive::shares::Command::Issue(share.clone()))
 			.await?;
-		match self.issuer.as_mut().expect("issuer present").issue(&share, &self.state) {
+		let Some(issuer) = self.issuer.as_mut() else {
+			return Err(Error::refused(
+				"a selected archive peer is required to issue a durable share",
+			));
+		};
+		match issuer.issue(&share, &self.state) {
 			Ok(link) => Ok(link),
 			Err(error) => {
 				// A revoke that also fails is retained behind the publication failure.
@@ -73,7 +78,12 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 		self.backend
 			.change_share(rooms_application::archive::shares::Command::Revoke(id.clone()))
 			.await?;
-		self.issuer.as_mut().expect("issuer present").revoke(&id)
+		let Some(issuer) = self.issuer.as_mut() else {
+			return Err(Error::refused(
+				"a selected archive peer is required to revoke a durable share",
+			));
+		};
+		issuer.revoke(&id)
 	}
 
 	pub(super) async fn restore_issued(&mut self) -> Result<(), Error> {
@@ -84,9 +94,9 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 			return Ok(());
 		}
 		let specs = self.backend.active_shares().await?;
-		self.issuer
-			.as_mut()
-			.expect("issuer present")
-			.reconcile(specs, &self.state)
+		let Some(issuer) = self.issuer.as_mut() else {
+			return Ok(());
+		};
+		issuer.reconcile(specs, &self.state)
 	}
 }

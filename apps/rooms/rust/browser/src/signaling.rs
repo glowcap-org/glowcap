@@ -1,5 +1,5 @@
 //! WebRTC carried by one held Rooms directory connection per attempt. The
-//! directory client owns protocol exchanges; the Rust browser binding owns
+//! directory client owns protocol exchanges. The Rust browser binding owns
 //! SDP/ICE effects and channel retirement. Call these inside the Host LocalSet.
 mod answering;
 mod connector;
@@ -22,9 +22,9 @@ use web_sys::RtcConfiguration;
 
 /// Dial through this exact directory, already selected by the application for
 /// the target. No fallback directory is guessed from other live connections.
-/// The deadline covers SDP/ICE preparation; Session admission separately owns
+/// The deadline covers SDP/ICE preparation. Session admission separately owns
 /// its OCapN handshake budget. Dropping the observer retires its exchange and
-/// asks the Host-owned peer jobs to close; Host.close observes that retirement.
+/// asks the Host-owned peer jobs to close. `Host.close` observes that retirement.
 pub async fn dial<D: Deadline + Tasks + Clone + 'static>(
 	directory: &Route<D>,
 	locator: &Locator,

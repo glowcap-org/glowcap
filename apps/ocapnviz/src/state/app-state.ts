@@ -1,12 +1,12 @@
 /**
- * App-level state — types, reducer, persistence. UI state only;
- * the engine owns timeline / world state via its own observers.
+ * App-level state, types, reducer, persistence. UI state only.
+ * The engine owns timeline / world state via its own observers.
  *
  * Selection lives in the selection-store (interactions/selection-store.ts),
  * NOT here. This reducer owns mode / tool / pane sizes / the live trace sturdyref.
  * The store's `anchor` slot is the single source of truth for the
- * "Inspector follow" entity; consumers that previously read
- * `state.selection` now read `storeSelection.anchor`.
+ * "Inspector follow" entity. Read it from `storeSelection.anchor`, not
+ * `state.selection`.
  */
 
 import type { StageVisibility } from "../render/types.ts";
@@ -15,23 +15,23 @@ import type { LaneKind } from "../ui/Timeline/state.ts";
 import { loadStoredValue, persistStoredValue } from "./storage.ts";
 
 /** Three sibling modes operating on one in-memory document buffer.
- * `live` — the feed connects on entry, and nothing renders until
- * Record, which starts the capture; Stop claims the recording as the
+ * `live`: the feed connects on entry, and nothing renders until
+ * Record, which starts the capture, Stop claims the recording as the
  * buffer source and lands in Play.
- * `play` — replay the buffer (fixture / file / recording).
- * `build` — edit the buffer with authoring tools. */
+ * `play`: replay the buffer (fixture / file / recording).
+ * `build`: edit the buffer with authoring tools. */
 export type AppMode = "live" | "play" | "build";
 
 /** The tool vocabulary is owned by the interaction layer (the
- * resolver and FSM act on tools, never on modes); re-exported here
+ * resolver and FSM act on tools, never on modes). Re-exported here
  * so app-level consumers keep one import site for UI state. */
 export type { BuilderTool } from "../interactions/types.ts";
 import type { BuilderTool } from "../interactions/types.ts";
 
 /** Which tools a mode offers. Select and Hand are observation
- * affordances — inspecting and panning mutate nothing — so every
+ * affordances, inspecting and panning mutate nothing, so every
  * mode carries them. The authoring tools mint entities, and only
- * Build holds mutation authority. The reducer enforces this; the
+ * Build holds mutation authority. The reducer enforces this. The
  * palette and keyboard shortcuts render/route from the same list. */
 export function toolsForMode(mode: AppMode): readonly BuilderTool[] {
 	return mode === "build" ? ALL_TOOLS : OBSERVATION_TOOLS;
@@ -45,11 +45,11 @@ const ALL_TOOLS: readonly BuilderTool[] = [
 	"send-message",
 ];
 
-/** Provenance of the document buffer — what the Source panel says
+/** Provenance of the document buffer, what the Source panel says
  * the buffer IS. Exactly one of these holds at a time: a built-in
- * fixture, an opened file, or a live recording; `edited` marks a
+ * fixture, an opened file, or a live recording. `edited` marks a
  * buffer that carries Build-mode edits on top of that source. App
- * derives this from its source states; the picker only displays
+ * derives this from its source states. The picker only displays
  * it. */
 export type BufferSourceInfo =
 	| { kind: "builtin"; id: string; title: string; edited: boolean }
@@ -62,7 +62,7 @@ export type BufferSourceInfo =
 
 export type AppState = {
 	scenarioId: string;
-	/** Persists across modes; only consumed in Live. */
+	/** Persists across modes. Only consumed in Live. */
 	liveSturdyref: string;
 	mode: AppMode;
 	tool: BuilderTool;
@@ -111,7 +111,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
 			// the one authority, so neither a keyboard shortcut nor a
 			// stray dispatch can arm an authoring tool outside Build.
 			if (!toolsForMode(state.mode).includes(action.tool)) return state;
-			// Tool change wipes in-progress two-click flow — a stale
+			// Tool change wipes in-progress two-click flow, a stale
 			// first-pick from one tool would be nonsense for another.
 			return { ...state, tool: action.tool, firstPickNodeId: null };
 		case "set-first-pick":
@@ -143,12 +143,12 @@ export const RIGHT_PANE_DEFAULT = 320;
 // Bottom timeline pane. MAX keeps a stale persisted value from
 // shoving the pane off the viewport on smaller displays; MIN is
 // the smallest height that lets the Scrubber's bottom-anchored
-// ruler sit flush against the Overview's bottom edge — control
+// ruler sit flush against the Overview's bottom edge, control
 // row (~40) + Overview (26) + ruler (22) + RULER_TOP_PAD (4) +
 // 1px panel border = 93. Below that, the ruler paints with its
 // top above the Scrubber's top and bleeds behind the Overview.
 // At exactly the minimum the lane area collapses to zero rows
-// (which is what the user wants — Overview edge touching ruler
+// (which is what the user wants, Overview edge touching ruler
 // edge), and any extra height becomes lane space. The control
 // row can wrap on narrow widths; in that corner case the floor
 // is slightly tight, but the common case is the right place to
@@ -203,7 +203,7 @@ export const APP_STATE_STORAGE_KEY = "ocapnviz:app-state";
 export const TIMELINE_VIEW_STORAGE_KEY = "ocapnviz:timeline-view";
 
 /** Timeline view state persisted across sessions. Document-relative
- * state (window start/end, hover) is NOT included — it depends on
+ * state (window start/end, hover) is NOT included. It depends on
  * the loaded doc's duration. What IS included is durable user
  * preference: which lanes are visible, which categories are
  * drilled-down, the gutter width. Sets are serialized as arrays. */
@@ -218,7 +218,7 @@ export function loadPersistedTimelineView(): PersistedTimelineView | null {
 	if (!raw) return null;
 	try {
 		const parsed = JSON.parse(raw) as PersistedTimelineView;
-		// Defensive shape check — drop malformed fields rather than
+		// Defensive shape check, drop malformed fields rather than
 		// letting a bad stored value crash the panel.
 		return {
 			...(Array.isArray(parsed.expandedLanes) ? { expandedLanes: parsed.expandedLanes } : {}),
@@ -252,7 +252,7 @@ export function readLiveOverride(): { liveSturdyref: string } | null {
 }
 
 /** Read persisted `AppState`. Returns `null` on missing or
- * malformed input; the caller falls back to defaults. Checks for
+ * malformed input. The caller falls back to defaults. Checks for
  * `localStorage` directly (not `window`) so this works in both
  * browser and Deno test environments. */
 export function loadPersistedAppState(): Partial<AppState> | null {
@@ -268,7 +268,7 @@ export function loadPersistedAppState(): Partial<AppState> | null {
 /**
  * Compose the initial reducer state. Precedence (highest first):
  *   1. `?live=<sturdyref>` query string ⇒ Live mode + capability (intent is a
- *      one-shot deep link; persisted state shouldn't override).
+ *      one-shot deep link. Persisted state shouldn't override).
  *   2. localStorage-persisted previous session.
  *   3. Hardcoded defaults.
  */
@@ -284,7 +284,7 @@ export function makeInitialAppState(): AppState {
 		liveSturdyref: live?.liveSturdyref ??
 			persisted?.liveSturdyref ??
 			DEFAULT_LIVE_STURDYREF,
-		// Don't restore in-flight two-click state across reloads —
+		// Don't restore in-flight two-click state across reloads,
 		// tools are stateless across sessions.
 		firstPickNodeId: null,
 		// Default ON so first mount fits to content. User opts out by dragging the

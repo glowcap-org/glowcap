@@ -83,8 +83,8 @@ pub fn measureRecord(comptime writeFn: anytype, args: anytype) WalkError!usize {
     return count.total;
 }
 
-/// Fill the exact measured buffer. The caller owns the buffer on every outcome;
-/// failed or incomplete output must not be published.
+/// Fill the exact measured buffer. The caller owns the buffer on every outcome.
+/// Failed or incomplete output must not be published.
 pub fn renderRecordInto(storage: []u8, comptime writeFn: anytype, args: anytype) WalkError!void {
     var fill: SliceSink = .{ .buf = storage };
     try @call(.auto, writeFn, .{&fill} ++ args);

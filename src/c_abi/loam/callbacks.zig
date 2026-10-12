@@ -1,4 +1,4 @@
-//! Foreign callbacks borrow views; copied effects remain in the retained call arena.
+//! Foreign callbacks borrow views. Copied effects remain in the retained call arena.
 const std = @import("std");
 const common = @import("common.zig");
 const c = common.c;
@@ -8,7 +8,7 @@ const shared = common.shared;
 
 /// Registration copies the bounded declaration inventory once. Contexts remain
 /// borrowed until successful attachment release. Projection child arrays use
-/// the existing retained call arena; payload and argument leaves stay borrowed.
+/// the existing retained call arena. Payload and argument leaves stay borrowed.
 pub const Content = struct {
     allocator: std.mem.Allocator,
     declaration: c.GlowcapLoamContent,
@@ -18,7 +18,7 @@ pub const Content = struct {
     attachment: *@import("attachment.zig").Attachment = undefined,
     /// Copy names because foreign declaration buffers may die after attach.
     /// At most 64 methods of 256 bytes belong to this registration and are
-    /// freed on refused construction or successful detach; contexts stay borrowed.
+    /// freed on refused construction or successful detach. Contexts stay borrowed.
     pub fn init(gpa: std.mem.Allocator, raw: c.GlowcapLoamContent) !Content {
         if (raw.requirement == null or raw.invoke == null or raw.method_count == 0 or raw.method_count > 64) return error.InvalidArgument;
         const methods = try gpa.dupe(c.GlowcapLoamMethod, try common.slice(c.GlowcapLoamMethod, raw.methods, raw.method_count));
@@ -52,7 +52,7 @@ pub const Content = struct {
         if (self.graph) |spec| @import("graph_callbacks.zig").freeSpec(gpa, spec);
     }
     pub fn behavior(self: *Content) access.hosting.ContentBehavior {
-        return .{ .schema = self.declaration.schema, .version = self.declaration.version, .graph = self.graph, .context = self, .requirement = requirement, .retry = retry, .invoke = invoke, .references = if (self.declaration.references != null) @import("reference_callbacks.zig").declare else null, .dependent_requirement = if (self.declaration.dependent_requirement != null) dependentRequirement else null };
+        return .{ .schema = self.declaration.schema, .version = self.declaration.version, .graph = self.graph, .context = self, .requirement = requirement, .retry = retry, .invoke = invoke, .references = if (self.declaration.references != null) @import("reference_callbacks.zig").declare else null, .dependent_requirement = if (self.declaration.dependent_requirement != null) dependentRequirement else null, .admit_forward = if (self.declaration.admit_forward != null) admitForward else null };
     }
     fn find(self: *Content, verb: []const u8) !c.GlowcapLoamMethod {
         for (self.methods) |method| if (std.mem.eql(u8, method.verb.?[0..method.verb_len], verb)) return method;
@@ -63,7 +63,7 @@ fn content(ctx: ?*anyopaque) *Content {
     return @ptrCast(@alignCast(ctx.?));
 }
 /// C child spines occupy the existing bounded retained call arena. Leaves
-/// borrow the retained invocation; direct layout aliasing is impossible because
+/// borrow the retained invocation. Direct layout aliasing is impossible because
 /// C tags and Host Values differ. No new heap arena or inbound frame pin exists.
 pub fn input(arena: std.mem.Allocator, invocation: access.hosting.ContentInvocation, graph: bool) !c.GlowcapLoamInvocation {
     const view = invocation.content;
@@ -119,6 +119,7 @@ pub const Call = struct {
     host: *driver.Host,
     attachment: *@import("attachment.zig").Attachment,
     reply: ?driver.Value = null,
+    refused: bool = false,
     active: bool = true,
 };
 fn invoke(ctx: ?*anyopaque, content_call: *access.hosting.ContentCall, invocation: access.hosting.ContentInvocation) !driver.Value {
@@ -132,17 +133,29 @@ fn invoke(ctx: ?*anyopaque, content_call: *access.hosting.ContentCall, invocatio
     defer registration.host.in_callback = was_in_callback;
     defer call.active = false;
     if (registration.declaration.invoke.?(registration.declaration.context, @ptrCast(&call), &call_input) != shared.GLOWCAP_OK) return error.ApplicationRefused;
+    if (call.refused) return error.ApplicationRefused;
     return call.reply orelse error.MissingReply;
+}
+
+fn admitForward(ctx: ?*anyopaque, content_call: *access.hosting.ContentCall, work: access.hosting.ForwardWork) !void {
+    const registration = content(ctx);
+    var call: Call = .{ .content_call = content_call, .host = registration.host, .attachment = registration.attachment };
+    const was_in_callback = registration.host.in_callback;
+    registration.host.in_callback = true;
+    defer registration.host.in_callback = was_in_callback;
+    defer call.active = false;
+    if (registration.declaration.admit_forward.?(registration.declaration.context, @ptrCast(&call), work.selector.ptr, work.selector.len, work.method.ptr, work.method.len, work.material_bytes) != shared.GLOWCAP_OK or call.refused) return error.ApplicationRefused;
+    if (call.reply != null) return error.InvalidForwarding;
 }
 fn decodeCapability(call: *Call, ref: shared.GlowcapReference) !driver.Capability {
     return call.host.capabilityFromRaw(ref.id);
 }
 /// Foreign reply spines and bytes die at callback return. Copy once into the
-/// already bounded call arena; capability identities remain Host-owned and
+/// already bounded call arena. Capability identities remain Host-owned and
 /// shared disclosure validation runs before the reply escapes.
 pub fn reply(raw: ?*c.GlowcapLoamCall, value: ?*const shared.GlowcapArgument) !void {
     const call: *Call = @ptrCast(@alignCast(raw orelse return error.NullPointer));
-    if (!call.active or call.reply != null) return error.WrongPhase;
+    if (!call.active or call.reply != null or call.refused) return error.WrongPhase;
     const source = value orelse return error.NullPointer;
     const values = try shared.valuesFromCWith(driver.Value, anyerror, call, decodeCapability, call.content_call.allocator(), @as([*]const shared.GlowcapArgument, @ptrCast(source)), 1, 0, true);
     call.reply = values[0];

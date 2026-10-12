@@ -3,8 +3,8 @@ use super::*;
 use crate::{Argument, Ref, SendArena};
 use std::{future::IntoFuture, pin::Pin};
 
-/// An await-only Host send. Its guard releases observation when dropped;
-/// the core's existing producer owns admitted work independently.
+/// An await-only Host send. Its guard releases observation when dropped.
+/// The core's existing producer owns admitted work independently.
 pub struct HostPromise {
 	admission: Result<u64>,
 	host: Rc<HostShared>,
@@ -31,19 +31,23 @@ impl IntoFuture for HostPromise {
 }
 impl Host {
 	/// Queue a notification at the held target's actual home. No reply vow is
-	/// created; the queue owns admitted work independently of this handle.
+	/// created. The queue owns admitted work independently of this handle.
 	pub fn tell(&self, target: &Ref, verb: &str, args: &[Argument]) -> Result<()> {
 		self.shared.guard_handle()?;
 		let target = target.to_sys()?;
 		let mut arena = SendArena::default();
 		let (args, count) = arena.build(args)?;
+		// SAFETY: `self.shared.raw()` is the `GlowcapHost` handle owned by `HostShared`, proven non-null by
+		// `guard_handle` above; `target` is a local `GlowcapReference` borrowed for the call, `verb` is a `&str`
+		// borrowed for the call, and `args`/`count` come from `arena`, a live local `SendArena`; the header says the
+		// host copies what it queues.
 		check_host(unsafe {
 			ffi::glowcap_host_tell(self.shared.raw(), &target, verb.as_ptr(), verb.len(), args, count)
 		})?;
 		self.shared.schedule_kick()
 	}
 	/// Admit an eventual send using the target's actual local or foreign home.
-	/// The Host queue copies borrowed arguments; completion uses its usual action
+	/// The Host queue copies borrowed arguments. Completion uses its usual action
 	/// drain. Callbacks use their turn-scoped send so rollback remains atomic.
 	pub fn send(&self, target: &Ref, verb: &str, args: &[Argument]) -> HostPromise {
 		let admission = (|| {
@@ -52,6 +56,8 @@ impl Host {
 			let mut arena = SendArena::default();
 			let (args, count) = arena.build(args)?;
 			let mut vow = 0;
+			// SAFETY: as `tell` above, for `self.shared.raw()`, `target`, `verb`, and the `arena` views; `vow` is a
+			// local out-parameter the callee fills.
 			check_host(unsafe {
 				ffi::glowcap_host_send(
 					self.shared.raw(),

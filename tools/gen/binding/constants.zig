@@ -2,7 +2,7 @@
 //!
 //! Numeric values reflect the C ABI roots. Transport strings reflect
 //! `model.transport`, and binding-only policy comes from `binding_policy`.
-//! A new binding adds one emitter and one `outputs` row; the reflected table
+//! A new binding adds one emitter and one `outputs` row. The reflected table
 //! remains the only place this family names a value.
 
 const std = @import("std");
@@ -208,6 +208,7 @@ const constants = [_]Const{
     con("CARRIER_DETAIL_PEER_ALERT", cdr.GLOWCAP_CARRIER_DETAIL_PEER_ALERT, .uint, null),
     con("CARRIER_DETAIL_ENGINE_CODE", cdr.GLOWCAP_CARRIER_DETAIL_ENGINE_CODE, .uint, null),
     con("DRIVER_MAX_WAIT_MS", cdr.GLOWCAP_DRIVER_MAX_WAIT_MS, .uint, null),
+    con("DRIVER_WAIT_UNBOUNDED", cdr.GLOWCAP_DRIVER_WAIT_UNBOUNDED, .uint, null),
     con("DRIVER_DEFAULT_WIRE_BUFFER_BYTES", cdr.GLOWCAP_DRIVER_DEFAULT_WIRE_BUFFER_BYTES, .usize, null),
     con("DRIVER_DEFAULT_MAX_PENDING_OPENS", cdr.GLOWCAP_DRIVER_DEFAULT_MAX_PENDING_OPENS, .usize, null),
     con("DRIVER_DEFAULT_HANDSHAKE_MS", cdr.GLOWCAP_DRIVER_DEFAULT_HANDSHAKE_MS, .uint, null),

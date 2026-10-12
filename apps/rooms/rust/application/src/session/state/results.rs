@@ -140,7 +140,7 @@ impl SessionState {
 	}
 	/// Advance exactly one durable recovery boundary. The applier is pure and
 	/// must be idempotent on its own returned authority. A freshly computed
-	/// candidate is retained through marker/checkpoint writes; restart rebuilds
+	/// candidate is retained through marker/checkpoint writes. Restart rebuilds
 	/// it and verifies an already-applied checkpoint before finalization.
 	pub fn advance_result(
 		&mut self,

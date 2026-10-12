@@ -56,7 +56,7 @@ pub const Message = struct {
     /// panic in a safe build and an out-of-bounds read otherwise, which on a
     /// multi-session host takes down every other session with it. The typed
     /// accessors below are shorter to write than the unwrap they replace, so
-    /// there is no cheaper wrong path left; `msg.args` is still there for a
+    /// there is no cheaper wrong path left. `msg.args` is still there for a
     /// handler that has already checked `args.len`.
     pub fn arg(self: Message, i: usize) ArgError!model.Argument {
         if (i >= self.args.len) return error.MissingArgument;
@@ -89,7 +89,7 @@ pub const Message = struct {
 };
 
 /// An adapter-owned local message. The Vat knows its charge and lifetime, not
-/// its value vocabulary. Copy owns the payload in the queue arena; retire ends
+/// its value vocabulary. Copy owns the payload in the queue arena. Retire ends
 /// external custody before that arena is reclaimed. Failure must leave no
 /// external custody behind. `owned_bytes` includes every requested payload byte
 /// and any adapter-owned retain metadata, excluding the queue row itself.
@@ -99,7 +99,7 @@ pub const OpaqueMessage = struct {
     owned_bytes: usize,
 
     /// Queue copies can refuse only allocation, shape or bounded resources.
-    /// Explicit tags survive separate archives; Zig error ordinals do not.
+    /// Explicit tags survive separate archives. Zig error ordinals do not.
     pub const CopyFailure = enum(u8) {
         out_of_memory,
         malformed_view,
@@ -117,7 +117,7 @@ pub const OpaqueMessage = struct {
 
     pub const VTable = struct {
         /// Stable adapter protocol identity, independent of its archive address.
-        /// Zero is untyped; adapters that inspect ctx declare a nonzero identity
+        /// Zero is untyped. Adapters that inspect ctx declare a nonzero identity
         /// and still validate the actual runtime owner before using authority.
         protocol: [16]u8 = @splat(0),
         /// No Vat reentry during unpublished admission. The Vat refuses
@@ -145,20 +145,20 @@ pub const Delivery = union(enum) {
 
 /// A *hosted* actor: state and behavior the vat does not own, invoked on each
 /// deliver (ADR-0071). This is how a non-Zig consumer hosts an actor over the C
-/// ABI — it hands the vat an opaque `ctx` and a thunk. The `handle` receives the
-/// full `Turn`, so a hosted actor sends and spawns exactly like a Zig actor;
-/// only vat-owned time-travel is out of reach, since the vat cannot clone `ctx`
+/// ABI, it hands the vat an opaque `ctx` and a thunk. The `handle` receives the
+/// full `Turn`, so a hosted actor sends and spawns exactly like a Zig actor.
+/// Only vat-owned time-travel is out of reach, since the vat cannot clone `ctx`
 /// (a vat holding a hosted actor is not snapshottable, `NotSnapshottable`).
 pub const HostedActor = struct {
     pub const Result = HandlerResult;
     /// The consumer's state, opaque to the vat, passed back to `handle`/`free`.
     ctx: *anyopaque,
-    /// Invoked on each deliver. Returns the reply — borrowed for the turn, the
-    /// vat clones it onto the wire or a listener — or an error (settled broken).
+    /// Invoked on each deliver. Returns the reply, borrowed for the turn, the
+    /// vat clones it onto the wire or a listener, or an error (settled broken).
     handle: *const fn (ctx: *anyopaque, turn: *Turn, msg: Message) Result,
     /// Optional adapter-local delivery. Ordinary model handlers never receive
     /// opaque payloads through their data-only contract.
-    /// Null means success; refusal names immutable archive-owned failure text.
+    /// Null means success. Refusal names immutable archive-owned failure text.
     /// Produce the name where the handler's Zig error was caught.
     handleOpaque: ?*const fn (ctx: *anyopaque, turn: *Turn, msg: OpaqueMessage) ?[]const u8 = null,
     /// Release `ctx` when the actor's box drops (vat `deinit`, or a failed

@@ -4,8 +4,40 @@ const graph = @import("graph_callbacks.zig");
 const c = common.c;
 const shared = common.shared;
 
+/// Copy the admitted source grant's durable record names, nearest first.
+/// The call's validated working set supplies every ancestor. These names are
+/// descriptive accounting data and confer no use, disclosure or control.
+/// This projection supports paths of at most 65 records without allocation.
+pub fn glowcap_loam_call_accounting_path(raw: ?*c.GlowcapLoamCall, out_path: ?[*]c.GlowcapLoamObject, capacity: usize, out_count: ?*usize) callconv(.c) i32 {
+    shared.lastErrorClear();
+    const count = out_count orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    count.* = 0;
+    const out = out_path orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    const call: *@import("callbacks.zig").Call = @ptrCast(@alignCast(raw orelse return shared.GLOWCAP_ERR_NULL_POINTER));
+    if (!call.active) return common.code(error.WrongPhase);
+    var buffer: [65]common.core.ObjectId = undefined;
+    const path = call.content_call.accountingPath(&buffer) catch |err| return common.code(err);
+    if (capacity < path.len) return common.code(error.InvalidArgument);
+    for (path, out[0..path.len]) |id, *target| target.* = common.objectToC(id);
+    count.* = path.len;
+    return shared.GLOWCAP_OK;
+}
+
+/// Copy a failed application's explanation into the retained bounded arena.
+/// UTF-8 must be nonempty and at most 1024 bytes. Returning success from the
+/// callback after this setter refuses. A refusal cannot accompany a reply.
+pub fn glowcap_loam_call_refuse_copying(raw: ?*c.GlowcapLoamCall, reason: ?[*]const u8, len: usize) callconv(.c) i32 {
+    shared.lastErrorClear();
+    const call: *@import("callbacks.zig").Call = @ptrCast(@alignCast(raw orelse return shared.GLOWCAP_ERR_NULL_POINTER));
+    if (!call.active or call.reply != null or call.refused) return common.code(error.WrongPhase);
+    const bytes = reason orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    call.content_call.refuseCopying(bytes[0..len]) catch |err| return common.code(err);
+    call.refused = true;
+    return shared.GLOWCAP_OK;
+}
+
 /// Own one occurrence of exact prepared reference custody beyond callback
-/// return. Preparation validates its recipe; this grants no disclosure.
+/// return. Preparation validates its recipe. This grants no disclosure.
 /// Release the returned occurrence through glowcap_host_ref_release.
 pub fn glowcap_loam_call_retain_prepared_reference(raw: ?*c.GlowcapLoamCall, reference: ?*const shared.GlowcapReference, out_reference: ?*shared.GlowcapReference) callconv(.c) i32 {
     shared.lastErrorClear();
@@ -65,7 +97,7 @@ pub fn glowcap_loam_references_restore_page_with_uri(references: ?*c.GlowcapLoam
 }
 
 /// Inspect a selected field's canonical recipe without restoring authority.
-/// The URI borrows the bounded retained Call; local and live recipes return null.
+/// The URI borrows the bounded retained Call. Local and live recipes return null.
 pub fn glowcap_loam_references_inspect_page_uri(references: ?*c.GlowcapLoamReferences, page: ?*const c.GlowcapLoamPageHandle, index: usize) callconv(.c) i32 {
     shared.lastErrorClear();
     @import("reference_callbacks.zig").inspectPageUri(references, page, index) catch |err| return common.code(err);

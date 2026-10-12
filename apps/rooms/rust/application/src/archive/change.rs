@@ -20,7 +20,7 @@ impl Change {
 			conversation: record.conversation().clone(),
 		})
 	}
-	/// No arguments invalidate the whole account; three identify one
+	/// No arguments invalidate the whole account. Three identify one
 	/// conversation. Admission bounds material before copying any field.
 	pub fn read(args: &[impl ArgumentView]) -> Result<Self, Error> {
 		if args.is_empty() {

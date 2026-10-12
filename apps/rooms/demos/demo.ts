@@ -1,8 +1,8 @@
 // Cross-language rooms demo orchestrator.
 //
-// Starts the native Rust rooms-server, then joins one client per available language —
+// Starts the native Rust rooms-server, then joins one client per available language (
 // Deno and the native Zig client always, plus Python, Racket, and Rust when their
-// runtimes are on PATH — into one capability-secure chat room over TCP. Each
+// runtimes are on PATH) into one capability-secure chat room over TCP. Each
 // client subscribes, waits for every roster member to be present, posts one
 // line, and must receive every roster member's line back through the capability
 // callback. The orchestrator asserts every participating client exits 0, so
@@ -20,7 +20,7 @@
 // over iroh's encrypted QUIC instead of TCP (the server then announces an
 // ocapn:// URI and every client dials it). The clients assert against the
 // demo's own member roster, so an attached room may have other people in it,
-// chatting away — they are shown in the transcripts but never counted.
+// chatting away. They are shown in the transcripts but never counted.
 
 import { loopbackTcpDesignator, readAnnouncedLocator } from "../lib/locator.ts";
 import {
@@ -55,7 +55,7 @@ const ZIG_CLIENT = requireZigClientPath(
 validatePortOptions(pinPort, attach, "demo.ts");
 
 const ROOT = Deno.cwd();
-// The one room every demo client enters. The first client to run opens it; the
+// The one room every demo client enters. The first client to run opens it. The
 // rest enter it. It is named so the demo exercises the directory's open/enter,
 // not a single hardcoded room.
 const ROOM = "demo";
@@ -82,7 +82,7 @@ function buildRustClient(): Promise<boolean> {
 	return buildRust(ROOT, "apps/rooms/clients/rust/Cargo.toml", features);
 }
 
-/** Decide who plays. Deno and Zig always; the others only when present. */
+/** Decide who plays. Deno and Zig always. The others only when present. */
 async function roster(): Promise<{ members: Member[]; skipped: string[] }> {
 	const members: Member[] = [
 		{
@@ -179,7 +179,7 @@ if (attach && transport === "iroh") {
 	Deno.exit(2);
 }
 
-// With --attach the server is yours, already running; otherwise spawn one on the
+// With --attach the server is yours, already running. Otherwise spawn one on the
 // chosen transport (TCP on the pinned/ephemeral port, or iroh on a fresh
 // endpoint that announces its ocapn:// URI).
 const serverArgs = transport === "iroh"
@@ -198,7 +198,7 @@ try {
 	// No liveness probe in attach mode: on loopback a missing server refuses each
 	// client's connect immediately, which is already a loud, fast failure.
 	const locator = server ? await readAnnouncedLocator(server) : loopbackTcpDesignator(pinPort!);
-	// Every client asserts against this roster — exactly the demo's own members —
+	// Every client asserts against this roster, exactly the demo's own members,
 	// so residents of an attached room (and their chatter) are shown but never
 	// counted, and cannot fake or break the all-to-all proof.
 	const roster = members.map((m) => m.nick).join(",");

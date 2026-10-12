@@ -102,7 +102,7 @@ Deno.test("snapshot is independent — mutating snap doesn't reach doc", () => {
 	};
 	const snap = takeSnapshot(doc);
 
-	// Mutate the snapshot's recording — doc must not change.
+	// Mutate the snapshot's recording, doc must not change.
 	snap.recording!.sources[0]!.observations.length = 0;
 	assertEquals(doc.recording.sources[0]!.observations.length, 1);
 });
@@ -110,7 +110,7 @@ Deno.test("snapshot is independent — mutating snap doesn't reach doc", () => {
 Deno.test("snapshot round-trips doc.duration", () => {
 	// Authoring grows `doc.duration` when an edit lands past the end
 	// (`growDurationToFit` / `commitEntityAuthoring`), so undo must
-	// restore it with everything else — a snapshot without it leaves
+	// restore it with everything else. A snapshot without it leaves
 	// the timeline permanently extended after the edit is undone.
 	const doc = emptyDoc();
 	const snap = takeSnapshot(doc);

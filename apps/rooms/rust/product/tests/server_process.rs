@@ -1,5 +1,6 @@
 //! Exercise the directory executable's loader, options, custody, banner, and
 //! signal barrier the way an operator meets them.
+#![cfg(test)]
 use std::{
 	io::{BufRead, BufReader},
 	path::PathBuf,
@@ -106,7 +107,11 @@ fn rooms_server_executable_prints_the_capabilities_it_minted() {
 	// Standalone, the block names what is serving and ends on the ready line.
 	let mut process = Process(started().spawn().unwrap());
 	let block = stderr_until(&mut process, "rooms: ready");
-	assert!(block.starts_with("rooms: directory listening"), "{block}");
+	assert!(
+		block.lines().any(|line| line == "rooms: directory listening"),
+		"{block}"
+	);
+	assert!(block.contains("directory admission: process-local;"), "{block}");
 	assert!(block.contains("  transport   "), "{block}");
 	let recipe_of = |token: &str, block: &str| -> String {
 		block

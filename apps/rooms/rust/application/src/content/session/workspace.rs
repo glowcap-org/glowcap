@@ -104,7 +104,7 @@ pub struct Room {
 }
 
 impl Room {
-	/// Keep an independently held seat; otherwise join only by explicit intent.
+	/// Keep an independently held seat. Otherwise join only by explicit intent.
 	/// Room visibility is learned from the upstream policy, never this choice.
 	pub fn requests_membership(&self) -> bool {
 		self.seat.is_some() || self.reconnect == Reconnect::Requested
@@ -141,8 +141,8 @@ pub struct Direct {
 	pub source: Option<FieldKey<custody::SessionAccess>>,
 	pub access: Option<FieldKey<custody::DirectAccess>>,
 	/// A directory introduction binds this conversation to the exact local and
-	/// peer registrations. An incoming receiver can precede its reciprocal route;
-	/// a nickname cannot renew either occurrence.
+	/// peer registrations. An incoming receiver can precede its reciprocal route.
+	/// A nickname cannot renew either occurrence.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub introduction: Option<Introduction>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -163,7 +163,7 @@ pub struct Introduction {
 	pub name: FieldKey<custody::DirectoryName>,
 	pub callback: FieldKey<custody::DirectoryInbox>,
 	pub registration: Text<64, true>,
-	/// Retries retain this opening; a fresh gesture cannot revive its callback.
+	/// Retries retain this opening. A fresh gesture cannot revive its callback.
 	pub opening: Text<128, true>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -261,7 +261,7 @@ pub struct Peering {
 }
 
 /// Each declared interface selects one already held operations capability.
-/// A connection has its own exact custody; its display name cannot restore it.
+/// A connection has its own exact custody. Its display name cannot restore it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Operations {
@@ -280,8 +280,8 @@ pub struct ConnectionSelection {
 	pub id: Text<128, true>,
 }
 
-/// Independent held use and control. This row selects saved occurrences only;
-/// labels, permissions, status and revisions belong to Loam's managed owner.
+/// Independent held use and control. This row selects saved occurrences only.
+/// Labels, permissions, status and revisions belong to Loam's managed owner.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Access {
@@ -329,7 +329,7 @@ pub struct Intent {
 	pub keep_history: bool,
 	/// The committed operation that must erase this owner's local history before
 	/// recording can be enabled again. Recovery repeats that idempotent local
-	/// erasure; exported intent alone never supplies the backend authority.
+	/// erasure. Exported intent alone never supplies the backend authority.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub history_erasure: Option<crate::session::state::OperationId>,
 	pub connection: Connection,
@@ -458,27 +458,24 @@ impl Intent {
 	/// Initial user intent contains no capability coordinates. Custody enters
 	/// through an explicit checked import after the managed owner is created.
 	pub fn empty() -> Self {
-		fn empty<T, const N: usize>() -> List<T, N> {
-			List::new(alloc::vec::Vec::new()).expect("empty bounded list")
-		}
 		Self {
 			version: Version::V1,
-			accesses: empty(),
-			directories: empty(),
-			conversations: empty(),
-			invitations: empty(),
+			accesses: List::default(),
+			directories: List::default(),
+			conversations: List::default(),
+			invitations: List::default(),
 			active: None,
-			standing: Text::new("".into()).expect("empty standing"),
-			ignored: empty(),
+			standing: Text::default(),
+			ignored: List::default(),
 			keep_history: true,
 			history_erasure: None,
 			connection: Connection::Relay,
 			archive: None,
 			archive_control: None,
-			archive_shares: empty(),
-			operators: empty(),
-			operations: empty(),
-			peering: empty(),
+			archive_shares: List::default(),
+			operators: List::default(),
+			operations: List::default(),
+			peering: List::default(),
 		}
 	}
 	pub fn decode(raw: &str) -> Result<Self, DecodeError> {
@@ -623,7 +620,7 @@ impl Intent {
 	}
 }
 
-/// The managed resource supplies identity/containment; content stores intent,
+/// The managed resource supplies identity/containment. Content stores intent,
 /// typed custody and receipts in that owner's transaction. Store codecs must
 /// enforce VERSION and MAX_AUTHORITY_BYTES before admitting persisted records.
 pub struct Record<R: References, C> {

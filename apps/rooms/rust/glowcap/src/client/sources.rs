@@ -1,5 +1,5 @@
 //! One runtime's sender-held file sources across all direct conversations.
-//! The core owns retention and read budgets; this adapter owns hosted roots,
+//! The core owns retention and read budgets. This adapter owns hosted roots,
 //! asynchronous readers and their deferred answers.
 use super::*;
 use rooms_application::files::{FileDescription, sources as policy};
@@ -11,7 +11,7 @@ use std::{
 mod hosting;
 
 /// A bounded random-access read. The future must own its I/O and return exactly
-/// the requested span. Dropping it cancels observation; its source stays charged
+/// the requested span. Dropping it cancels observation. Its source stays charged
 /// throughout that future's lifetime. No whole-file assembly is required.
 pub trait Reader {
 	fn read(&self, offset: usize, length: usize) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>>>>;
@@ -44,7 +44,7 @@ impl Source {
 		}
 		let captured =
 			super::files::capture::Captured::from_shared(description, std::sync::Arc::new(bytes.into_boxed_slice()))
-				.expect("source size was validated");
+				.map_err(|_| policy::Error::Source)?;
 		Ok(Self::captured(captured))
 	}
 	/// Adopt immutable capture storage without another full-file read or copy.
@@ -124,7 +124,7 @@ struct SendPolicy {
 }
 impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 	/// Create once per application runtime and share by borrowing or Rc. The
-	/// owner must outlive delivered files; dropping it retires sources and tasks.
+	/// owner must outlive delivered files. Dropping it retires sources and tasks.
 	pub fn new(platform: D) -> Self {
 		Self {
 			state: Rc::new(State {
@@ -143,8 +143,8 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 	}
 	/// Keep exact one-pass sources until the application observes ingestion
 	/// settlement. A receipt admission acknowledgement does not end this lease.
-	/// The same owner remains available after a lost reply for exact replay;
-	/// dropping it expires the sources without claiming that remote work ended.
+	/// The same owner remains available after a lost reply for exact replay.
+	/// Dropping it expires the sources without claiming that remote work ended.
 	pub fn lend(&self, client: &Client<D>, sources: Vec<Source>) -> Result<LentSources<D>, Error> {
 		self.lend_through(Caller::Remote(client.clone()), sources, false)
 	}
@@ -161,7 +161,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 		)
 	}
 	/// Keep managed upload backing readable through independent archive reads
-	/// and subsequent line changes. Existing hosted leases own retention; no
+	/// and subsequent line changes. Existing hosted leases own retention. No
 	/// second source table or full-file materialization is introduced.
 	pub(crate) fn lend_repeatable_local(
 		&self,
@@ -204,8 +204,8 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 		}
 		Ok(prepared)
 	}
-	/// Send once. Cancellation and failure expire all this message's sources;
-	/// the original remote result is retained, including delegated line authority.
+	/// Send once. Cancellation and failure expire all this message's sources.
+	/// The original remote result is retained, including delegated line authority.
 	pub async fn send(
 		&self,
 		client: &Client<D>,
@@ -318,8 +318,8 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 	}
 }
 /// One bounded source population and its existing connection. It owns no file
-/// assembly or second pool. Attachment rendering borrows descriptions and roots;
-/// only ordinary outgoing Argument admission copies their scalar wire material.
+/// assembly or second pool. Attachment rendering borrows descriptions and roots.
+/// Only ordinary outgoing Argument admission copies their scalar wire material.
 pub struct LentSources<D> {
 	blobs: Vec<policy::Lease<Source>>,
 	roots: Vec<Ref>,

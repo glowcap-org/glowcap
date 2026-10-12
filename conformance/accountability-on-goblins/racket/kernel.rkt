@@ -1,5 +1,5 @@
 #lang racket/base
-;; kernel.rkt — the substrate's accountability loop.
+;; kernel.rkt: the substrate's accountability loop.
 ;;
 ;; Runs the smallest demonstrable Invocation → Decision → Effect → Episode
 ;; trace through one Goblins Vat:
@@ -18,7 +18,7 @@
 ;; Policy is a literal Racket data structure declared inline (the smallest
 ;; workable form; rich Policy authoring would land with a more developed
 ;; authority surface). No multi-Actor, no second capability, no Iroh, no
-;; cross-Vat — single-Vat single-Actor scope throughout.
+;; cross-Vat: single-Vat single-Actor scope throughout.
 
 (require racket/match
          goblins
@@ -41,8 +41,8 @@
 
 ;; Resolver: does the Policy authorize (actor, right, affordance)?
 ;; Returns the matching grant clause (truthy) or #f. Two clause forms:
-;;   `(default-grant ...)` — applies to any actor; matches on right + affordance.
-;;   `(actor-grant   ...)` — applies to a specific actor; matches on all three.
+;;   `(default-grant ...)`: applies to any actor; matches on right + affordance.
+;;   `(actor-grant   ...)`: applies to a specific actor; matches on all three.
 ;; Per-actor scoping, role-based clauses, and Datalog-resolver shape land at
 ;; later (post-kernel).
 (define (policy-authorizes? policy actor right affordance)

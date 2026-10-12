@@ -15,7 +15,7 @@
 //! It moves, it doesn't copy. The listener-fire math never owns anything: a
 //! drain decision is POD (`ListenerDrainAction`), and the fire deliver itself is
 //! a *borrowed* stack message (`borrowedListenerFire`) whose payload borrows the
-//! stored resolution — the engine's carrier queue and encode-time borrow own the
+//! stored resolution, the engine's carrier queue and encode-time borrow own the
 //! lifecycle, never a clone.
 
 const std = @import("std");
@@ -44,16 +44,16 @@ pub fn rewriteDeliverTarget(
 /// on the caller's stack: the method symbol is a static string, the payload
 /// borrows `resolution` (for a break, the reason rides as a bare Symbol), and
 /// the two-slot args array is the caller-supplied `args`. Nothing is allocated
-/// and nothing is owned — the returned message is valid only while `args` and
+/// and nothing is owned. The returned message is valid only while `args` and
 /// the borrowed resolution live, and must never reach `model.freeMessage`. Per
 /// the OCapN `op:listen` notification shape (the upstream conformance suite is
 /// the authority), the args are `[Symbol("fulfill"), payload]` for a
-/// fulfillment or `[Symbol("break"), Symbol(reason)]` for a break — the reason
+/// fulfillment or `[Symbol("break"), Symbol(reason)]` for a break, the reason
 /// as a bare Symbol, not an `<error>` record: the upstream suite asserts
 /// exactly that for `test_op_listen_to_promise_and_break`, and Goblins'
 /// unmarshaller rejects unknown records, so an `<error>` payload would kill
 /// the break on a live Goblins partner. The listener target is rebuilt as
-/// `FarRef.object(listener_position)` — listener entries are only ever built
+/// `FarRef.object(listener_position)`. Listener entries are only ever built
 /// that shape (`pipeline.installAnswerListener` / the imported-promise
 /// install), so a bare position loses nothing.
 pub fn borrowedListenerFire(
@@ -75,10 +75,10 @@ pub fn borrowedListenerFire(
 
 /// What draining one listener against a resolution produces, per ADR-0007
 /// § Listener fire matrix. The engine applies the action (queue the fire
-/// carrier, reinstall the entry). Every variant is POD: a fire is a ticket —
-/// the far export position the fire targets — that the engine's queue-time
+/// carrier, reinstall the entry). Every variant is POD: a fire is a ticket
+/// (the far export position the fire targets) that the engine's queue-time
 /// accounting and encode-time borrow turn into the wire deliver
-/// (`borrowedListenerFire`); a listener entry is a POD `FarRef` with no heap.
+/// (`borrowedListenerFire`). A listener entry is a POD `FarRef` with no heap.
 pub const ListenerDrainAction = union(enum) {
     /// Fire the listener once with the resolution and drop the entry. Every
     /// resolution shape except `Fulfill(Promise(_))` lands here. The payload
@@ -139,8 +139,8 @@ pub const TerminalDrainAction = union(enum) {
 /// `resolution_chain.Outcome.terminal`, whose `step` returns terminal only
 /// for a value that is not a same-peer promise, or a locally constructed
 /// fulfill or break. The matrix's re-anchor row is excluded by that
-/// precondition — re-anchoring is the chain walk's job before any drain site
-/// classifies — so the exclusion lives here once instead of as an arm every
+/// precondition: re-anchoring is the chain walk's job before any drain site
+/// classifies. So the exclusion lives here once instead of as an arm every
 /// drain switch must refuse.
 pub fn classifyTerminalListenerDrain(
     entry: session.ListenerEntry,
@@ -157,10 +157,10 @@ pub fn classifyTerminalListenerDrain(
 /// What `projectResolution` decided for one `op:get` / `op:index`
 /// projection over a settled resolution.
 pub const Projected = union(enum) {
-    /// The projection settled. The payload *borrows* the input resolution;
-    /// the caller's send clones it (the one named boundary copy).
+    /// The projection settled. The payload *borrows* the input resolution.
+    /// The caller's send clones it (the one named boundary copy).
     resolved: model.Resolution,
-    /// The resolution was itself a promise; re-anchor the projection on that
+    /// The resolution was itself a promise. Re-anchor the projection on that
     /// promise's answer.
     reanchor: model.AnswerPosition,
 };
@@ -168,9 +168,9 @@ pub const Projected = union(enum) {
 /// Compute an `op:get` / `op:index` / `op:untag` projection over a settled
 /// resolution (ADR-0050). A field projection requires a Struct fulfillment,
 /// an element projection a List, and an untag projection a Tagged with the
-/// asserted tag; a broken receiver passes its break through (the spec's
-/// inherited rejection); a fulfillment that is itself a promise reference
-/// re-anchors. Every other shape breaks with a typed reason. Pure; the
+/// asserted tag. A broken receiver passes its break through (the spec's
+/// inherited rejection). A fulfillment that is itself a promise reference
+/// re-anchors. Every other shape breaks with a typed reason. Pure. The
 /// `.resolved` payload borrows `resolution`.
 pub fn projectResolution(resolution: model.Resolution, kind: session.ProjectionKind) Projected {
     const value = switch (resolution) {

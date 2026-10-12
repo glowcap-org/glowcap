@@ -1,11 +1,11 @@
 //! The vat's turn machinery: frames, arenas, and the synchronous call spine.
 //!
-//! `Turn` is the per-turn context every handler receives — its authority to
+//! `Turn` is the per-turn context every handler receives, its authority to
 //! spawn, near-call, eventual-send, `become`, forward, and move replies out.
 //! The frame spine here (`openTurnFrame`/`closeTurnFrame` around `callLocal`)
 //! is the one dispatch path both the near-call and the wire deliver run, and
 //! the turn/moved-reply arenas reset on its outermost boundaries. The `Vat`
-//! re-binds nothing from here except through `near`; the sibling serve module
+//! re-binds nothing from here except through `near`. The sibling serve module
 //! runs the same spine for inbound delivers.
 
 const std = @import("std");
@@ -29,13 +29,13 @@ const StateBox = boxed.StateBox;
 const releaseBox = boxed.releaseBox;
 
 /// Released rows leave boxes borrowed by the preceding turn. The next outer
-/// boundary owns their reclamation; idle adapters can observe that obligation.
+/// boundary owns their reclamation. Idle adapters can observe that obligation.
 pub fn hasRetiredState(self: *const vat_mod.Vat) bool {
     return self.retired_boxes.items.len != 0;
 }
 
 /// Cap on synchronous near-call (`$`) nesting depth. Eventual-sends do not count
-/// (they queue and drive iteratively); only a handler that near-calls another
+/// (they queue and drive iteratively). Only a handler that near-calls another
 /// actor that near-calls back recurses the native stack, so this bounds that
 /// recursion well below a stack overflow while leaving ample room for the few
 /// levels real code nests.
@@ -56,17 +56,17 @@ pub const Turn = struct {
     /// A per-turn allocator for the handler's reply and any scratch. The vat owns
     /// it and reclaims it when its next top-level turn begins, so a handler
     /// allocates from it freely and never frees the result. Nested near-calls and
-    /// sends made inside one turn share it; it is reset only when an outermost turn
+    /// sends made inside one turn share it. It is reset only when an outermost turn
     /// begins.
     arena: std.mem.Allocator,
     /// Adapter-local payload borrowed only during this queued handler. Null
     /// for model messages, including nested near calls.
     opaque_message: ?vat_mod.OpaqueMessage = null,
     /// A pending `become` staged by this turn, or null. Installed when the turn
-    /// frame returns successfully; discarded (its box released) on a handler error.
+    /// frame returns successfully. Discarded (its box released) on a handler error.
     pending_become: ?PendingBecome = null,
-    /// Where this turn came from — the one axis `forward` dispatches on. No
-    /// default: every constructor states the provenance, and the old illegal
+    /// Where this turn came from, the one axis `forward` dispatches on. No
+    /// default: every constructor states the provenance, and the illegal
     /// combination (a near-call carrying a wire answer) is unrepresentable.
     origin: union(enum) {
         /// A synchronous near-call (`$`), whose caller consumes a value.
@@ -82,10 +82,10 @@ pub const Turn = struct {
     /// vow, so `serve` must not resolve it from the handler's return value.
     forwarded: bool = false,
     /// Index into `Vat.moved_replies` where this turn's `moveOut` transfers
-    /// began (set on the turn's first move; null when nothing was moved). The
-    /// vat already holds the bytes; this field only lets `callLocal` recognize
-    /// a returned reply as one of the allocations this turn moved — any of
-    /// them, not just the last — so a vat-owned reply outlives a same-turn
+    /// began (set on the turn's first move, null when nothing was moved). The
+    /// vat already holds the bytes. This field only lets `callLocal` recognize
+    /// a returned reply as one of the allocations this turn moved, any of
+    /// them, not just the last, so a vat-owned reply outlives a same-turn
     /// `become` with no sever-copy.
     moves_begin: ?usize = null,
 
@@ -98,14 +98,16 @@ pub const Turn = struct {
     pub fn spawn(self: *Turn, comptime Behavior: type, initial: Behavior) Error!Ref {
         return self.vat.spawn(Behavior, initial);
     }
-    /// Synchronously call another local actor and return its reply — the `$`
-    /// of this layer (see `Vat.near`).
+    /// Synchronously call another local actor and return its reply, the `$`
+    /// of this layer (see `Vat.near`). Keeps `anyerror`: this is
+    /// the application handler boundary, and a refused handler reconstructs
+    /// its own error by value.
     pub fn near(self: *Turn, target: Ref, msg: Message) anyerror!model.Argument {
         return self.vat.nearFromPort(self.port, self.ingress, target, msg);
     }
     /// Eventual-send to a local or far reference, returning the reply
-    /// `Vow` — the `<-` of this layer. Pure-local turns enter through
-    /// `Vat.send`; turns with a session projection enter through `Port.send`.
+    /// `Vow`, the `<-` of this layer. Pure-local turns enter through
+    /// `Vat.send`. Turns with a session projection enter through `Port.send`.
     pub fn send(self: *Turn, target: Ref, msg: Message) Error!Vow {
         if (self.port) |port| return port.sendFromIngress(self.vat, self.ingress, target, msg);
         return self.vat.sendFromIngress(self.ingress, target, msg);
@@ -123,7 +125,7 @@ pub const Turn = struct {
     /// turn leaves the actor unchanged. If the frame is a reentrant near-call into
     /// an actor already running an outer frame, the install waits for that outer
     /// frame, so the box the outer frame holds as `self` is never freed under it.
-    /// A persistent actor never mutates its `self`; it calls `become` instead,
+    /// A persistent actor never mutates its `self`. It calls `become` instead,
     /// which is why a snapshot can share its state with no copy-on-write. Calling
     /// it twice in one turn keeps the last value. Legal only for a local self-ref.
     /// `next` is consumed on every outcome: on failure its resources are
@@ -135,22 +137,22 @@ pub const Turn = struct {
     /// Move an owned byte field out of the actor's state into the reply: hand
     /// the bytes to the vat, clear the field so the actor's `deinit` no longer
     /// frees them, and return them as a `bytes` argument. A transfer, not a
-    /// borrow — the vat frees the bytes when its next outermost turn begins,
-    /// the same lifetime a borrowed reply has — so handing off a large buffer
+    /// borrow, the vat frees the bytes when its next outermost turn begins,
+    /// the same lifetime a borrowed reply has, so handing off a large buffer
     /// is O(1) where copying it onto the turn arena is O(len), and the reply
     /// outlives a same-turn `become` with no sever-copy.
     ///
     /// Clearing the field *is* the move: no second owner survives, so the vat's
     /// free can never race the state's `deinit`. That makes the two obligations
-    /// structural rather than remembered — the field must be a mutable slice
+    /// structural rather than remembered, the field must be a mutable slice
     /// the actor's state owns on the vat's allocator (the same allocator its
     /// `deinit` would free it with). A `*const` persistent handler cannot take
-    /// `&self.field` mutably, so it cannot call this; it severs through the
+    /// `&self.field` mutably, so it cannot call this. It severs through the
     /// ordinary borrowed-reply path instead.
     ///
     /// The parameter is a mutable pointer for a reason, and that reason is why
     /// no wrapper type is owed. A borrow or a copy would take the bytes by
-    /// value; only a transfer asks for `&self.field`, so the pointer already
+    /// value. Only a transfer asks for `&self.field`, so the pointer already
     /// says the field is being given away. Clearing it to empty makes that
     /// structural: a handler that reuses the field reads empty bytes, never
     /// freed storage. A newtype guarding against silent reuse would tax every
@@ -160,14 +162,14 @@ pub const Turn = struct {
     /// field cleared" test.
     ///
     /// On out-of-memory the field is left exactly as it was. A handler error
-    /// after a successful move does not restore the field — mutable-actor
-    /// state changes never roll back — and the moved bytes are still freed by
+    /// after a successful move does not restore the field, mutable-actor
+    /// state changes never roll back, and the moved bytes are still freed by
     /// the vat, so nothing leaks.
     ///
-    /// Eventual-path accounting, honestly: on a listened `send` then `drive`
-    /// path the moved reply is still cloned once for the listener —
+    /// Eventual-path accounting: on a listened `send` then `drive`
+    /// path the moved reply is still cloned once for the listener,
     /// necessarily, because a listener-opened top-level turn would drain the
-    /// moved bytes mid-call — so the full O(1) win is on `near` and `tell`; a
+    /// moved bytes mid-call, so the full O(1) win is on `near` and `tell`. A
     /// listened send saves only the become sever-copy.
     pub fn moveOut(self: *Turn, field: *[]u8) Error!model.Argument {
         return .{ .bytes = try self.moveOutSlice(field) };
@@ -175,7 +177,7 @@ pub const Turn = struct {
 
     /// `moveOut`'s string arm: the same O(1) transfer, returned as a `string`
     /// argument for text the actor owns as a byte buffer. One mechanism, two
-    /// wire arms; every `moveOut` obligation and lifetime applies unchanged.
+    /// wire arms. Every `moveOut` obligation and lifetime applies unchanged.
     pub fn moveOutString(self: *Turn, field: *[]u8) Error!model.Argument {
         return .{ .string = try self.moveOutSlice(field) };
     }
@@ -192,7 +194,7 @@ pub const Turn = struct {
     /// Forward this turn's call to `target` and let this actor's own answer
     /// resolve to the target's eventual result, the primitive a forwarding
     /// proxy (caretaker, attenuator) is built on. Goblins expresses this as a
-    /// behavior that returns `(apply <- target args)`; glowcap's handler returns
+    /// behavior that returns `(apply <- target args)`. Glowcap's handler returns
     /// a concrete value, so `forward` instead defers the inbound answer and
     /// settles it when the forwarded send settles, local or far. `target` may be
     /// local or far: a far forward is what lets a holder hand out an attenuated
@@ -200,12 +202,13 @@ pub const Turn = struct {
     ///
     /// What comes back depends on the turn's `origin`: a `.local` frame gets
     /// the target's real value (the vat consumes the return directly, so the
-    /// forward runs as a synchronous near-call); an eventual or served turn gets a `void`
+    /// forward runs as a synchronous near-call). An eventual or served turn gets a `void`
     /// placeholder the vat ignores, with the real answer riding the forwarded
-    /// vow — or, for a no-answer `tell`, a fire-and-forget forward.
+    /// vow, or, for a no-answer `tell`, a fire-and-forget forward.
     /// Forwarding does not preserve promise pipelining *through* the proxy: a
     /// partner pipelining on the proxy's answer queues on this side until the
-    /// forwarded send settles (ADR-0064).
+    /// forwarded send settles (ADR-0064). Keeps `anyerror`: the
+    /// local arm re-enters the near-call handler boundary.
     pub fn forward(self: *Turn, target: Ref, msg: Message) anyerror!model.Argument {
         return forwarding.forwardTurn(self.vat, self, target, msg);
     }
@@ -229,21 +232,21 @@ pub const Turn = struct {
     }
 
     /// Defer this turn's answer onto `vow` (ADR-0102): the answer settles
-    /// when the vow does. The behavior-side half of off-turn settlement — a
+    /// when the vow does. The behavior-side half of off-turn settlement, a
     /// handler mints a resolver pair (`Vat.spawnVow`), forwards its answer
     /// here, hands the resolver to whatever completes the work, and returns
-    /// normally; the eventual `Vat.fulfillVow` / `Vat.breakVow` settles the
-    /// answer as its own top-level event. Eventual and served turns can defer;
-    /// synchronous near calls refuse (`NotLocal`). A no-answer tell has nothing
-    /// to defer and is simply marked forwarded.
-    pub fn forwardVow(self: *Turn, vow: Vow) anyerror!void {
+    /// normally. The eventual `Vat.fulfillVow` / `Vat.breakVow` settles the
+    /// answer as its own top-level event. Eventual and served turns can defer.
+    /// Synchronous near calls refuse (`NotLocal`). A no-answer tell has nothing
+    /// to defer and is marked forwarded.
+    pub fn forwardVow(self: *Turn, vow: Vow) !void {
         return forwarding.forwardTurnVow(self.vat, self, vow);
     }
 
     /// Reserve the fallible half of a vow deferral without publishing the vow.
     /// Host adapters use this to make resolver mint + turn deferral one atomic
     /// operation across their own row tables and the Vat.
-    pub fn reserveForwardVow(self: *Turn, location: vat_mod.VowLocation) anyerror!forwarding.ForwardReservation {
+    pub fn reserveForwardVow(self: *Turn, location: vat_mod.VowLocation) !forwarding.ForwardReservation {
         return forwarding.reserveForward(self.vat, self, location);
     }
 
@@ -258,15 +261,15 @@ pub const Turn = struct {
         forwarding.commitForward(self.vat, self, reservation, vow);
     }
 
-    /// Break this turn's own answer with `message` — the eventual-turn spelling
+    /// Break this turn's own answer with `message`, the eventual-turn spelling
     /// of a handler failure that must carry its diagnostic. A native handler
-    /// breaks by returning an error, whose `@errorName` becomes the reason; a
+    /// breaks by returning an error, whose `@errorName` becomes the reason. A
     /// hosted behavior's return code carries no message at all, so this verb
     /// is how a caretaker's "Revoked" or an attenuator's "Attenuated" crosses
-    /// the boundary intact. A wire answer breaks now; a queued local answer
+    /// the boundary intact. A wire answer breaks now. A queued local answer
     /// breaks after the handler unwinds. A tell has no answer to break. The
     /// turn is marked forwarded so the handler's
-    /// eventual return value resolves nothing — the handler still returns
+    /// eventual return value resolves nothing, the handler still returns
     /// normally after calling this. A second call in the same turn is a no-op:
     /// answer already has its outcome. A synchronous `.local` frame's
     /// caller consumes the return value directly, so a break has
@@ -292,7 +295,7 @@ pub const Turn = struct {
 };
 
 /// Stack-owned completion of one queued call. A deferral transfers settlement
-/// to its listener; diagnostics borrow the turn arena or immutable archive text.
+/// to its listener. Diagnostics borrow the turn arena or immutable archive text.
 const Delivery = @import("behavior.zig").Delivery;
 
 const EventualOutcome = union(enum) { returned: ?[]const u8, deferred, discarded, broken: []const u8 };
@@ -393,7 +396,7 @@ const TurnFrame = struct { box: *StateBox, arena: std.mem.Allocator, id: u64 };
 /// The one turn-open spine both dispatch paths (`callLocal`,
 /// `serveDeliver`) run: bound the near-call depth, refuse a missing actor,
 /// copy-on-write a snapshot-shared box, mark the frame running, and open
-/// the turn arena — in exactly that order, because a refusal must happen
+/// the turn arena, in exactly that order, because a refusal must happen
 /// before the arena resets or the frame is marked running, so a refused
 /// dispatch leaves the vat untouched. The box pointer is read out before
 /// the handler runs: a handler may spawn, which can resize `actors` and
@@ -418,7 +421,7 @@ pub fn openTurnFrame(self: *Vat, id: u64) Error!TurnFrame {
 /// Unwind an open turn frame: install any promoted `become` only when this
 /// actor's outermost frame unwinds (so a reentrant inner become never
 /// frees the box an outer frame is still running as `self`), then close
-/// the turn — `finishCellRun` before `endTurn`, the order the two paths'
+/// the turn, `finishCellRun` before `endTurn`, the order the two paths'
 /// paired defers always ran in.
 pub fn closeTurnFrame(self: *Vat, id: u64) void {
     finishCellRun(self, id);
@@ -510,8 +513,8 @@ fn callWithOrigin(self: *Vat, port: ?*Port, ingress: vat_mod.IngressId, id: u64,
 /// the actor's old state box: a POD arm cannot alias the box, and bytes
 /// the turn moved to the vat (`Turn.moveOut` / `moveOutString`) are
 /// vat-owned and outlive it. The pointer-identity scan covers every
-/// allocation moved since this turn began — O(moves-in-turn), O(1) in
-/// practice — so a handler that moves several fields may return any of
+/// allocation moved since this turn began, O(moves-in-turn), O(1) in
+/// practice, so a handler that moves several fields may return any of
 /// them, while a reply borrowing any *other* state is still severed.
 fn replyOutlivesBox(self: *const Vat, value: model.Argument, moves_begin: ?usize) bool {
     const reply: []const u8 = switch (value) {
@@ -553,9 +556,9 @@ fn finishCellRun(self: *Vat, id: u64) void {
 }
 
 /// Retire a zero-rooted, non-running actor row (ADR-0101): remove the row and
-/// park its box until the next outermost-turn boundary — the borrowed-reply
+/// park its box until the next outermost-turn boundary, the borrowed-reply
 /// lifetime, so a reply an earlier turn handed out never dangles. Registration
-/// escrowed one retired-list slot for every live actor; removing this row
+/// escrowed one retired-list slot for every live actor. Removing this row
 /// releases that exact obligation before the append consumes it, so this path
 /// is allocation-free even in destructor and frame-unwind contexts. A staged
 /// become can be pending here only while frames still run, and a running actor
@@ -571,7 +574,7 @@ pub fn retireActorRow(self: *Vat, id: u64) void {
 /// reservation. A destructor may release the last root of a sibling actor, so
 /// remove each box before running its destructor and continue through anything
 /// it retires. Turn-boundary preparation decides transactionally whether a
-/// burst-sized list should be replaced; teardown needs only this infallible
+/// burst-sized list should be replaced. Teardown needs only this infallible
 /// release. A snapshot sharing a box keeps it alive past the boundary.
 pub fn releaseRetiredBoxes(self: *Vat) void {
     while (self.retired_boxes.pop()) |box| releaseBox(self.allocator, box);

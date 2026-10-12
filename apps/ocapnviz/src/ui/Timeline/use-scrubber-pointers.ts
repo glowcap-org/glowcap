@@ -3,7 +3,7 @@
  *
  * `Scrubber.tsx` owns the React host, wheel zoom, and double-click fit.
  * `use-scrubber-scene.ts` owns the Pixi scene and paint ticker.
- * This hook holds the gesture lease and the live host object; press
+ * This hook holds the gesture lease and the live host object. Press
  * (`press.ts`) arms and commits, move (`move.ts`) updates in flight
  * and refreshes the cursor when a modifier changes.
  */
@@ -74,8 +74,8 @@ export function useScrubberPointers(args: ScrubberPointerBindings): {
 	// exclusion: while a Stage gesture is in flight, foreign
 	// pointer-downs that land here are stopped before our handlers
 	// see them, and vice versa. The hook ends a held gesture when the
-	// scrubber leaves the tree — `TimelinePanel` drops it mid-drag
-	// whenever recording starts or the slot measures zero wide — and
+	// scrubber leaves the tree, `TimelinePanel` drops it mid-drag
+	// whenever recording starts or the slot measures zero wide, and
 	// it watches the window for the gesture ends this element cannot
 	// see. `endScrubberDrag` is the surface's own teardown and every
 	// one of those paths runs it, which is what closes the edit

@@ -1,7 +1,7 @@
 /* ── Join card ────────────────────────────────────────────────────────── */
 /* A sibling of the message log, not a child of it: the log is repainted by
    clearing its children, and a join card living inside would be destroyed the
-   first time a conversation rendered — leaving nothing to show a rejected nick.
+   first time a conversation rendered, leaving nothing to show a rejected nick.
    It covers the log while it is up, so it carries the paper background. */
 /* The card sits in the middle of the room it stands in for, and the room is
    what it is: this screen is the conversation area until there is a
@@ -10,7 +10,7 @@
    Centred by auto margins rather than by the box's own alignment, because the
    two behave differently exactly when it matters. Alignment centres a card that
    is taller than the screen too, which pushes its top edge above the scrollable
-   area, where nothing can reach it; an auto margin resolves to zero the moment
+   area, where nothing can reach it. An auto margin resolves to zero the moment
    there is no free space to share, so a card that outgrows the screen starts at
    the top and scrolls. Centred when it fits, reachable when it does not, from
    one rule. */
@@ -25,7 +25,7 @@
 	padding: 24px;
 }
 /* Cards share one top stripe: accent into teal. A foreign directory recolors
-   the teal stop — on the join card and on the card about that directory —
+   the teal stop, on the join card and on the card about that directory,
    and accent stays put, so the orange end does not move. Home and Settings
    keep teal, so those two agree. */
 .join,
@@ -33,7 +33,7 @@
 	--card-stripe-to: var(--teal);
 	/* The gradient and the line that ends it, together, because they are one
 	   mark. On a card that scrolls its own rows the line is also where a row
-	   passing behind the cap is cut; on one that does not it is only the cap's
+	   passing behind the cap is cut. On one that does not it is only the cap's
 	   own edge. Both wear it, so the two cards cannot come to disagree about
 	   what the top of a card looks like. */
 	--card-stripe-edge: color-mix(in srgb, var(--rule) 70%, transparent);
@@ -84,8 +84,8 @@
 	   both open into their own layer (`Menu.tsx`). */
 	overflow: hidden;
 }
-/* The join screen is not a modal — it is the whole of the page until there is a
-   room — but it arrives the way one does, and for the same reason: it is a card
+/* The join screen is not a modal. It is the whole of the page until there is a
+   room, but it arrives the way one does, and for the same reason: it is a card
    over a ground, and coming towards the reader is what says so.
 
    Keyed to the handover rather than to the card itself, because at first paint
@@ -142,8 +142,8 @@
 	opacity: .72;
 	margin-left: 4px;
 }
-/* The questions, held together so they can go inert — while a join is in
-   flight, and whenever this capability cannot join at all — without the card's
+/* The questions, held together so they can go inert (while a join is in
+   flight, and whenever this capability cannot join at all) without the card's
    own gap having to know they are a group. */
 .join-fields {
 	display: flex;
@@ -162,7 +162,7 @@
 
    The fade without the pointer, which is the half of that treatment `inert` does
    not admit: hit testing skips an inert subtree, so a `cursor` declared on it is
-   never the one resolved — measured, and the pointer lands on the form outside.
+   never the one resolved, measured, and the pointer lands on the form outside.
    The refused rows this borrows from hold a `disabled` input rather than an
    inert group, and are still hit-tested, which is why they can say both. */
 .join-fields[inert] {
@@ -170,7 +170,7 @@
 }
 /* One box around a prefix and the text, so the three questions share a
    silhouette: a mark that looks like a preview, then the name it belongs to.
-   The box is the field; the input inside has none of its own chrome. */
+   The box is the field. The input inside has none of its own chrome. */
 .join-field-wrap {
 	position: relative;
 	width: 100%;
@@ -261,7 +261,7 @@
 	border-radius: 9px;
 }
 /* Held locators, hanging off the directory mark. The same rows a message menu
-   uses; the box is this field's, stretched to its width so a long name still
+   uses. The box is this field's, stretched to its width so a long name still
    belongs to the question it fills. */
 /* Under the field it finishes, spanning its width. The card is a short stack of
    short fields, so a list beside it would leave the page and a list that pushed
@@ -295,7 +295,7 @@
    so the button had nothing to do and did nothing when pressed. It belongs to
    the phone layout, where the list is a separate screen and this is the way to
    it before you have joined anything. Visibility is all this card says about
-   it; how it draws is the button family's business. */
+   it. How it draws is the button family's business. */
 .join #browseRoomsBtn {
 	display: none;
 	align-self: center;

@@ -4,40 +4,39 @@ This page is for maintainers of the Rust, TypeScript, Python, and Racket
 bindings. Application authors should start with the
 [binding overview](README.md).
 
-The Host and driver are separate, symbol-disjoint archives. Every native
-binding loads `libglowcap_host` for the `glowcap_host_*` family and
-`libglowcap_driver` for the `glowcap_driver_*` family. The driver adopts a
-quiescent Host; it neither re-exports nor duplicates Host state. Transport
+The Host and driver are separate, symbol-disjoint archives. Every binding that
+loads native libraries loads `libglowcap_host` for the `glowcap_host_*` family
+and `libglowcap_driver` for the `glowcap_driver_*` family. The driver adopts a
+quiescent Host and neither re-exports nor duplicates Host state. Transport
 archives contribute packages through `glowcap_driver_add_provider`: the TCP
-archive's one package owns `noise-tcp`, `keyed-tcp`, and testing `tcp`, while the iroh
-package owns both dial and listener execution. Bindings load and register a
-package; they do not mirror its profiles, implementation tables, socket
-choreography, or callback lifetime.
+archive's one package owns `noise-tcp`, `keyed-tcp`, and testing `tcp`, and the
+iroh package owns both dial and listener execution. A binding loads and
+registers a package and mirrors none of its profiles, implementation tables,
+socket choreography, or callback lifetime.
 
 Python, Rust, TypeScript, and Racket use that driver path for native TCP and
 iroh. The binding parks on the driver's one readiness descriptor, steps, and
-drains one event queue. The byte-fed Host remains the deliberate path for wasm
-and for channels an embedder explicitly supplies, including the current
-keyed-relay bridge. TypeScript has one runtime constraint: parking is an
-off-thread `poll(2)`, so Bun and the wasm adapter keep the byte-fed path.
-Racket steps with zero timeout on its place's OS thread and parks through
-`unsafe-file-descriptor->semaphore`, with the reentrant Host lock serializing
-verbs against the park thread.
+drains one event queue. The byte-fed Host is the path for wasm and for channels
+an embedder supplies, including the keyed-relay bridge. TypeScript has one
+runtime constraint: parking is an off-thread `poll(2)`, so Bun and the wasm
+adapter keep the byte-fed path. Racket steps with zero timeout on its place's OS
+thread and parks through `unsafe-file-descriptor->semaphore`, with the reentrant
+Host lock serializing verbs against the park thread.
 
 ## The host loop
 
 After a top-level `glowcap_host_*` call succeeds, drain the work it created.
 On the byte-fed path, Rust, Python, and Racket use `glowcap_host_pump_drain`
-with synchronous park-only hooks. TypeScript uses the normative
+with synchronous park-only hooks. TypeScript uses the
 `glowcap_host_next_action` pull queue because browser Wasm has no general
 C-callback seam. On a loop-owned host, `glowcap_host_pump_drain` never runs:
 `glowcap_driver_step` executes transport-shaped actions itself and forwards
 the application-visible ones as loop events, so the binding's drain there is
 one step plus the event queue. The byte-fed drain can request:
 
-- `DIAL`: open a connection and report success or failure with its ticket;
-- `FLUSH`: take outbound frames and write them;
-- `NEED_GIFT_ID`: provide 32 random bytes, or report that entropy failed;
+- `DIAL`: open a connection and report success or failure with its ticket.
+- `FLUSH`: take outbound frames and write them.
+- `NEED_GIFT_ID`: provide 32 random bytes, or report that entropy failed.
 - `SETTLE` or `FAIL`: resolve the language promise named by the ticket.
 
 A pump hook returning non-OK is a transactional refusal: it must have committed
@@ -51,15 +50,15 @@ provided/failed. The shared Zig helper
 `embedder_pump`, the generated action inventory, and the C pull queue keep this
 loop from drifting across runtimes.
 
-The same commit discipline governs work created by a language finalizer or a
-detached progress task. Capability-GC finalizers only park opaque Host ref IDs;
-they never call the C ABI. The pumping thread calls `glowcap_host_ref_release`,
+The same commit discipline applies to work created by a language finalizer or a
+detached progress task. Capability-GC finalizers only park opaque Host ref IDs.
+They never call the C ABI. The pumping thread calls `glowcap_host_ref_release`,
 removes a token only after `GLOWCAP_OK`, and leaves the refused token and
 unattempted tail owned for retry. A scheduled drain has no immediate caller, so
 the Host wrapper retains its exact typed failure and surfaces it at the next
-verb head. Bindings do not classify capability-release failures or invent
-release semantics: the C ABI guarantees that a non-OK ref release committed no
-release, and the core remains the authority for what the release means.
+verb head. Bindings do not classify capability-release failures or invent release
+semantics. The C ABI guarantees that a non-OK ref release committed no
+release, and the core defines what a release means.
 
 Inbound byte streams go through `glowcap_host_session_feed_bytes`. The host
 unwraps canonical Syrup byte strings, retains a split prefix or body, and
@@ -67,7 +66,7 @@ applies the declared-body limit. A binding should not add another scanner or
 tail buffer. `GLOWCAP_ERR_WOULD_BLOCK` from `feed_bytes` is outbound
 backpressure, not a protocol refusal: drain actions / outbound frames and retry
 the same byte chunk. On output, prefix each bare `take_outbound` frame with its
-decimal byte length and `:`; write the prefix and frame separately.
+decimal byte length and `:`. Write the prefix and frame separately.
 
 When a feed fails, read the typed abort, drain again so the abort is written,
 then surface the error. On EOF, call
@@ -80,29 +79,29 @@ Each binding separates the synchronous C callback path from work that may
 await:
 
 - the **pump module** owns the handshake, feed, flush, serve loop, and
-  `last_abort`;
+  `last_abort`
 - the **action module** decodes host actions and parks any I/O until after the
-  C call returns;
+  C call returns
 - `promise` owns remote promises, projections, fetch, enlivenment, `promiseFor`,
-  and the far-send helpers such as `sendFar`;
-- `gc` parks finalizer releases for the pumping thread;
-- `dial` handles ordinary and handoff redemption dials;
-- `listen` owns servers and accepted sessions;
+  and the far-send helpers such as `sendFar`
+- `gc` parks finalizer releases for the pumping thread
+- `dial` handles ordinary and handoff redemption dials
+- `listen` owns servers and accepted sessions
 - the **trampoline** module runs hosted behaviors, follows local forwards, and
-  provides caretaker/attenuate and spawn/publish;
-- Rust's `session_shared` holds state shared by its session handles.
+  provides caretaker/attenuate and spawn/publish
+- Rust's `session_shared` holds state shared by its session handles
 
-The files use each language's naming conventions, but this division is the
-same in all four bindings. The embedder-spine module split is complete.
-`zig build source-check` rejects a missing module, a direct action-pop loop, or a
-binding that bypasses the generated action decoder.
+The files use each language's naming conventions, and the division is the same
+in all four bindings. The embedder-spine module split is complete.
+`zig build source-check` rejects a missing module, a direct action-pop loop, or
+a binding that bypasses the generated action decoder.
 
 ### TypeScript package surface
 
 Each `@glowcap/*` directory under `bindings/ts/` is a publishable package.
 Its root is the ship surface: source that a consumer imports. Tests, harnesses,
 smokes, benches, and probes live under that package's `test/` directory (or
-under the workspace-level `dogfood/`), never beside `mod.ts`. Every package
+under the workspace-level `dogfood/`), not beside `mod.ts`. Every package
 `deno.json` names `test/**` in `publish.exclude`, so a broad `**/*.ts` include
 cannot ship them. `zig build source-check` refuses `*_test.ts`, `*_smoke.ts`,
 `*_bench.ts`, `*_probe.ts`, and `*_harness.ts` outside `test/` in a package,
@@ -122,10 +121,10 @@ the current session.
 A behavior that closes its own session must park the release until the callback
 returns. A reachable Host stays on its owning thread. Once a language finalizer
 has exclusive terminal ownership, `glowcap_host_release` may run on that
-finalizer thread; it cannot race a Host call or leave a live verb to migrate.
+finalizer thread. It cannot race a Host call or leave a live verb to migrate.
 Terminal Host and driver release use a different result contract from
 capability-GC release. Only a pre-consumption refusal keeps the native handle
-live for retry; every teardown outcome consumes it and leaves any failure at
+live for retry. Every teardown outcome consumes it and leaves any failure at
 the terminal close or diagnostic owner.
 
 Every vow-producing function returns its vow ID. Insert that ID into the
@@ -140,7 +139,7 @@ declarations by hand. Every one of those declarations is checked against the
 whole shape of the C struct it mirrors: its size, and each field's name, offset,
 and width, reflected off the real Zig types by
 `zig build gen-binding-ffi-layouts`. Rust checks at compile time in a `const`
-block; Python and Racket check the moment the module is imported. A mirror that
+block. Python and Racket check the moment the module is imported. A mirror that
 declares no such check fails `zig build source-check`, so every mirror is
 covered.
 
@@ -150,11 +149,11 @@ A C layout change must update every hand-written mirror in the same change.
 
 iroh is a separate optional library, `libglowcap_net_transport_iroh`. On the
 loop tier a binding loads `libglowcap_driver`, registers the archive-owned
-provider package, and parks on the loop's one aggregate readiness descriptor;
-the native archive drains the sidecar. On the byte-fed
-path that still serves iroh listen and the named loop exceptions, the library
+provider package, and parks on the loop's one aggregate readiness descriptor.
+The archive drains the sidecar. On the byte-fed
+path that serves iroh listen and the named loop exceptions, the library
 exposes a readiness file descriptor and non-blocking accept, connect, read,
-and write calls, and each runtime waits on that descriptor in its native way:
+and write calls, and each runtime waits on that descriptor in its own way:
 
 | Binding | Wait mechanism (byte-fed iroh path) |
 | --- | --- |
@@ -164,18 +163,18 @@ and write calls, and each runtime waits on that descriptor in its native way:
 | Racket | `unsafe-file-descriptor->semaphore` |
 
 There is no polling thread. A hint-less handoff uses the host's configured iroh
-reachability policy; direct-address hints use a direct dial. Keep the exporter
+reachability policy. Direct-address hints use a direct dial. Keep the exporter
 session pumping after a redemption because withdrawal and settlement continue
 on that connection.
 
-WebRTC's optional companion follows the same fd discipline after a peer is
+WebRTC's optional companion follows the same descriptor rules after a peer is
 created: one endpoint fd reports stable peer-id open, candidate, readable,
 writable, and closed events, and try-I/O never parks the runtime. Unlike iroh,
-peer creation and signaling submissions are synchronous control operations and a
-bare locator has no authority to perform them. Native bindings currently expose
-the raw family only in Rust, Python, and Racket. TypeScript uses
-`RTCPeerConnection` directly and does not load the native companion; its browser
-package owns the application-level adapter.
+peer creation and signaling submissions are synchronous control operations, and
+a bare locator has no authority to perform them. Only Rust, Python, and Racket
+expose the raw family. TypeScript uses `RTCPeerConnection` directly and does
+not load the companion. Its browser package owns the application-level
+adapter.
 
 ## Checks
 

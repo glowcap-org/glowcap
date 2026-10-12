@@ -26,21 +26,18 @@ carries exactly one `exporter-location`. Under the current vocabulary, one
 program on two netlayers is two peers, and a sturdyref binds object identity
 to one of them.
 
-This cost is not hypothetical in this tree. Rooms needs transport-stable room
-links and directory peering: one directory should be able to hand out a room
-hosted elsewhere without choosing one transport for every future reader. A
-browser peer may ride the relay while native peers speak iroh, tcp, or onion,
-and any pair without a shared transport cannot hold a direct line.
-The listener-administration work surfaced the same coupling one layer down:
+Rooms needs transport-stable room links and directory peering: one directory
+should be able to hand out a room hosted elsewhere without choosing one
+transport for every future reader. A browser peer may ride the relay while
+native peers speak iroh, tcp, or onion, and any pair without a shared transport
+cannot hold a direct line. Listener administration has the same coupling:
 `listen` unconditionally selects the new listener as the Host's signed
-location, so bringing a second listener up would silently move the peer's
-advertised identity, and the registry has to hand selection back by hand.
-ADR-0108 and ADR-0118 spent a full design cycle on which single onion
-location a hello or a give may carry, precisely because a location is
-identity today.
+location, so bringing a second listener up silently moves the peer's advertised
+identity. ADR-0108 and ADR-0118 spent a design cycle on which single onion
+location a hello or a give may carry, because a location is identity today.
 
-The upstream community has discussed this direction repeatedly and wants it,
-unimplemented:
+The upstream community has discussed this direction repeatedly and has not
+implemented it:
 
 - [2021-09-24](../../../conformance/ocapn-spec/upstream/meeting-minutes/2021-09-24.md):
   the `ocapn:` URI carries a netlayer slot because "having multiple
@@ -71,35 +68,34 @@ excludes from identity), and an end-to-end channel proves the key over
 whichever carrier wins. The [architecture rule](../../../.agents/rules/architecture.md)
 already notes that iroh implements this shape privately: a key-named node,
 relay-assisted and direct routes raced under the hood. What iroh cannot give
-is the shape as a network property rather than a dependency: its routes are
-its own, no other OCapN implementation can join, browsers cannot run it, and
-a sturdyref welded to it bets long-lived identity on one ecosystem.
+is the shape as a network property: its routes are its own, no other OCapN
+implementation can join, browsers cannot run it, and a sturdyref welded to it
+bets long-lived identity on one ecosystem.
 
-glowcap holds every ingredient of the netlayer shape already: four keyed
+glowcap already holds every ingredient of the netlayer shape: four keyed
 transports, the sealed channel of
 [ADR-0107](ADR-0107-sealed-byte-channel.md) proving a durable key over any
 byte carrier, relay carriers, and the hint machinery of
 [ADR-0118](ADR-0118-onion-profile-by-knowledge.md). Choosing between the two
-shapes by argument alone would waste that position. The engaged principles
-are protocol evidence over folklore, one authority per fact (identity must
-have one owner), and conformance as the load-bearing surface.
+shapes by argument alone would waste that position. Identity must have one
+owner.
 
 ## Decision
 
 Prototype both shapes on one shared core and let measurements choose what
-goes upstream. The shared core is plain library code with no gating
-question: the route-bundle data shape, ordered fallback scheduling, and key
-verification through transports that can prove a durable key. Full dial racing
-is not implemented by this record. The core is expressed through two skins:
+goes upstream. The shared core is plain library code: the route-bundle data
+shape, ordered fallback scheduling, and key verification through transports
+that can prove a durable key. Full dial racing is not part of this record. The
+core is expressed through two skins:
 
-- **A keyed id transport symbol.** The designator is a durable public key;
-  routes are carried in the `via` hint. The present prototype admits only
-  carriers that prove the same durable key as the outer id, so it cannot claim
-  identity through a route whose key binding is not specified yet. An optional
+- **A keyed id transport symbol.** The designator is a durable public key.
+  Routes are carried in the `via` hint. The prototype admits only carriers that
+  prove the same durable key as the outer id, so it claims no identity through a
+  route whose key binding is unspecified. An optional
   `alt-locators` list carries weak handoff fallbacks: the signed gift authorizes
   that withdrawal, but the fallback neither establishes nor caches the outer
   identity and a sturdyref never dials it. An independently authenticated
-  channel may still prove the outer key. No baseline CapTP byte changes; `id`
+  channel may still prove the outer key. No baseline CapTP byte changes. `id`
   is never opened as a physical session. The Node pending-dial waist expands it
   to a concrete route, and a peer that did not negotiate this vocabulary sees
   a concrete compatible route or a refusal.
@@ -107,9 +103,9 @@ is not implemented by this record. The core is expressed through two skins:
   feature under `glowcap-next`, stamped into the signed hello and refused
   unless both peers advertise it, the same machinery the pairing suite pins
   today. The feature name and its documentation carry comparison-only
-  status, because no recorded upstream proposal specifies this shape; it
-  exists to be measured against the netlayer shape. It is not a same-peer
-  proof and does not currently add dial paths. Toward a baseline peer or
+  status, because no recorded upstream proposal specifies this shape. It exists
+  to be measured against the netlayer shape. It is not a same-peer proof and
+  adds no dial paths. Toward a baseline peer or
   Goblins, no novel byte leaves the machine.
 
 The compatibility floor is per session, not per host. A host may prefer
@@ -134,27 +130,25 @@ at all, never an instruction to parse `via`.
 
 No new CapTP version is minted. A version symbol gates wholesale where the
 comparison needs per-shape dials in one binary, and it is the most expensive
-namespace in the system; the feature stamp is the finer and cheaper gate.
-No feature branches: both skins land on trunk behind the gates above, held
-by `zig build check`, because branch code is code no gate is holding.
+namespace in the system. The feature stamp is finer and cheaper. Both skins
+land on trunk behind the gates above, held by `zig build check`.
 
 Each skin must produce the same measurement: the enumerated diff of what it
 forced us to touch (records, session tables, checks, conformance scenarios,
 binding surfaces), plus the compatibility checks that keep baseline peers from
 seeing experimental vocabulary. The comparison is evidence the maintainer must
-independently understand before writing any policy-compliant upstream proposal;
-the repository artifact is not forwarded. The
-[community-review](../../community-review.md) preflight keeps that boundary
-explicit. Upstream adoption of a multi-home shape is the success criterion; the
-prototypes remain product features (cross-transport rooms) regardless of the
-upstream outcome.
+independently understand before writing any policy-compliant upstream proposal,
+and the repository artifact is not forwarded (see the
+[community-review](../../community-review.md) preflight). Upstream adoption of a
+multi-home shape is the success criterion. The prototypes remain product
+features (cross-transport rooms) regardless of the upstream outcome.
 
 ## Scope (what this does not decide)
 
-- No winner is chosen here; that is what the measurements are for.
+- No winner is chosen here. That is what the measurements are for.
 - The `1.0` profile, the Goblins-facing wire, and every existing transport
-  symbol are unchanged; nothing here amends ADR-0108 or ADR-0118.
-- The id's `via` hint schema is not final; it is a prototype surface whose
+  symbol are unchanged. Nothing here amends ADR-0108 or ADR-0118.
+- The id's `via` hint schema is not final. It is a prototype surface whose
   interop cost is one of the measurements.
 - Rooms composes its active key-proving listeners under `via`, keeps baseline
   listeners under `alt-locators`, and publishes durable rooms between
@@ -180,24 +174,24 @@ upstream outcome.
 
 ## Alternatives Considered
 
-- **Mint a `glowcap-experimental` CapTP version**: rejected; a version gates
+- **Mint a `glowcap-experimental` CapTP version**: rejected. A version gates
   at session granularity where the comparison needs per-feature dials, and
   the symbol would carry development status, not a wire-level meaning.
 - **Choose the netlayer shape by argument and skip the comparison**:
-  rejected; the vocabulary shape's true cost is an empirical claim, and the
+  rejected. The vocabulary shape's true cost is an empirical claim, and the
   measured enumeration is the persuasive upstream artifact.
-- **Extend the core locator vocabulary only**: rejected as the sole path; it
+- **Extend the core locator vocabulary only**: rejected as the sole path. It
   begs the identity question and changes bytes every implementation must
   parse, so it enters only as the measured counter-proposal.
-- **Feature branches for both prototypes**: rejected; long-lived branches
-  rot against the integration stream and hide work from the gates.
-- **Wait for upstream to specify multi-homing**: rejected; the direction is
-  explicitly deferred upstream, influence is cheapest before text exists,
-  and the prototypes are wanted product features either way.
+- **Feature branches for both prototypes**: rejected. Branch code is code no
+  gate holds.
+- **Wait for upstream to specify multi-homing**: rejected. Upstream has
+  deferred the direction, influence is cheapest before text exists, and the
+  prototypes are wanted product features either way.
 
 ## Consequences
 
-- The model owns route-bundle parsing and limits; Session owns `id`
+- The model owns route-bundle parsing and limits. Session owns `id`
   admission policy, and Node redeem uses that shared policy before staging a
   dial. A future provider archive or route-key binding must keep using that
   spine rather than parsing its own route list or deciding key proof locally.
@@ -217,24 +211,23 @@ upstream outcome.
 ## Evidence and gate
 
 The pairing suite already pins the gating machinery this record leans on:
-features advertise into the signed hello, fallback retains the baseline
-profile, and an unstamped non-baseline profile is refused before it is sent.
-Each skin lands with its own scenarios under that suite and the transport
-test tree, and `zig build check` holds both behind the same aggregate as
-every other landed slice. The compatibility claim is intentionally narrower
-than the final product goal: existing live interop steps must keep running
-unchanged against a build with both prototypes present, while focused tests pin
-first-hello silence, signed-give lowering, Host-level `id` sturdyref staging,
-and fail-closed `glowcap/locations` sturdyrefs. The recurring Rooms server suite
-pins profile-gated Noise/TCP route advertisement and TCP directory peering. When
-the iroh sidecar is available, an additional scenario publishes a room from an
-iroh identity route into a destination without iroh and redeems it through the
-weak TCP fallback.
+features advertise into the signed hello, fallback retains the baseline profile,
+and an unstamped non-baseline profile is refused before it is sent. Each skin
+lands with its own scenarios under that suite and the transport test tree, and
+`zig build check` holds both behind the same aggregate as every other landed
+slice. The compatibility claim is narrow: existing live interop steps keep
+running unchanged against a build with both prototypes present, while focused
+tests pin first-hello silence, signed-give lowering, Host-level `id` sturdyref
+staging, and fail-closed `glowcap/locations` sturdyrefs. The recurring Rooms
+server suite pins profile-gated Noise/TCP route advertisement and TCP directory
+peering. When the iroh sidecar is available, an additional scenario publishes a
+room from an iroh identity route into a destination without iroh and redeems it
+through the weak TCP fallback.
 
 ## Forward compatibility
 
 If upstream adopts either shape, the surviving skin's names converge on the
-spec text and the other skin is deleted rather than maintained; the
+spec text and the other skin is deleted. The
 convergence conditions for the sealed channel (handshake pattern, prologue,
 locator shape) are the ones `docs/upstream-watch.md` already names for
 issue 208. If upstream mints a transport-agnostic vat id, the id

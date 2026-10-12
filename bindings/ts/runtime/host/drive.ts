@@ -1,6 +1,6 @@
-// The CapTP host — multi-session CapTP product over the byte-fed host archive
+// The CapTP host: multi-session CapTP product over the byte-fed host archive
 // (libglowcap_host, ADR-0072). Goblins' `mycapn` is two roles: the product maps
-// to this `Host`, the router tables map to `engine.Node` that the host owns — never
+// to this `Host`, the router tables map to `engine.Node` that the host owns, and never
 // a single-type equation. The `GlowcapHost` owns every decision: the retained
 // identity, live-session directory, routing, transparent three-party
 // redemption, and the gifter half's origination. What lives here is only what
@@ -60,7 +60,7 @@ export abstract class HostDrive extends HostApplication {
 		this._vows.set(vow, { state: { tag: "minted" }, trackGc });
 	}
 
-	/** The vow's eventual outcome: the fulfilled wire value, or a rejection —
+	/** The vow's eventual outcome: the fulfilled wire value, or a rejection:
 	 * `VowBroken` for a partner break, the typed CLOSED `GlowcapError` when the
 	 * settle was the disconnect's own break. Settles immediately from the
 	 * recorded state when the outcome already landed. Binding-internal. */
@@ -77,7 +77,7 @@ export abstract class HostDrive extends HostApplication {
 		}
 		if (row.state.tag !== "settled") {
 			// Minted or re-awaited: (re)park a waiter. A prior awaited waiter is
-			// replaced here, the same overwrite the separate field performed.
+			// replaced here.
 			return new Promise<Argument>((resolve, reject) => {
 				row.state = { tag: "awaited", waiter: { resolve, reject } };
 			});
@@ -88,7 +88,7 @@ export abstract class HostDrive extends HostApplication {
 	}
 
 	/** The drain's settle arms: fire the waiter, or record the outcome for a
-	 * late observation (bounded FIFO — an outcome nobody ever awaits is evicted
+	 * late observation (bounded FIFO: an outcome nobody ever awaits is evicted
 	 * at the cap). Binding-internal: `action.ts` calls it. */
 	settleVow(vow: bigint, outcome: { ok: Argument } | { err: GlowcapError }): void {
 		const row = this._vows.get(vow);
@@ -129,7 +129,7 @@ export abstract class HostDrive extends HostApplication {
 	// ── The action drain (the one loop rule) ──────────────────────────────────
 
 	/** Park a C release the host refused inside a behavior callback; the next
-	 * drain — the head of `kickActions`, or the feed's unwind — runs it where
+	 * drain (the head of `kickActions`, or the feed's unwind) runs it where
 	 * it is legal. Binding-internal. */
 	parkRelease(release: () => void): void {
 		this._parkedReleases.push(release);
@@ -185,7 +185,7 @@ export abstract class HostDrive extends HostApplication {
 		if (ranAny) this.signalCloseActivity();
 	}
 
-	/** How many releases are parked on this host — test observability for the
+	/** How many releases are parked on this host. It is test observability for the
 	 * mid-turn close park. Binding-internal. */
 	pendingReleaseCount(): number {
 		return this._parkedReleases.length;
@@ -217,7 +217,7 @@ export abstract class HostDrive extends HostApplication {
 			return this._driverLoop.settleStep();
 		}
 		if (insideTurn()) return Promise.resolve();
-		// Parked releases run first — before the raw-handle check, because a
+		// Parked releases run first, before the raw-handle check, because a
 		// mid-turn Host.close cleared `_raw` while parking the actual free.
 		this.drainParkedReleases();
 		if (this._raw === NULL) return Promise.resolve();

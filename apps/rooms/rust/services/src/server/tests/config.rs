@@ -132,3 +132,27 @@ fn rooms_server_configuration_takes_the_database_password_from_a_file() {
 		.is_err()
 	);
 }
+
+#[test]
+fn admission_arguments_override_environment_and_reject_bad_policy() {
+	let config = Config::parse(["--admission-rates=message=20/80".into()], |key| match key {
+		"GLOWCAP_ROOMS_ADMISSION_RATES" => Some("message=1/1".into()),
+		"GLOWCAP_ROOMS_ADMISSION_ROWS" => Some("123".into()),
+		_ => None,
+	})
+	.unwrap()
+	.unwrap();
+	assert_eq!(
+		config
+			.admission
+			.profile()
+			.rate(rooms_application::admission::Class::Message)
+			.burst(),
+		20
+	);
+	assert_eq!(config.admission.rows(), 123);
+	let summary = config.admission.summary();
+	assert!(summary.contains("admission-rates=argument"));
+	assert!(summary.contains("admission-rows=environment"));
+	assert!(Config::parse(["--admission-rates=message=0/1".into()], |_| None).is_err());
+}

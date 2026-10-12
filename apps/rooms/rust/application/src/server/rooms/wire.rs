@@ -9,7 +9,7 @@ use crate::room::{
 use alloc::{string::String, vec::Vec};
 
 /// Decode a membership's attachment request. Shape errors and a room refusing
-/// a file description have different wire outcomes; generic file parsing does
+/// a file description have different wire outcomes. Generic file parsing does
 /// not choose the membership protocol's refusal code.
 pub fn attachment<A: crate::room::ArgumentView>(
 	len: usize,
@@ -64,7 +64,7 @@ pub trait Encoder: DataEncoder {
 
 /// The arguments one notice carries: the display line first, its tag and
 /// structured fields after. A line copies its sender and text once each,
-/// straight from the shared body into the wire value; the room notices
+/// straight from the shared body into the wire value. The room notices
 /// render their sentence through `Notice::said`.
 pub fn verb(notice: &Notice) -> &'static str {
 	match notice {
@@ -78,7 +78,10 @@ pub fn arguments<E: Encoder>(notice: &Notice, e: &mut E) -> Result<Vec<E::Value>
 	let mut out = Vec::new();
 	match notice {
 		Notice::ReceiptRejected(request) => out.push(e.integer(*request)),
-		Notice::Line { line, marker, files } => {
+		Notice::Line { line, marker, files }
+		| Notice::CorrelatedLine {
+			line, marker, files, ..
+		} => {
 			out.push(e.text(line.from.clone()));
 			out.push(e.text(line.text.clone()));
 			if let Some((kind, id)) = marker {
@@ -90,6 +93,10 @@ pub fn arguments<E: Encoder>(notice: &Notice, e: &mut E) -> Result<Vec<E::Value>
 			}
 			out.push(e.text(crate::open_graph::WIRE_TAG.into()));
 			out.push(e.text(line.previews.encode()));
+			if let Notice::CorrelatedLine { operation, .. } = notice {
+				out.push(e.text(crate::room::correlation::TAG.into()));
+				out.push(e.text(operation.clone()));
+			}
 			return Ok(out);
 		}
 		Notice::Receipt {
@@ -127,14 +134,27 @@ pub fn arguments<E: Encoder>(notice: &Notice, e: &mut E) -> Result<Vec<E::Value>
 			out.push(e.text(notice.said().into_owned()));
 			out.push(
 				e.text(
-					if matches!(notice, Notice::Join { .. }) {
-						crate::protocol_data::JOIN
-					} else {
-						crate::protocol_data::LEAVE
+					match notice {
+						Notice::Join { .. } => crate::protocol_data::JOIN,
+						_ => crate::protocol_data::LEAVE,
 					}
 					.into(),
 				),
 			);
+			out.push(e.text(nick.clone()));
+		}
+		Notice::Offline { names, .. } => {
+			out.push(e.text(ROOM.into()));
+			out.push(e.text(notice.said().into_owned()));
+			out.push(e.text(crate::protocol_data::OFFLINE.into()));
+			for name in names.iter() {
+				out.push(e.text(name.clone()));
+			}
+		}
+		Notice::Forgotten(nick) => {
+			out.push(e.text(ROOM.into()));
+			out.push(e.text(String::new()));
+			out.push(e.text(crate::protocol_data::LEAVE.into()));
 			out.push(e.text(nick.clone()));
 		}
 		Notice::Away { nick, why } => {

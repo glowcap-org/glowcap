@@ -1,5 +1,5 @@
 #lang racket
-;; Live real-internet iroh reachability proof in the Racket binding — the binding
+;; Live real-internet iroh reachability proof in the Racket binding, the binding
 ;; sibling of the Zig `iroh-reachability` driver. Two iroh endpoints in one
 ;; process reach each other by node id ALONE over n0's public relays and DNS/pkarr
 ;; discovery: no direct-address hints, no in-process address book.
@@ -8,7 +8,7 @@
 ;; info to pkarr on bind; the client dials the server by its 64-hex node id with
 ;; an empty hint set, so a session that opens proves the dial was resolved over
 ;; real discovery infrastructure and carried over a real relay / hole-punched
-;; path — not hinted, not loopback-booked. The client's dial rides the
+;; path: not hinted, not loopback-booked. The client's dial rides the
 ;; iroh provider's DISCOVERY retry that settles while the publish propagates.
 ;;
 ;; Not a hermetic gate. This step touches public n0 infrastructure
@@ -53,7 +53,7 @@
 (printf "racket-iroh-reachability: server published greeter on ~a (pkarr-published; no direct addrs shared)\n"
         server-id)
 
-;; ── Client: dial by node id ALONE — empty hints — over real n0 discovery ───────
+;; ── Client: dial by node id ALONE, empty hints, over real n0 discovery ───────
 (define client-runtime
   (open-runtime
    #:providers (list (iroh-provider (make-iroh-config IROH-REACH-DISCOVERY)))))

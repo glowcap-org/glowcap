@@ -1,6 +1,6 @@
 /**
  * The one keyboard authority: which held gesture is acting right
- * now, and — only when none is — which one-shot command a press
+ * now, and, only when none is, which one-shot command a press
  * runs.
  *
  * A key whose meaning is "while held" is a row in `HELD_GESTURES`:
@@ -9,7 +9,7 @@
  * until the key is released or the window loses focus, so the fact
  * that granted it may change underneath without changing what the
  * key is doing. That is the point of the latch. Space claims the
- * hand tool because the pointer was over the stage; the pointer
+ * hand tool because the pointer was over the stage. The pointer
  * then leaving the canvas mid-pan must not turn the pan into a
  * transport toggle.
  *
@@ -17,10 +17,10 @@
  * It does not say what became of a gesture the key started: a press
  * made under a claim resolves to a verb, and from then on the
  * pointer FSM owns it. Releasing Space during a pan leaves a pan
- * running; releasing it during a marquee that Space interrupted
+ * running. Releasing it during a marquee that Space interrupted
  * puts the marquee back. This layer cannot tell those apart and
  * does not try. A reader that must know what is *happening* asks
- * `inFlightGesture` in `interactions/pointer-machine.ts`; a claim
+ * `inFlightGesture` in `interactions/pointer-machine.ts`. A claim
  * answers only what is *offered*.
  *
  * Precedence is a function call rather than a listener
@@ -88,7 +88,7 @@ export const HELD_GESTURES: readonly HeldGestureRow[] = [
 		preventDefault: true,
 	},
 	{
-		// Shift and Alt preview what a click or drag would do — the
+		// Shift and Alt preview what a click or drag would do, the
 		// "copy" cursor for add, "no-drop" for remove. They claim
 		// everywhere, including over a focused text field, because a
 		// modifier held while typing still modifies the next pointer
@@ -132,10 +132,10 @@ function modifierClaimed(held: HeldGestures, name: string): boolean {
  *
  * Which modifiers this app watches is `HELD_GESTURES` and nothing else, so
  * every field is asked of that table rather than stated here. Cmd currently
- * has no row — nothing about the canvas changes while it is down on its own,
- * and its click verb draws the same cursor as the plain one — and it reads
+ * has no row. Nothing about the canvas changes while it is down on its own,
+ * and its click verb draws the same cursor as the plain one, and it reads
  * false because the table says nothing about it. Giving it a row is therefore
- * the whole of making the cursor watch it; there is no second place that
+ * the whole of making the cursor watch it. There is no second place that
  * remembers Cmd is not watched.
  */
 export function heldModifiers(held: HeldGestures): ModifierSet {
@@ -210,7 +210,7 @@ export type KeyDownResult = {
  * second.
  *
  * `bindings` is the shortcut table's host callbacks, or `null` when
- * no view has attached them yet; a press then resolves gestures and
+ * no view has attached them yet. A press then resolves gestures and
  * runs no command.
  */
 export function resolveKeyDown(

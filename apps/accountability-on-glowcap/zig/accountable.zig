@@ -87,7 +87,7 @@ pub const Store = struct {
     }
 
     /// Write the current Episode set and transparency root to `.data/`. The whole
-    /// file is rewritten each time, a demo simplification; an append-only writer
+    /// file is rewritten each time, a demo simplification. An append-only writer
     /// is the production shape.
     fn flush(self: *Store) Error!void {
         var path_buf: [512]u8 = undefined;

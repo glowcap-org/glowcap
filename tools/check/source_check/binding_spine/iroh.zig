@@ -12,7 +12,7 @@ const extractBraceBlock = util.extractBraceBlock;
 
 /// Apex for ADR-0076 iroh convergence: CapTP fan-out must not re-grow inside
 /// the iroh resident. The resident supplies the netlayer + completion
-/// `Backend` only; serving is `driver.HostRuntime` + Host. A reintroduced
+/// `Backend` only, serving is `driver.HostRuntime` + Host. A reintroduced
 /// `LoopHost` / `driver_core` / `actors` import fails the gate instead of
 /// shipping a second diverging serve spine.
 pub fn checkIrohLoopConvergence(
@@ -52,7 +52,7 @@ pub fn checkIrohLoopConvergence(
 /// The iroh `BindingClientRow` tables (`iroh_loop_clients`,
 /// `iroh_handoff_clients`, `iroh_reach_clients`) each feed a `bindings-iroh-*`
 /// aggregate. A binding silently missing from one of these tables would still
-/// build — the aggregate degrades to whichever rows remain — so the gap is
+/// build, the aggregate degrades to whichever rows remain, so the gap is
 /// invisible to `zig build check` unless something demands every step name
 /// explicitly. This holds the closed binding set (deno/python/rust/racket) the
 /// sibling `iroh_redeem_clients` and `keyed_tcp_restart_clients` tables already

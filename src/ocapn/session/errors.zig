@@ -1,12 +1,12 @@
 //! Protocol and resource refusals owned by Session authority.
 //!
 //! These errors are semantic outcomes of session admission, validation, or
-//! bounded retention. Codecs and adapters project them; they do not define or
+//! bounded retention. Codecs and adapters project them. They do not define or
 //! reinterpret them.
 
 pub const Error = error{
     /// A caller-chosen mutable bootstrap name lies inside the reserved
-    /// durable swiss namespace (ADR-0098); only the Host's durable mint may
+    /// durable swiss namespace (ADR-0098). Only the Host's durable mint may
     /// produce such names.
     ReservedDurableNamespace,
     MalformedMessage,
@@ -58,19 +58,19 @@ pub const Error = error{
     ProjectionCapExceeded,
     /// A third-party import (ADR-0009) was re-rooted at a different host than the
     /// one it was first installed with. An import's host is fixed for its
-    /// lifetime; a conflicting re-root is a loud protocol error, never a silent
+    /// lifetime. A conflicting re-root is a loud protocol error, never a silent
     /// overwrite.
     HostMismatch,
     /// The import table exceeded `SessionLimits.max_imports`. A loud bound on a
-    /// partner introducing unboundedly many imports (ADR-0025); never a silent
+    /// partner introducing unboundedly many imports (ADR-0025). Never a silent
     /// drop. Projects to a `ResourceExhausted` abort.
     ImportCapExceeded,
     /// The deposited-gift owner (`engine.bootstrap.gifts.GiftRegistry`) exceeded
-    /// its row or cumulative retained-byte `SessionLimits` cap — bounds against
+    /// its row or cumulative retained-byte `SessionLimits` cap, bounds against
     /// deposit-without-withdraw and oversized retained payloads (ADR-0025).
     DepositedGiftCapExceeded,
     /// The parked-withdraw table exceeded `SessionLimits.max_pending_withdraws`
-    /// — the bound against a partner flooding `withdraw-gift`s whose deposits
+    /// the bound against a partner flooding `withdraw-gift`s whose deposits
     /// never arrive (each parks until its gift is deposited, ADR-0100).
     PendingWithdrawCapExceeded,
     /// An inbound argument tree nested deeper than

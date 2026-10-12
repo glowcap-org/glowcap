@@ -45,7 +45,7 @@
 #define MBEDTLS_PSA_BUILTIN_GET_ENTROPY
 #define MBEDTLS_PSA_CRYPTO_C
 /* Native certificate verification uses the platform wall clock. Without both
- * features Mbed TLS deliberately omits notBefore/notAfter enforcement. */
+ * features Mbed TLS omits notBefore/notAfter enforcement. */
 #define MBEDTLS_HAVE_TIME
 #define MBEDTLS_HAVE_TIME_DATE
 

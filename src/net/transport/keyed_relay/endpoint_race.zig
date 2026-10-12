@@ -2,7 +2,7 @@
 //!
 //! `std.Io.net.HostName.connect` owns a useful address race, but its threaded
 //! cancellation closes losing sockets underneath `connect(2)`. Some kernels
-//! report that wakeup as `EINVAL`; Zig classifies it through
+//! report that wakeup as `EINVAL`. Zig classifies it through
 //! `unexpectedErrno`, which prints a process stack in Debug before a library
 //! can retain the failure. This module owns the narrower relay race directly:
 //! nonblocking sockets enter `poll(2)`, every result is read through

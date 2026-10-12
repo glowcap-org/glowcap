@@ -1,4 +1,4 @@
-//! The browser harness supplies physical rows with deliberately absent metadata.
+//! The browser harness supplies physical rows with absent metadata.
 use super::*;
 
 #[wasm_bindgen::prelude::wasm_bindgen]

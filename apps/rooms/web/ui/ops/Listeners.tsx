@@ -7,11 +7,11 @@
 // The server admits one live listener per transport, and the switch is the
 // whole verb: on brings that listener up with whatever knob fields the
 // reader filled in, off takes it down. A seat that is up carries its
-// copyable locator, the line an operator hands to whoever should dial it; a
+// copyable locator, the line an operator hands to whoever should dial it. A
 // seat that is down draws one labeled field per knob, each blank field
 // meaning the default the server's own hint names. The listener serving this
 // very page wears a teal mark and a disabled switch, because taking it down
-// would cut off the page and the admin session asking; a seat the server
+// would cut off the page and the admin session asking. A seat the server
 // already knows cannot come up says why and disables the same way. A refusal
 // lands in the row that asked, as the server's own sentence.
 
@@ -34,7 +34,7 @@ import { OpsHead } from "./Head.tsx";
 import { actionRefusal } from "../error_text.ts";
 
 /** This page's own relay endpoint, which registers rendezvous peers at
- * `/register` beside it — the natural relay for this server to ride, so a
+ * `/register` beside it: the natural relay for this server to ride, so a
  * `url` knob the server has no default for starts on it. */
 function pageRelayUrl(): string {
 	const proto = location.protocol === "https:" ? "wss://" : "ws://";
@@ -55,12 +55,12 @@ export function ListenersPane({ rows }: { rows: readonly ListenerRow[] | null })
 	const [busyOn, setBusyOn] = useState<ReadonlySet<string>>(() => new Set());
 	/** The last refusal per transport, each shown in the row that asked. */
 	const [refused, setRefused] = useState<Partial<Record<string, string>>>({});
-	/** Edits to the knob fields, keyed `transport/name`; an untouched field
+	/** Edits to the knob fields, keyed `transport/name`. An untouched field
 	 * shows its start value. */
 	const [fields, setFields] = useState<Partial<Record<string, string>>>({});
 
 	// The modal draws one pane per held capability, so an unheld pane is never
-	// asked for; a race with a reconnect's drop simply draws nothing for the
+	// asked for; a race with a reconnect's drop draws nothing for the
 	// one render before the modal follows.
 	if (rows === null) return null;
 
@@ -70,7 +70,7 @@ export function ListenersPane({ rows }: { rows: readonly ListenerRow[] | null })
 	const flip = (row: ListenerRow) => {
 		setRefused((prior) => ({ ...prior, [row.transport]: undefined }));
 		// The id the row carried when this was pressed, not whatever the row
-		// carries when the call actually runs. Reading `row.id` inside the
+		// carries when the call runs. Reading `row.id` inside the
 		// callback would follow a later refresh to a different listener, or to
 		// null; a type-check refusal is how that showed up.
 		const id = row.id;

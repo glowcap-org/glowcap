@@ -13,7 +13,7 @@ export type WheelEffect =
 		/** Cursor position in host coords (offsetX/Y). Zoom anchors here. */
 		pivotX: number;
 		pivotY: number;
-		/** Multiplicative zoom factor. `>1` zooms in; `<1` zooms out. */
+		/** Multiplicative zoom factor. `>1` zooms in, `<1` zooms out. */
 		factor: number;
 	}
 	| {
@@ -33,14 +33,14 @@ export const WHEEL_FAST_FACTOR = 4;
  *  semantics for the same wheel input:
  *
  *  - **spatial** (Stage): a 2D canvas. Vertical scroll zooms around
- *    the cursor. That's it — no auto-pan from wheel or trackpad.
+ *    the cursor. That's it. No auto-pan from wheel or trackpad.
  *    Pan requires Spacebar (or the Hand tool when added). Predictable
  *    > clever: trackpad two-finger gestures often have small
- *    incidental horizontal/vertical components users didn't intend;
+ *    incidental horizontal/vertical components users didn't intend.
  *    routing those to pan creates "what just happened?" surprises.
  *    Shift fast-zooms for traversing zoom space quickly.
  *  - **linear** (Timeline): a 1D track. Horizontal swipe OR
- *    Shift+vertical pans the time window; pure vertical wheel
+ *    Shift+vertical pans the time window. Pure vertical wheel
  *    zooms. Matches DAW / NLE timeline convention where the
  *    primary axis is time (horizontal) and zoom changes the
  *    time-window scale. */
@@ -56,7 +56,7 @@ export type WheelInput = {
 	offsetY: number;
 };
 
-/** Map a `WheelEvent`-shaped input to a `WheelEffect`. Pure;
+/** Map a `WheelEvent`-shaped input to a `WheelEffect`. Pure.
  *  policy decides the routing. */
 export function wheelToEffect(
 	ev: WheelInput,
@@ -69,7 +69,7 @@ export function wheelToEffect(
 
 function spatialWheel(ev: WheelInput, surface: SurfaceId): WheelEffect {
 	// Spatial policy: zoom around cursor on vertical scroll, full
-	// stop. deltaX is intentionally ignored — trackpad two-finger
+	// stop. `deltaX` is ignored, trackpad two-finger
 	// gestures often carry small unintended horizontal components,
 	// and routing those to pan competes with the spacebar/Hand
 	// pan path that's already the documented gesture. Shift

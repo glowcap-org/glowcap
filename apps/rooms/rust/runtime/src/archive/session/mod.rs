@@ -45,7 +45,7 @@ pub struct Report {
 	pub partial_recordings: u64,
 	pub metadata_only_recordings: u64,
 	/// Why durable share publications were not restored at startup, when they
-	/// were not. The worker keeps serving; the owner decides who hears it.
+	/// were not. The worker keeps serving. The owner decides who hears it.
 	pub restore_failure: Option<String>,
 }
 pub use crate::archive::recording::{FileRecording, MetadataReason, Recorded, Recording, Reply};
@@ -143,8 +143,8 @@ enum Command<P: Platform> {
 	Page(Filter, u64, usize, Answer<Page>),
 }
 impl<P: Platform> SessionArchive<P> {
-	/// Subscribe before the first history read. Lag means invalidate all;
-	/// recording never waits for a view, including one that abandoned its reply.
+	/// Subscribe before the first history read. Lag means invalidate all.
+	/// Recording never waits for a view, including one that abandoned its reply.
 	pub fn changes(&self) -> tokio::sync::broadcast::Receiver<rooms_application::archive::change::Change> {
 		self.0.changes.subscribe()
 	}
@@ -158,7 +158,7 @@ impl<P: Platform> SessionArchive<P> {
 		}
 	}
 
-	/// The runtime is borrowed through shared custody; closing archives never
+	/// The runtime is borrowed through shared custody. Closing archives never
 	/// closes unrelated rooms or direct sessions using that runtime.
 	pub fn new<B: Backend>(platform: P, runtime: Rc<Runtime>, backend: B) -> (Self, Worker<B, P>) {
 		let (requests, rx) = mpsc::channel(MAX_PENDING);
@@ -224,10 +224,10 @@ impl<P: Platform> SessionArchive<P> {
 		self.0.admit(bytes, files, |reply| Command::Put(record, sources, reply))
 	}
 	/// Admit on the session LocalSet. File capture starts independently of the
-	/// ordered storage queue; completion reports capture and storage refusal.
+	/// ordered storage queue. Completion reports capture and storage refusal.
 	/// Withdrawals retain no file sources.
-	/// When pending file bytes reach their ceiling, metadata is still admitted;
-	/// the completion reports why its attachment bytes were omitted.
+	/// When pending file bytes reach their ceiling, metadata is still admitted.
+	/// The completion reports why its attachment bytes were omitted.
 	pub fn record_message(
 		&self,
 		source: &rooms_application::text::DocumentText,
@@ -315,15 +315,8 @@ impl<P: Platform> SessionArchive<P> {
 			!sources.is_empty(),
 			None,
 			|answer, permit| {
-				let capture = if sources.is_empty() {
-					None
-				} else {
-					Some(capture::Capture::start(
-						sources,
-						permit.expect("capture has shared custody"),
-						self.0.captures.clone(),
-					))
-				};
+				// Shared custody is asked for exactly when there are sources to capture.
+				let capture = permit.map(|permit| capture::Capture::start(sources, permit, self.0.captures.clone()));
 				Command::Record(destination, record, nick, capture, retention, answer)
 			},
 		)?;
@@ -335,7 +328,7 @@ impl<P: Platform> SessionArchive<P> {
 	/// A durable session barrier waits for bounded admission instead of losing
 	/// an erase request at queue pressure. Once admitted, the worker owns it even
 	/// if observation is cancelled. FIFO ordering and ingestion fences are shared
-	/// with clear_local; this method introduces no second erasure path.
+	/// with clear_local. This method introduces no second erasure path.
 	pub async fn clear_local_when_ready(&self) -> Result<(), Error> {
 		let mut stop = self.0.stop.subscribe();
 		if *stop.borrow() {
@@ -356,7 +349,7 @@ impl<P: Platform> SessionArchive<P> {
 		self.0.admit(0, 0, Command::Clear)
 	}
 	/// The managed owner fences its producers before this FIFO barrier. Queue
-	/// pressure waits for bounded admission; cancellation leaves erasure owned by
+	/// pressure waits for bounded admission. Cancellation leaves erasure owned by
 	/// the worker, including retirement of this source's in-flight captures.
 	pub async fn clear_source_when_ready(&self, source: &DocumentText) -> Result<(), Error> {
 		let mut stop = self.0.stop.subscribe();
@@ -411,7 +404,7 @@ impl<P: Platform> SessionArchive<P> {
 		self.0.admit(0, 0, Command::Shares)
 	}
 	/// Issued durable shares this session can name. A selected archive peer is
-	/// the issuer when one is connected; otherwise the local store is.
+	/// the issuer when one is connected. Otherwise the local store is.
 	pub fn list_issued(&self) -> Result<Reply<Vec<rooms_glowcap::client::archive::ShareView>>, Error> {
 		self.0.admit(0, 0, Command::Issued)
 	}

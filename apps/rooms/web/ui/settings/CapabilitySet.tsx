@@ -2,7 +2,7 @@
 
 import { Button } from "../Button.tsx";
 import {
-	capabilitySetEditSwiss,
+	capabilitySetEditUri,
 	capabilitySetInclude,
 	capabilitySetIncomplete,
 	capabilitySetPlaceholder,
@@ -110,7 +110,7 @@ export function CapabilitySetForm() {
 													{enabled && (
 														<IconButton
 															icon="pencil"
-															label={capabilitySetEditSwiss(face.label)}
+															label={capabilitySetEditUri(face.label)}
 															size="small"
 															variant="ghost"
 															onClick={() => model.edit(capability)}

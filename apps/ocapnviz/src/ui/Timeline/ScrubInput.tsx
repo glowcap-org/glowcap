@@ -1,14 +1,14 @@
 /**
- * ScrubInput — Maya/Blender-style scrub-or-type numeric input.
+ * ScrubInput, Maya/Blender-style scrub-or-type numeric input.
  *
- *   click + drag           — scrub live (DCC convention)
- *   click without drag     — focus, select-all, type; Enter/blur
+ *   click + drag:           scrub live (DCC convention)
+ *   click without drag:     focus, select-all, type, Enter/blur
  *                            commits, Esc reverts
- *   wheel                  — same as drag (up/right = increase)
- *   shift / alt            — 0.1× / 10× sensitivity
- *   double-click           — reset to `defaultValue` if provided
+ *   wheel:                  same as drag (up/right = increase)
+ *   shift / alt:            0.1× / 10× sensitivity
+ *   double-click:           reset to `defaultValue` if provided
  *
- * Sensitivity is logarithmic by default — `pxPerDoubling` px of
+ * Sensitivity is logarithmic by default, `pxPerDoubling` px of
  * drag doubles/halves the value, scale-invariant.
  */
 
@@ -17,20 +17,20 @@ import { useGestureSurface } from "../../interactions/use-gesture-surface.ts";
 import { FONT, SIZE } from "../tokens.ts";
 
 const SCRUB_INPUT_SURFACE_TAG = "ui-scrub-input";
-// Chrome lives in `.ocv-input.is-numeric` in controls.css — the input
+// Chrome lives in `.ocv-input.is-numeric` in controls.css, the input
 // family, because a value you can type is what this is. The scrub is a
 // gesture the component adds on top, not a different kind of control.
 const NUMERIC_CLASS = "ocv-input is-numeric";
 
 export type ScrubInputProps = {
-	/** Controlled value — parent owns the state.
+	/** Controlled value, parent owns the state.
 	 *
 	 *  A FUNCTION where the value lives outside React and moves faster than a
 	 *  render: the stage camera's scale changes every frame of a wheel gesture, and
-	 *  its store deliberately wakes React only when the reading a person can see
+	 *  its store wakes React only when the reading a person can see
 	 *  changes. Passing the number would mean a drag multiplied from whatever the
 	 *  last render happened to catch, which is off by up to one rounding of the
-	 *  display — small, and visible as a jump on mousedown. A getter is read at the
+	 *  display, small, and visible as a jump on mousedown. A getter is read at the
 	 *  moment the gesture starts, so it starts from the truth.
 	 *
 	 *  Read through one accessor for display, drag, wheel and arrow keys alike, so
@@ -62,9 +62,9 @@ export type ScrubInputProps = {
 	 *  you scrub AND a cell in a row without either class knowing about the other. */
 	className?: string;
 	/** Scrub-session brackets. `onScrubStart` fires once when a
-	 * gesture that emits continuous changes begins — a drag crossing
-	 * its threshold, or the first wheel event of a burst — and
-	 * `onScrubEnd` fires once when it settles (drag release; wheel
+	 * gesture that emits continuous changes begins, a drag crossing
+	 * its threshold, or the first wheel event of a burst, and
+	 * `onScrubEnd` fires once when it settles (drag release, wheel
 	 * quiet for a beat). Hosts whose `onChange` mints undoable edits
 	 * wrap the pair in a transaction so one gesture is ONE undo step
 	 * instead of one per event. A typed edit commits once on
@@ -74,16 +74,16 @@ export type ScrubInputProps = {
 	/** Caller-supplied style overrides for the display + edit
 	 * elements. Merged after the internal layout style so callers
 	 * can adjust typography (font, size, min-width) to match the
-	 * surrounding context — e.g. an Inspector kv row using
+	 * surrounding context, e.g. an Inspector kv row using
 	 * `valueMono` typography rather than the default chrome size. */
 	style?: React.CSSProperties;
 };
 
 const DEFAULT_PX_PER_DOUBLING = 100;
-/** Drag must exceed this many px before we count it as a scrub;
- * below this a click commits to edit mode instead. */
+/** Drag must exceed this many px before we count it as a scrub.
+ * Below this a click commits to edit mode instead. */
 const DRAG_THRESHOLD_PX = 2;
-/** Wheel deltas are ~100 per notch — damp so one notch is roughly
+/** Wheel deltas are ~100 per notch, damp so one notch is roughly
  * 1.15× value change at default settings. */
 const WHEEL_DAMPING = 5;
 /** A wheel gap longer than this ends the burst's scrub session. */
@@ -102,7 +102,7 @@ const defaultParse = (text: string): number | null => {
 //
 // The box is not here. Height, corner, inset, bevel, background, hover
 // and the width floor all come from `.ocv-input.is-numeric`, and an
-// inline copy of any of them would beat the class and freeze it — which
+// inline copy of any of them would beat the class and freeze it, which
 // is what the floor did, at 40px against a class that said 56.
 const BASE_STYLE: React.CSSProperties = {
 	fontFamily: FONT.mono,
@@ -130,8 +130,8 @@ export function ScrubInput(
 	}: ScrubInputProps,
 ) {
 	// The one place the value is read. Through a ref so the accessor is stable
-	// across renders, and so a wheel event — which fires faster than React renders
-	// — sees the current prop rather than the one its listener closed over.
+	// across renders, and so a wheel event, which fires faster than React renders,
+	// sees the current prop rather than the one its listener closed over.
 	const source = useRef(valueSource);
 	source.current = valueSource;
 	const readValue = useCallback(
@@ -141,7 +141,7 @@ export function ScrubInput(
 	// Gesture-local value. Inspector hosts often subscribe to `docVersion`,
 	// which stays quiet inside an edit transaction, so the controlled prop
 	// does not move mid-scrub. Wheel ticks must accumulate from THIS, not
-	// from the stale prop — otherwise each event recomputes from the
+	// from the stale prop, otherwise each event recomputes from the
 	// pre-gesture number and the field fights itself.
 	const liveRef = useRef<number | null>(null);
 	const [liveDisplay, setLiveDisplay] = useState<number | null>(null);
@@ -179,7 +179,7 @@ export function ScrubInput(
 	// At rest the element advertises vertical scrub (the dominant
 	// convention). On drag, the axis is locked to whichever
 	// direction the user moves in first, and the body cursor swaps
-	// to match — same model as stage drag. Wheel/scroll handles
+	// to match, same model as stage drag. Wheel/scroll handles
 	// both axes independently below (up + right raise).
 	const restCursor = "ns-resize";
 	const clamp = useCallback(
@@ -191,7 +191,7 @@ export function ScrubInput(
 	const [draft, setDraft] = useState("");
 	// Display width captured at the moment we swap into edit mode.
 	// Native <input> defaults to size=20 (~20 char widths), which is
-	// much wider than this control's display state — pinning to the
+	// much wider than this control's display state, pinning to the
 	// measured width prevents any shift when the mode flips.
 	const [lockedWidth, setLockedWidth] = useState<number | null>(null);
 	const displayRef = useRef<HTMLDivElement | null>(null);
@@ -203,7 +203,7 @@ export function ScrubInput(
 	// lists that re-key and drop rows, and a row removed mid-drag
 	// takes its React pointer handlers with it before any pointerup
 	// can reach them. So `cleanupDrag` is this surface's only end, and
-	// it runs on every path to one — that is what restores the body
+	// it runs on every path to one. That is what restores the body
 	// cursor and fires `onScrubEnd` for a row that goes away under the
 	// pointer. The arrow reads it late, after this render has finished.
 	const surface = useGestureSurface(
@@ -226,12 +226,12 @@ export function ScrubInput(
 	// Focus follows the mode swap, both ways, in one effect so the
 	// hand-back cannot be dropped independently of the take. Entering
 	// edit mode seeds the draft from `formatInput` (just the number
-	// by default — no units) and selects it so the user can type
+	// by default. No units) and selects it so the user can type
 	// straight away. Leaving hands focus to the display chrome that
 	// replaces the input, so Tab carries on from this control instead
 	// of restarting at the top of the document.
 	//
-	// Deps intentionally narrow: only on a change of mode. A
+	// Deps narrow: only on a change of mode. A
 	// parent-driven `value` change while the user is typing must NOT
 	// overwrite their draft.
 	useLayoutEffect(() => {
@@ -277,7 +277,7 @@ export function ScrubInput(
 			if (!surface.claim(e.currentTarget, e.pointerId)) return;
 			e.preventDefault();
 			e.currentTarget.setPointerCapture(e.pointerId);
-			// Body cursor is locked once the axis lock is established —
+			// Body cursor is locked once the axis lock is established,
 			// until then the pre-drag rest cursor stays in place.
 			const bodyCursorPrev = globalThis.document.body.style.cursor;
 			dragRef.current = {
@@ -298,7 +298,7 @@ export function ScrubInput(
 		(e: React.PointerEvent<HTMLDivElement>) => {
 			// A move with no button held is a pointer-up that went
 			// missing, and `watchGestureEnd` has already run `cleanupDrag`
-			// by the time this bubbles here — so a live `dragRef` is the
+			// by the time this bubbles here. So a live `dragRef` is the
 			// whole guard, and no bogus value is emitted for it.
 			const drag = dragRef.current;
 			if (!drag) return;
@@ -332,7 +332,7 @@ export function ScrubInput(
 		[linear, clamp, onChange, pxPerDoubling, onScrubStart, publishLive],
 	);
 
-	// Idempotent — called from pointerup (synchronous),
+	// Idempotent, called from pointerup (synchronous),
 	// lostpointercapture (backstop for interrupted paths), and the
 	// window watch inside `useGestureSurface` when the release
 	// happens somewhere this element cannot see it. Calling several
@@ -385,7 +385,7 @@ export function ScrubInput(
 	// diagonal trackpad gestures sum cleanly.
 	//
 	// Ref-reads keep the listener attached for the component's
-	// lifetime — wheel fires faster than React renders. Accumulation
+	// lifetime, wheel fires faster than React renders. Accumulation
 	// reads `liveRef` so successive ticks stack instead of rebasing
 	// on the still-stale controlled prop.
 	const onScrubStartRef = useRef(onScrubStart);

@@ -4,7 +4,7 @@ use super::{CUSTODY, EFFECT, Error, MAX_PAGES, PROVENANCE, WORKSPACE, custody, e
 use alloc::vec::Vec;
 
 /// A prepared payload and its separately held field count. Root is workspace
-/// fragment zero; subsequent fragments, custody pages and receipts follow.
+/// fragment zero. Subsequent fragments, custody pages and receipts follow.
 #[derive(Clone, Copy)]
 pub struct GraphPage<'a> {
 	pub schema: u64,

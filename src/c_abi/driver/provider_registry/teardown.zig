@@ -1,6 +1,6 @@
 //! Decode the one C provider teardown contract into native outcomes.
 //!
-//! Status controls progress; structured failure data preserves identity. The
+//! Status controls progress. Structured failure data preserves identity. The
 //! registry decides how a contract violation affects its Runtime.
 
 const foundation = @import("foundation");

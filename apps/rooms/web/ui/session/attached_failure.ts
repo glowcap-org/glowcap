@@ -1,4 +1,4 @@
-// The application owns session-opening advice; preserve unknown thrown text.
+// The application owns session-opening advice. Preserve unknown thrown text.
 import { attachmentFailureAdvice } from "../application.ts";
 import { failureView, renderFailure } from "../../../lib/text/failure.ts";
 

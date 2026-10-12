@@ -3,8 +3,8 @@
 This guide is for whoever runs a Rooms server: the flags that grant it
 capabilities, where its state lives, how history is kept, the three services
 that survive a restart, moderation, and the Operations page. The
-[Rooms overview](README.md) runs the application; [Developing Rooms](developing.md)
-covers building and changing it; the [deployment guide](web/deploy/README.md)
+[Rooms overview](README.md) runs the application. [Developing Rooms](developing.md)
+covers building and changing it. The [deployment guide](web/deploy/README.md)
 runs everything here with Docker Compose.
 
 Participants running outside Docker use the [glowcap product package](host.md).
@@ -12,16 +12,20 @@ Give them the host-reachable `/locator` URL, not an internal Compose hostname.
 
 ## The server and its state
 
+The [work admission guide](../../docs/rooms/admission.md) covers temporary
+refusals, configurable operation rates, process-local debt and cleanup under
+pressure. Directory diagnostics show the effective policy and class counters.
+
 `rooms-server` is the directory members register with, and it hosts the rooms
 they enter. It:
 
 - records names, and tells watchers who is registered and which rooms are
-  listed;
-- relays introductions and WebRTC signaling between members;
+  listed
+- relays introductions and WebRTC signaling between members
 - opens rooms, seats members, and delivers lines, topics, presence, typing,
-  and invitations;
-- hosts files within the room and server budgets;
-- keeps history when you ask it to.
+  and invitations
+- hosts files within the room and server budgets
+- keeps history when you ask it to
 
 ```sh
 zig build rooms-server -- --state=.local/rooms --history
@@ -32,18 +36,18 @@ start and forgets everything when it stops. With `--state`, the directory
 holds:
 
 - `rooms.json`: the server document, including the identity seed and every
-  issued room link;
-- `operations.json`: listener options, and IRC networks and channels;
-- one file per capability swiss number;
-- `onion-key`, when the transport is onion;
-- `history/`, when history is kept in files.
+  issued room link
+- `operations.json`: listener options, and IRC networks and channels
+- one file per capability swiss number
+- `onion-key`, when the transport is onion
+- `history/`, when history is kept in files
 
 Only one process can hold a state directory at a time. To back it up, stop
 the server first, copy the whole directory, and restore it as one unit.
 
 On startup the process prints `ROOMS-SERVER-LISTENING` followed by the
-address members dial. For a loopback TCP room that is just the port;
-otherwise it is the complete locator.
+address members dial. For a loopback TCP room that is just the port.
+Otherwise it is the complete locator.
 
 Options use `--name=value` and can also come from `GLOWCAP_ROOMS_*`
 environment variables. Unknown or repeated options are refused. Choose the
@@ -57,26 +61,29 @@ transport with these:
 `SIGINT` and `SIGTERM` stop admitting new members, close the listeners,
 finish the writes already admitted, and release the state directory.
 
-There is no earlier released schema. `rooms.json` is version one, and the
-server refuses any other shape without rewriting the file. The same rule
-covers the session and archive files, history rows, and the browser's
-workspace and archive. To reset a development setup, stop the peers, remove their state
-directories, and clear the Rooms origin's browser site data.
+`rooms.json` is version one, and the server refuses any other shape without
+rewriting the file. The same rule covers the session and archive files,
+history rows, and the browser's workspace and archive. To reset a development
+setup, stop the peers, remove their state directories, and clear the Rooms
+origin's browser site data.
 
 ## Operator capabilities
 
 Each flag below creates one capability. The server keeps its swiss number in
 the state directory and prints its complete URI as a `ROOMS-*` line at startup. A
-capability whose flag was not given does not exist at all.
+capability whose flag was not given does not exist.
 `rooms-server --capabilities=<state-directory>` prints the saved recipes when
 `GLOWCAP_ROOMS_LOCATOR` supplies the server's advertised locator. A minted
-timeline also needs its advertised locator in `GLOWCAP_ROOMS_TRACE_LOCATOR`.
+timeline's recipe also needs its advertised locator in
+`GLOWCAP_ROOMS_TRACE_LOCATOR`. Without it, that one line says so and the rest
+still print. `glowcap apps rooms deployment up` supplies the room locator
+itself.
 
 | Flag | Environment | Prints | Grants |
 | --- | --- | --- | --- |
-| `--diagnostics` | `GLOWCAP_ROOMS_DIAGNOSTICS=1` | `ROOMS-DIAGNOSTICS` | Inspect: the names the directory holds and its trouble journal |
+| `--diagnostics` | `GLOWCAP_ROOMS_DIAGNOSTICS=1` | `ROOMS-DIAGNOSTICS` | Inspect: the names the directory holds and its recent failures |
 | `--admin-listeners` | `GLOWCAP_ROOMS_ADMIN_LISTENERS=1` | `ROOMS-ADMIN-LISTENERS` | List the server's listeners, bring one up on a transport it can realize, take one down |
-| `--operator` | `GLOWCAP_ROOMS_OPERATOR=1` | `ROOMS-OPERATOR` | Recover and revoke every local room's manager and moderator capabilities; the inventories and bulk retirement on the directory pane |
+| `--operator` | `GLOWCAP_ROOMS_OPERATOR=1` | `ROOMS-OPERATOR` | Recover and revoke every local room's manager and moderator capabilities, including the lists and bulk removal on the Directory page |
 | `--peering` | `GLOWCAP_ROOMS_PEERING=1` | `ROOMS-PEERING` | List a durable room from another directory |
 | `--irc` | `GLOWCAP_ROOMS_IRC=1` | `ROOMS-IRC` | Open IRC networks and bridge channels as rooms |
 | `--trace` | `GLOWCAP_ROOMS_TRACE=1` | `ROOMS-TRACE`, `ROOMS-TRACE-LISTENING` | The live timeline endpoint and the capability its sockets present |
@@ -90,8 +97,8 @@ In the browser, each capability is a toggle under Settings, Holdings.
   live directory session. The form can remember the number on that device, if
   you opt in, separately for each directory.
 - While you hold any of them, an Operations control on the Settings title line
-  opens the Operations page. Each pane has its own address under `/ops`.
-  Inspect and operator share the directory pane, because they are two kinds of
+  opens the Operations page. Each page has its own address under `/ops`.
+  Inspect and operator share the Directory page, because they are two kinds of
   authority over the same subject.
 - Turning a toggle off drops the capability, and so does a reconnect for the
   capabilities taken over that session.
@@ -133,8 +140,7 @@ otherwise. A destination that cannot be used stops startup.
 over 512 MiB, an unexpected entry, or a corrupt complete row. An unfinished
 final append is the only damage a crash can leave, and it is repaired. A
 process or machine crash can still lose an append the operating system had
-not yet made durable. The next start then restores the last complete state;
-it never invents a write.
+not yet made durable. The next start then restores the last complete state.
 
 **PostgreSQL storage.**
 
@@ -152,10 +158,10 @@ it never invents a write.
 
 ## The session service
 
-A durable session owns one person's whole Rooms workspace: the directories
+A durable session owns one person's Rooms workspace: the directories
 and rooms they are in, direct conversations, drafts, the history and
 connection choices, and the capabilities the session holds. Several browsers
-attach to it and see the same thing; closing every browser changes nothing.
+attach to it and see the same thing. Closing every browser changes nothing.
 
 ```sh
 glowcap apps rooms session serve --dir=.local/.state/rooms
@@ -165,40 +171,41 @@ When its managed workspace, listener and publications are ready, the process
 prints `ROOMS-SESSION-LISTENING`. It writes the workspace use sturdyref to
 `workspace.sturdyref` and the independent management sturdyref to
 `control.sturdyref` in the state directory. `--readiness-file` moves the use
-publication mirror; the Compose deployment uses a private tmpfs.
+publication mirror. The Compose deployment uses a private tmpfs.
 
 - The file has mode 0600. It is removed on an orderly stop and before every
-  restart.
+  startup once this process has the session to itself. A refused second process
+  cannot remove the running owner's readiness files.
 - `rooms-session --check-ready=<path>` reads it back as a health check.
-- The workspace reference authorizes use; the control reference authorizes
+- The workspace reference authorizes use. The control reference authorizes
   management. Protect both, and share narrower grants through the access editor.
 
 In the browser, Attach (on the first screen, or under Settings, Session) opens
-the workspace the session owns. Attaching selects that workspace; it does not
+the workspace the session owns. Attaching selects that workspace. It does not
 copy the browser's previous session into it. Every attached browser is a view
 of the same managed owner.
 
 The access editor groups explicit permissions into presets for reading,
-conversation actions, workspace changes and custody. A held issuing control
+conversation actions, workspace changes, and managing access. A held issuing control
 can create narrower or equal-permission access, subject to its own ceiling.
 The issuer keeps the control it can pass on. Sharing management creates a
 separately narrowed control, independent of workspace use permissions.
 
 The session checks the exact initiating grant on every operation and returned
-reader. A held control can edit, pause, resume or revoke its scoped grants;
-those changes survive restart. Unknown sends retain their original receipt
+reader. A held control can edit, pause, resume or revoke its scoped grants.
+Those changes survive restart. Unknown sends retain their original receipt
 and require review instead of a fresh resend.
 
 A password entered in an IRC bridge form is kept in `bridge-secrets.json` in
 the state directory, and only while a room still needs it. It never goes into
-the managed workspace or into a snapshot sent to an attached view. The file is plain
-JSON protected by the directory's own permissions, since anyone who can read
+the managed workspace or into a snapshot sent to an attached view. The file is
+plain JSON protected by the directory's permissions, since anyone who can read
 the directory can already act as the session using the identity seed stored
 beside it.
 
 A local browser workspace persists in IndexedDB. Sharing publishes its held
 use or control authority on the tab's current Host. Live connections end when
-the tab closes; reopening restores saved authority through the managed owner.
+the tab closes. Reopening restores saved authority through the managed owner.
 
 ### Local command access
 
@@ -223,14 +230,14 @@ observes every joined conversation, even while another one is selected.
   ones. Reading does not acknowledge them.
 - `ack` takes numeric event `ids`.
 - `listen` uses the returned change cursor to wait for new commits even when
-  unread events remain, rather than fetching the same batch again and again.
+  unread events remain, so it does not fetch the same batch again.
 - Unacknowledged events and their IDs survive a restart.
-- File events are descriptions only; this interface does not transfer file
+- File events are descriptions only. This interface does not transfer file
   bytes.
 
 **The inbox and gaps.** The inbox holds at most 4096 events within a 16 MiB
-journal, and a bounded worker writes it to disk outside the Rooms event loop.
-Queue pressure, a full disk, or a failed write stops only this observer; the
+log, and a bounded worker writes it to disk outside the Rooms event loop.
+Queue pressure, a full disk, or a failed write stops only this observer. The
 session and its other views keep working. When that happens, `status` reports
 `inbox.gap`. To recover, fix the cause, dismiss the events you have reviewed,
 then run `glowcap apps rooms session resume --dir <directory> --accept-gap`.
@@ -247,7 +254,7 @@ zig build rooms-archive -- --state=.local/member-archive
 The process prints `ROOMS-ARCHIVE-LISTENING` followed by the sturdyref.
 Whoever holds that sturdyref can read and write the whole archive.
 
-- It keeps at most 5,000 records and bounds its journal. It is durable
+- It keeps at most 5,000 records and bounds its log. It is durable
   storage, not an unlimited backup.
 - A second process on the same directory is refused immediately, and a
   crashed process leaves no stale lock.
@@ -274,7 +281,7 @@ themselves.
 ## The IRC gateway
 
 `--irc` creates the gateway capability. The Operations page shows it as a
-generic bridge gateway, without knowing anything about IRC. It has a form to
+generic bridge gateway and knows nothing about IRC. It has a form to
 open a connection (an IRC network), a form to add a channel under a
 connection, and a list of the connections it holds.
 
@@ -292,7 +299,7 @@ member row.
   IRC does not allow. They can optionally log in to a registered account.
 - Those credentials travel only over TLS and are held only next to that
   connection. They never go into snapshots or the browser's saved state. A
-  durable session keeps them so it can log in again after a restart; a
+  durable session keeps them so it can log in again after a restart. A
   browser asks again after a reload.
 - A refused login restores the member's previous identity.
 
@@ -301,7 +308,7 @@ action in both directions, IRC topic changes become the room's topic, and a
 member's own messages echoed back by the channel are hidden, so they never
 appear twice.
 
-[IRC on Rooms](irc/README.md) covers the standalone bridge and front, the
+[IRC on Rooms](irc/README.md) covers the standalone bridge and gateway, the
 network policy a bot must follow, and the bounds.
 
 ## Moderation
@@ -327,7 +334,7 @@ reference enlivened from one, is refused at once, and the next issue creates
 an unrelated one.
 
 `--operator` is the recovery root for every local room, including private
-ones. Its pane lists the moderators, can give out an unissued moderator or
+ones. Its page lists the moderators, can give out an unissued moderator or
 recover the current one, and can revoke room-link, manager, or moderator
 generations after a second confirmation. It cannot enter a room or kick
 anyone on its own authority. Peered rooms stay under their source directory,
@@ -337,7 +344,7 @@ and bridged IRC rooms get their moderator from the gateway.
 
 **Inspect** lists what the directory holds: rooms, occupants, registrations,
 and durable links (whether one is active, never its swiss number). It shows
-the server's own trouble journal beside the page's.
+the server's own recent failures beside the page's.
 
 **The operator's inventories** add the capabilities the server owns, grouped
 by kind, with one search that narrows all of them at once.
@@ -351,7 +358,7 @@ by kind, with one search that narrows all of them at once.
   retire all of them. It asks first, then works in batches, and the operator
   can stop between batches.
 
-**The listeners pane** has one switch per transport the server lists, each
+**The Listeners page** has one switch per transport the server lists, each
 described in its provider's own words.
 
 - On brings the listener up and off takes it down.
@@ -359,12 +366,12 @@ described in its provider's own words.
   each setting its `up` accepts.
 - The listener serving this page is marked and cannot be switched off.
 
-**The peering pane** lists a room this tab has joined on another directory in
-this one. Each listing has exactly one revocation, carried by its lease.
+**The Peering page** lists a room this tab has joined on another directory in
+this one. Each listing has one revocation, carried by its lease.
 Dropping the capability without revoking leaves the listings in place until
 the directory connection ends.
 
-**The visualizer pane** names the endpoint this session publishes to, and
+**The Visualizer page** names the endpoint this session publishes to, and
 lets you override it.
 
 ## Watching the room live
@@ -373,10 +380,32 @@ lets you override it.
 (default 9300, or `0` for any free port). It prints `ROOMS-TRACE-LISTENING`
 followed by its trace sturdyref. The locator advertises separate
 `captp-websocket` and `trace-publish` endpoints. `/captp` opens a CapTP byte
-channel; fetching the trace object still requires its Swiss. The `/` viewer
+channel. Fetching the trace object still requires its Swiss. The `/` viewer
 and `/publish` telemetry routes additionally require `?cap=<swiss>`.
 Use `--trace-connect=<ws-url>` and `--trace-publish=<ws-url>` to advertise
 exact routes through a deployment proxy, including its path prefixes.
+
+For a deployed stack, follow the protocol feed directly:
+
+```sh
+glowcap apps rooms deployment trace
+```
+
+Add `--json` for complete records, or `--dir` to select another deployment.
+The command starts a disposable viewer on the deployment network, so no trace
+port needs to be published. It receives replay followed by new protocol events.
+Ctrl-C closes and removes the viewer. Ordinary service logs remain available
+through `deployment logs directory`.
+
+For a local server, use `glowcap apps rooms trace --state=<directory>`.
+`--url=http://127.0.0.1:<port>` selects its web address. `--print-link` prints
+the complete trace capability without subscribing. Deployment startup prints
+that same capability after `ROOMS-TRACE-LISTENING`.
+
+To subscribe from another machine, pass the full capability to
+`glowcap apps rooms trace '<trace-capability>'`. Its advertised WebSocket
+endpoint must be reachable there. The contributor command
+`zig build rooms-trace-tail -- '<trace-capability>'` reads the same feed.
 
 To watch: start the [ocapnviz](../ocapnviz/) viewer
 (`zig build ocapnviz-dev`), switch it to **Live**, and paste that sturdyref
@@ -420,10 +449,30 @@ The relay's limits are environment variables, listed in the deployment guide:
   `GLOWCAP_RELAY_MAX_REGISTRATIONS_PER_IDENTITY` limit WebSocket sessions and
   rendezvous registrations.
 - `GLOWCAP_RELAY_MAX_IROH_SESSIONS` (16) and
-  `GLOWCAP_RELAY_MAX_IROH_DIALS_PER_MINUTE` (twice the session limit) limit the iroh connections,
-  each of which runs its own endpoint runtime.
+  `GLOWCAP_RELAY_MAX_IROH_DIALS_PER_MINUTE` (twice the session limit) limit the
+  iroh connections, each of which runs its own endpoint runtime.
 
 Raise a limit only for the resource it names.
+
+## Security posture
+
+- The web launcher sets a hashed-script Content Security Policy,
+  `frame-ancestors 'none'`, `nosniff`, `no-referrer`, and a permissions
+  policy. The policy keeps `style-src 'unsafe-inline'` for React inline
+  styles until those styles can be hashed.
+- Link preview refuses private, loopback, link-local, and IPv4-mapped
+  targets, and bounds redirects, connect time, and body size.
+- Relay and preview upgrades check `Origin` against `Host`. A request with
+  no `Origin` header is accepted so non-browser clients can connect.
+- The IRC encoder refuses NUL, CR, and LF in every parameter and bounds line
+  length.
+- Published authority tokens are looked up by their SHA-256 digest, so the
+  cost of a guess does not follow how many of its leading bytes match a real
+  token.
+- Identity and state files are created `0600` under `0700` directories.
+- Work admission is budgeted per subject before effects run.
+- The browser UI has no `innerHTML`, no `dangerouslySetInnerHTML`, and no
+  `eval`, and every external anchor carries `rel="noopener noreferrer"`.
 
 ## Known limitations
 
@@ -431,62 +480,60 @@ These are the limits of Rooms itself. The library's limits, including
 transports and browser reachability, are in
 [known limitations](../../docs/boundaries.md).
 
-- **Rooms runs on Linux and macOS hosts and in Chromium-class browsers.**
-  One Rust implementation owns every Rooms service and the browser
-  application; TypeScript renders the page and drives the Deno client, the
-  demos, and the tests, and `zig build source-check` refuses a second server
-  or IRC owner in TypeScript. That establishes neither Windows support,
-  file-lock behavior on other filesystems, nor public Tor circuit
-  reachability, and no throughput or latency figure is claimed for it.
-  The repository defines a workflow for [host product packages](host.md)
-  on matching runners. A workflow definition does not establish that a
-  particular run passed or that an archive was published. Local Linux evidence
-  does not establish macOS behavior.
-  A Linux devcontainer does not cross-build
-  the Rust session for macOS. The macOS packages are not Developer ID signed
-  or notarized, and the package proof does not establish Gatekeeper acceptance
-  of a downloaded artifact or reachability through a particular public network.
+- **Rooms runs on Linux and macOS hosts and in Chromium-class browsers.** One
+  Rust implementation owns every Rooms service and the browser application.
+  TypeScript renders the page and drives the Deno client, the demos, and the
+  tests, and `zig build source-check` refuses a second server or IRC owner in
+  TypeScript. Windows support, file-lock behavior on other filesystems, and
+  public Tor circuit reachability are not established, and no throughput or
+  latency figure is claimed. The repository defines a workflow for [host product
+  packages](host.md) on matching runners, but a workflow definition does not
+  show that a run passed or that an archive was published. Local Linux evidence
+  does not cover macOS, and a Linux devcontainer does not cross-build the Rust
+  session for macOS. The macOS packages are not Developer ID signed or
+  notarized, so Gatekeeper acceptance of a downloaded artifact and reachability
+  through a particular public network are untested.
 
 - **A Rooms message consumer has a bounded unread queue.** `Room.messages`
   hands a line directly to a pending read and otherwise retains at most 256
   unread messages. A consumer that remains stalled past that bound receives a
   stream error and must subscribe again. Cancellation, overflow, replacement,
-  and leave release every unread file capability; the browser client keeps a
+  and leave release every unread file capability. The browser client keeps a
   read pending during ordinary use.
 
 - **Rooms sessions are capabilities, not accounts.** No ambient login or server
   account owns a durable session today. The session sturdyref is the authority
   to attach, and each delegated facet can be revoked independently. A future
-  account capability may retain or mint session grants and durable name claims;
-  it must not turn those powers into identity inferred from a login string.
+  account capability may retain or mint session grants and durable name claims.
+  It must not turn those powers into identity inferred from a login string.
 
 - **Durable Rooms sessions do not make every resource durable.** Attached views
   share one network identity and managed workspace. They also share directory
-  discovery, archive choice, capabilities, peering intent, history, live files,
+  discovery, archive choice, capabilities, peering choices, history, live files,
   operator actions, listener and IRC administration, and visualizer publication.
   Browser `File` handles and object URLs remain device-local.
   A browser tab opens its managed workspace in IndexedDB on its Wasm Host.
-  Reload restores durable grants and custody recipes; connection-bound
+  Reload restores the saved grants and the links the session holds. Connection-bound
   references still require their original authority to be reachable.
 
 - **A durable session's bridge credentials are retained, not encrypted.** The
-  password a member answers a bridge form with lives in the session peer's own
+  password a member answers a bridge form with lives in the session peer's
   `bridge-secrets.json`, under the state directory's permissions, beside the
   identity seed that already grants the whole session. It never enters a
   managed workspace, snapshot, or export, and it is dropped once no room still names
   its scope. A browser's local workspace holds none across a reload, and a
-  workspace adopted into a peer carries the intent without the password; both
+  workspace adopted into a peer carries the bridge settings without the password. Both
   ask the member to answer the bridge once more (ADR-0141).
   A live transferred attachment remains available only while its room, direct
-  line, and session custody remain valid. A selected member archive may retain
+  line, and session are still open. A selected member archive may retain
   the same message's bytes separately and serve them after restart through its
   own scoped capability. The workspace stores neither copy nor an invented
-  promise that an archive retained one. Room-link invitations are bounded
-  workspace intent: local reconstruction and a durable Rooms session retain
-  the handed sturdyref until the reader accepts or dismisses it.
+  promise that an archive retained one. Room-link invitations are saved
+  with the workspace. A browser and a durable Rooms session both keep the
+  sturdyref they were handed until the reader accepts or dismisses it.
   Received archive-share rows are runtime-only. A live facet dies with its
-  session or one read. A durable offer's sturdyref is the Host publication;
-  the conversation-card reminder is not workspace intent, so a restart forgets
+  session or one read. A durable offer's sturdyref is the Host publication.
+  The reminder on the conversation card is not saved, so a restart forgets
   the reminder without revoking the share.
 
 - **One-shot room invitations are live capabilities today.** Native rooms and
@@ -505,7 +552,7 @@ transports and browser reachability, are in
 
 - **Room delivery receipts require retained local state.** Native room senders
   share one 256-message, 2 MiB budget between pending text and unread messages.
-  Receipts preserve ordering and correlation; they do not make retries
+  Receipts preserve ordering and correlation. They do not make retries
   idempotent. Upload reuse depends on an immutable source, acknowledgement,
   and admission to the existing media cache. Streaming sources and cache
   pressure may require ordinary reads. The delivery contract and measured
@@ -516,10 +563,10 @@ transports and browser reachability, are in
   `open`/`enter` and a room entrance reference grant no right to create durable
   entry authority. Rooms-native managed creation separately returns a passable
   manager for that room's registered public name, entry-link, and moderator
-  generations. The live room still disappears when empty; its registration
+  generations. The live room still disappears when empty. Its registration
   reserves the name and named entry reconstitutes it. A room entry link is not
   that registration and grants no management. Losing every manager copy
-  requires the directory operator to recover one; sharing a manager delegates
+  requires the directory operator to recover one. Sharing a manager delegates
   management rather than transferring it exclusively. Revoking an entry link
   blocks later admission through every old copy but does not evict a membership
   that already subscribed. The current manager can unregister the room. That
@@ -546,7 +593,7 @@ transports and browser reachability, are in
   registered nick and a visible `<nick>` prefix. IRC supplies no acknowledgement
   for a channel message, so an ambiguous TCP failure may repeat or lose the last
   line even though the bounded queue survives an observed write failure. The
-  client front maps only existing IRC-addressable room names. It fixes a
+  IRC gateway maps only existing IRC-addressable room names. It fixes a
   nickname for the connection because Rooms grants names per capability and no
   atomic rename exists across several memberships. Native names outside IRC's
   alphabet receive disclosed connection-local aliases. Lines, topics, and file
@@ -554,5 +601,5 @@ transports and browser reachability, are in
   or discarded. Foreign room publications without a member count, and native
   room names IRC cannot address, are omitted from `LIST` with a notice instead
   of invented fields. IRC carries neither edits nor capability-bearing file and
-  room offers. IRC is an application adapter, never a CapTP transport; there is
+  room offers. IRC is an application adapter, not a CapTP transport. There is
   no IRC server link and no CapTP-over-IRC netlayer.

@@ -16,7 +16,7 @@ fn measure(ctx: ?*const anyopaque, character: []const u8) u16 {
 
 /// Measure the way `screen` draws, so a highlight covers the glyphs the reader
 /// sees. The terminal's reported capabilities move `screen.width_method`, so
-/// this reads it per character rather than capturing it; the result borrows
+/// this reads it per character rather than capturing it. The result borrows
 /// `screen` and is valid while it lives.
 pub fn ofScreen(screen: *const vaxis.Screen) select.CellWidth {
     return .{ .ctx = screen, .measure = measure };

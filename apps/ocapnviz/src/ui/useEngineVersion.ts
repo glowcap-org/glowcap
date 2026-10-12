@@ -1,7 +1,7 @@
 /**
  * Subscribe to ANY engine notification. Use this when you read
  * `engine.world` / `engine.doc` / `engine.queries` and need to
- * re-render on any mutation; use `useClockSnapshot` when you
+ * re-render on any mutation. Use `useClockSnapshot` when you
  * specifically care about playhead-shaped state.
  *
  * Cost: re-renders at ~60 Hz during playback, because it promises to catch any

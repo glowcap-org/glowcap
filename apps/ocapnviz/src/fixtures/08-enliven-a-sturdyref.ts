@@ -2,7 +2,7 @@ import { TimelineDocument } from "../engine/timeline.ts";
 import { payloadOf, wireFrames } from "./wire-frames.ts";
 
 /**
- * Chapter 08 — Enlivening a sturdyref.
+ * Chapter 08, Enlivening a sturdyref.
  *
  * The client holds a sturdyref to something in the archive server: opaque
  * authority bytes plus a peer locator. Nothing can be delivered to it until
@@ -18,7 +18,7 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  * designator is the remote node id. That id is a key, and dialing it is what
  * proves who answered. Each peer is identified by that key, and the friendly
  * name beside it is a label the picture shows in its place. The client's end
- * is its own report; the archive's end is attached because the QUIC
+ * is its own report. The archive's end is attached because the QUIC
  * connection proved the far side holds the key the locator named, which is
  * what makes the sturdyref worth keeping across a restart.
  *
@@ -29,7 +29,7 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  * netlayers prove a peer and which only address one.
  * Both peers run glowcap, so this session settles on Cap'n Proto over
  * glowcap-next. That is the pairing a glowcap fleet configures
- * (`HostRuntime.Options.codec` / `.captp_version` in `src/driver/host_runtime.zig`); the
+ * (`HostRuntime.Options.codec` / `.captp_version` in `src/driver/host_runtime.zig`). The
  * Syrup / OCapN 1.0 baseline is what a session settles on the moment a peer
  * at either end cannot follow.
  */
@@ -198,7 +198,7 @@ export const enlivenASturdyref = TimelineDocument.parse({
 			messageId: "set-target-resolve",
 		},
 		// A repeat enliven would short-circuit (no wire round-trip).
-		// Nothing on the wire — represented here by the absence of a
+		// Nothing on the wire, represented here by the absence of a
 		// second fetch/resolve pair, keeping the visualization honest
 		// about the dedup sidecar's behavior.
 	],

@@ -1,5 +1,5 @@
 //! Shared client execution over the existing Rust Host binding. The platform
-//! supplies deadline scheduling; application reply policy lives in Rooms core.
+//! supplies deadline scheduling. Application reply policy lives in Rooms core.
 use glowcap::{Argument, Ref, Session};
 use rooms_application::{
 	failure::{Failure, Retry},
@@ -32,10 +32,13 @@ pub mod workspace;
 /// Ending a deadline drops the pending observation. The binding retains and
 /// retires any protocol work and releases late projected reply occurrences.
 pub trait Deadline {
+	/// Monotonic milliseconds in this embedding's clock domain. Wall time is
+	/// unsuitable: clock corrections must not restore spent work allowance.
+	fn monotonic_millis(&self) -> u64;
 	fn within<T>(&self, milliseconds: u64, work: impl Future<Output = T>) -> impl Future<Output = Option<T>>;
 }
 /// Platform task custody. Dropping Task cancels its future and releases all
-/// resources held by that observation; detached background work is not allowed.
+/// resources held by that observation. Detached background work is not allowed.
 pub trait Tasks {
 	type Task;
 	fn spawn(&self, work: impl Future<Output = ()> + 'static) -> Self::Task;
@@ -53,7 +56,10 @@ pub enum Error {
 	/// The original terminal observation failed. This proves no absence and
 	/// cannot authorize another dispatch of that effect.
 	Observation(String),
-	/// The binding refused admission; this operation was never sent.
+	/// Host admission or a validated application verdict proved this effect was
+	/// not dispatched. Its original receipt retains the reason and replay fence.
+	RefusedObservation(String),
+	/// The binding refused admission. This operation was never sent.
 	Unsent(Box<glowcap::Error>),
 	Receipt(rooms_application::room::receipt::Error),
 	ArchiveShare(rooms_application::archive::shares::Error),
@@ -77,7 +83,25 @@ pub enum Error {
 	Registration(rooms_application::directory::registration::Error),
 }
 impl Error {
-	/// A protocol refusal leaves the selected capability usable; transport loss
+	/// Only validated admission advice can prove absence from a peer break.
+	/// A lost observation stays uncertain even when its prose mentions a quota.
+	pub fn admission_refusal(&self) -> Option<Failure<'_>> {
+		let reason = match self {
+			Self::Binding(error) => return binding_admission_refusal(error),
+			Self::RefusedObservation(reason) => reason,
+			_ => return None,
+		};
+		Failure::parse(reason).filter(|failure| failure.refused_before_dispatch())
+	}
+	/// Terminal absence permits retiring an admission observation. No receipt
+	/// lookup or second dispatch is needed to establish that absence again.
+	pub fn known_absent(&self) -> bool {
+		match self {
+			Self::WorkspaceConflict | Self::Unsent(_) | Self::RefusedObservation(_) => true,
+			_ => self.admission_refusal().is_some(),
+		}
+	}
+	/// A protocol refusal leaves the selected capability usable. Transport loss
 	/// and a missed deadline mean this client no longer has a proved live peer.
 	pub fn connection_failed(&self) -> bool {
 		match self {
@@ -88,9 +112,9 @@ impl Error {
 	}
 	/// Preserve a peer's canonical Rooms failure code when it supplied one.
 	/// Untyped application refusals may depend on either a different request or
-	/// changed peer state; transport loss always needs the connection to change.
+	/// changed peer state. Transport loss always needs the connection to change.
 	pub fn retry(&self) -> Retry {
-		if matches!(self, Self::Observation(_)) {
+		if matches!(self, Self::Observation(_) | Self::RefusedObservation(_)) {
 			return Retry::Never;
 		}
 		if let Self::Binding(error) | Self::Unsent(error) = self {
@@ -104,11 +128,17 @@ impl Error {
 	}
 }
 
-/// Retry classification for the shared binding error carried by client and
-/// runtime failures. A broken promise belongs to the remote application; the
-/// remaining kinds distinguish a definite local request defect from binding or
-/// connection state. A frame-size failure is direction-dependent, so either
-/// the request or the peer state may have to change.
+/// A validated remote refusal proves absence before dispatch. Local binding
+/// diagnostics cannot establish that the remote effect was never started.
+pub fn binding_admission_refusal(error: &glowcap::Error) -> Option<Failure<'_>> {
+	if error.kind() != glowcap::ErrorKind::Broken {
+		return None;
+	}
+	Failure::parse(error.message()?).filter(|failure| failure.refused_before_dispatch())
+}
+
+/// Classify retry conditions without confusing transport loss with a remote
+/// application refusal. Frame-size failures can arise in either direction.
 pub fn binding_retry(error: &glowcap::Error) -> Retry {
 	if error.is_publication_not_found() {
 		return Retry::AfterRequestChange;
@@ -235,7 +265,7 @@ impl core::fmt::Display for Error {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		match self {
 			Self::WorkspaceConflict => f.write_str("workspace revision changed; this acquisition installed no changes"),
-			Self::Observation(reason) => f.write_str(reason),
+			Self::Observation(reason) | Self::RefusedObservation(reason) => f.write_str(reason),
 			Self::Binding(e) | Self::Unsent(e) => e.fmt(f),
 			Self::Timeout(what) => f.write_str(what),
 			Self::Reply(e) => e.fmt(f),
@@ -261,7 +291,7 @@ impl core::fmt::Display for Error {
 }
 impl core::error::Error for Error {}
 /// Multiple room/directory clients share this connection. Dropping the final
-/// owner closes its Session; leaving one room only drops that room's owner.
+/// owner closes its Session. Leaving one room only drops that room's owner.
 #[derive(Clone)]
 pub struct Client<D> {
 	session: Rc<Session>,
@@ -309,7 +339,7 @@ impl<D: Deadline> Client<D> {
 		}
 	}
 	/// Relinquish this client's application handle. An application-owned
-	/// connection retires with its last client; a sibling client or Host-retained
+	/// connection retires with its last client. A sibling client or Host-retained
 	/// dial keeps its connection usable.
 	pub async fn relinquish(self) -> Result<(), Error> {
 		let Self {
@@ -424,6 +454,22 @@ impl authority::Reply for Reply {
 mod tests {
 	use super::*;
 	use rooms_application::failure::FailureCode;
+
+	#[test]
+	fn lost_observation_cannot_become_absence_from_its_diagnostic() {
+		for reason in [
+			"rate-limited: retry-after-ms=1000; scope=message; owner=session",
+			"admission-busy: accounting table is full",
+			"request-too-large: scope=message-bytes",
+		] {
+			let error = Error::Observation(reason.into());
+			assert!(!error.known_absent());
+			assert!(error.admission_refusal().is_none());
+			// A local failure's diagnostic does not prove remote absence.
+			assert!(binding_admission_refusal(&glowcap::loam::refusal(reason)).is_none());
+		}
+		assert!(Error::RefusedObservation("original Host admission failed".into()).known_absent());
+	}
 
 	#[test]
 	fn peer_retry_uses_the_owned_wire_code_not_its_detail() {

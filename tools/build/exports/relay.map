@@ -1,0 +1,6 @@
+{
+  global:
+    glowcap_relay_*;
+  local:
+    *;
+};

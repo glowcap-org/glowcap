@@ -2,7 +2,7 @@
 //! drives: read transport packets, hand them to the core's packet surface
 //! (`glowcap_host_session_feed_packet`, which owns framing), drain the
 //! host's action queue, and write what `glowcap_host_session_take_packet`
-//! drains. CapTP verbs, hosting, and vows stay on `Session`; this module owns
+//! drains. CapTP verbs, hosting, and vows stay on `Session`. This module owns
 //! the conn byte path (handshake, serve loop, feed, flush, feed-refusal, EOF /
 //! `glowcap_host_session_transport_closed`).
 
@@ -15,11 +15,11 @@ use crate::trampoline::DeliverGuard;
 use crate::{AbortDomain, AbortInfo, Error, Result, sys};
 
 /// Drive a freshly opened connection's keyed handshake to an open session.
-/// The signed `op:start-session` was encoded by the open; its FLUSH is on the
+/// The signed `op:start-session` was encoded by the open. Its FLUSH is on the
 /// action queue, so the drain puts it on the wire first. The core stops
 /// consuming at the frame that opens the session, so a fast partner's
 /// application frames coalesced behind start-session stay buffered until the
-/// Host-owned resume step — otherwise a pipelined fetch would answer before
+/// Host-owned resume step: otherwise a pipelined fetch would answer before
 /// the object it names exists. Abandonment on failure stays on
 /// `Session::establish`.
 #[cfg(any(test, feature = "async"))]
@@ -68,7 +68,7 @@ fn handshake_live(shared: &SessionShared) -> Result<()> {
 
 /// Run the inbound loop: read packets and hand them to the core
 /// (behaviors run and vow completions queue inside the feed), then
-/// drain the action queue. Returns when the connection closes cleanly; a
+/// drain the action queue. Returns when the connection closes cleanly. A
 /// transport or protocol error ends the loop and the teardown below breaks
 /// the vows.
 pub(crate) async fn serve_loop(shared: Rc<SessionShared>) -> Result<()> {
@@ -114,6 +114,9 @@ pub(crate) async fn serve_loop(shared: Rc<SessionShared>) -> Result<()> {
 	if !shared.released.get() && !shared.channel_retiring.get() {
 		shared.closing.set(true);
 		let message = b"connection closed";
+		// SAFETY: `shared.ptr.get()` is this `SessionShared`'s `GlowcapHostSession` handle, live because
+		// `shared.released` is false (checked above) and only the session's teardown releases it; `message` is a
+		// `'static` byte string whose pointer and length stay live for the call.
 		let reported = check_host(unsafe {
 			ffi::glowcap_host_session_transport_closed(shared.ptr.get(), message.as_ptr(), message.len())
 		});
@@ -139,8 +142,8 @@ pub(crate) async fn serve_loop(shared: Rc<SessionShared>) -> Result<()> {
 /// packet or delimits an arbitrary byte-stream chunk, enforcing its frame cap,
 /// and dispatches it
 /// (behavior trampolines fire and completions queue inside), then the
-/// actions the dispatch queued drain. The library owns the unconsumed tail —
-/// a partial frame straddling two reads stays buffered in the session — so
+/// actions the dispatch queued drain. The library owns the unconsumed tail,
+/// a partial frame straddling two reads stays buffered in the session, so
 /// one borrowed call moves the whole chunk. The serve loop resumes any
 /// handshake-held tail through `resume_feed`.
 pub(crate) async fn feed(shared: &Rc<SessionShared>, chunk: &[u8]) -> Result<()> {
@@ -149,6 +152,10 @@ pub(crate) async fn feed(shared: &Rc<SessionShared>, chunk: &[u8]) -> Result<()>
 			return Ok(());
 		}
 		let _deliver = DeliverGuard::enter(shared);
+		// SAFETY: `shared.ptr.get()` is this `SessionShared`'s `GlowcapHostSession` handle, live because
+		// `shared.released` is false (checked above) and only the session's teardown releases it; `chunk` is a borrowed
+		// slice, passed as null when empty, whose pointer and length stay live for the call, and the callee buffers any
+		// unconsumed tail itself.
 		let rc = unsafe {
 			ffi::glowcap_host_session_feed_packet(
 				shared.ptr.get(),
@@ -185,6 +192,7 @@ async fn resume_feed(shared: &Rc<SessionShared>) -> Result<()> {
 			return Ok(());
 		}
 		let _deliver = DeliverGuard::enter(shared);
+		// SAFETY: as `feed` above, for the session handle; the call takes no other argument.
 		let rc = unsafe { ffi::glowcap_host_session_resume_feed(shared.ptr.get()) };
 		drop(_deliver);
 		crate::finalizer::drain();
@@ -205,7 +213,7 @@ async fn resume_feed(shared: &Rc<SessionShared>) -> Result<()> {
 /// The feed refusal choreography: capture last_error / last_abort before
 /// another verb can clobber them, then run the shared action drain so the
 /// projected op:abort (and any CLOSE/FAIL queued with it) leave through the
-/// same spine as a steady FLUSH — not a private output-drain path.
+/// same spine as a steady FLUSH: not a private output-drain path.
 async fn feed_refusal(shared: &Rc<SessionShared>, rc: i32) -> Error {
 	let message = host_last_error();
 	let (abort, abort_failure) = match last_abort(shared) {
@@ -231,12 +239,16 @@ async fn feed_refusal(shared: &Rc<SessionShared>, rc: i32) -> Error {
 
 /// The typed cause of this CapTP session's most recent local dispatch failure,
 /// or `None` when none has been recorded. The flat per-feed error code
-/// names the failure family; this names the member.
+/// names the failure family. This names the member.
 fn last_abort(shared: &SessionShared) -> Result<Option<AbortInfo>> {
 	if shared.released.get() {
 		return Ok(None);
 	}
+	// SAFETY: `GlowcapLastAbort` is a plain C struct of integers and null pointers; all-zero is a valid value, and the
+	// callee fills it before it is read.
 	let mut raw: sys::GlowcapLastAbort = unsafe { core::mem::zeroed() };
+	// SAFETY: `shared.ptr.get()` is this `SessionShared`'s `GlowcapHostSession` handle, live because `shared.released`
+	// is false (checked above) and only the session's teardown releases it; `raw` is an out-parameter the callee fills.
 	let rc = unsafe { ffi::glowcap_host_session_last_abort(shared.ptr.get(), &mut raw) };
 	if rc == sys::WOULD_BLOCK {
 		return Ok(None); // no abort recorded
@@ -248,6 +260,8 @@ fn last_abort(shared: &SessionShared) -> Result<Option<AbortInfo>> {
 		if ptr.is_null() || len == 0 {
 			String::new()
 		} else {
+			// SAFETY: `ptr` is non-null and `len` nonzero (checked above), and the callee filled them in `raw` as
+			// process-static views that stay valid for the whole call, so the slice is copied out before returning.
 			String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(ptr, len) }).into_owned()
 		}
 	};
@@ -266,7 +280,7 @@ fn last_abort(shared: &SessionShared) -> Result<Option<AbortInfo>> {
 
 /// Drain each Host-selected transport packet. The managed frame stays owned
 /// across the write and is released afterward. A byte stream writes the stack
-/// prefix then the borrowed frame; a message channel accepts the packet as one
+/// prefix then the borrowed frame. A message channel accepts the packet as one
 /// unit. The binding neither copies the frame nor chooses its framing.
 ///
 /// Writes serialize on the write half's lock, which keeps them in submission
@@ -288,9 +302,15 @@ pub(crate) async fn flush_outbound(shared: &Rc<SessionShared>) -> Result<()> {
 		if shared.released.get() {
 			return Ok(());
 		}
+		// SAFETY: `GlowcapManagedFrame` is a plain C struct of integers, null pointers, and an `Option` function
+		// pointer; all-zero is a valid value, and the callee fills it before it is read.
 		let mut raw: sys::GlowcapManagedFrame = unsafe { core::mem::zeroed() };
 		let mut prefix = [0u8; sys::HOST_OUTBOUND_PREFIX_CAP];
 		let mut prefix_len = 0usize;
+		// SAFETY: `shared.ptr.get()` is this `SessionShared`'s `GlowcapHostSession` handle, live because
+		// `shared.released` is false (checked above) and only the session's teardown releases it; `raw`, `prefix`, and
+		// `prefix_len` are locals live for the call, with `prefix` writable for `prefix.len()` bytes, and the callee
+		// fills `raw` and `prefix_len`.
 		let rc = unsafe {
 			ffi::glowcap_host_session_take_packet(
 				shared.ptr.get(),
@@ -384,7 +404,7 @@ impl Drop for TornOnDrop<'_> {
 }
 
 // Holds one drained managed frame across the awaited transport write and
-// releases it after — the zero-copy outbound path.
+// releases it after: the zero-copy outbound path.
 struct FrameGuard(sys::GlowcapManagedFrame);
 
 impl FrameGuard {
@@ -392,6 +412,9 @@ impl FrameGuard {
 		if self.0.bytes.is_null() || self.0.len == 0 {
 			&[]
 		} else {
+			// SAFETY: `self.0` was filled by the successful `take_packet` call and is owned by this `FrameGuard` until
+			// its `Drop`, so a nonzero `len` means `bytes` points to `len` readable bytes that outlive the `&self`
+			// borrow.
 			unsafe { core::slice::from_raw_parts(self.0.bytes, self.0.len) }
 		}
 	}
@@ -399,6 +422,8 @@ impl FrameGuard {
 
 impl Drop for FrameGuard {
 	fn drop(&mut self) {
+		// SAFETY: `self.0` is the managed frame `take_packet` filled, released exactly once here and only after the
+		// borrowed bytes are no longer used; the release is a no-op on a repeat.
 		unsafe { sys::glowcap_managed_frame_release(&mut self.0) };
 	}
 }

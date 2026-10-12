@@ -1,5 +1,5 @@
 //! Startup onion configuration and opaque service-key custody. Tor owns the
-//! key format; Rooms keeps exactly the bytes its listener returned.
+//! key format. Rooms keeps exactly the bytes its listener returned.
 use crate::storage::{self, Directory};
 use std::sync::Arc;
 
@@ -47,7 +47,7 @@ impl Config {
 }
 
 /// Only an absent file requests a fresh service. Empty or oversized state is
-/// refused locally; Tor validates the opaque key itself without a fallback.
+/// refused locally. Tor validates the opaque key itself without a fallback.
 pub trait KeyStore {
 	fn read_key(&mut self) -> impl core::future::Future<Output = Result<Option<Vec<u8>>, String>>;
 	fn save_key(&mut self, key: Vec<u8>) -> impl core::future::Future<Output = Result<(), String>>;
@@ -73,7 +73,7 @@ pub fn validate(key: &[u8]) -> Result<(), String> {
 }
 
 /// Reuses the peer's existing lease. A process-local peer explicitly has no
-/// directory; dropping an observer still leaves disk work holding its lease.
+/// directory. Dropping an observer still leaves disk work holding its lease.
 pub struct KeyFile(pub Option<Arc<Directory>>);
 impl KeyStore for KeyFile {
 	async fn read_key(&mut self) -> Result<Option<Vec<u8>>, String> {

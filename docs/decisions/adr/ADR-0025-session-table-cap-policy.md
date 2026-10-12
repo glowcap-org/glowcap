@@ -3,7 +3,7 @@ id: ADR-0025
 status: accepted
 date: 2026-05-17
 tags: [session, limits, resilience, abort-taxonomy, security]
-decision: Every partner-driven session accumulator is bounded by a configurable cap on the `SessionLimits` struct. An operation past a cap fails loud with a typed `*CapExceeded` error that projects to a `resource_exhausted` `op:abort` and closes the session, never a silent drop. Five caps bound table cardinality; `max_deposited_gift_bytes` additionally bounds the cumulative requested bytes retained by complete gift rows. The sturdyref cache evicts instead of erroring and the local-delivery bound is an engine recursion guard.
+decision: Every partner-driven session accumulator is bounded by a configurable cap on the `SessionLimits` struct. An operation past a cap fails loud with a typed `*CapExceeded` error that projects to a `resource_exhausted` `op:abort` and closes the session, never a silent drop. Five caps bound table cardinality. `max_deposited_gift_bytes` additionally bounds the cumulative requested bytes retained by complete gift rows. The sturdyref cache evicts instead of erroring and the local-delivery bound is an engine recursion guard.
 supersedes: []
 superseded_by: []
 amends: []
@@ -20,22 +20,20 @@ answer ids, register listeners against one target, introduce fresh imports,
 park early withdrawals whose deposits never arrive, or deposit gifts that are
 never withdrawn. A count-only gift limit still admits near-frame-sized opaque
 ids and variable reference payloads in every row. None violate a wire-shape
-invariant, so the decoder cannot catch them; left unbounded they let a
+invariant, so the decoder cannot catch them. Unbounded, they let a
 misbehaving peer exhaust host memory.
 
-Session state is authoritative
-([First Principles](../../../AGENTS.md#first-principles)), so the resource
-budget belongs in the session, not deferred to an adapter that would have to
-re-implement the state machine to enforce it. The policy makes the correct path
-the easy path (a generous default the honest workload never sees) and fails
-loud rather than absorb the overflow.
+Session state is authoritative, so the resource budget belongs in the session.
+An adapter would have to re-implement the state machine to enforce it. Defaults
+are generous enough that an ordinary workload never reaches them, and overflow
+fails with a typed error.
 
 ## Decision
 
 Each partner-driven accumulator in
 [`src/ocapn/session/limits.zig`](../../../src/ocapn/session/limits.zig) is bounded by
 a field on `SessionLimits`. A fresh insert past a cardinality cap returns a
-typed `*CapExceeded` error; refreshing an existing row does not increase the
+typed `*CapExceeded` error. Refreshing an existing row does not increase the
 row count. The whole retained gift replacement is independently admitted
 against its byte cap before allocation or authority adoption. These six caps
 project through five typed errors to one wire kind, `resource_exhausted`:
@@ -55,26 +53,25 @@ partner's traffic is well-formed but exceeds the resource budget, so the
 observable contract ("back off") differs from `protocol_error`. The projection
 in
 [`src/ocapn/engine/abort_projection.zig`](../../../src/ocapn/engine/abort_projection.zig)
-maps all five typed errors to a `resource_exhausted` abort with `close = true`;
-the engine emits the abort before surfacing the typed error.
+maps all five typed errors to a `resource_exhausted` abort with `close = true`.
+The engine emits the abort before surfacing the typed error.
 
-Two adjacent accumulators are bounded but do **not** project to
-`resource_exhausted`, by design:
+Two adjacent accumulators are bounded but do not project to
+`resource_exhausted`:
 
 - `max_sturdyref_cache_entries` (default 256) bounds the dedup cache for
-  resolved sturdyref enlivenments. The cache is non-load-bearing per
-  [ADR-0012](ADR-0012-sturdyref-shape-and-enliven.md): a miss costs one extra
-  bootstrap-fetch round-trip, not correctness: so an overflow evicts the oldest
-  entry instead of erroring (a cap of 0 disables caching).
+  resolved sturdyref enlivenments. Per
+  [ADR-0012](ADR-0012-sturdyref-shape-and-enliven.md) a miss costs one extra
+  bootstrap-fetch round-trip and no correctness, so an overflow evicts the
+  oldest entry instead of erroring (a cap of 0 disables caching).
 - `max_local_deliveries` (default 4096) is enforced by the engine's resolution
   drain, not a session table: it bounds the chain of local deliveries one
   resolution can trigger, failing with `LocalDeliveryCapExceeded` to stop a
   loop.
 
 `queue_cap` (default 1024, the per-answer pipelined-call queue from
-[ADR-0007](ADR-0007-promise-pipelining-substrate.md)) keeps its own
-`QueueCapExceeded` to `queue_cap_exceeded` projection and is not folded into
-`resource_exhausted`.
+[ADR-0007](ADR-0007-promise-pipelining-substrate.md)) projects
+`QueueCapExceeded` to `queue_cap_exceeded`, not `resource_exhausted`.
 
 ## Scope (what this does not decide)
 
@@ -84,27 +81,24 @@ Two adjacent accumulators are bounded but do **not** project to
 - **Outbound / glowcap-allocated tables.** Export and outbound-answer tables
   grow at glowcap's own rate, so they carry no cap. The caps bound
   partner-driven growth only.
-- **Rate limiting.** A cap refuses a peer that pushes _past_ it; a peer that
+- **Rate limiting.** A cap refuses a peer that pushes past it, and a peer that
   churns rows at the cap is still admissible. Rate limiting belongs above
   glowcap.
-- **Per-deployment tuning.** Per-deployment tuning of the defaults is an adapter
-  concern, not the session's.
+- **Per-deployment tuning.** Tuning the defaults is an adapter concern.
 
 ## Alternatives Considered
 
-- **Leave the accumulators unbounded.** Rejected: with no garbage collector a
-  Zig deployment OOMs the host process; partner-driven growth must be bounded
-  where the state lives.
+- **Leave the accumulators unbounded.** Rejected: a Zig deployment would exhaust host
+  memory. Partner-driven growth is bounded where the state lives.
 - **Reuse `protocol_error` for the wire kind.** Rejected: a capped peer sends
-  structurally-valid messages; `resource_exhausted` tells it to back off,
+  structurally valid messages. `resource_exhausted` tells it to back off,
   `protocol_error` tells it to re-check its codec.
 - **Per-cap wire kinds.** Rejected: the observable response is identical across
-  the caps ("back off"), so one kind plus the diagnostic message says the same
-  thing without widening the wire contract.
+  the caps ("back off"), so one kind plus the diagnostic message suffices.
 
 ## Consequences
 
-- `SessionLimits` is the single tuning surface; table insert paths return typed
+- `SessionLimits` is the single tuning surface. Table insert paths return typed
   `*CapExceeded` errors the engine projects to `resource_exhausted`.
 - Deposited gifts have one lazy session owner. It accounts the complete retained
   row (map key/slice, payload tag, opaque gift id, provenance, and owned
@@ -127,19 +121,18 @@ Two adjacent accumulators are bounded but do **not** project to
 ## Inbound nesting-depth cap
 
 Inbound argument-tree nesting is bounded by `SessionLimits.max_nesting_depth`
-(default 64). The recursive validate-and-install walk fails loud with
+(default 64). The recursive validate-and-install walk fails with
 `NestingTooDeep`, projected to a `resource_exhausted` abort, instead of
-overflowing the native stack. `view.toOwned` and `model.argumentsEqual` carry an
+overflowing the stack. `view.toOwned` and `model.argumentsEqual` carry an
 independent fixed depth ceiling as a model-layer backstop, so an over-nested
 tree is refused even on the paths that do not run through session validation.
 
 ## Notes
 
 - [ADR-0008](ADR-0008-goblins-canonical-syrup-wire-profile.md) owns the abort
-  taxonomy this ADR extends;
-  [ADR-0007](ADR-0007-promise-pipelining-substrate.md) owns `queue_cap`;
-  [ADR-0012](ADR-0012-sturdyref-shape-and-enliven.md) owns the sturdyref cache's
-  non-load-bearing status;
+  taxonomy this ADR extends.
+  [ADR-0007](ADR-0007-promise-pipelining-substrate.md) owns `queue_cap`.
+  [ADR-0012](ADR-0012-sturdyref-shape-and-enliven.md) owns the sturdyref cache.
   [ADR-0121](ADR-0121-durable-answer-store-budget.md) adds a separate
   cumulative byte cap for resolutions retained by sent answer rows. They are
   durable table state, not transient outbound flow.

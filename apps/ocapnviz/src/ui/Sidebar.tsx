@@ -2,9 +2,9 @@
  * The Inspector's two sections, and the routing between them.
  *
  * This module owns no fields of its own. It decides which panel the
- * current selection reads through — one of the per-kind panels beside
+ * current selection reads through, one of the per-kind panels beside
  * it, or the group panel when the reader is holding more than one
- * thing — and it owns the one act every panel ends with, which is the
+ * thing, and it owns the one act every panel ends with, which is the
  * delete.
  */
 
@@ -30,27 +30,27 @@ export type { EditorBindings };
 
 export type SidebarBodyProps = {
 	engine: Engine;
-	/** The "Inspector follow" entity — what the panel populates its
+	/** The "Inspector follow" entity, what the panel populates its
 	 *  per-kind fields and Connections section against. Always also
-	 *  a member of `entitySelection` when set; null when no entity
+	 *  a member of `entitySelection` when set. Null when no entity
 	 *  is anchored. The single-select / multi-select asymmetry is
 	 *  resolved by `entitySelection` (the full set) being a separate
 	 *  prop on the components that need it (`EntityDetails`,
-	 *  `EntityConnections`); this slot is just the anchor. */
+	 *  `EntityConnections`). This slot is just the anchor. */
 	anchor: StageSelection;
 	onSelect: (selection: StageSelection) => void;
 };
 
-/** Entity-fields section. `editor` toggles read-only vs. edit (Build);
+/** Entity-fields section. `editor` toggles read-only vs. edit (Build).
  *  a selection of more than one entity reads through the group panel
  *  instead of a per-kind one. */
 /**
  * A section's own panel: the recessed block a whole sidebar section sits in.
  *
- * `PANEL` is the app's one such block (`ui/tokens.ts`); what is added is the
- * stacking of whatever the section put inside it. Two sections use it — the
+ * `PANEL` is the app's one such block (`ui/tokens.ts`). What is added is the
+ * stacking of whatever the section put inside it. Two sections use it, the
  * connections list and the placeholder that stands in for a body before anything
- * is picked — so both read as the same kind of thing as the field groups above
+ * is picked, so both read as the same kind of thing as the field groups above
  * them.
  *
  * A populated Details body is NOT wrapped: it is already a stack of `FieldGroup`
@@ -64,10 +64,10 @@ const sectionPanel = {
 } satisfies React.CSSProperties;
 
 /**
- * What the Inspector is actually showing, as against what is logically selected.
+ * What the Inspector is showing, as against what is logically selected.
  *
- * The two come apart, on purpose. A selection survives a mode switch so that
- * leaving Play for Live and coming back puts the reader where they were — which
+ * The two come apart. A selection survives a mode switch so that
+ * leaving Play for Live and coming back puts the reader where they were, which
  * means that while Live is up, the selection names entities the live stream has
  * never mentioned. Every part of the Inspector has to agree about that, and each
  * asking for itself is how they stopped agreeing: the bodies showed a placeholder
@@ -86,7 +86,7 @@ const sectionPanel = {
  * this runs on every render of the Inspector.
  *
  * The selection set comes back by identity when the buffer holds all of it, the
- * same way `reconcile-with-doc` returns the same state when it finds everything —
+ * same way `reconcile-with-doc` returns the same state when it finds everything,
  * so the common case allocates nothing.
  */
 export function inspectorView(
@@ -123,7 +123,7 @@ export function EntityDetails(
 		& {
 			editor?: EditorBindings | undefined;
 			entitySelection?: ReadonlySet<EntityRefKey> | undefined;
-			/** Replace the selection with exactly these entities — the
+			/** Replace the selection with exactly these entities, the
 			 *  group panel's narrowing control, dispatched by the host as
 			 *  the store's own `set-selection`. */
 			onNarrowSelection?:
@@ -160,7 +160,7 @@ export function EntityDetails(
 		);
 	}
 	// `anchor` is already what the Inspector is showing rather than what is
-	// logically selected — `inspectorView` resolved it once for every part of the
+	// logically selected, `inspectorView` resolved it once for every part of the
 	// pane (`AppView.tsx`), so there is nothing left to ask here.
 	const at = anchor;
 	if (!at) {
@@ -235,7 +235,7 @@ const deleteLabels: Record<"peer" | "session" | "message", string> = {
 };
 
 /** The trash a panel ends with. One entity or a whole selection, the
- *  affordance is the same and the label says which — so the row is
+ *  affordance is the same and the label says which. So the row is
  *  one element and the only thing that varies is what it claims to
  *  take. */
 function DeleteRow(
@@ -261,7 +261,7 @@ function DeleteRow(
  *
  *  Multi-select honesty: the body is anchored to a single entity
  *  (the store's `anchor`), so when the user has more than one
- *  thing selected, prepend a small banner naming the anchor —
+ *  thing selected, prepend a small banner naming the anchor,
  *  the user knows the section is showing connections of that one
  *  entity, not a roll-up of all selected. Within the rows,
  *  `entitySelection` lights up the targets that are also in the
@@ -302,14 +302,14 @@ export function EntityConnections(
 
 /** Connections-section title shaped to the anchor ("Session edges
  * (3)" for a peer, "Endpoint edges" for a session, …). The count
- * for a peer is drawn from the full doc — every session that
- * ever touches the peer, not just sessions live at the playhead
- * — so the title stays stable across scrub.
+ * for a peer is drawn from the full doc, every session that
+ * ever touches the peer, not just sessions live at the playhead,
+ * so the title stays stable across scrub.
  *
  * It names the anchor whatever else is selected, because the anchor
  * is what the list under it holds. A count of the selection here
  * would be a number about one thing sitting above a list of
- * another; `AnchorNote` says whose rows these are instead, and the
+ * another, `AnchorNote` says whose rows these are instead, and the
  * Details heading above is where the selection is counted. */
 export function connectionsSectionTitle(
 	engine: Engine,

@@ -85,7 +85,7 @@ fn runRelayedPromiseProjection(codec_id: model.CodecId) !void {
     const recipient_import = model.ImportPosition.from(projected.near.export_position.int());
 
     // Inspect and acknowledge the home op:listen exactly as a wire peer would.
-    // Registering its listener import is enough for the deliberately manual
+    // Registering its listener import is enough for the manual
     // resolver fire below; the test does not need a home Vat actor.
     while (try relay.nextAction()) |_| {}
     var listen_frame = (try home_pair.a.takeOutbound()) orelse return error.MissingListen;
@@ -118,7 +118,7 @@ fn runRelayedPromiseProjection(codec_id: model.CodecId) !void {
     try home_pair.b.served.port.peer.stepToIdle();
 
     // Move only the resolver fire. Its nested promise projection queues a new
-    // home listen, but this test's deliberately row-only home promise has no
+    // home listen, but this test's row-only home promise has no
     // Vat settlement source. The claim under test is already complete once
     // the relay answers entropy and commits the recipient store.
     try std.testing.expect(try shuttle(home_pair));

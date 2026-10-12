@@ -1,11 +1,11 @@
 //! The cross-thread wake channel: a nonblocking socketpair whose read half a
-//! waiting thread polls — or arms a completion recv on, which is why it is a
-//! socketpair and not a pipe — and whose write half any thread nudges. The
+//! waiting thread polls, or arms a completion recv on, which is why it is a
+//! socketpair and not a pipe, and whose write half any thread nudges. The
 //! A `WouldBlock` nudge is safely coalesced: unread bytes already make the
 //! read half readable, so no wake is lost. Every other send or receive fault
-//! is returned to the owner; a broken channel cannot masquerade as a
+//! is returned to the owner. A broken channel cannot masquerade as a
 //! coalesced wake. The off-turn settle mailbox (`driver.SettleMailbox`,
-//! ADR-0102) is the first owner; the channel itself carries nudge bytes and
+//! ADR-0102) is the first owner. The channel itself carries nudge bytes and
 //! nothing else.
 //!
 //! Platform-gated like the completion backends' socket helpers: Linux by raw
@@ -110,9 +110,9 @@ pub const WakeChannel = struct {
 
     /// Wake the owner with one byte. A full nonblocking channel is success
     /// with a distinct `coalesced` result because an unread byte already
-    /// makes the owner wakeable. Every other fault is load-bearing.
+    /// makes the owner wakeable. Every other fault is reported.
     /// `MSG_NOSIGNAL` on Linux keeps a torn-down read half from raising
-    /// SIGPIPE; teardown order (nudgers stop first) covers the rest.
+    /// SIGPIPE. Teardown order (nudgers stop first) covers the rest.
     pub fn nudge(self: WakeChannel) error{WakeNudgeFailed}!NudgeResult {
         const byte = [_]u8{1};
         while (true) {
@@ -186,7 +186,7 @@ fn closeFd(fd: i32) void {
 
 /// Make a fatal write fault level-visible to a waiter before reporting it.
 /// Keeping the descriptor open avoids fd reuse races with the owner's later
-/// `deinit`; shutting down its write direction makes the peer read half reach
+/// `deinit`. Shutting down its write direction makes the peer read half reach
 /// EOF/HUP after any already queued nudge bytes.
 fn retireWrite(fd: i32) void {
     if (is_linux) {

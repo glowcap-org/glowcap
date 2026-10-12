@@ -1,5 +1,5 @@
 //! Local and attached managed uploads use the existing bounded source pool.
-//! JavaScript supplies random-access spans; the retained command owns leases.
+//! JavaScript supplies random-access spans. The retained command owns leases.
 use super::super::uploads::RoomsBrowserSource;
 use super::*;
 use rooms_application::{

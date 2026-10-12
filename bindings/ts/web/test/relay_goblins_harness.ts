@@ -7,8 +7,8 @@ import * as tcp from "@glowcap/tcp";
 // the reference relay forwarding WebSocket ↔ TCP, and the browser peer (wasm)
 // dialing through it. The relay links no codec and never parses a frame, so
 // byte transparency is structural; what this harness observes is its
-// consequence. The keyed handshake is signature-verified end to end — a relay
-// that re-framed, re-encoded, or reordered one byte would fail it — and then
+// consequence. The keyed handshake is signature-verified end to end: a relay
+// that re-framed, re-encoded, or reordered one byte would fail it. Then
 // the enliven settles, the echo returns the exact bytes sent, and a repeat
 // enliven of the same sturdyref dedups to the same import (ADR-0012), so the
 // proof covers more than one frame shape.
@@ -38,7 +38,7 @@ const deadline = setTimeout(() => {
 }, 60_000);
 
 try {
-	// 1. The conformance Goblins vat — the same one `goblins-interop` dials —
+	// 1. The conformance Goblins vat (the same one `goblins-interop` dials),
 	// publishing its echo cap and printing Goblins' canonical sturdyref path on
 	// an NDJSON line.
 	goblinsProcess = new Deno.Command("racket", {

@@ -11,14 +11,14 @@
  * A wheel gesture changes the scale on every frame. Publishing that as state
  * would re-render on every frame of every zoom, and the app has no other reason
  * to re-render then. So the scale is published here and subscribers are woken
- * only when something they can actually SHOW has changed — the formatted
+ * only when something they can SHOW has changed, the formatted
  * percentage, or whether stepping out would still move. A gesture that walks
  * 100% to 40% wakes them a handful of times instead of sixty times a second.
  *
  * That is also why the snapshot carries no raw `zoom`. A number that is only
  * refreshed when its own formatting changes is a stale number, and putting one
  * here would invite a caller to do arithmetic with it. Whoever needs the live
- * scale asks `readView`, which goes to the camera itself — the zoom field's scrub
+ * scale asks `readView`, which goes to the camera itself, the zoom field's scrub
  * gesture does exactly that, so its arithmetic starts from the true scale rather
  * than from whatever the last render happened to see.
  */
@@ -43,7 +43,7 @@ export type StageCameraCommand =
 	/** An absolute scale, from the zoom field. About the viewport's center, like
 	 *  the steps and unlike the wheel. */
 	| { kind: "zoom-to"; zoom: number }
-	/** A scale AND a center together — put the camera exactly here.
+	/** A scale AND a center together, put the camera exactly here.
 	 *
 	 *  Distinct from `zoom-to`, which holds the center it has. This is for going to
 	 *  a view somebody else named: the document panel's Opens-at row sends the view
@@ -52,7 +52,7 @@ export type StageCameraCommand =
 	| { kind: "go-to"; view: StageView }
 	| { kind: "fit" }
 	/** The middle of the world at 1:1. Not "the view this document opens at":
-	 *  looking around now writes that, so it is wherever the reader is and going
+	 *  looking around writes that, so it is wherever the reader is and going
 	 *  back to it would do nothing (`render/stage-view.ts`). */
 	| { kind: "home" };
 
@@ -61,13 +61,13 @@ export type StageCameraCommand =
  * be asked where it is.
  *
  * One port rather than a channel per direction. The two are the same object's two
- * halves — a camera that can be driven can also be read — and splitting them
+ * halves, a camera that can be driven can also be read, and splitting them
  * meant a consumer could attach one and forget the other, which is a camera that
  * answers commands and cannot say where it ended up.
  */
 export type StageCameraPort = {
 	run(command: StageCameraCommand): void;
-	/** Where the camera is now. Read rather than published, because the one caller
+	/** Where the camera is. Read rather than published, because the one caller
 	 *  is an act the reader just asked for, and a value pushed every frame would be
 	 *  a per-frame allocation nobody reads in between. */
 	view(): StageView;
@@ -95,7 +95,7 @@ export type StageCameraReadout = {
 	 * anything to record by looking at it.
 	 *
 	 * It is safe to publish where a live scale would not be, because it changes once
-	 * per gesture rather than once per frame — the stage waits for the camera to
+	 * per gesture rather than once per frame. The stage waits for the camera to
 	 * stop before it says so. A reader who pans for two seconds wakes this once.
 	 */
 	settled: StageView;
@@ -116,7 +116,7 @@ const INITIAL: StageCameraReadout = {
 export const VIEW_SETTLE_MS = 250;
 
 /**
- * A live camera and the readout of it. One instance per app; `stageCamera` below
+ * A live camera and the readout of it. One instance per app, and `stageCamera` below
  * is it. Exported as a class so a test can drive one without touching the
  * module-level instance.
  */
@@ -125,7 +125,7 @@ export class StageCamera {
 	/** The scale the held readout was built from.
 	 *
 	 *  The readout is derived from the scale and nothing else, so an unchanged
-	 *  scale cannot change it — and the stage calls in once per frame whether or
+	 *  scale cannot change it, and the stage calls in once per frame whether or
 	 *  not the camera moved. Comparing the number first is what makes a still
 	 *  camera free: without it, every frame formatted a percentage string and built
 	 *  a readout object in order to discover that both matched the ones it already
@@ -151,7 +151,7 @@ export class StageCamera {
 		};
 	};
 
-	/** The current readout. Referentially stable until it actually changes, which
+	/** The current readout. Referentially stable until it changes, which
 	 *  is what lets `useSyncExternalStore` skip a render. */
 	getReadout = (): StageCameraReadout => this.#readout;
 
@@ -159,7 +159,7 @@ export class StageCamera {
 	 * Where the camera last came to rest, on its own.
 	 *
 	 * The Opens-at row wants this and nothing else, and a subscriber is woken by
-	 * every change to the readout — including the percentage, which moves on most
+	 * every change to the readout, including the percentage, which moves on most
 	 * frames of a zoom. Handing that row this reference instead of the whole
 	 * readout is what keeps a zoom gesture from re-rendering it at the frame rate:
 	 * `useSyncExternalStore` compares the snapshot it is given, and this one only
@@ -168,8 +168,8 @@ export class StageCamera {
 	getSettledView = (): StageView => this.#readout.settled;
 
 	/**
-	 * Tell the store what the scale is now. Called freely — once per frame is
-	 * expected — because it compares before it does anything.
+	 * Tell the store the current scale. Called freely (once per frame is
+	 * expected) because it compares before it does anything.
 	 */
 	publishZoom(zoom: number): void {
 		// The scale itself, before any of the work of describing it: see `#zoom`.
@@ -199,7 +199,7 @@ export class StageCamera {
 	 *
 	 * Called once per rest, after {@link noteViewWhenSettled} has waited for
 	 * the camera to stop. Unconditional where `publishZoom` compares first,
-	 * because the caller has already established that the view moved — and the
+	 * because the caller has already established that the view moved, and the
 	 * comparison it would make is the one thing this snapshot exists to let somebody
 	 * else make.
 	 */
@@ -218,7 +218,7 @@ export class StageCamera {
 	 * the view reported is always the latest one seen.
 	 *
 	 * It reports rather than writes. Looking around is reading, so it changes
-	 * no document and records no history — what it does is let the document
+	 * no document and records no history, what it does is let the document
 	 * panel offer: the Opens-at row's button compares this against what the
 	 * document stores and lights up when they differ. The settle is what makes
 	 * that cheap enough to publish at all, since it turns sixty frames of a
@@ -229,7 +229,7 @@ export class StageCamera {
 	 * view to compare it would allocate one object and one center per frame of
 	 * a still stage, to throw both away.
 	 *
-	 * A still camera republishes the same numbers every frame; restarting the
+	 * A still camera republishes the same numbers every frame. Restarting the
 	 * timer for those would mean the write never lands.
 	 */
 	noteViewWhenSettled(zoom: number, centerX: number, centerY: number): void {

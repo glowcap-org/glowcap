@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-gutter-resize-probe.ts — Verifies the timeline's
+ * playwright-gutter-resize-probe.ts: Verifies the timeline's
  * gutter is drag-resizable via `view.gutterWidth`. Reads the
  * actual view state from `__ocv.timelineView` rather than
  * guessing from cursors.

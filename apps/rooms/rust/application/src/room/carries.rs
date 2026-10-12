@@ -12,8 +12,8 @@
 //! as `notify("room", "", "carries", ...features)`. It is said at arrival,
 //! before the roster, so a client holds it by the time joining returns.
 //!
-//! The vocabulary is positive. A feature named is carried; one not named is
-//! not; one a reader does not know is skipped. A room that never states the
+//! The vocabulary is positive. A feature named is carried. One not named is
+//! not. One a reader does not know is skipped. A room that never states the
 //! fact has not said it lacks anything, and a reader keeps every control it
 //! has, so an older room loses nothing and a newer one can be exact.
 use alloc::{string::String, vec::Vec};
@@ -52,7 +52,7 @@ impl Feature {
 	}
 }
 
-/// What one room carries. JSON views expose the displayed features; delivery
+/// What one room carries. JSON views expose the displayed features. Delivery
 /// negotiation stays with the live membership that received the wire facts.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -94,7 +94,7 @@ impl Carries {
 	/// Read a statement off its wire words. A word this vocabulary does not
 	/// know is skipped, so a room may state a feature before every reader
 	/// learns it. A statement past the bounds, or one carrying something that
-	/// is not a word, is a room saying something malformed, and the honest
+	/// is not a word, is a room saying something malformed, and the right
 	/// reading of that is that it said nothing.
 	pub fn read<'a>(words: impl ExactSizeIterator<Item = Option<&'a str>>) -> Option<Self> {
 		if words.len() > MAX_FEATURES {

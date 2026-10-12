@@ -2,7 +2,7 @@
 //!
 //! `tui.zig` owns the frame loop and key intents. This module owns how a
 //! mouse event becomes hover, drag-select, click-to-toggle, link
-//! activation, or a completion pick — and the OSC-52 copy the drag
+//! activation, or a completion pick. It also owns the OSC-52 copy the drag
 //! commits, which the keyboard copy intent reuses.
 const std = @import("std");
 const vaxis = @import("vaxis");

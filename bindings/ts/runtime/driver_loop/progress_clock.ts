@@ -7,7 +7,9 @@ import type { Ptr } from "../internal/ffi/runtime.ts";
 import { ab } from "../internal/seam.ts";
 import { checkDriver } from "../internal/driver_failure.ts";
 
-export type DriverProgressTimer = ReturnType<typeof setTimeout> | null;
+import type { Timer } from "../timer.ts";
+
+export type DriverProgressTimer = Timer | null;
 
 /** Milliseconds to the nearest close/session/dial/listener deadline, clamped
  * at zero, or -1 while readiness alone can advance terminal progress. */

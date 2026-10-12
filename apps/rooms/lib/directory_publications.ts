@@ -18,7 +18,8 @@ export const RoomInfoSchema = z.strictObject({
 	count: z.nullable(nonnegativeSafeInteger),
 	origin: boundedText(256),
 	proof: z.enum(["local", "authenticated", "session", "bridge"]),
-	/** Membership the public registration offers, or null when it is listed for invitation only. */
+	/** Membership the public registration offers, or null when it is listed for
+	 * invitation only. */
 	offers: z.nullable(z.enum(["observer", "participant"])),
 }).check(
 	z.refine((room) =>
@@ -35,7 +36,7 @@ export type RoomEntryKind = RoomInfo["kind"];
 export type RoomOriginProof = RoomInfo["proof"];
 
 /** One live directory registration. `registrationId` distinguishes successive
- * holders of the same nickname without pretending to be bearer authority. */
+ * holders of the same nickname and is not bearer authority. */
 export const RegistrationIdSchema = z.uuid();
 
 export function isRegistrationId(raw: unknown): raw is string {
@@ -73,11 +74,11 @@ const DirectoryWatchSnapshotWireSchema = z.tuple([
 /** A change to the directory's live state, pushed to a `watch` observer. Some
  * changes are about rooms: a room `opened` when its first member arrived,
  * `closed` when its last left, or changed its member `count`. For those, `name`
- * is the room and `count` is how many are in it. Other changes are about people:
- * a member became `registered` or `unregistered` for direct messages, and there
- * `name` is the member's nick, `registrationId` identifies that exact registration, and
- * `count` is 1 or 0. Both kinds arrive on one
- * observer, so switch on `kind` to tell them apart. */
+ * is the room and `count` is how many are in it. Other changes are about
+ * people: a member became `registered` or `unregistered` for direct messages.
+ * There `name` is the member's nick, `registrationId` identifies that
+ * registration, and `count` is 1 or 0. Both kinds arrive on one observer, so
+ * switch on `kind` to tell them apart. */
 export type RoomEvent =
 	| {
 		kind: "opened" | "closed" | "count";
@@ -100,7 +101,7 @@ export type RoomEvent =
 	};
 
 /** Every tag a watch observer may be notified with, in the order the generated
- * client tables declare them; `test/protocol_gen_test.ts` holds the two equal. */
+ * client tables declare them. `test/protocol_gen_test.ts` holds the two equal. */
 export const ROOM_EVENT_KINDS: readonly string[] = [
 	"opened",
 	"closed",
@@ -175,7 +176,7 @@ function parseRoom(raw: Argument): RoomInfo | null {
 }
 
 /** Parse one complete bounded list/watch snapshot. A malformed row invalidates
- * the answer rather than quietly turning server corruption into a partial view. */
+ * the answer, so server corruption never turns quietly into a partial view. */
 export function parseRooms(raw: Argument): RoomInfo[] {
 	if (!Array.isArray(raw) || raw.length > MAX_DIRECTORY_DISCOVERY_ROWS) {
 		throw new Error("the directory answered an invalid or oversized room list");

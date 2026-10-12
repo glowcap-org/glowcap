@@ -8,7 +8,7 @@
  *
  * An anchor carrying `download` is what a browser understands as saving a
  * file, so the click is handed to one rather than reimplemented. It is built
- * and discarded here because the control the reader actually pressed had to
+ * and discarded here because the control the reader pressed had to
  * fetch the bytes first, and by then the press is over. */
 export function saveAs(url: string, name: string): void {
 	const link = document.createElement("a");

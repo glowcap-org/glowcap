@@ -36,7 +36,7 @@ export type GlowcapWebModule = {
 		options: {
 			wasm: Promise<Response>;
 			/** How a dial's host:port maps onto the WebSocket URL that carries its
-			 * bytes; the runtime's default is `ws://host:port/`. */
+			 * bytes. The runtime's default is `ws://host:port/`. */
 			wsUrl?: (host: string, port: number) => string;
 		},
 	) => Promise<BrowserRuntime>;

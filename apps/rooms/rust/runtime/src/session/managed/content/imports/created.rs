@@ -1,23 +1,36 @@
 //! Creation appends one checked room to the current workspace atomically.
-//! Receipt targets fence the original directory; unrelated membership writes
+//! Receipt targets fence the original directory. Unrelated membership writes
 //! never cause this independent append to conflict or erase newer intent.
 use super::*;
 
 impl Request<'_> {
+	/// The original creation command, decoded once per admission.
+	fn creation_original(&self) -> Result<Vec<Argument>> {
+		original_text(text(self.intent)?)
+	}
 	pub(super) fn created_directory<'r>(
 		&self,
 		record: &'r MetadataRecord,
+		receipt: &'r custody::EffectReceipt<records::Metadata>,
 	) -> Result<[Retained<'r, records::Metadata>; 2]> {
-		let original = original_text(text(self.intent)?)?;
+		self.created_directory_in(record, receipt, &self.creation_original()?)
+	}
+	fn created_directory_in<'r>(
+		&self,
+		record: &'r MetadataRecord,
+		receipt: &'r custody::EffectReceipt<records::Metadata>,
+		original: &[Argument],
+	) -> Result<[Retained<'r, records::Metadata>; 2]> {
 		if original.len() < 5 || text(&original[2])? != "openManagedRoom" {
 			return Err(refuse("room append requires an original creation receipt"));
 		}
+		let directory_id = text(&original[3])?;
 		let directory = record
 			.intent
 			.directories
 			.as_slice()
 			.iter()
-			.find(|row| row.id.text().as_str() == Some(text(&original[3]).unwrap_or("")))
+			.find(|row| row.id.text().as_str() == Some(directory_id))
 			.ok_or_else(|| refuse("creation directory was removed"))?;
 		let current = record
 			.custody
@@ -26,8 +39,7 @@ impl Request<'_> {
 				key: custody::FieldKey::new(directory.access.slot(), directory.access.generation()),
 			})
 			.ok_or_else(|| refuse("creation directory custody is absent"))?;
-		let target = self
-			.receipt(record)?
+		let target = receipt
 			.targets
 			.as_slice()
 			.first()
@@ -37,9 +49,14 @@ impl Request<'_> {
 		}
 		Ok([target.borrowed(), current])
 	}
-	pub(super) fn created_workspace(&self, record: &MetadataRecord) -> Result<workspace::Intent> {
-		self.created_directory(record)?;
-		let replacement = self.replacement.as_ref().expect("creation replacement");
+	pub(super) fn created_workspace(
+		&self,
+		record: &MetadataRecord,
+		receipt: &custody::EffectReceipt<records::Metadata>,
+		replacement: &Replacement,
+	) -> Result<workspace::Intent> {
+		let original = self.creation_original()?;
+		self.created_directory_in(record, receipt, &original)?;
 		if !replacement.releases.is_empty() || self.selections.len() != 2 {
 			return Err(refuse("creation selects exactly its room and manager"));
 		}
@@ -47,7 +64,6 @@ impl Request<'_> {
 		let [workspace::Conversation::Room(room)] = candidate.conversations.as_slice() else {
 			return Err(refuse("creation selects one room"));
 		};
-		let original = original_text(text(self.intent)?)?;
 		let matches = |role, key: Option<custody::Coordinate>| {
 			self.selections
 				.iter()
@@ -98,7 +114,6 @@ impl Request<'_> {
 			return Err(refuse("creation room is already selected by another result"));
 		}
 		let mut intent = record.intent.clone();
-		intent.active = Some(room.id.clone());
 		intent
 			.conversations
 			.try_push(workspace::Conversation::Room(room.clone()))

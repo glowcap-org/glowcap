@@ -11,7 +11,7 @@
 //!   sidecar's readiness fd.
 //!
 //! Nothing here names a transport or exports a C symbol. Each sidecar keeps its
-//! own `#[repr(C)]` readiness record and its own `glowcap_*_sidecar_*` family;
+//! own `#[repr(C)]` readiness record and its own `glowcap_*_sidecar_*` family.
 //! `Readiness` is generic over that record so the queue is shared and the C
 //! layout is not.
 

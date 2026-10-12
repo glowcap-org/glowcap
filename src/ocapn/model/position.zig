@@ -4,7 +4,7 @@
 //! wire they collide: export position 5, import position 5, and answer 5 name
 //! three unrelated slots in three different tables. The wire integers are the
 //! same width and the same bytes, so a bare `u64` lets one be passed where
-//! another is meant — and because the spaces overlap, the bug is a silent
+//! another is meant, and because the spaces overlap, the bug is a silent
 //! mis-route, never a panic. The classic trap is keying an export-indexed map on
 //! a partner-named import position: a coincidental collision then
 //! misclassifies an ordinary deliver as a resolver callback.
@@ -14,12 +14,12 @@
 //! integer), distinct (you cannot pass an `ImportPosition` where an
 //! `ExportPosition` is wanted), and hashable (an `AutoHashMap` keys on them
 //! directly). Cross the
-//! `u64` wire/ABI boundary with `from` on the way in and `int` on the way out;
-//! the conversion is the visible seam where a raw wire integer becomes a typed
+//! `u64` wire/ABI boundary with `from` on the way in and `int` on the way out.
+//! The conversion is the visible seam where a raw wire integer becomes a typed
 //! position, and there is nowhere else it can silently change identity.
 //!
 //! Scope: scalar position fields carry these types end to end (model, codec, session,
-//! engine, view). The gc bulk position vectors stay `[]const u64` — they share
+//! engine, view). The gc bulk position vectors stay `[]const u64`, they share
 //! the borrowed view's `PositionList` machinery with raw refcount deltas, are
 //! validated as one batch, and are decremented against a single table the
 //! message arm already names, so a typed element would buy no safety the arm
@@ -69,7 +69,7 @@ pub const ImportPosition = enum(u64) {
 };
 
 /// A node-local route identity for a capability whose wire name belongs to a
-/// particular session (ADR-0069). It is deliberately a different type from
+/// particular session (ADR-0069). It is a different type from
 /// `ImportPosition`: every `u64` remains a valid partner-selected import, while
 /// a routed capability can never be mistaken for one or reach a codec without
 /// an explicit lowering step.
@@ -121,7 +121,7 @@ pub const VirtualAnswer = enum(u64) {
 
 /// The authoritative name of an inbound answer: either the partner's wire
 /// position or a resolver-only answer synthesized by this session. Callers
-/// construct the arm from provenance; no integer classification can confuse
+/// construct the arm from provenance. No integer classification can confuse
 /// the two independent namespaces.
 pub const AnswerName = union(enum) {
     wire: AnswerPosition,

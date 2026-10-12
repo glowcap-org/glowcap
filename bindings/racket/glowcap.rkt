@@ -3,14 +3,14 @@
 ;;
 ;; The raw `ffi/unsafe` layer lives in the internal `private/` loaders; this
 ;; module is just the public surface over it, and that surface is one tier:
-;; the `session` — one CapTP partner over the byte-fed host archive
+;; the `session` (one CapTP partner over the byte-fed host archive
 ;; (libglowcap_host, ADR-0072 / ADR-0079) that bundles an adapter-local Racket
 ;; vat, a pump, and the shared Host's routing/redeem authority, constructed by
 ;; `connect`/`listen`/`accept`.
 ;; The host owns an `engine.Node` (sans-io router); Goblins `mycapn` is two
-;; roles — product maps to Host, router tables map to `engine.Node`. Everything
-;; three-party — gift origination, transparent redemption, cross-session
-;; routing — happens inside the library; the binding moves bytes and answers
+;; roles: product maps to Host, router tables map to `engine.Node`. Everything
+;; three-party (gift origination, transparent redemption, cross-session
+;; routing) happens inside the library; the binding moves bytes and answers
 ;; the host's action queue. `GlowcapHost` is the sole C CapTP application
 ;; surface; the native Zig engine peer is not mirrored into the ABI.
 (require "private/ffi-ocapn.rkt"

@@ -1,7 +1,7 @@
 //! Host construction and future-session configuration vocabulary.
 //!
 //! Options describe one Host and the peers it will mint. The Host remains the
-//! state aggregate; this owner holds the configuration shape and the one
+//! state aggregate. This owner holds the configuration shape and the one
 //! admitted mutation that updates only future sessions.
 
 const std = @import("std");
@@ -17,15 +17,15 @@ const served = @import("../served.zig");
 
 const Host = host_mod.Host;
 
-/// Bootstrap / sturdyref registry durability (ADR-0082). `ephemeral` is
-/// today's process-lifetime registry. `durable_bootstrap` names the
-/// embedder-store posture; selecting it is refused until a store is wired
-/// (no silent ephemeral twin).
+/// Bootstrap / sturdyref registry durability (ADR-0082). `ephemeral` is the
+/// process-lifetime registry. `durable_bootstrap` names the embedder-store
+/// posture. Selecting it is refused until a store is wired (no silent ephemeral
+/// twin).
 pub const BootstrapDurability = enum { ephemeral, durable_bootstrap };
 
 /// Construction refusals happen before a Host is published. Embedders decide
-/// whether they are process-fatal; the core never makes that policy choice
-/// with a panic.
+/// whether they are process-fatal. The core never makes that policy choice with
+/// a panic.
 pub const InitError = error{
     DurableBootstrapUnavailable,
     InvalidHostWorkQuantum,
@@ -39,18 +39,18 @@ pub const Options = struct {
     /// from a shared 16 KiB pool (ADR-0054), not from `max_frame_bytes`, so
     /// raising the admission cap costs no per-session memory.
     limits: engine.SessionLimits = .{},
-    /// Registry durability posture (ADR-0082). `.ephemeral` is live;
+    /// Registry durability posture (ADR-0082). `.ephemeral` is live.
     /// `.durable_bootstrap` fails closed at `Host.init` until an embedder store
     /// lands.
     bootstrap_durability: BootstrapDurability = .ephemeral,
-    /// Verify the partner's `op:start-session` signature — the secure default a
-    /// real peer keeps.
+    /// Verify the partner's `op:start-session` signature. This is the secure
+    /// default a real peer keeps.
     verify_partner: bool = true,
     /// The wire grammar this host *prefers*. What a given session speaks is
     /// settled with its partner, not imposed from here (ADR-0103), so two ends
-    /// no longer have to be configured alike: a partner that cannot follow
-    /// settles this axis back to the baseline on its own session and every
-    /// other session keeps the preference.
+    /// need not be configured alike: a partner that cannot follow settles this
+    /// axis back to the baseline on its own session and every other session
+    /// keeps the preference.
     codec: model.CodecId = model.Preference.default_offer.codec,
     /// The CapTP profile this host prefers, beside the codec above. The two are
     /// one decision rather than two knobs, and both default to
@@ -63,7 +63,7 @@ pub const Options = struct {
     /// prefer `next` and still hold baseline sessions with peers that do not.
     captp_version: model.CaptpVersion = model.Preference.default_offer.captp_version,
     /// Optional CapTP features this host offers. Defaults to
-    /// `model.Preference.default_offer.features`; each session intersects this
+    /// `model.Preference.default_offer.features`. Each session intersects this
     /// set with the partner's offer at handshake. A peer with no Glowcap
     /// feature hint gets the baseline compatibility set, which keeps outbound
     /// `op:untag` disabled without changing the session's OCapN version.
@@ -86,9 +86,8 @@ pub const Options = struct {
     capability_id_issuer: ?capability.IdIssuer = null,
     /// Retained outbound-work waterline for one byte-fed session. A producer
     /// that starts below it commits atomically and may cross it by one bounded
-    /// operation; the next host-driving producer refuses
-    /// `OutboundBackpressure` until frames drain. Null derives from
-    /// `max_frame_bytes`.
+    /// operation. The next host-driving producer refuses `OutboundBackpressure`
+    /// until frames drain. Null derives from `max_frame_bytes`.
     outbound_high_water_bytes: ?usize = null,
 
     /// Convenience for the common case: default Options with only the frame

@@ -4,8 +4,8 @@
 // that loads the glowcap archives and calls their symbols, and the sockets the
 // async transport rides. This module declares both as interfaces, detects which
 // JavaScript runtime is hosting the binding (Deno or Bun), and loads the
-// matching adapter. Everything above — `mod.ts`, the transport modules, the
-// actor and connection layers — speaks these interfaces and never names a
+// matching adapter. Everything above (`mod.ts`, the transport modules, the
+// actor and connection layers) speaks these interfaces and never names a
 // runtime.
 //
 // Deno's adapter is selected synchronously. Bun's adapter is pulled in with a
@@ -90,7 +90,7 @@ export interface NativeCallback {
  * JS buffer, read and write native memory, and name the platform's
  * shared-library suffix. */
 export interface RuntimeFfi {
-	/** Whether a `SymbolDef.nonblocking` call actually leaves this JavaScript
+	/** Whether a `SymbolDef.nonblocking` call leaves this JavaScript
 	 * event-loop thread. A promise-shaped wrapper is not enough: transports use
 	 * this capability before entering a native call that may wait on I/O. */
 	offloadsBlockingCalls(): boolean;
@@ -212,7 +212,7 @@ let readying: Promise<RuntimeAdapter> | undefined;
 // already picked the host's own adapter. An explicit injection (the wasm
 // browser binding, ADR-0070) is authoritative: it overrides an adapter
 // auto-resolved from the host runtime, so a Deno or Bun process that
-// instantiates a wasm peer — a browser peer under test, or a relay harness —
+// instantiates a wasm peer (a browser peer under test, or a relay harness)
 // runs on the injected adapter instead of its own native FFI. The override is
 // safe only before the auto-resolved adapter is committed to real work; after
 // that its symbol tables are live, so a committed adapter is never swapped.
@@ -256,7 +256,7 @@ function active(): RuntimeAdapter {
 				"the first FFI/socket use (Bun); Deno and the browser resolve synchronously",
 		);
 	}
-	// The adapter is now handed to a real FFI/socket op; lock it so a later
+	// The adapter is handed to a real FFI/socket op; lock it so a later
 	// injection cannot swap a runtime whose symbol tables are already live.
 	committed = true;
 	return selected;

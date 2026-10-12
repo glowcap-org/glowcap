@@ -1,4 +1,4 @@
-//! Shared scalar grammar for managed access records; no authority decisions.
+//! Shared scalar grammar for managed access records. No authority decisions.
 const std = @import("std");
 const core = @import("loam_access_core");
 const syntax = @import("syrup").RecordSyntax;

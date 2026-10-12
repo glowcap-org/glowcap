@@ -15,13 +15,13 @@
 ;; pending-writes FIFO (via `drain-outbound!` in `pump.rkt`), and a DIAL parks
 ;; the executor among the drain's fires. The pops run under the host's
 ;; reentrant lock (`call-with-host`), so several green threads can share one
-;; host — a server's accepted sessions, a gifter's exporter dial — while the C
+;; host (a server's accepted sessions, a gifter's exporter dial) while the C
 ;; host sees one caller at a time; everything that can block (socket writes,
 ;; dial executors, listener fires) runs after the lock releases. Reads happen
 ;; outside the lock too: `pump-until` (in `pump.rkt`) makes one thread the
 ;; session's reader (the `async-connection` reader gate), parks drain effects
 ;; until that gate clears, and parks every other pump on the host's progress
-;; event — so a settle another session's feed recorded wakes a pump parked on
+;; event. So a settle another session's feed recorded wakes a pump parked on
 ;; its own quiet socket without sharing the reader window with a write or fire.
 
 (require ffi/unsafe
@@ -253,7 +253,7 @@
 ;; Wrap `target` in a revocable caretaker (ADR-0064). Returns the proxy capability
 ;; to hand a partner; every call through it forwards to `target` until
 ;; `session-revoke!`, after which each breaks with "Revoked". `target` may be a
-;; capability imported over the wire — the proxy forwards transparently — so this
+;; capability imported over the wire (the proxy forwards transparently), so this
 ;; hands out a revocable view of authority you do not own locally.
 (define (session-caretaker c target)
   (caretaker-proxy c target))
@@ -277,7 +277,7 @@
 ;; fire-and-forget sibling is `session-tell`. A reference this session spawned
 ;; resolves in process; a partner's ref goes out on the wire, and a redeemed
 ;; handoff token routes to the exporter session that hosts it. A broken
-;; reply raises a typed `exn:fail:glowcap` carrying GLOWCAP_ERR_BROKEN, exactly
+;; reply raises a typed `exn:fail:glowcap` carrying GLOWCAP_ERR_BROKEN,
 ;; as the Python and Rust `send`s fail. Single-threaded: it pumps events
 ;; itself, matching the rest of the Racket binding. The local arm is
 ;; `session-send-local` in `trampoline.rkt`.
@@ -299,12 +299,12 @@
   (drain-gc! c) ; flush any imports reclaimed since the last session op
   (dispatch-send c target verb args))
 
-;; Eventual-send `verb` to `target`, drive the session to the reply exactly as
+;; Eventual-send `verb` to `target`, drive the session to the reply as
 ;; `session-send` does, and also hand back the direct session that reply lives
 ;; on: `(values reply via)`.
 ;;
-;; When `target` answers with a three-party handoff give — a room's `introduce`
-;; naming another member, say — this host redeems it by dialing the exporter,
+;; When `target` answers with a three-party handoff give (a room's `introduce`
+;; naming another member, say), this host redeems it by dialing the exporter,
 ;; and the reply settles as a capability hosted on that fresh direct
 ;; session. Its byte connection is otherwise internal to the binding. `via` is
 ;; the application-facing session, so the caller can spawn or publish its own
@@ -332,7 +332,7 @@
   (values reply (and home (not (eq? home c)) home)))
 
 ;; Eventual-send `verb` to `target` and return its vow WITHOUT driving the
-;; session to a reply — the non-blocking half of `session-send` and the seam
+;; session to a reply. It is the non-blocking half of `session-send` and the seam
 ;; for promise pipelining (ADR-0007). The returned vow is itself a valid
 ;; `target` for a later `session-send`/`session-send-promise`/`session-tell`, so a
 ;; dependent call rides a `desc:answer` deliver the partner queues until the
@@ -343,8 +343,8 @@
 ;; A target belongs to the Host that minted it; another Host refuses it before
 ;; interpreting the Host-local vow number.
 ;; A reference this session spawned resolves in process.
-;; A send this session could never issue — the session is closed, the target is
-;; a spent capability, an argument will not marshal — comes back as a handle
+;; A send this session could never issue (the session is closed, the target is
+;; a spent capability, an argument will not marshal) comes back as a handle
 ;; that reports the failure, not as a raise. `session-send-promise` returns
 ;; before the answer settles so a caller can pipeline at it, so its failure has
 ;; to travel the same way its answer does: a caller who wraps the settle in a
@@ -359,8 +359,8 @@
 ;; Drive the connection until `a-vow` settles, returning its fulfilled value,
 ;; the awaiting half of `session-send-promise` / `session-index` / `session-untag`. A
 ;; broken vow raises a typed `exn:fail:glowcap` (GLOWCAP_ERR_BROKEN), as
-;; `session-send` does. A local vow settles in `drive`; a far vow on a wire reply
-;; — or immediately, when the resolution already arrived while a sibling
+;; `session-send` does. A local vow settles in `drive`; a far vow settles on a wire reply,
+;; or immediately when the resolution already arrived while a sibling
 ;; projection pumped the loop. Single-threaded: it pumps events itself, like
 ;; the rest of the binding.
 (define (session-await c a-vow)
@@ -393,7 +393,7 @@
 
 ;; Enliven a sturdyref against this session (ADR-0098): bring the durable
 ;; `(peer, swissnum)` to life as a live capability. The host verifies the full
-;; locator against this session before consulting its dedup cache — a repeat enliven
+;; locator against this session before consulting its dedup cache. A repeat enliven
 ;; of the same swissnum on this session short-circuits with no wire traffic
 ;; (its SETTLE completion is queued before the minting call returns). The
 ;; session must already be open to the sturdyref's peer; this session-level
@@ -436,7 +436,7 @@
 ;; arrived), the same disconnect guarantee the Deno and Python connections give.
 ;; A mid-serve failure (a feed refusal, a partner protocol violation) must close
 ;; the transport before the error escapes: otherwise the partner's blocking
-;; `session-send` parks forever on a half-open TCP socket — the Python serve
+;; `session-send` parks forever on a half-open TCP socket. The Python serve
 ;; loop's `finally` closes for the same reason. A break is not a failure: the
 ;; blocking read consumed nothing, so the interrupted serve escapes as the
 ;; break, the session stays live, and a later `session-serve` resumes it.
@@ -485,7 +485,7 @@
 
 ;; Enliven a complete sturdyref against the host: select a live session this
 ;; host already dialed to the sturdyref's peer, or stage a dial and settle
-;; over the opened session. The blocking wait is host-scoped — the vow
+;; over the opened session. The blocking wait is host-scoped: the vow
 ;; belongs to no session (its row's home is #f, and no session's teardown
 ;; sweeps it), the initial drain runs a staged dial in this thread, the
 ;; dialed exporter serves itself on its own thread (`run-dial!`), and this
@@ -540,7 +540,7 @@
 ;; A behavior atomically defers with `host-defer-turn`, parks the resolver for
 ;; whatever completes the work, and returns; the completion settles it later with
 ;; `resolver-fulfill!` / `resolver-break!` as its own top-level event. One
-;; settle per resolver — a second refuses — and a deferred settle carries
+;; settle per resolver (a second refuses), and a deferred settle carries
 ;; plain data only: a value that names a capability is refused, and an answer
 ;; that carries authority forwards to a send instead.
 

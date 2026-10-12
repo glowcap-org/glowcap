@@ -2,8 +2,8 @@
 //
 // Every request the rooms client makes to a room, a directory, or a peer goes
 // through `answerWithin`. A partner that accepts a request and never answers is
-// not a failure anything else can see — the send is in flight, the session is
-// open, the promise is pending — so the wait itself is the only thing that can
+// not a failure anything else can see, the send is in flight, the session is
+// open, the promise is pending, so the wait itself is the only thing that can
 // end it, and what this pins is that it does end, saying which request it was.
 //
 // The timer is pinned by hand rather than by the runner: a wait that never puts

@@ -4,7 +4,7 @@ use crate::sys::loam as ffi;
 use crate::{Argument, Host, Ref, Result};
 
 /// The held control describes its own revision independently of inventory
-/// permission. This is a snapshot; edits must submit it as their expectation.
+/// permission. This is a snapshot. Edits must submit it as their expectation.
 pub async fn control_revision(host: &Host, control: &Ref) -> Result<u64> {
 	let reply = host.send(control, "describe-control", &[]).await?;
 	parse_control_revision(&reply)
@@ -27,7 +27,7 @@ pub struct Policy {
 	pub(super) raw: ffi::GlowcapLoamPolicy,
 }
 /// Applicability uses the complete vocabulary, including future owned children.
-/// Empty kind tables declare kind-independent policy; nonempty tables are strict.
+/// Empty kind tables declare kind-independent policy. Nonempty tables are strict.
 pub struct KindRule<'a> {
 	pub kind: u64,
 	pub permissions: &'a [u64],
@@ -57,7 +57,7 @@ impl Policy {
 		Self::with_dependencies(identity, permissions, constraints, &[])
 	}
 	/// Positive implications constrain configured terms and management ceilings.
-	/// Each pair is (permission, prerequisite); effect requirements stay partial.
+	/// Each pair is (permission, prerequisite). Effect requirements stay partial.
 	pub fn with_dependencies(
 		identity: [u8; 16],
 		permissions: &[u64],
@@ -67,6 +67,9 @@ impl Policy {
 		if permissions.len() > 64 || constraints.len() > 16 || dependencies.len() > 64 * 64 {
 			return Err(invalid("policy descriptor exceeds its fixed capacity"));
 		}
+		// SAFETY: `GlowcapLoamPolicy` is a plain C struct of integers and integer arrays that the generated header
+		// fixes (identity, permissions, constraints, kind rules, counts); all-zero is a valid value, and the statements
+		// below fill the identity, counts, and used entries before the value is read.
 		let mut raw: ffi::GlowcapLoamPolicy = unsafe { core::mem::zeroed() };
 		raw.identity = identity;
 		raw.permission_count = permissions.len();
@@ -110,8 +113,13 @@ impl Policy {
 	}
 	fn construct(&self, permissions: &[u64], bounds: &[(u64, u64)], kind: Option<u64>) -> Result<PolicyValue> {
 		let requirement = Requirement::new(permissions, bounds)?;
+		// SAFETY: `GlowcapLoamPolicyValue` is a plain C struct of integers and integer arrays (identity, permissions,
+		// bounds, mask); all-zero is a valid value, and the callee fills it before it is read.
 		let mut raw: ffi::GlowcapLoamPolicyValue = unsafe { core::mem::zeroed() };
 		check(
+			// SAFETY: `&self.raw` borrows this `Policy`'s descriptor and `&requirement.raw` the local `Requirement`
+			// built above, both live for the call and only read by the callee, which is told not to retain either
+			// (header: inputs borrow for this call); `raw` is a local out-parameter the callee fills.
 			unsafe {
 				match kind {
 					Some(kind) => ffi::glowcap_loam_policy_value_for_kind(&self.raw, kind, &requirement.raw, &mut raw),
@@ -150,7 +158,7 @@ impl PolicyValue {
 		self.derivation_arguments(sequence, depth, Some(powers))
 	}
 	/// Arguments for `mutate(sequence, "set-policy", ...)` on a held control.
-	/// The control supplies scope; the policy cannot exceed its editing ceiling.
+	/// The control supplies scope. The policy cannot exceed its editing ceiling.
 	pub fn set_policy_arguments(self, sequence: u32, revision: u64) -> Vec<Argument> {
 		let mut args = Vec::with_capacity(6);
 		args.push(Argument::Integer(i64::from(sequence)));
@@ -161,7 +169,7 @@ impl PolicyValue {
 	}
 
 	/// One final argument spine and bounded owned leaves survive the caller's
-	/// Session future. Reserve the exact spine; no temporary policy Vec or growth
+	/// Session future. Reserve the exact spine. No temporary policy Vec or growth
 	/// reallocation participates in building a derivation or mutation request.
 	fn derivation_arguments(self, sequence: u32, depth: u16, powers: Option<ControlPowers>) -> Vec<Argument> {
 		let mut args = Vec::with_capacity(if powers.is_some() { 6 } else { 5 });
@@ -193,9 +201,9 @@ impl PolicyValue {
 
 impl IssuePolicy {
 	/// Receipt-backed control issuance uses its own derivation sequence. It
-	/// does not exercise use delegation; the original use path bounds children.
-	/// One final twelve-field spine owns both policy triples through exact replay;
-	/// no temporary policy vector or growth reallocation precedes admission.
+	/// does not exercise use delegation. The original use path bounds children.
+	/// One final twelve-field spine owns both policy triples through exact replay.
+	/// No temporary policy vector or growth reallocation precedes admission.
 	pub fn issue_arguments(
 		self,
 		sequence: u32,
@@ -218,8 +226,8 @@ impl IssuePolicy {
 	}
 }
 
-/// Independently attenuable management authority. `None` denies policy edits;
-/// lifecycle powers do not imply editing, delegation or content use authority.
+/// Independently attenuable management authority. `None` denies policy edits.
+/// Lifecycle powers do not imply editing, delegation or content use authority.
 #[derive(Clone, Copy, Default)]
 pub struct ControlPowers {
 	pub inspect: bool,
@@ -275,6 +283,9 @@ impl Requirement {
 		if permissions.len() > 64 || facts.len() > 16 {
 			return Err(invalid("requirement exceeds its fixed capacity"));
 		}
+		// SAFETY: `GlowcapLoamRequirement` is a plain C struct of integers and integer arrays (permissions, facts,
+		// counts); all-zero is a valid value, and the statements below fill the counts and used entries before the
+		// value is read.
 		let mut raw: ffi::GlowcapLoamRequirement = unsafe { core::mem::zeroed() };
 		raw.permission_count = permissions.len();
 		raw.fact_count = facts.len();

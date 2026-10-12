@@ -70,7 +70,7 @@ export interface DirView {
 	dmablePeers: ReadonlyMap<string, DirectoryMember>;
 	/** The exact nickname this workspace will ask for on reconstruction. */
 	requestedNick: string;
-	/** The nickname this live directory connection actually granted. */
+	/** The nickname this live directory connection granted. */
 	nick: string;
 	slot: number;
 	/** Once true, this tab has had an answer from this directory. First Connect

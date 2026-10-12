@@ -4,7 +4,7 @@ use alloc::{vec, vec::Vec};
 pub trait Output {
 	type Value;
 	/// The wire's text encoder replaces isolated UTF-16 surrogates. Retained
-	/// records keep their original text; only this passable projection converts.
+	/// records keep their original text. Only this passable projection converts.
 	fn document(value: &crate::text::DocumentText) -> Self::Value {
 		Self::text(&value.utf8_lossy())
 	}

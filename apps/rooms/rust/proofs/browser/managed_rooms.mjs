@@ -62,7 +62,14 @@ export async function managedRooms({ location, moduleUrl = "/rooms_contract_proo
 		for (;;) {
 			const status = await command.status();
 			if (status === "committed") return await command.result();
-			if (status !== "pending") throw new Error(`effect requires recovery: ${status}`);
+			if (status !== "pending") {
+				// Include the retained outcome, so a refusal can be distinguished
+				// from uncertain delivery without instrumenting the implementation.
+				let detail;
+				try { detail = JSON.stringify(await command.result()); }
+				catch (error) { detail = String(error); }
+				throw new Error(`managed command ${step} requires recovery: ${status}: ${detail}`);
+			}
 			cursor = (await observation.receive(cursor)).cursor;
 		}
 	}
@@ -304,6 +311,9 @@ export async function managedRooms({ location, moduleUrl = "/rooms_contract_proo
 		}));
 		held.push(accept);
 		await accept.submit();
+		if ((await peerSession.snapshot()).intent.active !== peerIntent.intent.active) {
+			throw new Error("public room acquisition changed the reader's selection");
+		}
 		await peerNotice((event) => event.notice.metadata?.presence?.kind === "roster"
 			&& event.notice.metadata.presence.names.includes("managed-member"));
 		const beforeRestart = "Recorded before counterpart restart";

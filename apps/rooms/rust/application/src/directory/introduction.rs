@@ -6,13 +6,13 @@ pub use crate::protocol_data::INTRODUCE;
 pub const MAX_OUTSTANDING: usize = 256;
 pub const WAIT_MS: u64 = 10_000;
 
-/// A descriptive identity never confers authority; the held registration does.
+/// A descriptive identity never confers authority. The held registration does.
 pub fn valid_opening(value: &str) -> bool {
 	crate::fields::Text::<128, true>::accepts_utf16(value.encode_utf16())
 }
 
 /// First contact may consume one early notification. A second refusal must
-/// wait for a fresh offer; a third refusal ends this introduction.
+/// wait for a fresh offer. A third refusal ends this introduction.
 #[derive(Default)]
 pub struct Retries(u8);
 impl Retries {
@@ -64,7 +64,7 @@ struct Waiting<W, K> {
 	ready: bool,
 	wake: W,
 }
-/// W is an opaque platform wake token. The core returns wake effects; it never
+/// W is an opaque platform wake token. The core returns wake effects. It never
 /// runs them. Ready but unobserved waits still count against the retained bound.
 pub struct Notices<W, K = Id> {
 	owner: Rc<()>,

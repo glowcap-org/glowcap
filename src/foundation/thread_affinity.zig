@@ -11,7 +11,7 @@
 const std = @import("std");
 
 /// The token vocabulary for one owner. With `tracks` false every member is
-/// `void` and the owner pays nothing; with it true the token is a thread id
+/// `void` and the owner pays nothing. With it true the token is a thread id
 /// plus one, so the unclaimed value can never be a live thread.
 pub fn OwnerThread(comptime tracks: bool) type {
     return struct {

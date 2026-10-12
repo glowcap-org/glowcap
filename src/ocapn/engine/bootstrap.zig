@@ -2,7 +2,7 @@
 //!
 //! `fetch` resolves a swissnum to a local export. `deposit-gift` / `withdraw-gift`
 //! are the exporter-side handoff bootstrap methods. Each Peer owns its session's
-//! `gifts.GiftRegistry` (ADR-0100); the session spine still validates frame
+//! `gifts.GiftRegistry` (ADR-0100). The session spine still validates frame
 //! well-formedness, while the verified responders in this module resolve the
 //! required live sessions before any gift moves.
 
@@ -55,7 +55,7 @@ pub const Request = union(enum) {
 };
 
 /// Match a give's side and session name against one already-authenticated
-/// gifter session. The caller owns authentication and session lookup; this
+/// gifter session. The caller owns authentication and session lookup. This
 /// helper single-sources the OCapN name derivation after those checks.
 pub fn gifterKeyForSession(
     session: *const session_mod.Session,
@@ -77,7 +77,7 @@ pub fn gifterKeyForSession(
 
 /// Recognize an inbound bootstrap `op:deliver`, or null when the deliver is not a
 /// bootstrap method this peer auto-answers. The bootstrap object is one of *our*
-/// exports, so only a `.near` target can name it (`exportPosition`); a `.far`
+/// exports, so only a `.near` target can name it (`exportPosition`). A `.far`
 /// target whose partner-named import position happens to be 0 falls through to
 /// ordinary handling instead of being auto-served.
 pub fn pendingBootstrapAction(
@@ -87,7 +87,7 @@ pub fn pendingBootstrapAction(
     const target_export = deliver.target.exportPosition() orelse return null;
     if (target_export.int() != session_mod.BOOTSTRAP_POSITION) return null;
 
-    // Forward peel: one linear pass over the arg region, matching validate.zig —
+    // Forward peel: one linear pass over the arg region, matching validate.zig,
     // no `len()` pre-walk and no per-index `at(i)` re-scan from byte 0.
     var it = deliver.args.iterator();
     const method = switch ((try it.next()) orelse return null) {
@@ -260,14 +260,14 @@ pub const WithdrawOutcome = union(enum) {
     /// infallible gift commit. The caller queues the settlement before applying
     /// the commit, so allocation failure leaves the gift retryable.
     settled: PreparedWithdraw,
-    /// The gift id names no *live* deposit — the gift is unknown, or its prior
+    /// The gift id names no *live* deposit, the gift is unknown, or its prior
     /// row is already consumed and awaits a re-deposit. `deposit-gift` and
     /// `withdraw-gift` travel on different sessions, so the withdraw can
     /// legitimately arrive first, and the protocol expects the exporter to
     /// answer once the deposit lands rather than refuse (the upstream OCapN
-    /// suite pins this). The caller parks the withdraw; `Peer.step` retries
+    /// suite pins this). The caller parks the withdraw. `Peer.step` retries
     /// parked withdraws, and one whose deposit never arrives stays parked until
-    /// session teardown — deadlines belong to the application, above glowcap.
+    /// session teardown, deadlines belong to the application, above glowcap.
     awaiting_deposit: struct {
         receive: PendingReceive,
         gifter_peer_handle: PeerHandle,
@@ -277,7 +277,7 @@ pub const WithdrawOutcome = union(enum) {
 /// The verified subset a withdrawal needs after its deposit was absent. The
 /// signatures, locator, receiving names, and verbatim signed envelope have
 /// already done their work and are not retained. Only `gift_id` is variable
-/// partner-sized storage; the authenticated keys/session name are fixed-width.
+/// partner-sized storage. The authenticated keys/session name are fixed-width.
 pub const PendingReceive = struct {
     handoff_count: u64,
     recipient_key: [crypto.PEER_KEY_BYTES]u8,
@@ -362,7 +362,7 @@ pub const PreparedWithdraw = struct {
     }
 
     /// Finish a successfully queued withdrawal. Every fallible resource was
-    /// reserved by `resolveForWithdraw`; this consumes the gift infallibly and
+    /// reserved by `resolveForWithdraw`. This consumes the gift infallibly and
     /// preserves a newly shared Port projection.
     pub fn apply(self: *PreparedWithdraw, allocator: std.mem.Allocator, projection: ?gifts.LocalObjectProjection, counters: *gifts.GiftRegistry) void {
         const commit = self.commit orelse return;
@@ -380,7 +380,7 @@ fn preparedBreak(allocator: std.mem.Allocator, answer: model.AnswerName, reason:
 }
 
 /// The gifter side a signed give names, fixed-width for the session resolver.
-/// A give whose side name is not 32 bytes never verified; a zero side matches
+/// A give whose side name is not 32 bytes never verified. A zero side matches
 /// no deposited row, so it falls through to `InvalidGift`.
 fn giveGifterSide(give: model.view.HandoffGive) [32]u8 {
     var gifter: [32]u8 = undefined;
@@ -465,7 +465,7 @@ pub fn resolveForWithdraw(
 
 /// Settle a pending withdrawal whose signatures, session names, and replay
 /// count were accepted before it waited. The borrowed receive remains owned by
-/// the pending row; only the registry-owned gift key enters the commit.
+/// the pending row. Only the registry-owned gift key enters the commit.
 pub fn resolvePendingWithdraw(
     allocator: std.mem.Allocator,
     gifter_session_resolver: ?gifts.GifterSessionResolver,
@@ -506,7 +506,7 @@ fn prepareGiftWithdraw(
     // Consume the gift only once the object is confirmed deliverable.
     // `commitWithdraw` records the monotonic handoff-count and reclaims the
     // gift's payload, so a break returned *after* it would permanently burn a
-    // legitimately-deposited gift on a recoverable condition — the recipient
+    // legitimately-deposited gift on a recoverable condition, the recipient
     // could never retry, since a re-withdraw parks and the recorded count makes
     // a same-count retry a replay. So each arm confirms it can deliver before it
     // prepares that commit.

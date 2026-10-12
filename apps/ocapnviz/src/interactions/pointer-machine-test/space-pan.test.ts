@@ -168,7 +168,7 @@ Deno.test("F2: drag-pause is followed by drag-resume (space-up + button held)", 
 		{ kind: "space-up", pointerHeld: true }, // drag-resume
 	]);
 	const kinds = effects.map((e) => e.kind);
-	// Drag-start, drag-pause, drag-resume — one resume per pause
+	// Drag-start, drag-pause, drag-resume. One resume per pause
 	assert(kinds.includes("drag-pause"));
 	assert(kinds.includes("drag-resume"));
 	const pauses = kinds.filter((k) => k === "drag-pause").length;

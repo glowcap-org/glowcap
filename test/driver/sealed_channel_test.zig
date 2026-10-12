@@ -77,7 +77,7 @@ fn moveSealedWire(
     return moved;
 }
 
-/// Drain both hosts' action queues; only flush, close, resume, and settle
+/// Drain both hosts' action queues. Only flush, close, resume, and settle
 /// notices are expected in these scenarios.
 fn drainSealedActions(hosts: []const *Host, closes: ?*usize) !bool {
     var did_work = false;
@@ -297,7 +297,7 @@ test "sealed channel: a recorded handshake replayed onto a fresh responder is re
     }
 
     // Replay against a fresh responder holding the same durable identity.
-    // Message one still verifies — it is encrypted to the durable static —
+    // Message one still verifies. It is encrypted to the durable static,
     // but the fresh responder's ephemeral makes every later key differ, so
     // message three cannot.
     var b2 = sealedHost(allocator, seed_b, 0xb4);

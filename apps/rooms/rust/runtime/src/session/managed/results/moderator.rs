@@ -5,11 +5,11 @@ use rooms_application::content::session::results::RoomModerator;
 fn coordinate() -> Coordinate {
 	Coordinate {
 		role: custody::Role::RoomAccess,
-		key: FieldKey::new(NonZeroU64::new(1).unwrap(), NonZeroU64::new(1).unwrap()),
+		key: FieldKey::new(NonZeroU64::MIN, NonZeroU64::MIN),
 	}
 }
 /// Two transient URI parses validate the reply's room identity and moderator
-/// recipe. Their owned fields retire here; only one bounded recipe survives
+/// recipe. Their owned fields retire here. Only one bounded recipe survives
 /// until the Host lookup and exact result save. Borrowed reply text cannot
 /// supply the decoded publication token needed for the identity check.
 pub(super) fn read(value: &Argument) -> Result<Acquisition> {

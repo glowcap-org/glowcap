@@ -60,7 +60,7 @@ console.log(
 	`${GATE}: server published greeter on ${serverId} (pkarr-published; no direct addrs shared)`,
 );
 
-// ── Client: dial by node id ALONE — empty hints — over real n0 discovery ────
+// ── Client: dial by node id ALONE, empty hints, over real n0 discovery ────
 const runtime = await Runtime.open({
 	providers: [provider({ reachability: Reachability.Discovery })],
 });

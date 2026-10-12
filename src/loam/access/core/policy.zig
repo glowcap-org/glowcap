@@ -1,6 +1,6 @@
 //! Runtime policy vocabulary shared by Zig and foreign consumers.
 //! Stable keys name Boolean permissions and unsigned lower or upper bounds.
-//! Applications supply operation requirements and committed facts; this module
+//! Applications supply operation requirements and committed facts. This module
 //! owns their set and bound algebra. It performs no allocation or callbacks.
 
 const std = @import("std");
@@ -14,7 +14,7 @@ pub const Policy = struct {
     constraint_count: usize,
     /// Required bits use permission_keys' stable ordering. The 512 inline bytes
     /// keep declaration ownership with the copied policy across cold reads and
-    /// foreign calls; no retained borrow, callback or heap allocation is needed.
+    /// foreign calls. No retained borrow, callback or heap allocation is needed.
     prerequisite_masks: [max_permissions]u64 = @splat(0),
     kind_rules: [max_kinds]KindRule = undefined,
     kind_count: usize = 0,
@@ -45,7 +45,7 @@ pub const Policy = struct {
         schema: Id,
         /// Bits refer to this schema's sorted permission declarations.
         permissions: u64,
-        /// Null means unrestricted; unused schema slots must remain null.
+        /// Null means unrestricted. Unused schema slots must remain null.
         bounds: [max_constraints]?u64,
     };
     pub const Requirement = struct {
@@ -99,7 +99,7 @@ pub const Policy = struct {
         return self.withKinds(descriptor.kinds);
     }
 
-    /// Copy declarative applicability; no schema callback or borrowed table
+    /// Copy declarative applicability. No schema callback or borrowed table
     /// survives. Both masks obey the same permission dependencies as terms.
     pub fn withKinds(self: Policy, rules: []const KindRule) Error!Policy {
         if (rules.len > max_kinds) return error.PolicyLimit;
@@ -146,7 +146,7 @@ pub const Policy = struct {
     }
 
     /// Constructs explicit policy terms from declared keys. Inputs are borrowed
-    /// for this call; no pointer into them is retained.
+    /// for this call. No pointer into them is retained.
     pub fn value(self: *const Policy, permissions: []const Key, bounds: []const Bound) Error!Value {
         const result = try self.shape(permissions, bounds);
         try self.validate(result);
@@ -161,7 +161,7 @@ pub const Policy = struct {
         return result;
     }
 
-    /// Effects request individual permissions; they are not candidate terms.
+    /// Effects request individual permissions. They are not candidate terms.
     fn shape(self: *const Policy, permissions: []const Key, bounds: []const Bound) Error!Value {
         var result: Value = .{ .schema = self.id, .permissions = try self.permissionMask(permissions), .bounds = undefined };
         @memset(&result.bounds, null);
@@ -224,7 +224,7 @@ pub const Policy = struct {
     }
 
     /// Admission reuses the target's already resolved support. Effects remain
-    /// partial demands; malformed facts still refuse before a negative verdict.
+    /// partial demands. Malformed facts still refuse before a negative verdict.
     pub fn allowsSupported(self: *const Policy, terms: Value, supported_: u64, requirement: Requirement) Error!bool {
         try self.validate(terms);
         const requested = try self.shape(requirement.permissions, requirement.facts);

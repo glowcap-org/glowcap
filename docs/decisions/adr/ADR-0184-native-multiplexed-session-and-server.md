@@ -3,7 +3,7 @@ id: ADR-0184
 status: accepted
 date: 2026-10-03
 tags: [driver, transport, ownership, iroh]
-decision: "Native Session and Server use the shared provider registry and runtime-owned listeners; the native iroh adapter owns transport state for both Zig and C."
+decision: "Native Session and Server use the shared provider registry and runtime-owned listeners. The native iroh adapter owns transport state for both Zig and C."
 supersedes: []
 superseded_by: []
 amends: [ADR-0081, ADR-0090, ADR-0112]
@@ -18,9 +18,7 @@ The runtime admits stream and multiplexed providers, but native convenience
 constructors accepted stream netlayers and transferred listeners out of runtime
 ownership. Iroh's managed connection map and listener state lived in C adapter
 storage. Native convenience support needs the same lifecycle without a second
-transport runtime or acceptance path. This engages explicit ownership, one
-authority per fact, bounded costs and production interfaces that preserve
-capability setup before dispatch.
+transport runtime or acceptance path.
 
 ## Decision
 
@@ -34,25 +32,25 @@ owns the endpoint, and teardown closes unclaimed connection handles before the
 endpoint is released.
 
 Every native Server activates a runtime-owned listener. It reserves a ring of
-Session pointers once at construction; finished sessions and pending handshake
+Session pointers once at construction. Finished sessions and pending handshake
 reservations share `max_pending_opens`. Ordinary pressure refuses an arrival
 without failing the Host. Accepted sessions remain unattended until their
 caller publishes roots and drives reception. Arrival failure notification
 preserves blocking accept's timeout and failure result without terminating
 sibling sessions. When another session or aggregate runtime pump serves a
-yielded Session, `Session.attend` marks the end of its setup explicitly; step,
+yielded Session, `Session.attend` marks the end of its setup explicitly. Step,
 serve and blocking reply operations do so implicitly.
 
 Server close seals admission, cancels unfinished handshakes, joins physical
 listener retirement and disposes queued sessions. Yielded sessions retain their
 own runtime lease. The heap-stable Server remains the observer context through
 that barrier, so it needs no separately allocated admission owner. Close from
-a callback or the wrong thread refuses before mutation; deinit preserves the
+a callback or the wrong thread refuses before mutation. Deinit preserves the
 handle on that refusal, matching Session's ownership discipline. A shared step
 goal checks listener retirement or consumer readiness before the runtime parks.
 Onion and keyed-relay listener projections expose their existing descriptors to
 that same poll. Relay probes clear idle wake hints and retain readable arrivals
-until accept claims them. Locator replacement follows provider canonicalization; TCP's
+until accept claims them. Locator replacement follows provider canonicalization. TCP's
 direct-address hints retain its existing literal-address grammar.
 
 The sidecar owns a bounded raw accept queue and an admission generation under

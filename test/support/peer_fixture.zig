@@ -26,7 +26,7 @@ pub fn openPeer(allocator: std.mem.Allocator) engine.Peer {
 }
 
 /// Receive a deliver creating inbound answer `answer` so a projection can
-/// anchor on it. Export 7 is the registered target; the surfaced event is
+/// anchor on it. Export 7 is the registered target. The surfaced event is
 /// drained so the queue stays empty for the assertions.
 pub fn receiveCallCreatingAnswer(peer: *engine.Peer, comptime frame: []const u8) !void {
     try receiveAnsweredOperation(peer, frame);

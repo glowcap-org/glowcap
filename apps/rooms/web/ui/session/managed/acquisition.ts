@@ -1,5 +1,11 @@
 // Only an explicit acquisition conflict proves absence of custody acquisition.
 import { managedSessionText } from "../../../../lib/text/managed_session.ts";
+
+// A proved conflict installed no custody, so re-preparation at a newer
+// revision is safe. The bound settles an unstable workspace as a refusal
+// instead of an unbounded gesture.
+export const MAX_CONFLICT_REPREPARATIONS = 4;
+
 export class AcquisitionConflict extends Error {
 	constructor() {
 		super(managedSessionText.acquisitionConflict);

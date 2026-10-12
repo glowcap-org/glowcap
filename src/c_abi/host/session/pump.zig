@@ -1,6 +1,6 @@
 //! C ABI session pump verbs: inbound frame/byte/packet admission, retained
 //! input resumption, and outbound transport drains. The Host core owns the
-//! semantics; this file owns only the C pointer, layout, and error projection.
+//! semantics. This file owns only the C pointer, layout, and error projection.
 
 const shared = @import("c_abi_shared");
 
@@ -28,7 +28,7 @@ const GLOWCAP_ERR_WOULD_BLOCK = shared.GLOWCAP_ERR_WOULD_BLOCK;
 /// write those frames, and retry it. A non-WOULD_BLOCK failure classifies
 /// through the shared taxonomy (`GLOWCAP_ERR_CODEC` / `_SESSION` /
 /// `_INTERNAL`). When `glowcap_host_session_last_abort` succeeds, the frame was
-/// consumed and the session is closing; drain its typed `op:abort` and release
+/// consumed and the session is closing. Drain its typed `op:abort` and release
 /// it. `GLOWCAP_ERR_INTERNAL` with no last-abort is allocation failure before
 /// frame admission, so the same borrowed frame remains retryable.
 pub fn glowcap_host_session_feed(raw: ?*GlowcapHostSession, frame_in: ?*const GlowcapFrame) callconv(.c) i32 {
@@ -50,7 +50,7 @@ pub fn glowcap_host_session_feed(raw: ?*GlowcapHostSession, frame_in: ?*const Gl
 /// Feed a byte-stream chunk the embedder read from its own transport
 /// (borrowed for the call). The library owns outer framing and the tail: each
 /// bare codec frame is one canonical Syrup byte string (`length:body`). Split
-/// prefixes and bodies stay buffered in the session; coalesced byte strings
+/// prefixes and bodies stay buffered in the session. Coalesced byte strings
 /// dispatch in order, each body exactly as `glowcap_host_session_feed`.
 /// Dispatch pauses at the frame that completes the keyed handshake: frames
 /// coalesced behind the hello wait in the session's tail while the embedder
@@ -74,8 +74,8 @@ pub fn glowcap_host_session_feed_bytes(
 }
 
 /// Feed one packet from the transport this session was opened over. Byte-stream
-/// transports pass arbitrary chunks carrying ADR-0110's outer envelope;
-/// message-framed transports pass one bare codec frame per packet. The Host's
+/// transports pass arbitrary chunks carrying ADR-0110's outer envelope.
+/// Message-framed transports pass one bare codec frame per packet. The Host's
 /// transport profile owns that choice. Borrowed for the call.
 pub fn glowcap_host_session_feed_packet(
     raw: ?*GlowcapHostSession,
@@ -94,7 +94,7 @@ pub fn glowcap_host_session_feed_packet(
 }
 
 /// Resume input retained by a previous feed. Byte-stream sessions may
-/// dispatch their held tail; message-framed sessions have no hidden tail and
+/// dispatch their held tail. Message-framed sessions have no hidden tail and
 /// no-op. Refused inside a callback.
 pub fn glowcap_host_session_resume_feed(raw: ?*GlowcapHostSession) callconv(.c) i32 {
     shared.lastErrorClear();
@@ -106,7 +106,7 @@ pub fn glowcap_host_session_resume_feed(raw: ?*GlowcapHostSession) callconv(.c) 
 
 /// Drain one transport-ready packet. Write `out_prefix[0..out_prefix_len]` and
 /// then the owned `out_frame` bytes. Byte-stream sessions return their
-/// canonical outer prefix; message-framed sessions return an empty prefix and
+/// canonical outer prefix. Message-framed sessions return an empty prefix and
 /// one bare frame. Free `out_frame` through `glowcap_managed_frame_release`.
 /// Refused inside a callback.
 pub fn glowcap_host_session_take_packet(
@@ -136,7 +136,7 @@ pub fn glowcap_host_session_take_packet(
 
 /// Drain one transport-ready byte-stream vector. Write
 /// `out_prefix[0..out_prefix_len]` and then the owned `out_frame` bytes. Clear
-/// sessions return their canonical outer Syrup prefix; sealed sessions return
+/// sessions return their canonical outer Syrup prefix. Sealed sessions return
 /// an empty prefix because their payload is already wire-ready ciphertext.
 /// Free `out_frame` through `glowcap_managed_frame_release`.
 pub fn glowcap_host_session_take_outbound(

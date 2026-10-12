@@ -1,7 +1,7 @@
 // Stopping a file that is already going.
 //
-// A message is posted before its files are filled — that order is what lets a
-// bubble appear before its pictures do — so a reader who picked the wrong large
+// A message is posted before its files are filled, that order is what lets a
+// bubble appear before its pictures do, so a reader who picked the wrong large
 // file cannot un-say the message. What they can do is stop paying for it, and
 // what makes that possible is the shape of the write: one bounded chunk per
 // round trip, so stopping is a matter of not starting the next one.
@@ -89,7 +89,7 @@ Deno.test("a stopped upload stops writing, and says it was stopped", async () =>
 		throw new Error(`expected the stop to be named as one, got ${String(stopped)}`);
 	}
 	// The chunk already in the air finishes; the next one never starts. So a
-	// hundred-chunk file costs two chunks after a stop, not a hundred — which is
+	// hundred-chunk file costs two chunks after a stop, not a hundred, which is
 	// the whole point, and what a check on the error alone would not show.
 	assertEquals(writes, 2);
 	// What the file's row says afterwards is the reader's own decision, not a

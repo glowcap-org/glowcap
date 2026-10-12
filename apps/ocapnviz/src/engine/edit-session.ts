@@ -1,11 +1,11 @@
 /**
- * Edit session — transactions, undo, and wholesale document restore.
+ * Edit session, transactions, undo, and wholesale document restore.
  *
  * The History stack itself lives in `history.ts`. This module owns the
  * Engine-side orchestration that History cannot: nesting, the snapshot
  * captured at depth 1, deferred layout/seek until `endTransaction`, and
  * the post-restore rebuild (clock duration, layout, seek). Playback does
- * not know about any of this; authoring seeks through here so a typing
+ * not know about any of this. Authoring seeks through here so a typing
  * burst is one history entry rather than one per keystroke.
  */
 
@@ -22,7 +22,7 @@ export type EditHost = {
 	notify(docChanged?: boolean): void;
 	/** Rebuild the world at `t` without notifying. */
 	seekWorld(t: number): void;
-	/** The document this engine was built from — `discardAllEdits` target. */
+	/** The document this engine was built from, `discardAllEdits` target. */
 	source(): TimelineDocument;
 };
 
@@ -37,7 +37,7 @@ export class EditSession {
 	/** Layout must recompute when the transaction closes (pin clears,
 	 *  deletes, other topology edits). Coalesces N cold anneals into one. */
 	#txnLayoutDirty = false;
-	/** Authoring seek deferred to transaction end; null when none pending. */
+	/** Authoring seek deferred to transaction end. Null when none pending. */
 	#txnSeekT: number | null = null;
 
 	constructor(private readonly host: EditHost) {}
@@ -64,14 +64,14 @@ export class EditSession {
 	 * who has undone their way to the start is at the beginning of a
 	 * history that still exists, with every step of it sitting on the
 	 * redo side. `undoAll` has nothing to do there and `discardAllEdits`
-	 * does — it is the one that throws the history away, and there is a
+	 * does. It is the one that throws the history away, and there is a
 	 * history to throw away.
 	 */
 	get hasHistory(): boolean {
 		return this.#history.canUndo || this.#history.canRedo;
 	}
 	/**
-	 * Name of the action `undo()` would reverse — drives the
+	 * Name of the action `undo()` would reverse, drives the
 	 * "Undo {label}" tooltip. `undefined` when nothing to undo. */
 	get nextUndoLabel(): string | undefined {
 		return this.#history.nextUndoLabel;
@@ -85,9 +85,9 @@ export class EditSession {
 		return takeSnapshot(this.host.getDoc());
 	}
 
-	/** Open a transaction — mutations dispatched while one is open
+	/** Open a transaction, mutations dispatched while one is open
 	 * coalesce into ONE history entry (peer drag, typing burst).
-	 * `label` is the undo-tooltip name; nested begins use the
+	 * `label` is the undo-tooltip name. Nested begins use the
 	 * outermost label. */
 	begin(label = "Edit"): void {
 		if (this.#txnDepth === 0) {
@@ -102,8 +102,8 @@ export class EditSession {
 		if (this.#txnDepth === 0) return;
 		this.#txnDepth -= 1;
 		if (this.#txnDepth === 0 && this.#txnSnapshot) {
-			// One layout solve and one world rebuild for the whole gesture —
-			// Unpin all and multi-delete used to pay these per member.
+			// One layout solve and one world rebuild for the whole gesture,
+			// Unpin all and multi-delete pay them once, not per member.
 			this.flushTxnStage();
 			// Skip the push when the transaction was a no-op (focused but
 			// didn't type, dragged but returned to start position).
@@ -210,7 +210,7 @@ export class EditSession {
 	 * Walk the whole history back in one move, keeping it.
 	 *
 	 * "Undo all": the same place pressing undo until it stops would
-	 * reach, and reversible in the same way — every step crosses to the
+	 * reach, and reversible in the same way. Every step crosses to the
 	 * redo side, so the author can walk forward again. That is the whole
 	 * difference from `discardAllEdits` below, and it is why both exist.
 	 * Where it stops is what the HISTORY remembers, which is not always
@@ -253,7 +253,7 @@ export class EditSession {
 	}
 
 	/** Bring the derived state back in step after the document has been
-	 *  written wholesale — by an undo, a redo, a rollback, or a
+	 *  written wholesale, by an undo, a redo, a rollback, or a
 	 *  discard.
 	 *
 	 *  The clock's upper bound follows `doc.duration` everywhere the doc

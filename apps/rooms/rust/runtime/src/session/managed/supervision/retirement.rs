@@ -24,13 +24,13 @@ type Observation = Pin<Box<dyn Future<Output = Result<Argument>>>>;
 /// endpoint returned by its admitted effect. It is private, exposes no call or
 /// reference accessor, and sends only argument-free `leave`. Public results
 /// continue to use source-dependent facets. A boxed vow observation exists only
-/// during retirement and survives interrupted waits; terminal refusal keeps the
+/// during retirement and survives interrupted waits. Terminal refusal keeps the
 /// same target for idempotent retry. The membership registry bounds these owners
 /// independently of transient executor jobs, so live seats do not fill receipts.
 /// Direct workers retain no raw route here. They observe the exporter behind
 /// their exact admitted access field, including a committed Loam dependent
-/// facet. One borrowed Session shell shares the Host's existing connection;
-/// dropping it never closes the channel. Keeping the observer independent of
+/// facet. One borrowed Session shell shares the Host's existing connection.
+/// Dropping it never closes the channel. Keeping the observer independent of
 /// effect outcomes prevents a readiness acknowledgment from erasing lifetime
 /// custody. The existing registry accounts for siblings before explicit close.
 pub(in crate::session::managed) struct Owner {
@@ -147,11 +147,12 @@ impl Owner {
 			if matches!(*self.outcome.borrow(), Outcome::Closed) {
 				return Ok(());
 			}
-			if observation.is_none() {
-				let pending = self.host.send(&target, rooms_application::protocol_data::LEAVE, &[]);
-				*observation = Some(Box::pin(async move { pending.await }));
-			}
-			let result = observation.as_mut().expect("owned retirement observation").await;
+			let result = observation
+				.get_or_insert_with(|| {
+					let pending = self.host.send(&target, rooms_application::protocol_data::LEAVE, &[]);
+					Box::pin(async move { pending.await })
+				})
+				.await;
 			observation.take();
 			if !matches!(result?, Argument::Void) {
 				return Err(loam::refusal(
@@ -165,7 +166,7 @@ impl Owner {
 }
 
 /// Retain an observation view, never connection close authority. Host-retained
-/// dials own the live channel; this fixed handle survives capability retirement.
+/// dials own the live channel. This fixed handle survives capability retirement.
 pub(in crate::session::managed) fn exporter(host: &Host, target: &Ref) -> Result<Option<glowcap::Session>> {
 	Ok(host.reference_session(target)?.map(|session| session.borrowed()))
 }

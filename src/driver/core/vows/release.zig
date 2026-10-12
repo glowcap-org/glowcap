@@ -62,8 +62,8 @@ pub fn cancelObserved(self: *Host, vow_id: u64, listener: actors.Listener) void 
     self.allocator.destroy(row);
 }
 
-/// Release one public Host vow. A peer-visible answer emits `op:gc-answer`; a
-/// local listen answer retires directly in Session; a local actor vow owns no
+/// Release one public Host vow. A peer-visible answer emits `op:gc-answer`. A
+/// local listen answer retires directly in Session. A local actor vow owns no
 /// answer. Every fallible no-answer cancellation completes before another
 /// effect, and peer-visible release is queued before infallible producer teardown,
 /// so an error always leaves one retryable public handle.
@@ -142,7 +142,7 @@ pub fn release(self: *Host, vow_id: u64) !void {
 
 /// Retire every vow edge owned by `session` before its Port is freed. Resolver
 /// rows are sessionless storage but can carry one deferred answer for this
-/// session; ordinary rows cancel their exact producer before destruction.
+/// session. Ordinary rows cancel their exact producer before destruction.
 pub fn dropSessionRows(self: *Host, session: *HostSession, reason: []const u8) void {
     const peer_handle = session.peer_handle;
     var doomed: [64]u64 = undefined;

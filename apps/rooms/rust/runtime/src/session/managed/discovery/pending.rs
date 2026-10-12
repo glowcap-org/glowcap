@@ -44,6 +44,9 @@ mod tests {
 	use tokio::sync::watch;
 	struct Expired;
 	impl Deadline for Expired {
+		fn monotonic_millis(&self) -> u64 {
+			0
+		}
 		async fn within<T>(&self, _: u64, _: impl Future<Output = T>) -> Option<T> {
 			None
 		}

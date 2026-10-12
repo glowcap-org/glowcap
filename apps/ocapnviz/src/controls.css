@@ -1,5 +1,5 @@
 /*
- * ocapnviz — control chrome.
+ * ocapnviz, control chrome.
  *
  * One baseline, three families (button, field, dropdown), plus the
  * focus mark, the stacking order those marks need, and the splitter
@@ -13,8 +13,8 @@
  *
  * One baseline, three families.
  *
- * The baseline owns the box every control stands in — height, corner,
- * inset, border, surface — and where hover takes it. Nothing below
+ * The baseline owns the box every control stands in, height, corner,
+ * inset, border, surface, and where hover takes it. Nothing below
  * re-declares any of that, so changing what every control looks like is
  * changing one rule.
  *
@@ -31,7 +31,7 @@
  * own text, a dropdown draws a chevron and leaves room for it.
  *
  * Specificity stays at one or two classes throughout, so cascade order
- * decides and nothing needs `!important` — and so an inline `style={…}`
+ * decides and nothing needs `!important`, and so an inline `style={…}`
  * still wins where a component structurally needs one.
  */
 
@@ -71,7 +71,7 @@
 .ocv-btn:hover:not(:disabled):not(.is-active):not(.is-segment),
 .ocv-input:hover:not(:disabled),
 .ocv-select:hover:not(:disabled) {
-	/* `background-color`, not the `background` shorthand — the shorthand
+	/* `background-color`, not the `background` shorthand, the shorthand
 	   resets `background-repeat`, which tiles the dropdown's chevron. */
 	background-color: var(--ocv-surface-muted);
 	border-color: var(--ocv-border-strong);
@@ -109,7 +109,7 @@
 	font-weight: 500;
 }
 
-/* Chosen — the control in force. An accent box over the palest wash of
+/* Chosen. The control in force. An accent box over the palest wash of
  * it, with the label in the accent too. This state is on screen the
  * whole time the tool is armed, so it has to be findable without being
  * the thing the eye keeps going back to; the solid fill belongs to
@@ -121,7 +121,7 @@
 	font-weight: 600;
 }
 
-/* Primary — a dialog's affirmative answer, and the one place the solid
+/* Primary. A dialog's affirmative answer, and the one place the solid
  * accent fill belongs. A dialog is transient and asks one question, so
  * the loudest thing on screen being its answer is right. */
 .ocv-btn.is-primary {
@@ -144,7 +144,7 @@
 	transform: translateY(1px);
 }
 
-/* Ghost — same geometry, almost no chrome. Secondary actions in a
+/* Ghost, same geometry, almost no chrome. Secondary actions in a
  * toolbar, so the primary action still reads as primary.
  *
  * "Almost" is the design. A fully invisible control asks the reader to
@@ -156,19 +156,19 @@
  * the timeline's own control row, where a button sits on chrome and a
  * full border on every one of a dozen glyphs reads as a wall of boxes.
  *
- * Not in the side rails. There a faded control reads as a DISABLED one —
+ * Not in the side rails. There a faded control reads as a DISABLED one,
  * `:disabled` is the other thing in this file that takes a control's
- * weight away — so a ghost button among labels and values looks like
+ * weight away, so a ghost button among labels and values looks like
  * something a reader cannot press. That is what it looked like, in the
  * Inspector's rows and the delete row under them, and the pin and cross
- * beside them now wear the ordinary bordered face. Transparency means
+ * beside them wear the ordinary bordered face. Transparency means
  * "you cannot press this"; nothing enabled in a pane should borrow it. */
 .ocv-btn.is-ghost {
 	background: transparent;
 	border-color: var(--ocv-border-faint);
 }
 
-/* Icon-only — a button whose whole content is one glyph. It takes the
+/* Icon-only. A button whose whole content is one glyph. It takes the
  * control height as its width too, so a row of glyphs sits in equal
  * squares rather than in boxes of drifting width. Everything else is
  * the `.ocv-btn` above, glyph tone included: every glyph in glyphs.tsx
@@ -179,7 +179,7 @@
 	padding: 0;
 }
 
-/* Segmented — a row of buttons joined into one cluster.
+/* Segmented. A row of buttons joined into one cluster.
  *
  * A cell is a button and carries `.ocv-btn`, so the box, the surface
  * and the focus mark all arrive from the baseline. What a joined row
@@ -199,7 +199,7 @@
 
 /* Being a cell in a row is not a button's property, so the geometry names both
  * families that can be one. A field is a cell where a value is typed rather than
- * picked — the stage's zoom readout — and it wants exactly the same seam and the
+ * picked, the stage's zoom readout, and it wants exactly the same seam and the
  * same rounded outer end. What stays button-only is below: hover, the press, and
  * everything about a CHOSEN cell, none of which a field has. */
 .ocv-btn.is-segment,
@@ -238,7 +238,7 @@
  *
  * Never by recolouring the neighbour's line instead. That is a cell
  * drawing somebody else's mark, so the mark inherits the neighbour's
- * state — a disabled one fades it, and opacity is not reachable by any
+ * state. A disabled one fades it, and opacity is not reachable by any
  * color rule. `segment-edges.test.ts` refuses it in either direction. */
 .ocv-input.is-segment {
 	border-right: 1px solid var(--ocv-border);
@@ -280,7 +280,7 @@
  * neighbour was disabled: `:disabled` fades a control to 40%, and it
  * fades every part of it, including a border the cell was drawing on
  * somebody else's behalf. The chosen cell then read as cut open on one
- * side — and no stacking order can fix it, because the pale line is not
+ * side, and no stacking order can fix it, because the pale line is not
  * painted over the mark, it IS the mark, drawn by a faded element.
  *
  * So ownership moves to the cell whose mark it is. The chosen cell
@@ -301,16 +301,16 @@
 /* Inputs -------------------------------------------------------------
  *
  * A field carries the reader's own text rather than a label, so it goes
- * to full strength at regular weight — and the mono face this app ships
+ * to full strength at regular weight, and the mono face this app ships
  * has no bold to ask for. Everything a button does to lay a label
- * out is absent on purpose. */
+ * out is absent. */
 
 .ocv-input {
 	color: var(--ocv-text);
 	font-weight: 400;
 }
 
-/* Prose that runs to more than a line — a document's description.
+/* Prose that runs to more than a line. A document's description.
  *
  * A modifier on the field family rather than a family of its own, because
  * everything that makes it a field is already right: the box, the border, the
@@ -330,7 +330,7 @@
 	white-space: pre-wrap;
 }
 
-/* The numeric pill — ScrubInput's display and edit elements. It is an
+/* The numeric pill, ScrubInput's display and edit elements. It is an
  * input because a value you can type is what it is; that it also scrubs
  * under a drag is a gesture the component adds. The width floor keeps a
  * read-out from resizing under its own digits mid-scrub, and the
@@ -403,7 +403,7 @@
  * A focus ring is drawn outside the border box, and so is the accent
  * edge of a chosen segmented cell. Siblings in one stacking context
  * paint in document order, so without these rules the control on the
- * right paints its own background over the left one's mark — every
+ * right paints its own background over the left one's mark, every
  * time, on the right side only, which reads as "something is eating one
  * edge" rather than as a stacking bug.
  *
@@ -430,7 +430,7 @@
 /* A splitter is a line, not a box, so it wears the mark in the shape a
  * line can wear: a ring around a six-pixel grab strip running the whole
  * height of the app reads as a filled bar, and its edges land inside
- * the panes either side. A focused seam paints itself instead — same
+ * the panes either side. A focused seam paints itself instead, same
  * color, same weight, on the visible line rather than on the invisible
  * strip that catches the pointer. */
 .ocv-handle {

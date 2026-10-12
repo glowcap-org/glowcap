@@ -58,7 +58,7 @@ pub enum Error {
 	/// The request was understood but policy does not permit it.
 	Refused(Cow<'static, str>),
 	/// Caller-supplied arguments, or a retained document, failed validation.
-	/// The same request will fail the same way; only a different one can pass.
+	/// The same request will fail the same way. Only a different one can pass.
 	Invalid(Cow<'static, str>),
 	/// Work already admitted by the owner must finish before it can take more.
 	/// The owner makes that progress itself, so the same request can retry soon.
@@ -191,8 +191,8 @@ impl Error {
 		}
 	}
 	/// An archive's own refusal, classed by what the caller can do about it.
-	/// A full archive can take the same record once it has room; a widening
-	/// that policy will not grant never can; everything else names a request
+	/// A full archive can take the same record once it has room. A widening
+	/// that policy will not grant never can. Everything else names a request
 	/// or a document that has to change.
 	pub fn archive(error: rooms_application::archive::Error) -> Self {
 		use rooms_application::archive::Error as Archive;
@@ -210,7 +210,7 @@ impl Error {
 		}
 	}
 	/// A grant view the runtime built but could not answer with. Only the
-	/// policy arm carries the ledger's own verdict; the rest are this
+	/// policy arm carries the ledger's own verdict. The rest are this
 	/// projection's shape.
 	pub fn grant_view(error: rooms_application::grants::protocol::Refusal) -> Self {
 		use rooms_application::grants::protocol::Refusal;
@@ -221,7 +221,7 @@ impl Error {
 		}
 	}
 	/// A session snapshot the runtime could not project. One that outgrew its
-	/// budget can be answered once the session holds less; the rest say the
+	/// budget can be answered once the session holds less. The rest say the
 	/// gathered state itself is wrong.
 	pub fn snapshot(error: rooms_application::session::snapshot::Refusal) -> Self {
 		use rooms_application::session::snapshot::Refusal;

@@ -3,7 +3,7 @@ id: ADR-0031
 status: accepted
 date: 2026-06-06
 tags: [c_abi, memory, performance, api]
-decision: "Allocation policy for the C ABI is a `GlowcapContext`: an explicit, caller-owned handle that owns the allocator for a whole handle family. The simple constructors keep the library-owned allocator; the `*_in` constructors allocate a peer or netlayer (and everything it owns (managed outbound/event frames, adopted inbound frames, TCP connection/listener payloads and their buffers, the context object itself)) through one context, freed back through it. The host surface is `alloc` + `free` only (size + alignment explicit, no `realloc`); the context must outlive its handles. Teardown vocabulary is `_release` for `_new`-created handles, `_close` for endpoints."
+decision: "Allocation policy for the C ABI is a `GlowcapContext`: an explicit, caller-owned handle that owns the allocator for a whole handle family. The simple constructors keep the library-owned allocator. The `*_in` constructors allocate a peer or netlayer (and everything it owns (managed outbound/event frames, adopted inbound frames, TCP connection/listener payloads and their buffers, the context object itself)) through one context, freed back through it. The host surface is `alloc` + `free` only (size + alignment explicit, no `realloc`). The context must outlive its handles. Teardown vocabulary is `_release` for `_new`-created handles, `_close` for endpoints."
 supersedes: []
 superseded_by: []
 ---
@@ -13,109 +13,101 @@ superseded_by: []
 ## Context
 
 A C embedder must be able to choose allocation policy for the C ABI: an arena,
-a tracked heap, a guarded pool: and have _every_ glowcap allocation honor it,
-not just some. The naive shape, a per-handle `glowcap_peer_new_in`,
-is a footgun: it scatters the policy across constructors, says nothing about the
-frames and buffers a handle later allocates, and tempts a caller to `free` a
-glowcap-owned object by hand. A Zig `std.mem.Allocator` cannot cross the C ABI
-at all.
+a tracked heap, a guarded pool, and have every glowcap allocation honor it. A
+per-handle `glowcap_peer_new_in` scatters the policy across constructors, says
+nothing about the frames and buffers a handle later allocates, and tempts a
+caller to `free` a glowcap-owned object by hand. A Zig `std.mem.Allocator`
+cannot cross the C ABI.
 
-This sits on three [First Principles](../../../AGENTS.md#first-principles):
-_production APIs make the correct path the easy path_ (one policy per handle
-family, not per call); _performance is a public contract: every allocation is
-forbidden, intentional, or measured_ (the allocator is visible at the boundary
-that allocates); and _the portable core stays sync and no-I/O; adapters own host
-integration_ (allocation policy is `c_abi` vocabulary, never `foundation` /
-`model` / `codec` / `session` / `engine`). It generalizes the library-owned
-allocation [ADR-0030](ADR-0030-netlayer-connection-and-memory-posture.md)
-introduced for the netlayer handle.
+The policy is one per handle family, not per call. The allocator is visible at
+the boundary that allocates, and allocation policy is `c_abi` vocabulary, never
+`foundation` / `model` / `codec` / `session` / `engine`. It generalizes the
+library-owned allocation
+[ADR-0030](ADR-0030-netlayer-connection-and-memory-posture.md) introduced for
+the netlayer handle.
 
 ## Decision
 
 **`GlowcapContext` is the explicit owner of allocation policy for a handle
 family** ([`src/c_abi/ocapn/mod.zig`](../../../src/c_abi/ocapn/mod.zig)).
-`glowcap_context_new` routes through the library allocator;
+`glowcap_context_new` routes through the library allocator.
 `glowcap_context_new_with_allocator` routes through host `alloc` / `free`
 callbacks. The `*_in` constructors (`glowcap_peer_new_in`,
 `glowcap_tcp_netlayer_new_in`) allocate from a context, and the simple
 constructors (`glowcap_peer_new`, `glowcap_tcp_netlayer_new`) keep the
-library-owned policy for the common caller who does not care.
+library-owned policy.
 
 **Every allocation a context-scoped handle makes frees back through that
 context**: the handle object, the managed outbound and event frames, adopted
 inbound frames, the TCP connection/listener payloads and their read/write
 buffers, and the context object itself (allocated through the host callbacks so
-a host-backed family frees entirely through host policy). The mechanism is
-_derive-from-parent_: a peer keeps its allocator (`engine.Peer.allocator`), a
-netlayer keeps its allocator, and every managed-frame / connection / listener
-payload carries the allocator it was minted from. Release routes through the
-stored allocator, so the _same_ `glowcap_*_release` works for both the simple
-and `*_in` paths, and a frame can even move between contexts because each
-allocation remembers its own origin. C callers free only through the explicit
-release functions: the context is policy, never a `free` a caller invokes by
-hand.
+a host-backed family frees entirely through host policy). Each handle derives
+its allocator from its parent: a peer keeps its allocator
+(`engine.Peer.allocator`), a netlayer keeps its allocator, and every
+managed-frame / connection / listener payload carries the allocator it was
+minted from. Release routes through the stored allocator, so the same
+`glowcap_*_release` works for both the simple and `*_in` paths, and a frame can
+move between contexts because each allocation records its origin. C callers free
+only through the release functions.
 
 **The host surface is `alloc` + `free` only**, both told the size and a
 power-of-two alignment. With both sides told the size, the only sound resize
-policy for an opaque host allocator is "never resize in place" (`resize` returns
-false, `remap` returns null): it keeps every `free` size exactly equal to its `alloc`
-size (correct even for a size-tracking host allocator) and never asks a
-relocated block to honor the original over-alignment. A grow becomes
+policy for an opaque host allocator is to never resize in place (`resize`
+returns false, `remap` returns null). That keeps every `free` size equal to its
+`alloc` size (correct even for a size-tracking host allocator) and never asks a
+relocated block to honor the original over-alignment. A grow is
 alloc-copy-free.
 
-**Lifetime is explicit, not reference-counted.** A host-backed context's
-allocator vtable lives inside the context object, so handles borrow it; the
-context must outlive every handle created in it. No hidden global, no lazy init,
-no background state.
+**Lifetime is explicit.** A host-backed context's allocator vtable lives inside
+the context object, so handles borrow it. The context must outlive every handle
+created in it. There is no hidden global, lazy init, or background state.
 
-**Teardown vocabulary has exactly two verbs.** Handles and managed values
+**Teardown has two verbs.** Handles and managed values
 created with `_new` are `_release` (`peer`, `context`, `managed_frame`, `event`,
-`netlayer`); network endpoints created with `connect` / `listen` / `accept` are
+`netlayer`). Network endpoints created with `connect` / `listen` / `accept` are
 `_close` (`conn`, `listener`).
 
 ## Scope (what this does not decide)
 
-- **No per-allocation hooks.** A context binds one `alloc` / `free` pair;
+- **No per-allocation hooks.** A context binds one `alloc` / `free` pair.
   glowcap does not expose per-call tags, categories, or instrumentation seams.
 - **No `realloc` / in-place resize callback.** It cannot preserve the
   size-equals-size invariant or guarantee alignment of a relocated block, so it
-  is absent by construction, not deferred.
+  is absent.
 - **No reference-counted context lifetime.** The context outlives its handles by
-  caller contract; glowcap does not track or enforce live-handle counts.
+  caller contract. glowcap does not track or enforce live-handle counts.
 - **No allocation policy below `c_abi`.** The core layers neither know nor name
-  a `GlowcapContext`; allocation policy crosses as plain C callbacks at the C
+  a `GlowcapContext`. Allocation policy crosses as plain C callbacks at the C
   ABI and as a `std.mem.Allocator` argument inside Zig.
 
 ## Alternatives Considered
 
-- **Per-handle `glowcap_peer_new_in`.** Rejected: scatters policy
-  across constructors, silent about the frames/buffers a handle later allocates,
+- **Per-handle `glowcap_peer_new_in`.** Rejected: it scatters policy
+  across constructors, says nothing about later frame and buffer allocations,
   and invites a caller to `free` a glowcap-owned object directly.
 - **Expose a `std.mem.Allocator` across the C ABI.** Rejected: a Zig allocator
-  vtable cannot be named or constructed by a C host; policy must cross as plain
+  vtable cannot be named or constructed by a C host. Policy must cross as plain
   `alloc` / `free` callbacks.
 - **A `realloc` callback for in-place growth.** Rejected: C `realloc` does not
   preserve an over-aligned block's alignment (mirrors `std.heap.CAllocator`,
   which refuses `realloc` for over-aligned allocations), and a resize callback
   breaks the free-size-equals-alloc-size invariant a size-tracking host needs.
-  The alloc-copy-free grow path is always correct and was never measured as a
+  The alloc-copy-free grow path is always correct and has not been a
   bottleneck.
-- **Reference-counted contexts.** Rejected: hidden lifetime machinery; an
-  explicit "context outlives its handles" contract is the boring, race-free
-  shape.
+- **Reference-counted contexts.** Rejected: hidden lifetime machinery. The
+  explicit "context outlives its handles" contract is race-free.
 
 ## Consequences
 
 - `c_abi` gains `GlowcapContext` / `GlowcapAllocator` and the
-  `glowcap_context_*` / `*_in` constructors; the C ABI handle payloads carry a
-  `std.mem.Allocator`, and `glowcap_tcp_netlayer_release` is renamed
-  `glowcap_tcp_netlayer_release` to make teardown uniform.
+  `glowcap_context_*` / `*_in` constructors. The C ABI handle payloads carry a
+  `std.mem.Allocator`, and teardown uses `glowcap_tcp_netlayer_release`.
 - `glowcap.h`, `README.md`, `docs/architecture.md`, and `bindings/README.md`
   state the contract authoritatively.
 - Evidence: balance and lifecycle tests over default and host-backed contexts,
   including session-table growth, outbound/event/adopted frames, `feed_owned`
   failure ownership, and a TCP loopback through a host allocator
-  ([`test/c_abi/context_test.zig`](../../../test/c_abi/context_test.zig)); and a
+  ([`test/c_abi/context_test.zig`](../../../test/c_abi/context_test.zig)), and a
   language consumer routing Host allocations through callbacks
   ([`bindings/python/zig_smoke.py`](../../../bindings/python/zig_smoke.py)),
   gated under `zig build check`.
@@ -124,13 +116,12 @@ created with `_new` are `_release` (`peer`, `context`, `managed_frame`, `event`,
 
 The C ABI carries a typed driving surface, so a non-Zig binding can drive OCapN
 directly: construct an `op:deliver` or `op:resolve`, and read a delivery or
-resolution as structured values: instead of only shuttling opaque frames. The
+resolution as structured values instead of shuttling opaque frames. The
 outbound path marshals fixed-layout C structs (`GlowcapReference` /
 `GlowcapArgument`) into a model message through `Peer.sendCopying`, the named
 boundary copy. The inbound path materializes one event into a per-event arena
 and projects C views that alias it, released by a `*_free`. The struct layouts
-are frozen ABI. This is what lets a binding _drive_ OCapN rather than relay
-frames it cannot read.
+are frozen ABI.
 
 ## Notes
 

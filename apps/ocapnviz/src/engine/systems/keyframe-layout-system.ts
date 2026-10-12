@@ -13,7 +13,7 @@ import {
 } from "./layout-eras.ts";
 
 /**
- * KeyframeLayoutSystem — node positions as a pure function of `t`.
+ * KeyframeLayoutSystem, node positions as a pure function of `t`.
  *
  * Nodes here are peers and session ends alike. An end whose `peer` field is
  * absent is LOOSE: nothing proved who is on it, so `endpointNodeId` gives it a
@@ -23,13 +23,13 @@ import {
  * means that end, never the designator string it carries.
  *
  * `layout-eras.ts` owns the era list and seals each one's start arrangement.
- * `force-layout.ts` owns the anneal; `stage-topology.ts` owns who stands at a
+ * `force-layout.ts` owns the anneal, `stage-topology.ts` owns who stands at a
  * moment. This class asks for the list and writes each node's position as an
  * eased lerp between the surrounding keyframes. Scrubbing forward and back
  * visits identical positions because there is no integration history.
  *
  * Cost: one convergence per era, and an era per moment the topology changes.
- * A loaded document has a handful; a live feed has as many as the connection
+ * A loaded document has a handful. A live feed has as many as the connection
  * has been up for, because every session that opens and closes is two moments.
  * A recompute reuses the arrangement it already holds for every era whose
  * problem is unchanged, which is what keeps an append from re-annealing the
@@ -87,7 +87,7 @@ export class KeyframeLayoutSystem {
 		this.#keyframes = computeKeyframes(doc, config, this.#claims);
 	}
 
-	/** Read-only keyframes view; tests use this. */
+	/** Read-only keyframes view. Tests use this. */
 	get keyframes(): readonly Keyframe[] {
 		return this.#keyframes;
 	}
@@ -108,9 +108,9 @@ export class KeyframeLayoutSystem {
 	/**
 	 * Point the layout at a replacement doc. The engine re-derives
 	 * its doc whenever projection touches it (`projectFromObservations`
-	 * returns a fresh object); the layout must follow, or every
+	 * returns a fresh object). The layout must follow, or every
 	 * doc-reading recompute (pins, topology eras) keeps consulting
-	 * the abandoned object. Does not recompute — the swap itself
+	 * the abandoned object. Does not recompute. The swap itself
 	 * changes no observable state, and the callers that mutate the
 	 * doc afterward already own the recompute.
 	 */
@@ -119,7 +119,7 @@ export class KeyframeLayoutSystem {
 	}
 
 	/**
-	 * Recompute keyframes from the (now-grown) recording layer.
+	 * Recompute keyframes from the (grown) recording layer.
 	 *
 	 * Live mode appends observations to a `TimelineDocument` after the
 	 * engine has already constructed its layout. Without recompute,
@@ -136,7 +136,7 @@ export class KeyframeLayoutSystem {
 		const claims = claimedPeerByEnd(this.#doc);
 		const signature = layoutInputSignature(this.#doc, claims);
 		// Nothing the solver reads has moved, so the layout it would produce is the
-		// one already held — at the price of a solve per era, and at the risk of
+		// one already held, at the price of a solve per era, and at the risk of
 		// landing in a different basin and moving every free peer to say so. A
 		// caller cannot be expected to know which document changes reach the
 		// solver; the layout does, so the decision lives here.
@@ -160,13 +160,13 @@ export class KeyframeLayoutSystem {
 	 * free peers even when the pin sits exactly where the era already
 	 * had the peer (measured at hundreds of world units on the
 	 * bundled fixtures). But a pin within epsilon of the era's
-	 * current position changes nothing the simulation balances — the
-	 * existing layout is still an equilibrium of the pinned system —
+	 * current position changes nothing the simulation balances, the
+	 * existing layout is still an equilibrium of the pinned system,
 	 * so that era keeps its layout verbatim (with the pinned entry
-	 * snapped to the exact pin). An era the edit genuinely disturbs
+	 * snapped to the exact pin). An era the edit disturbs
 	 * recomputes cold, the canonical derivation: the peer moves and
 	 * its neighbors re-balance, which is the response a drag wants.
-	 * This rule is only sound for a pin being ADDED or MOVED — it
+	 * This rule is only sound for a pin being ADDED or MOVED, it
 	 * compares current pins against the current arrangement. A pin
 	 * REMOVAL must recompute cold (`recompute()`): the old layout was
 	 * an equilibrium of the pinned system, not necessarily of the
@@ -182,8 +182,8 @@ export class KeyframeLayoutSystem {
 		this.#claims = claimedPeerByEnd(this.#doc);
 		this.#inputSignature = layoutInputSignature(this.#doc, this.#claims);
 		// Equilibrium is checked inside `computeEras` *before* `runForce`, so an
-		// undisturbed era never pays the anneal. The post-hoc throwaway path that
-		// used to live here cold-solved every era first.
+		// undisturbed era never pays the anneal. A post-hoc throwaway path
+		// would cold-solve every era first.
 		this.#keyframes = sealEras(
 			computeEras(
 				this.#doc,

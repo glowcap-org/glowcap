@@ -11,7 +11,7 @@ use std::{future::Future, num::NonZeroUsize};
 
 /// Fixed private metadata, never workspace export or client custody. Identity
 /// is persisted before opening the physical Store. A prepared anchor precedes
-/// resource commit; a live marker precedes public branch exposure.
+/// resource commit. A live marker precedes public branch exposure.
 #[derive(Clone, Copy)]
 pub struct Bootstrap {
 	pub seed: [u8; 32],
@@ -45,22 +45,23 @@ impl Bootstrap {
 		if bytes[..8] != Self::HEADER {
 			return Err(loam::refusal("unsupported private Rooms bootstrap format"));
 		}
+		let malformed = || loam::refusal("invalid private Rooms bootstrap");
 		let anchor = match bytes[72] {
 			0 if bytes[73..].iter().all(|byte| *byte == 0) => None,
-			1 => Some(StartupAnchor::decode(bytes[73..].try_into().expect("fixed anchor"))?),
+			1 => Some(StartupAnchor::decode(bytes[73..].try_into().map_err(|_| malformed())?)?),
 			_ => return Err(loam::refusal("invalid private Rooms bootstrap anchor")),
 		};
 		Ok(Self {
-			seed: bytes[8..40].try_into().expect("fixed seed"),
-			store_identity: bytes[40..56].try_into().expect("fixed Store identity"),
-			owner_identity: bytes[56..72].try_into().expect("fixed owner identity"),
+			seed: bytes[8..40].try_into().map_err(|_| malformed())?,
+			store_identity: bytes[40..56].try_into().map_err(|_| malformed())?,
+			owner_identity: bytes[56..72].try_into().map_err(|_| malformed())?,
 			anchor,
 		})
 	}
 
 	/// The embedding holds exclusive metadata custody and has already persisted
 	/// these identities. Persistence refusal exposes no public authority. Resource
-	/// preparation owns one existing core staging guard; this composition adds
+	/// preparation owns one existing core staging guard. This composition adds
 	/// fixed metadata only, without a grant inventory or independent scheduler.
 	pub async fn open<P, F>(
 		mut self,

@@ -3,7 +3,7 @@ id: ADR-0116
 status: accepted
 date: 2026-08-16
 tags: [captp, handoff, promises, host, lifecycle]
-decision: "A signed handoff give may occur recursively in Passable data. Inbound gives become Host-owned capability promises immediately; outbound foreign objects and promises project through one bounded, failure-atomic transaction that retains every capability occurrence until publication or terminal cleanup. Session-owned gift and replay authority remains on Peer."
+decision: "A signed handoff give may occur recursively in Passable data. Inbound gives become Host-owned capability promises immediately. Outbound foreign objects and promises project through one bounded, failure-atomic transaction that retains every capability occurrence until publication or terminal cleanup. Session-owned gift and replay authority remains on Peer."
 supersedes: []
 superseded_by: []
 amends: [ADR-0009, ADR-0066, ADR-0069, ADR-0090, ADR-0100]
@@ -15,16 +15,16 @@ amended_by: [ADR-0121]
 ## Context
 
 The pinned CapTP draft permits a signed `desc:handoff-give` anywhere a Passable
-value may occur. Handoff was previously complete only when a foreign capability
-was the top-level fulfillment of an answer. Sending the same capability inside
-a list, set, tagged value, struct, ordinary call argument, or fulfilled value
-was either refused or reached the outbound token guard.
+value may occur. Handoff that completes only for a foreign capability that is the top-level
+fulfillment of an answer refuses the same capability inside a list, set, tagged
+value, struct, ordinary call argument, or fulfilled value, or lets it reach the
+outbound token guard.
 
 An inline give has two independent delays. A receiver must expose a usable
 promise before exporter discovery and withdrawal finish. A gifter cannot emit
 the containing message until the process owner supplies a gift id and every
-exporter deposit can commit. Treating either delay as binding policy would give
-each language a different capability lifecycle and failure contract.
+exporter deposit can commit. Binding policy for either delay would give each
+language a different capability lifecycle and failure contract.
 
 ## Decision
 
@@ -32,15 +32,15 @@ Inbound signed gives are lifted recursively by the Host. Each occurrence mints
 one opaque Host capability whose target is a deferred promise row. The
 containing call or fulfillment is delivered immediately. Sends and listeners
 against that identity queue behind the row until the Node's ordinary redemption
-state machine fulfills or breaks it. The row records the introducing session;
-that session's close breaks the promise and cancels any not-yet-started
+state machine fulfills or breaks it. The row records the introducing session.
+That session's close breaks the promise and cancels any not-yet-started
 withdrawal because its session key is the recipient authority named by the
 give.
 
 Outbound owning-value verbs retain every capability occurrence before lowering.
 The Host exposes those retains to the Node only for the synchronous call into
-the recipient Peer. The Node claims the exact retains for cross-session
-tokens and adopts the complete owned message. Unclaimed retains return to the
+the recipient Peer. The Node claims the retains for cross-session tokens and
+adopts the complete owned message. Unclaimed retains return to the
 Host immediately. Claimed retains stay with the staged transaction until the
 message publishes or fails terminally.
 
@@ -50,22 +50,22 @@ groups deposits by exporter and reserves each exporter's complete queue batch.
 For each distinct foreign promise it prepares one shared home listener and a
 paired promise export/import escrow for every recipient occurrence. It then
 recursively rewrites object leaves to signed gives and promise leaves to the
-recipient promises. The recipient message commits first; prepared listeners,
+recipient promises. The recipient message commits first. Prepared listeners,
 escrows, and deposits then publish through infallible reserved carriers.
 Independent transports may deliver those committed frames in either order,
 which the handoff protocol permits.
 
-A locally originated promise is always allocated as one explicit
-export-to-answer projection. Export and answer positions are independent
-namespaces; equal integers never create that relationship. A bare unresolved
-promise export remains the lower-level primitive used by a third-party proxy
-and cannot receive local answer semantics by inference.
+A locally originated promise is allocated as one explicit export-to-answer
+projection. Export and answer positions are independent namespaces, so equal
+integers imply no relationship. A bare unresolved promise export is the
+lower-level primitive used by a third-party proxy and receives no local answer
+semantics by inference.
 
 The recipient Peer charges the complete parked semantic payload against its
 outbound byte budget. That payload is either an ordinary `Message` or an answer
 settlement retaining its exact session-local `AnswerTarget` (wire-or-virtual
-name plus incarnation stamp), stable answer payload, and `Resolution`; a virtual
-answer is never coerced into a wire `op:resolve`. `op:gc-answers` releases the
+name plus incarnation stamp), stable answer payload, and `Resolution`. A virtual
+answer is not coerced into a wire `op:resolve`. `op:gc-answers` releases the
 partner's pipelining name, not a resolver or listener notification already
 accepted for that incarnation. Such a notification moves to a private stamped
 owner until it publishes, so legal name reuse cannot cancel the old result or
@@ -76,7 +76,7 @@ durable-byte cap. Answer GC, local-promise retirement, or teardown releases the
 exact charge.
 The queued store-borrow carrier keeps its complete fixed footprint charged
 beside that resolution. Answer-payload and export-table capacity are acquired
-before any export mention or answer status changes; a V1 export mention is
+before any export mention or answer status changes. A V1 export mention is
 retained only when the answer has a resolver callback, while next retains each
 mention with the listener fire that will publish it.
 The Node bounds aggregate staged occurrences per recipient by that session's
@@ -86,10 +86,10 @@ object/promise home loss, origination refusal, proxy pressure, or recipient
 admission failure cancels every sibling effect, publishes no deposit or
 listener, and asks the Host to run the recipient session's complete close
 barrier. That barrier breaks already-returned vows and cancels admitted turns.
-Terminal capability cleanup consumes each transferred retain once; failure to
-publish GC condemns a still-live home rather than parking cleanup forever.
+Terminal capability cleanup consumes each transferred retain once. Failure to
+publish GC condemns a still-live home.
 
-The Peer continues to own deposited gifts, replay state, session names, and
+The Peer owns deposited gifts, replay state, session names, and
 wire accounting as decided by ADR-0100. The Node owns only the bounded in-flight
 transaction, routing tokens, and scheduled consequences. The C ABI and language
 bindings project Host values and lifecycle outcomes. They do not originate
@@ -119,22 +119,21 @@ coverage on that peer.
 
 ## Consequences
 
-- The owning `Value` APIs can pass foreign objects and promises recursively. Raw/model APIs
-  still refuse cross-session arguments because they carry no Host retain that a
+- The owning `Value` APIs pass foreign objects and promises recursively.
+  Raw/model APIs refuse cross-session arguments because they carry no Host retain that a
   delayed transaction can adopt.
 - Actor answer settlements and ordinary messages select different semantic
   roots but share the same recursive count, collect, rewrite, and rollback
   passes. Completion moves the rewritten resolution through the named-answer
-  enqueue/store transaction; codecs and bindings never stage it themselves.
+  enqueue/store transaction. Codecs and bindings never stage it themselves.
 - A delayed outbound occurrence adds one bounded staging row, one Host retain,
   and reserved terminal consequences. Promise occurrences additionally consume
-  one bounded proxy-recipient seat; occurrences sharing a home promise share its
+  one bounded proxy-recipient seat. Occurrences sharing a home promise share its
   single listener. Ordinary same-session messages do not enter this path.
 - Closing the introducing session ends inbound redemption authority. An
-  installed Host session-key resolver never substitutes the Node's durable key
+  installed Host session-key resolver does not substitute the Node's durable key
   for a missing session.
-- A staged failure is a session lifecycle outcome, not a `Peer.flush` hint and
-  not a callerless diagnostic event.
+- A staged failure is a session lifecycle outcome.
 
 ## Evidence and gate
 
@@ -156,5 +155,5 @@ coverage on that peer.
 - `test/c_abi/host/handoff_test.zig` carries two nested occurrences through three Hosts
   and the C behavior surface while the caller releases its original handle.
 - `zig build bindings-goblins-gift` carries two nested occurrences through Deno,
-  Python, Rust, and Racket; live Goblins redeems and calls both direct exporter
+  Python, Rust, and Racket. Live Goblins redeems and calls both direct exporter
   capabilities in every leg.

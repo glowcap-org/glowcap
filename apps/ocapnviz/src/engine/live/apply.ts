@@ -1,6 +1,6 @@
 /**
  * One live record's effect on the stage. `feed.ts` owns the
- * envelope — epoch changes and the replay batch — and calls here
+ * envelope, epoch changes and the replay batch, and calls here
  * once a record is ready to draw. The batch flush calls straight
  * in, so a replayed record cannot re-enter the buffer it is being
  * drained from.
@@ -93,7 +93,7 @@ export function applyEvent(
 				// `glowcap-next` is glowcap's own CapTP profile and travels only
 				// between glowcap peers (ADR-0003), so a session on it says what
 				// both of its ends run. `v1_0` is the OCapN interop floor and says
-				// nothing — glowcap speaks it too.
+				// nothing, glowcap speaks it too.
 				...(captpVersion === "next" && { glowcapPrivateProfile: true }),
 			});
 			// Null means another producer already put this wire on stage: an edge
@@ -116,7 +116,7 @@ export function applyEvent(
 				// a guess read back off this record. An end the ledger attached by
 				// correlating two producers' reports of one session id says exactly
 				// that; an end attached because the producer named it carries the
-				// producer's own verdict — and carries NOTHING when the producer
+				// producer's own verdict, and carries NOTHING when the producer
 				// stated no verdict, because then nothing was measured and the viewer
 				// has no attribution to offer. Attached with no attribution is the
 				// shape an authored scenario already has: somebody is on this end, and
@@ -139,7 +139,7 @@ export function applyEvent(
 				// existed then was the floor; a present unknown word stays unknown.
 				captpVersion,
 				// The trace reports a session only once its handshake
-				// completed, so it arrives on stage already open — without
+				// completed, so it arrives on stage already open, without
 				// this the stage shows "negotiating" forever.
 				initialState: "open",
 			});
@@ -147,7 +147,7 @@ export function applyEvent(
 		}
 		case "ocapn.message-decoded": {
 			// Replayed messages are history, not part of this viewer's
-			// capture — replay materializes topology (state) only.
+			// capture, replay materializes topology (state) only.
 			if (ev.replay === true) return;
 			const session = nonEmptyStringFromWire(ev.session);
 			if (session == null) return;
@@ -186,7 +186,7 @@ export function applyEvent(
 			const depart_t_ms = departNs !== undefined ? departNs / 1_000_000 : t_ms;
 			// Payload pass-through: whole frame (`bytes_b64`) or the
 			// producer-capped head (`summary`); the true length rides
-			// beside either. This layer neither decodes nor re-bounds —
+			// beside either. This layer neither decodes nor re-bounds,
 			// the producer owns the cap, the Inspector owns the display.
 			const bytesB64 = stringFromWire(ev.bytes_b64) ??
 				stringFromWire(ev.summary?.head_b64);
@@ -209,7 +209,7 @@ export function applyEvent(
 			return;
 		}
 		case "ocapn.session-meta": {
-			// An application annotation about the session's PARTNER — the
+			// An application annotation about the session's PARTNER, the
 			// reporting host is `a`, so the name is about `b`. A claim
 			// folds into the partner's label only; it never merges or
 			// splits peers (the ledger's identity rules are untouched).

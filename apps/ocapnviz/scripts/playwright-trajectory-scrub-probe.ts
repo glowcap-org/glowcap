@@ -1,12 +1,12 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-trajectory-scrub-probe.ts — does click-and-drag scrub the
+ * playwright-trajectory-scrub-probe.ts: does click-and-drag scrub the
  * time on an Inspector TRAJECTORY row the way it does on the start row?
  *
  * A real drag in a real browser is the only proof of this one. Every row
  * in the Timing section renders through the same `OptionalTimeRow`, so
  * nothing about the props tells you whether the gesture reaches the
- * input; what differed was the React key the trajectory list gave each
+ * input. What differed was the React key the trajectory list gave each
  * row, and how much of the row the scrub occupied.
  *
  * The probe drags each row a known distance and checks the time moved by
@@ -130,7 +130,7 @@ await scrub("Time this name took effect", 20);
 await scrub("Peer start time", -30);
 
 // The session panel's rows, whose list keys once carried the moment's
-// own time — the drag died after one step there and nowhere else.
+// own time. The drag died after one step there and nowhere else.
 const rows = page.locator("button.ocv-session-row");
 if (await rows.count() === 0) {
 	failures.push("no session to inspect from the peer's connections");

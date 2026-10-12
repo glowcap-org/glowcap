@@ -14,7 +14,7 @@ amended_by: []
 
 Managed cleanup needs to find an owner's descriptors, endpoints and publication
 recipes. Grant and resource directories alone cannot do that. Scanning every
-record exports cleanup cost to unrelated owners; making every issued descriptor
+record exports cleanup cost to unrelated owners. Making every issued descriptor
 a strong owner root changes its ordinary lifetime.
 
 An owner therefore maintains a sparse identity directory with weak leaf edges.
@@ -35,7 +35,7 @@ storage or network delivery.
 Owner retirement first closes admission, then retires observations and indexed
 identities before removing grant, resource and event roots. Normal operations
 refuse while retirement is in progress. The trusted owner administration surface
-can continue maintenance; a held use or grant control cannot manufacture owner
+can continue maintenance. A held use or grant control cannot manufacture owner
 administration authority. Retirement uses the Attachment publication barrier
 and its commit/uncertainty recovery path, including cold names.
 
@@ -44,14 +44,14 @@ shapes, drops their payload and dependency edges, and preserves irreversible
 identity and retry refusal. A surviving dependent cannot become an independent
 root when an ancestor is compacted. Active publications remain roots until their
 explicit retirement. Strong stored dependencies and native retains continue to
-protect records that their holders need; maintenance does not claim their last
+protect records that their holders need. Maintenance does not claim their last
 release on behalf of a remote peer.
 
 Grant and resource slot allocation floors survive directory pruning. An empty
 live directory does not reset its high-water mark. Loam object identities and
 durable publication names are never reassigned. Retired name reservations retain
 58 logical bytes each before backend overhead. Tracing owns physical collection
-of disconnected pages and expired payloads; native maintenance owns logical
+of disconnected pages and expired payloads. Native maintenance owns logical
 retirement and pruning.
 
 [Native tests](../../../test/loam/access/maintenance_test.zig),

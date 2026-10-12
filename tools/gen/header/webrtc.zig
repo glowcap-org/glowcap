@@ -6,13 +6,13 @@
 //! `tools/gen/header/iroh.zig`, the function signatures are *reflected* from the
 //! real `src/c_abi/net_transport/webrtc/mod.zig` exports, so the header cannot
 //! disagree with the implementation, and the prose lives here.
-//! `zig build gen-header-net-transport-webrtc-check` is the staleness gate;
+//! `zig build gen-header-net-transport-webrtc-check` is the staleness gate,
 //! `zig build gen-header-net-transport-webrtc` is the fixer. Both run cargo-free:
 //! the generator reflects types only and links the sidecar stubs
 //! (`tools/gen/stub/webrtc_sidecar.zig`).
 //!
 //! The shared frame/peer/context vocabulary is declared in `glowcap_ocapn.h`,
-//! which this header includes; only the WebRTC handles, readiness record, event
+//! which this header includes. Only the WebRTC handles, readiness record, event
 //! constants, and `glowcap_webrtc_*` prototypes are new here.
 
 const std = @import("std");

@@ -1,4 +1,4 @@
-//! Assigned names are output; only a user nickname edit restarts registration.
+//! Assigned names are output. Only a user nickname edit restarts registration.
 use super::*;
 use rooms_application::directory::registration::NicknameAllocation;
 use rooms_glowcap::client::workspace::Workspace;

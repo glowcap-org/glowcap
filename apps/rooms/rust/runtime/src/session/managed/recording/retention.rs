@@ -1,4 +1,4 @@
-//! Canonical retention intent owns recovery; the local archive owns erasure.
+//! Canonical retention intent owns recovery. The local archive owns erasure.
 //! One scalar subscriber shares the session's existing two change feeds.
 use super::*;
 use crate::session::managed::{Membership, supervision};

@@ -50,14 +50,14 @@ const mobileQuery = matchMedia("(max-width: 820px)");
 
 /** A conversation's unsent composer: what is typed, and what is attached.
  *
- * One shape rather than two parallel maps, because they are one thing — what a
- * reader has ready to send here — and two maps would have to be kept in step by
+ * One shape rather than two parallel maps, because they are one thing, what a
+ * reader has ready to send here, and two maps would have to be kept in step by
  * every caller that clears one. */
 export interface Draft {
 	text: string;
 	files: readonly File[];
 	/** Per-link gesture and effect state. URLs come from the shared Markdown
-	 * projection; identity survives unrelated typing, while stale outcomes can
+	 * projection. Identity survives unrelated typing, while stale outcomes can
 	 * settle only the exact attempt that started them. */
 	previews: readonly DraftPreview[];
 	/** The line this draft will change rather than post, when a reader has
@@ -72,7 +72,7 @@ export interface Draft {
 	 * change is to a file line rather than a plain one. Present only while
 	 * changing a line with files: it is what turns the composer into a view of
 	 * that line's files, with the new ones in `files` added after them. A × on a
-	 * chip drops it from here; sending refiles the line to exactly this set. */
+	 * chip drops it from here. Sending refiles the line to exactly this set. */
 	keeping?: readonly AttachmentView[];
 }
 
@@ -96,12 +96,12 @@ export interface State {
 	/** The conversation on screen, or null while the join card is up. */
 	activeKey: string | null;
 	/** The destination being acquired by the current navigation gesture. */
-	navigationTarget: string | null;
+	navigationTarget: import("../session/managed/openings.ts").AcquisitionTarget | null;
 	/** Every conversation this tab has open, keyed as `makeConv` describes.
 	 *
 	 * This is also the answer to which rooms we are in. A room conversation is
 	 * made when the room admits us and forgotten when we leave, so membership has
-	 * no separate field to disagree with it — and a tab is in as many rooms at
+	 * no separate field to disagree with it, and a tab is in as many rooms at
 	 * once as it likes, the way it already holds as many direct lines. The rail's
 	 * identity rows subscribe here. History, unread, drafts, typing, and rosters
 	 * do not: a line, a keystroke, or a join must not rebuild Settings, overlays,
@@ -125,8 +125,9 @@ export interface State {
 	 * standing: that belongs to the directory, is drawn on the rows that are on
 	 * it, and stays until that directory says otherwise. */
 	toasts: readonly ToastNotice[];
+	actionRefusals: ReadonlyMap<string, import("../admission_feedback.ts").ActionRefusal>;
 	/** Whether the tab is being looked at, and a count that rises each time it is
-	 * returned to. One subscriber writes both; everything that asks reads here,
+	 * returned to. One subscriber writes both. Everything that asks reads here,
 	 * so `document.hidden` is read in exactly one place in the tree (`hooks.ts`). */
 	visible: boolean;
 	returns: number;
@@ -144,7 +145,7 @@ export interface State {
 	 * because files picked for a room could leave in a direct message.
 	 *
 	 * A conversation with nothing typed in it holds no row, so this is empty for
-	 * the common case, and `forgetConv` drops a row with its conversation — a
+	 * the common case, and `forgetConv` drops a row with its conversation: a
 	 * draft cannot outlive the thing it was addressed to. */
 	drafts: ReadonlyMap<string, Draft>;
 	/** Names this window does not show lines from, folded. See `ignore`. */
@@ -163,14 +164,14 @@ export interface State {
 	 *
 	 * Not a field on the conversation: a roster is not identity, and putting it
 	 * there replaces the conversation on every join, leave, or away word. The
-	 * rail, the member column, and a direct line's away chip subscribe here; the
+	 * rail, the member column, and a direct line's away chip subscribe here. The
 	 * shell does not. Forgotten with the conversation. */
 	members: ReadonlyMap<string, ReadonlyMap<string, Standing>>;
 	/** What was said in each conversation, keyed the way `convs` is.
 	 *
 	 * Not a field on the conversation: a line is not identity, and putting it
 	 * there replaces the conversation on every arrival. The log and the viewer
-	 * subscribe here; the shell keeps the open conversation's identity. Forgotten
+	 * subscribe here. The shell keeps the open conversation's identity. Forgotten
 	 * with the conversation. A missing row is an empty log. */
 	histories: ReadonlyMap<string, readonly Item[]>;
 	/** Unread marks for each conversation, keyed the way `convs` is.
@@ -183,7 +184,7 @@ export interface State {
 	/** Rooms somebody has offered this tab and it has not answered yet, oldest
 	 * first. Empty for almost every reader almost always.
 	 *
-	 * Rows survive a directory reconnect. For a link offer that is simply true —
+	 * Rows survive a directory reconnect. For a link offer that is true:
 	 * a link is data. A handed offer's reference may have died with the wire
 	 * that carried it, and the row stays anyway: taking it up then fails with a
 	 * sentence saying the offer is spent, which beats silently deleting a row
@@ -199,7 +200,7 @@ export interface State {
 	edits: Edits;
 	/** What this browser did last, offered only where no act has an answer.
 	 * Written when a join succeeds, never while one is being typed. The stored
-	 * nickname remains checkpoint/reconnect history; the join form gets its
+	 * nickname remains checkpoint/reconnect history. The join form gets its
 	 * current automatic offer from the connected directory instead. */
 	remembered: Remembered;
 	theme: "light" | "dark";
@@ -246,14 +247,14 @@ export interface State {
 	sessionEffects: readonly string[];
 	managedAccess: UseView;
 	/** Whether the selected archive keeps room and direct-message history. The
-	 * Rust archive behind the session owns the bytes; this is only what the
+	 * Rust archive behind the session owns the bytes. This is only what the
 	 * switch draws. */
 	keepHistory: boolean;
 	/** Where new member-owned history is written. Live archive authority stays
-	 * below the store; this is only the connection state Settings draws. */
+	 * below the store. This is only the connection state Settings draws. */
 	archiveTarget: ArchiveTargetView;
 	/** Read-only history accounts another member handed this tab. The
-	 * references and any lasting link stay below the store; these rows only
+	 * references and any lasting link stay below the store. These rows only
 	 * draw the read and drop choices. */
 	archiveShares: readonly ArchiveShareView[];
 	/** The page's bounded trouble journal, newest first; `store/trouble.ts`
@@ -264,7 +265,7 @@ export interface State {
 	/** Possession projected from canonical custody, independent of loaded rows. */
 	opsHeld: OpsHeld;
 	/** What the inspect capability last said, or null while this tab holds none.
-	 * Holding the live reference is the Rust application's job; this is only what to draw. */
+	 * Holding the live reference is the Rust application's job. This is only what to draw. */
 	diagnostics: readonly DiagnosticRow[] | null;
 	/** The live listeners the admin capability last reported, or null while
 	 * this tab holds none. Same split as `diagnostics`: Rust holds the
@@ -275,8 +276,8 @@ export interface State {
 	 * the authority and each publication's lease, this is only what to draw. */
 	peering: PeeringState | null;
 	/** Where this session publishes its own trace while it holds the trace
-	 * capability, or null while it holds none. A local tab owns the publisher;
-	 * a shared session projects the durable one. This is only what to draw. */
+	 * capability, or null while it holds none. A local tab owns the publisher.
+	 * A shared session projects the durable one. This is only what to draw. */
 	trace: TracePublishState | null;
 	/** The directory whose card is open, or null. */
 	aboutDir: DirId | null;
@@ -291,7 +292,7 @@ export interface State {
 	/** Whether that card opened already asking to leave the conversation. */
 	aboutConvLeave: boolean;
 	/** Which room-specific surface asked to open that card. Ordinary title and
-	 * /details routes use About; the reader's roster row opens the bridge
+	 * /details routes use About. The reader's roster row opens the bridge
 	 * identity tab directly. */
 	aboutConvPane: "about" | "bridge" | "capabilities";
 	/** Changes for every request to open the conversation card, including a
@@ -316,6 +317,7 @@ export function initialState(): State {
 		dirs: new Map(),
 		homeDir: null,
 		toasts: [],
+		actionRefusals: new Map(),
 		visible: true,
 		returns: 0,
 		mobile: mobileQuery.matches,
@@ -397,7 +399,7 @@ export class PageProjection {
 	}
 
 	/** Stop mirroring layout queries. A page that outlives the tab does not call
-	 * this; tests that construct many projections do. */
+	 * this. Tests that construct many projections do. */
 	dispose(): void {
 		this.#abort.abort();
 	}
@@ -406,7 +408,7 @@ export class PageProjection {
 	 *
 	 * Read-only all the way down, so "never write through it" is a thing the
 	 * compiler refuses rather than a rule a reader has to keep. Every write
-	 * already copies before it mutates; this is what stops the next one from
+	 * already copies before it mutates. This is what stops the next one from
 	 * forgetting, and it is the whole of the one-authority claim above. */
 	get(): Readonly<State> {
 		return this.api.getState();
@@ -448,7 +450,7 @@ export class PageProjection {
 	 * A line carries things the projection knows nothing about: the URL a
 	 * picture is drawn from, the capability its bytes come from, the reference
 	 * that governs one of our own. The projection knows when a line stops being
-	 * drawn and nothing about what it was holding; the data layer knows the
+	 * drawn and nothing about what it was holding. The data layer knows the
 	 * opposite, so it listens here.
 	 *
 	 * Lines leave three ways and only two of them are the log's doing: the
@@ -497,6 +499,7 @@ export class PageProjection {
  * rosters, history, unread, and the conversation map stay out so a keystroke,
  * a join, or a line does not rebuild Settings, overlays, and directory cards. */
 export function appShellState({
+	actionRefusals: _actionRefusals,
 	drafts: _drafts,
 	lastSent: _lastSent,
 	typers: _typers,
@@ -505,7 +508,10 @@ export function appShellState({
 	unreads: _unreads,
 	convs: _convs,
 	...state
-}: State): Omit<State, "drafts" | "lastSent" | "typers" | "members" | "histories" | "unreads" | "convs"> {
+}: State): Omit<
+	State,
+	"actionRefusals" | "drafts" | "lastSent" | "typers" | "members" | "histories" | "unreads" | "convs"
+> {
 	return state;
 }
 

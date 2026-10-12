@@ -29,6 +29,20 @@ services:
       # One room authority across child and container restarts. This keeps the
       # iroh endpoint id and every issued durable room link stable.
       GLOWCAP_ROOMS_STATE: /state
+      # Rate overrides are absolute class=burst/per-minute pairs.
+      GLOWCAP_ROOMS_ADMISSION_SCALE: ${GLOWCAP_ROOMS_ADMISSION_SCALE:-}
+      GLOWCAP_ROOMS_ADMISSION_RATES: ${GLOWCAP_ROOMS_ADMISSION_RATES:-}
+      GLOWCAP_ROOMS_ADMISSION_ROWS: ${GLOWCAP_ROOMS_ADMISSION_ROWS:-}
+      GLOWCAP_ROOMS_ADMISSION_AGGREGATE_SCALE: ${GLOWCAP_ROOMS_ADMISSION_AGGREGATE_SCALE:-}
+      GLOWCAP_ROOMS_HTTP_ADMISSION_SCALE: ${GLOWCAP_ROOMS_HTTP_ADMISSION_SCALE:-}
+      GLOWCAP_ROOMS_HTTP_ADMISSION_RATES: ${GLOWCAP_ROOMS_HTTP_ADMISSION_RATES:-}
+      GLOWCAP_ROOMS_HTTP_ADMISSION_ROWS: ${GLOWCAP_ROOMS_HTTP_ADMISSION_ROWS:-}
+      GLOWCAP_ROOMS_HTTP_ADMISSION_AGGREGATE_SCALE: ${GLOWCAP_ROOMS_HTTP_ADMISSION_AGGREGATE_SCALE:-}
+      GLOWCAP_ROOMS_HTTP_ADMISSION_PER_ADDRESS: ${GLOWCAP_ROOMS_HTTP_ADMISSION_PER_ADDRESS:-}
+      GLOWCAP_ROOMS_BROWSER_ADMISSION_SCALE: ${GLOWCAP_ROOMS_BROWSER_ADMISSION_SCALE:-}
+      GLOWCAP_ROOMS_BROWSER_ADMISSION_RATES: ${GLOWCAP_ROOMS_BROWSER_ADMISSION_RATES:-}
+      GLOWCAP_ROOMS_BROWSER_ADMISSION_ROWS: ${GLOWCAP_ROOMS_BROWSER_ADMISSION_ROWS:-}
+      GLOWCAP_ROOMS_BROWSER_ADMISSION_AGGREGATE_SCALE: ${GLOWCAP_ROOMS_BROWSER_ADMISSION_AGGREGATE_SCALE:-}
       # Dial-by-node-id over n0 relays + DNS/pkarr (rooms-peer / cross-container).
       GLOWCAP_ROOMS_REACHABILITY: discovery
       # The web relay's deployment admission. Blank takes the in-process
@@ -65,6 +79,10 @@ services:
       # GLOWCAP_ROOMS_TRACE_PORT only changes the port) and mint the trace
       # capability it requires of every socket.
       GLOWCAP_ROOMS_TRACE: "1"
+      # Public WebSocket routes for viewers and session producers. Blank keeps
+      # local endpoint advice; deployment trace itself uses the internal proxy.
+      GLOWCAP_ROOMS_TRACE_CONNECT: ${GLOWCAP_ROOMS_TRACE_CONNECT:-}
+      GLOWCAP_ROOMS_TRACE_PUBLISH: ${GLOWCAP_ROOMS_TRACE_PUBLISH:-}
       # Same as --irc: mint the IRC gateway capability.
       GLOWCAP_ROOMS_IRC: "1"
       # Same as --history: listed rooms keep their last lines and serve them
@@ -102,9 +120,9 @@ services:
       - glowcap-rooms-net
 
   # One durable user workspace, separate from the directory's authority.
-  # Its administrator sturdyref never crosses HTTP: deployment up reads the
-  # current-start mirror from this container and the intended owner pastes it
-  # into the page's explicit session-establishment form. The page's existing
+  # Its workspace and management sturdyrefs never cross HTTP: deployment up reads the
+  # current-start mirrors from this container. The owner attaches the workspace
+  # and separately holds management in Session access. The page's existing
   # relay can dial this iroh identity without a published container port.
   session:
     image: ${GLOWCAP_ROOMS_IMAGE:?select an image through glowcap apps rooms deployment up}
@@ -117,8 +135,19 @@ services:
     environment:
       GLOWCAP_LIB_DIR: /runtime/lib
       GLOWCAP_ROOMS_SESSION_STATE: /session-state
+      GLOWCAP_ROOMS_SESSION_ADMISSION_SCALE: ${GLOWCAP_ROOMS_SESSION_ADMISSION_SCALE:-}
+      GLOWCAP_ROOMS_SESSION_ADMISSION_RATES: ${GLOWCAP_ROOMS_SESSION_ADMISSION_RATES:-}
+      GLOWCAP_ROOMS_SESSION_ADMISSION_ROWS: ${GLOWCAP_ROOMS_SESSION_ADMISSION_ROWS:-}
+      GLOWCAP_ROOMS_SESSION_ADMISSION_AGGREGATE_SCALE: ${GLOWCAP_ROOMS_SESSION_ADMISSION_AGGREGATE_SCALE:-}
       GLOWCAP_ROOMS_SESSION_TRANSPORT: iroh
       GLOWCAP_ROOMS_SESSION_REACHABILITY: discovery
+      # Browser introductions carry a Noise relay locator, including the
+      # fallback for WebRTC. Install that dial family on the shared peer.
+      GLOWCAP_ROOMS_SESSION_RELAY_URL: ws://directory:8080/relay
+      # When public ingress requires a browser login, map its exact advertised
+      # relay URL to the same registry on the private network. Other peer relay
+      # hints keep their destinations. Set the public URL in the override.
+      GLOWCAP_ROOMS_SESSION_RELAY_ALIAS_URL: ${GLOWCAP_ROOMS_SESSION_RELAY_ALIAS_URL:-}
     volumes:
       - session-state:/session-state
     # Readiness is an incarnation fact, not user state. A tmpfs makes a crash,

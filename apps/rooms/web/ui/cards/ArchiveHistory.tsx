@@ -1,5 +1,5 @@
 // Conversation-card archive share controls. Incoming offers draw on the DM
-// that carried them; a room card names a member and hands a facet over that DM.
+// that carried them. A room card names a member and hands a facet over that DM.
 
 import { useState } from "react";
 import { archiveHistoryTitle, archiveShareCopy, archiveShareWith } from "../../../lib/text/controls.ts";
@@ -101,7 +101,7 @@ function IncomingShares({ shares }: { shares: readonly ArchiveShareView[] }) {
 	// card, the manager and the moderator, both ask before letting one go.
 	const [discarding, setDiscarding] = useState<string | null>(null);
 	/** Why a read did not happen, by the share it was asked of. The row already
-	 * draws a failure the store reports; this is the one the reader's own press
+	 * draws a failure the store reports. This is the one the reader's own press
 	 * came back with, which had nowhere to go. */
 	const [shareWhy, setShareWhy] = useState<Readonly<Record<string, string>>>({});
 	const [reading, setReading] = useState<ReadonlySet<string>>(() => new Set());
@@ -116,7 +116,9 @@ function IncomingShares({ shares }: { shares: readonly ArchiveShareView[] }) {
 							{archiveOfferedSaid(offered.custody, offered.kind, offered.scopeConversation ?? null)}
 						</span>
 					</div>
-					{offered.custody === "durable" && <ArchiveOfferLink id={offered.id} />}
+					{offered.custody === "durable" && offered.status !== "dropping" && (
+						<ArchiveOfferLink id={offered.id} />
+					)}
 					{offered.error !== "" && <Said kind="failure">{offered.error}</Said>}
 					{(shareWhy[offered.id] ?? "") !== "" && <Said kind="failure">{shareWhy[offered.id]}</Said>}
 					{discarding === offered.id
@@ -138,14 +140,17 @@ function IncomingShares({ shares }: { shares: readonly ArchiveShareView[] }) {
 								<Button
 									className="archive-share-drop"
 									variant="quiet"
-									disabled={reading.has(offered.id)}
+									busy={offered.status === "dropping"}
+									disabled={reading.has(offered.id) || offered.status === "reading"}
 									onClick={() => setDiscarding(offered.id)}
 								>
 									{archiveDiscardAsk}
 								</Button>
 								<Button
 									className="archive-share-read"
-									busy={reading.has(offered.id)}
+									busy={reading.has(offered.id) || offered.status === "reading"}
+									disabled={offered.status === "dropping"}
+									busyLabel={archiveReading}
 									onClick={() => {
 										setShareWhy((prior) => ({ ...prior, [offered.id]: "" }));
 										setReading((prior) => new Set([...prior, offered.id]));
@@ -170,7 +175,7 @@ function IncomingShares({ shares }: { shares: readonly ArchiveShareView[] }) {
 										});
 									}}
 								>
-									{reading.has(offered.id) ? archiveReading : archiveRead}
+									{archiveRead}
 								</Button>
 							</div>
 						)}
@@ -274,8 +279,14 @@ export function DmArchiveHistory(
 					</div>
 				</div>
 				<div className="actions">
-					<Button id="convcardShareArchive" busy={working} disabled={working} onClick={() => void hand()}>
-						{working ? archiveHanding : archiveHand}
+					<Button
+						id="convcardShareArchive"
+						busy={working}
+						busyLabel={archiveHanding}
+						disabled={working}
+						onClick={() => void hand()}
+					>
+						{archiveHand}
 					</Button>
 				</div>
 				{shared && <Said id="convcardArchiveSaid" kind="success">{archiveSharedWith(conv.id)}</Said>}
@@ -450,7 +461,7 @@ export function RoomArchiveHistory({ conv, you }: { conv: RoomConv; you: string 
 						disabled={working || peer.trim() === ""}
 						onClick={() => void hand()}
 					>
-						{working ? archiveHanding : archiveHand}
+						{archiveHand}
 					</Button>
 				</div>
 				{shared !== "" && why === "" && (

@@ -1,5 +1,5 @@
 // The opening screen remains usable when the browser has no WebGPU. The
-// shader mark is optional decoration; its absence must not hold startup or
+// shader mark is optional decoration. Its absence must not hold startup or
 // erase the product name. This checks composition before session handoff.
 import type { Page } from "playwright";
 import { fail } from "./harness.ts";

@@ -19,10 +19,9 @@ cleartext `keyed-relay` rendezvous.
 
 ## Context
 
-Two of the shipped netlayers are production transports and three are not. The
-architecture rule's table records the split: `iroh` and `webrtc` carry a peer
-proof and an encrypted channel, while `tcp`, `keyed-tcp`, and `keyed-relay`
-carry neither and are marked trusted-network only.
+`iroh` and `webrtc` carry a peer proof and an encrypted channel. `tcp`,
+`keyed-tcp`, and `keyed-relay` carry neither and are marked trusted-network
+only in the architecture rule's table.
 
 [ADR-0105](ADR-0105-connection-scoped-durable-authentication.md) settled that
 authentication belongs to the realized connection. On `keyed-tcp` the
@@ -30,41 +29,36 @@ designator is a durable key, but TCP proves no possession of it. The session
 therefore reports `unauthenticated`, and a captured hello can be replayed onto
 another cleartext connection.
 
-`keyed-relay` is worse in a way the two-key split makes precise. The relay
+`keyed-relay` is worse. The relay
 terminates each side's connection and opens its own onward
 ([ADR-0086](ADR-0086-byte-transparent-relay.md)), so the far end of a browser's
 byte channel is the relay. Authenticating that leg perfectly would prove the
 relay's identity, not the peer beyond it. The end-to-end session therefore
-remains `unauthenticated`, which is the honest answer and the whole problem.
+remains `unauthenticated`.
 
 For native peers there is no gap. An iroh connection carried over an n0 relay is
 still QUIC end to end: the relay forwards encrypted datagrams and never holds
-the keys, so a relayed iroh session reports `authenticated_transport` exactly as
-a direct one does. `zig build iroh-reachability` and
-`zig build demo-rooms-dm-iroh-discovery` hold that today.
+the keys, so a relayed iroh session reports `authenticated_transport` as a
+direct one does. `zig build iroh-reachability` and
+`zig build demo-rooms-dm-iroh-discovery` hold that.
 
 The gap is a browser. A browser cannot open a UDP socket, so it cannot speak
 QUIC to an iroh endpoint, which is why `keyed-relay` exists at all
 ([ADR-0088](ADR-0088-fully-functioning-browser-peer.md)). Browser-to-browser is
 covered by WebRTC ([ADR-0089](ADR-0089-webrtc-datachannel-netlayer.md)), whose
 DataChannel is DTLS-protected. What is left uncovered is a browser reaching a
-peer it cannot open a DataChannel to, which today means a cleartext session
-through a relay that can read and rewrite every byte.
-
-This engages the first principle that protocol correctness and capability
-semantics come before implementation convenience. A capability system whose
-browser tier requires a trusted intermediary has not delivered the semantics it
-claims.
+peer it cannot open a DataChannel to, which means a cleartext session through a
+relay that can read and rewrite every byte. A capability system whose browser
+tier requires a trusted intermediary has not delivered its semantics.
 
 ## Decision
 
-Add one **sealed channel** layer that runs between the byte transport and CapTP,
-and let every cleartext transport inherit it rather than fixing each transport
-separately.
+One **sealed channel** layer runs between the byte transport and CapTP, and
+every cleartext transport inherits it.
 
 The two CapTP peers run a **Noise_XK** handshake with each other, inside
 whatever byte pipe already connects them. A relay in that path forwards
-ciphertext. The realizer is the sealed layer rather than the socket, so when the
+ciphertext. The realizer is the sealed layer, not the socket, so when the
 handshake completes it asserts the remote's durable key through
 `engine.Peer.bindVerifiedChannelKey` and the session reports
 `authenticated_transport` about the **partner**, not about the carrier.
@@ -73,11 +67,9 @@ Two new netlayer symbols carry it: **`noise-tcp`** and **`noise-relay`**. Each
 keeps the designator scheme and address shape of the cleartext symbol it sits
 beside, so a peer's existing durable key is its identity on both.
 
-The symbol says which protocol to speak. It does not license any conclusion
-about who is at the far end. That conclusion still comes from the handshake
-completing, through the same seam every other realizer uses, which is what keeps
-this consistent with ADR-0105 rather than reintroducing the transport table it
-deleted.
+The symbol says which protocol to speak. The conclusion about who is at the far
+end comes from the handshake completing, through the seam every other realizer
+uses, which keeps this consistent with ADR-0105.
 
 The channel composition is one type, `foundation.sealed.SealedChannel`, and
 each stream tier is a thin owner and its own realizer. The byte-fed core Host
@@ -91,31 +83,28 @@ the handshake before the loop hears the dial connected and answers
 `verifiedChannelKey`, the same realizer seam the iroh backend uses, so
 `driver.Bridge` binds the proof unchanged.
 
-## The handshake, exactly
+## The handshake
 
 **Pattern.** `Noise_XK_25519_ChaChaPoly_BLAKE2s`. All three primitives are in
-`std.crypto`, so this adds no dependency, only code in `foundation`.
+`std.crypto`, so this adds code in `foundation` and no dependency.
 
-**Why XK and not IK.** Both are candidates once the responder's key is known in
-advance, which a key designator supplies. They differ in when the initiator
-sends its own static key. `IK` sends it in the first message, encrypted under
-the responder's long-term key. Recording that message and later compromising the
-responder's static key reveals who connected. `XK` sends the initiator's static
-in the third message, under keys derived from an ephemeral-to-ephemeral
-exchange, so a later compromise of the responder's key reveals nothing about who
-talked to it.
-
-That difference decides it here rather than in general. The point of this design
-is to put an untrusted relay in the path deliberately, and a relay is perfectly
-placed to record first messages and wait. In a capability system, who connected
-to whom is often more sensitive than what was said. The cost is one extra round
-trip at setup, which a long-lived room session pays once.
+**Why XK and not IK.** Both work once the responder's key is known in advance,
+which a key designator supplies. They differ in when the initiator sends its
+static key. `IK` sends it in the first message, encrypted under the responder's
+long-term key, so recording that message and later compromising the responder's
+static key reveals who connected. `XK` sends the initiator's static in the third
+message, under keys derived from an ephemeral-to-ephemeral exchange, so a later
+compromise reveals nothing about who talked to it. This design
+puts an untrusted relay in the path, and a relay can record first messages and
+wait. In a capability system, who connected to whom is often more sensitive than
+what was said. The cost is one extra round trip at setup, paid once per
+long-lived room session.
 
 **Static keys.** A peer's Noise static is its durable Ed25519 key converted to
 X25519 by the standard birational map. The initiator derives the responder's
-X25519 public key from the designator it already holds, which is what lets `XK`
-work against locators that exist today and keeps dial-by-key working for
-relay rendezvous and sturdyrefs.
+X25519 public key from the designator it already holds, so `XK` works against
+existing locators and dial-by-key keeps working for relay rendezvous and
+sturdyrefs.
 
 **Exact identity binding.** The map drops the Edwards sign bit, so equality of
 X25519 images is not proof of one exact Ed25519 encoding. Messages two and
@@ -125,8 +114,7 @@ sender's authenticated X25519 static, its initiator/responder role, and the
 initial Noise transcript after the protocol name, prologue, and responder
 pre-message. The initiator additionally requires message two's key to equal
 the locator's responder designator. Both payloads ride encrypted and
-authenticated inside the handshake, cost no extra round trip, and reveal the
-initiator's identity to no one the handshake does not. The channel borrows the
+authenticated inside the handshake and cost no extra round trip. The channel borrows the
 signing key only while constructing its local proof and retains no Ed25519
 secret.
 
@@ -141,39 +129,35 @@ sealed records: a two-byte big-endian length, then the ciphertext, at most
 65535 bytes including the 16-byte tag. A CapTP frame larger than one record's
 plaintext capacity spans several records.
 
-The layer is byte-stream in, byte-stream out. Nothing above it changes. The
-codec's cap-during-scan, `foundation.Spill`, and `SessionLimits.max_frame_bytes`
-all sit above and are untouched, because what they see is the plaintext stream
-they see today.
+The layer is byte-stream in, byte-stream out. The codec's cap-during-scan,
+`foundation.Spill`, and `SessionLimits.max_frame_bytes` sit above it and see the
+plaintext stream.
 
 **Failure is refusal.** A handshake that does not complete closes the connection
 without a CapTP session ever existing. There is no downgrade to an unsealed
-session and no option to permit one. A knob is how the hole reopens, which is
-the same reasoning ADR-0105 gave for deriving the demand rather than configuring
-it.
+session and no option to permit one, for the reason ADR-0105 derives the demand
+instead of configuring it.
 
 ## Where the layer lives
 
 - **`foundation.noise`**: the pure state machine. Handshake and transport
   cipherstates over caller buffers, no allocation beyond what the caller
-  supplies, no I/O. It belongs in `foundation` for the same reason
-  `foundation.Spill` does: two tiers need it and neither imports the other.
-- **`foundation.sealed`**: the channel composed over it — handshake framing,
+  supplies, no I/O. Two tiers need it and neither imports the other, as with
+  `foundation.Spill`.
+- **`foundation.sealed`**: the channel composed over it: handshake framing,
   the prologue, exact identity proofs, record framing, and prefix-consuming
   stream ingestion. Complete units are read from the transport's borrowed
-  buffer. Only an incomplete unit enters spill staging. The same
-  homing argument as the state machine, and it is the derivation that placed
-  it: threading `HostSession` sealing through the loop's peer-centric seams
-  would invert the contract the Bridge preserves, and duplicating channel
-  state into the loop's `Conn` would split channel authority, so the
-  transport-agnostic machine moved down to where both tiers can compose it
-  and each tier keeps one thin owner.
+  buffer. Only an incomplete unit enters spill staging. Threading `HostSession` sealing
+  through the loop's peer-centric seams would invert the contract the Bridge
+  preserves, and duplicating channel state into the loop's `Conn` would split
+  channel authority, so the transport-agnostic machine sits where both tiers can
+  compose it and each tier keeps one thin owner.
 - **`driver_core`**: the byte-fed tier's owner, implemented by the internal
   `src/driver/core/host/session.zig` shell/framing owner and its
   `host/session/ingress.zig` dispatch leaf behind the supported Host surface.
   `HostSession` gains one
   nullable boxed channel. `feedBytes` runs the handshake before any CapTP
-  byte reaches the engine and decrypts afterwards; `takeOutbound` emits
+  byte reaches the engine and decrypts afterwards. `takeOutbound` emits
   handshake messages first and seals afterwards. On completion the Host calls
   `bindVerifiedChannelKey` itself. `driver_core` is `core = true`, and Noise
   is sans-io, so `arch-check` stays satisfied.
@@ -182,23 +166,18 @@ it.
   as `keyed-tcp` does, and the byte-fed Host seals. For `noise-relay` the
   sealing completion-backend adapter (`net.noise_completion`) wraps the
   keyed-relay backend: a sealed dial completes the handshake before the
-  connect completion is reported — as the relay adapter completes its
-  WebSocket upgrade first — then seals submitted sends into records and lends
+  connect completion is reported (as the relay adapter completes its WebSocket upgrade first), then seals submitted sends into records and lends
   opened record plaintext to the recv seat. A coalesced ciphertext suffix stays
   in the inner backend's borrowed receive buffer until another seat consumes
   it, so the adapter does not copy whole records into a second queue. The loop
-  and Bridge are untouched and their budget equalities hold; the sealed leg
+  and Bridge are untouched and their budget equalities hold. The sealed leg
   pays its own pinned per-connection state instead.
-
-`driver.BlockingSession`, the no-router single-connection tier, does not get
-sealed transports, because it does not stand on the core Host. That is a present
-boundary rather than a plan.
 
 ## Per-session footprint
 
 The 500k-connection budget is a gate
-(`host_session_struct_budget_bytes`, 528 today), so the shell pays **one
-nullable pointer, eight bytes**, and an unsealed session pays nothing else. The
+(`host_session_struct_budget_bytes`), so the shell pays one nullable pointer,
+eight bytes, and an unsealed session pays nothing else. The
 channel itself is heap-allocated only for a sealed session.
 
 Handshake secrets are transient. The ephemeral secret, chaining key, HKDF
@@ -206,7 +185,7 @@ intermediates, and static-secret copy are zeroed at completion. The box then
 holds the two transport cipherstates plus fixed public proof/context storage.
 Ordinary staging is bounded by one incomplete Noise record. A byte-fed Host may
 also retain the unread suffix of one caller-owned read across the CapTP hello
-pause, just as its plaintext stream parser retains coalesced frames; no Ed25519
+pause, just as its plaintext stream parser retains coalesced frames. No Ed25519
 signing secret survives construction. The
 completion adapter's whole per-connection state is pinned by
 `test/net/noise_relay_test.zig`, so proof growth or new queue state changes a
@@ -222,8 +201,7 @@ sealed sessions.
 ## Wire compatibility and interop
 
 Additive. `keyed-tcp` and `keyed-relay` are untouched, and every existing
-locator keeps working. A peer that does not know `noise-tcp` cannot dial it,
-which is the correct outcome rather than a downgrade.
+locator keeps working. A peer that does not know `noise-tcp` cannot dial it.
 
 Upstream Goblins ships no Noise netlayer, so `noise-*` is glowcap to glowcap and
 to anyone who implements this record. Goblins interop continues over `tcp` and
@@ -236,13 +214,12 @@ key in the rendezvous bridge rather than by anything in the stream
 does not break routing. What changes is that it can no longer read or rewrite
 what it forwards.
 
-## Security posture, stated plainly
+## Security posture
 
 **What it fixes.** Replay of a captured hello, because the handshake is fresh
 per connection and the CapTP hello rides inside it. Confidentiality and
-integrity against anyone on the path, including the relay. Peer proof that is a
-cryptographic fact rather than a claim. Forward secrecy for both content and for
-the initiator's identity.
+integrity against anyone on the path, including the relay. Peer proof that is
+cryptographic. Forward secrecy for both content and the initiator's identity.
 
 **What it does not fix.** Traffic analysis: a relay still sees who connects to
 it, when, and how much. Relay availability: a relay can still refuse to forward,
@@ -254,7 +231,7 @@ and does not forbid others.
 
 ## Required evidence
 
-Each item names what carries it, or says plainly that nothing does yet.
+Each item names what carries it.
 
 1. **The state machine matches the pinned external transcript.** One published
    Snow/Cacophony vector for `Noise_XK_25519_ChaChaPoly_BLAKE2s` passes byte for
@@ -285,14 +262,14 @@ Each item names what carries it, or says plainly that nothing does yet.
    Held by
    [`test/driver/sealed_channel_test.zig`](../../../test/driver/sealed_channel_test.zig).
 6. **The relay sees ciphertext.** The forwarded bytes contain no CapTP frame
-   preamble, asserted against the relay's own view rather than inferred. The
+   preamble, asserted against the relay's own view. The
    live registered-resident scenario in
    [`test/driver/host_runtime_multiplexed/relay_resident_test.zig`](../../../test/driver/host_runtime_multiplexed/relay_resident_test.zig)
    holds this for its plaintext probe. The C driver repeats the live
    registered-provider path in
    [`test/c_abi/driver_loop/archive_test.zig`](../../../test/c_abi/driver_loop/archive_test.zig).
-Items 2 and 4 are the load-bearing identity claims: the channel reports a
-stronger fact only after proving the exact key it reports.
+Items 2 and 4 are the identity claims: the channel reports a stronger fact only
+after proving the exact key it reports.
 
 ## Implementation
 
@@ -302,9 +279,7 @@ session and binds the verified channel key to session provenance. Transport
 packages only supply byte pipes and profile metadata: the TCP archive owns
 `noise-tcp`, and the relay archive owns `noise-relay`. The generic driver and
 bindings therefore select the sealed channel without implementing Noise or
-transport policy themselves. Footprint tests pin the per-session and
-completion-adapter state, while the evidence above holds the wire and identity
-claims.
+transport policy themselves.
 
 ## Scope (what this does not decide)
 
@@ -320,8 +295,8 @@ claims.
   record names.
 - **No relay accountability.** A relay that drops traffic is unchanged by this,
   and making one answerable for what it forwards is a separate design.
-- **`driver.BlockingSession` does not get sealed transports**, because it does
-  not stand on the core Host.
+- **`driver.BlockingSession` has no sealed transports**, because it does not
+  stand on the core Host.
 - **No second identity credential.** A completed `Noise_XK` handshake already
   proves the durable keys at both ends and protects the CapTP hello carrying
   each fresh session key. A second durable-key signature would add no proof.
@@ -331,73 +306,49 @@ claims.
 - **`Noise_IK`**: one fewer round trip. Rejected because the initiator's static
   is encrypted under the responder's long-term key, so a recorded first message
   plus a later key compromise reveals who connected. The relay this design
-  invites into the path is exactly the party positioned to record it.
+  invites into the path is positioned to record it.
 - **A separate X25519 static published in a signed locator hint**: avoids using
   one key for signing and Diffie-Hellman. Rejected because `XK` needs the
   responder's static before the first message, so the dialer would need the
   hint, and dial-by-key alone would stop working for relay rendezvous and
-  sturdyrefs. The key-reuse hazard is instead bounded by the signing-domain
-  invariant in step 2.
+  sturdyrefs. The key-reuse hazard is instead bounded by the domain-separated
+  signature in the exact identity binding.
 - **Upgrading `keyed-tcp` in place**: no new symbols. Rejected because a locator
   would stop telling a dialer what it will get, and two peers could disagree
-  about whether the channel is protected. It is also the rename ADR-0105's Scope
-  argues against, since the Noise prologue, hello signature, locator equality,
-  and Goblins withdrawal lookup all bind the exact transport string.
+  about whether the channel is protected. ADR-0105's Scope argues against the
+  rename, since the Noise prologue, hello signature, locator equality, and
+  Goblins withdrawal lookup all bind the exact transport string.
 - **Securing only the relay leg, with TLS to the relay**: familiar and cheap.
   Rejected because it proves the relay. The byte channel's far end is still the
   relay, so `partnerDurableProvenance` would correctly decline to call it
   `authenticated_transport`, and the relay would still read everything.
-- **TLS 1.3 with raw public keys instead of Noise**: a well-reviewed protocol
-  with wide tooling. Rejected because it brings certificate and extension
-  machinery for a two-party pinned-key exchange, it is far larger in a wasm
-  build, and `std.crypto` gives us the three Noise primitives already.
+- **TLS 1.3 with raw public keys instead of Noise**: Rejected because it brings
+  certificate and extension machinery for a two-party pinned-key exchange, it is
+  far larger in a wasm build, and `std.crypto` has the three Noise primitives.
 - **WebTransport so a browser speaks QUIC**: rejected because its server
   authentication is a WebPKI certificate rather than a glowcap durable key, so
   it would prove the wrong thing and still need this layer on top.
 
-## Review lenses
-
-**"The transport symbol decides whether the channel is sealed, which is the
-table ADR-0105 deleted."** ADR-0105 deleted a table mapping a symbol to *what
-was proved*. This maps a symbol to *what protocol to speak*, which is what a
-netlayer symbol is for and why `designatorSchemeForTransport` survived that
-record. The proof still comes from the handshake completing, through
-`bindVerifiedChannelKey`, and a session whose handshake did not complete has no
-session at all.
-
-**"Reusing the Ed25519 key for Diffie-Hellman is a cross-protocol hazard."**
-Correct, and it is the weakest joint in this design. It is accepted rather than
-dismissed, and bounded by a mechanical invariant instead of a comment. If a
-future record needs the durable key to sign anything peer-supplied, this
-decision has to be revisited, and step 2's check is what forces that
-conversation.
-
-**"A relay can still deny service, so the browser tier still depends on it."**
-True. This record makes a relay untrusted for confidentiality and integrity, not
-unnecessary for reachability. That is a smaller claim than "the relay problem is
-solved" and is the one made here.
-
-**"Two more symbols is the N-by-M growth the archive split exists to avoid."**
-It is two, not a family, because only the cleartext key-designator transports
-need it. `iroh` and `webrtc` prove their own peers, and plain `tcp` is out of
-scope above.
-
 ## Consequences
+
+Reusing the Ed25519 key for Diffie-Hellman is a known cross-protocol risk.
+The exact identity binding's domain-separated signature bounds it, and a record
+that needs the durable key to sign peer-supplied data must revisit this
+decision. A relay becomes untrusted for confidentiality and integrity, but it
+can still deny service.
 
 `foundation` gains a crypto module larger than the Ed25519 and SHA-256 leaf it
 has today, and that module is on the wasm build's path, so its size shows up in
 the browser bundle. `driver_core` gains per-session state that is null for every
-unsealed session and eight bytes on the shell for all of them, which is a
-withdrawal from the footprint budget that the Host ceiling has to be moved for
-deliberately, in the constant and in `docs/ladder.md` together.
+unsealed session and eight bytes on the shell for all of them. The Host ceiling
+moves in the constant and in `docs/ladder.md` together.
 
 The transports table in the architecture rule gains two rows with a production
 verdict, and `docs/boundaries.md` loses the claim that a cleartext keyed hello
 is replayable on the sealed symbols while keeping it for the unsealed ones.
 
 The relay matrix in `zig build bindings-relay` gains a sealed row per runtime.
-The relay implementations themselves need no change, which is the clearest
-evidence that the layer sits where it should.
+The relay implementations need no change.
 
 ## Notes
 

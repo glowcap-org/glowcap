@@ -1,9 +1,9 @@
 /**
  * What "the same document" means.
  *
- * Three things read this answer — a transaction that changed nothing,
+ * Three things read this answer, a transaction that changed nothing,
  * an undo round trip, and whether the buffer still says what it was
- * built from — so the cases below are the ones where the cheap
+ * built from, so the cases below are the ones where the cheap
  * spelling, `JSON.stringify(a) === JSON.stringify(b)`, gives a
  * different answer from the right one.
  */

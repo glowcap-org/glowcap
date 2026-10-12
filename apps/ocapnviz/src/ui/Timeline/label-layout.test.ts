@@ -114,13 +114,13 @@ Deno.test("layoutLaneLabels: earlier full label fits when neighbor leaves room",
 	assertEquals(placed.length, 2);
 	assertEquals(placed[0]!.id, "a");
 	assertEquals(placed[0]!.label, "hello");
-	// Labels stay anchored to their pill — A at 105, B at 155.
+	// Labels stay anchored to their pill. A at 105, B at 155.
 	assertEquals(placed[0]!.x, 105);
 	assertEquals(placed[1]!.x, 155);
 });
 
 Deno.test("layoutLaneLabels: drops label when no room for even ellipsis", () => {
-	// Two labels at virtually the same x — earlier has no room.
+	// Two labels at virtually the same x, earlier has no room.
 	const placed = layoutLaneLabels(
 		[
 			input({ id: "a", startT: 0, label: "alice", pillLeft: 100 }),
@@ -130,7 +130,7 @@ Deno.test("layoutLaneLabels: drops label when no room for even ellipsis", () => 
 		LABEL_GAP_PX,
 		LABEL_MIN_PX,
 	);
-	// Only the later survives — the earlier's available width is
+	// Only the later survives. The earlier's available width is
 	// (101 - GAP) - 105 < 0 → dropped.
 	assertEquals(placed.length, 1);
 	assertEquals(placed[0]!.id, "b");
@@ -170,7 +170,7 @@ Deno.test("layoutLaneLabels: cascade — three overlapping spans, later wins eac
 	assertEquals(carol !== undefined, true);
 	assertEquals(carol!.label, "Carol (exporter)");
 	assertEquals(carol!.x, 111);
-	// Earlier ones are either truncated heavily or dropped — both are
+	// Earlier ones are either truncated heavily or dropped, both are
 	// acceptable per variation 1; the invariant is that no surviving
 	// label's right edge passes any later label's left edge.
 	let prevLeft = Number.POSITIVE_INFINITY;
@@ -187,7 +187,7 @@ Deno.test("layoutLaneLabels: cascade — three overlapping spans, later wins eac
 });
 
 Deno.test("layoutLaneLabels: per-pill clip prevents overflow past pill.right", () => {
-	// Single narrow pill with a long label — should truncate to fit
+	// Single narrow pill with a long label, should truncate to fit
 	// INSIDE its own pill bounds even without any neighbor pressure.
 	const placed = layoutLaneLabels(
 		[

@@ -41,7 +41,7 @@ impl Pending {
 }
 
 /// An inbox filed on one registered directory connection. Opening is a
-/// readiness barrier; serve drives only offers that arrive after publication.
+/// readiness barrier. Serve drives only offers that arrive after publication.
 pub struct Listener<D: Tasks> {
 	host: Host,
 	directory: Route<D>,
@@ -49,7 +49,7 @@ pub struct Listener<D: Tasks> {
 	handshake: Duration,
 }
 /// Admission failure and retirement have different recovery owners. A denied
-/// source is activity feedback; joined peers still establish a clean barrier.
+/// source is activity feedback. Joined peers still establish a clean barrier.
 pub(crate) struct ServeReport {
 	pub activity: Result<(), Error>,
 	pub retirement: Result<(), Error>,
@@ -71,7 +71,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Listener<D> {
 	}
 	/// Drive all admitted preparations until shutdown or directory closure.
 	/// Each obtains fresh application-supplied ICE configuration. The recipient
-	/// takes custody of Sessions; stopping signaling leaves them alive.
+	/// takes custody of Sessions. Stopping signaling leaves them alive.
 	/// Shutdown retires and joins every preparation before returning.
 	pub async fn serve<F: Future<Output = Result<RtcConfiguration, Error>> + 'static>(
 		self,

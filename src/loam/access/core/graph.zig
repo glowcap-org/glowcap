@@ -1,6 +1,6 @@
 //! Bounded owned containment, independent of actor or capability identity.
 //! One allocation reserves the requested slots. Reads and mutations allocate
-//! nothing; a subtree move visits its descendants to validate and update depth.
+//! nothing. A subtree move visits its descendants to validate and update depth.
 
 const std = @import("std");
 const identity = @import("identity.zig");
@@ -87,7 +87,7 @@ pub const Graph = struct {
     }
 
     /// Reserves the current structure without changing its public revision.
-    /// Reads remain available; mutations and destruction refuse while reserved.
+    /// Reads remain available. Mutations and destruction refuse while reserved.
     pub fn reserve(self: *Graph, base: Revision) Error!Reservation {
         try self.checkWritable(base);
         if (self.reservation_sequence == std.math.maxInt(u64)) return error.ReservationExhausted;
@@ -150,7 +150,7 @@ pub const Graph = struct {
     }
 
     /// Trusted structural mutation. Callers compose it with their content and
-    /// authority transaction; the expected revision prevents stale writes.
+    /// authority transaction. The expected revision prevents stale writes.
     pub fn create(self: *Graph, base: Revision, policy: *const Policy, kind: KindId, parent: ?ResourceId) Error!ResourceId {
         const next_revision = try self.nextRevision(base);
         const parent_index = if (parent) |id| try self.indexOf(id) else null;
@@ -197,7 +197,7 @@ pub const Graph = struct {
     }
 
     /// Destroy a leaf. Children require an explicit operation rather than an
-    /// implicit cascade. Reused slots receive a fresh generation; an exhausted
+    /// implicit cascade. Reused slots receive a fresh generation. An exhausted
     /// generation retires its slot permanently instead of wrapping.
     pub fn destroy(self: *Graph, base: Revision, id: ResourceId) Error!void {
         const next_revision = try self.nextRevision(base);

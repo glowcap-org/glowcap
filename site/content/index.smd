@@ -51,13 +51,13 @@ defer arena.deinit();
 const settled = try session.call(greeter, "greet", &.{.{ .string = "world" }}, arena.allocator());
 ```
 
-That is the whole exchange: dial the peer, fetch a capability it published,
-and call it. [Start building]($link.page('start')) fills in the other languages and
+Dial the peer, fetch a capability it published, and call it.
+[Start building]($link.page('start')) shows the other languages and
 transports.
 
 Pin a commit, and expect the API to move.
 [What you can depend on]($link.page('stability')) separates checked behavior
-from areas that still need external evidence.
+from areas that still need outside testing.
 
 The protocol core does no I/O of its own. It is a synchronous state machine you
 feed bytes into and drain bytes out of, so sockets, threads, and scheduling stay
@@ -71,14 +71,12 @@ in your program where you can see them. Peers can meet over encrypted discovery
 Objects can also outlive their process. [Loam]($link.page('loam')), the
 storage layer, keeps objects and the capabilities they hold on disk. An actor
 nobody is calling can sleep there, and a peer's sturdyref still reaches it
-after a restart. Loam's full API is in Zig; C and Rust get a narrower
+after a restart. Loam's full API is in Zig. C and Rust get a narrower
 profile, and Rust's also runs in the browser on IndexedDB.
 
 Use the library as a Zig package, a plain C ABI, or a native binding (Rust,
 TypeScript, Python, Racket). The TypeScript binding also compiles to
 WebAssembly, so the same session runs in the browser. The [CapTP
-CLI]($link.page('cli')) exposes the same operations from a shell; `zig build`
+CLI]($link.page('cli')) exposes the same operations from a shell. `zig build`
 puts the `glowcap` binary in `zig-out/bin`. [Choose an
 API]($link.page('surfaces')) compares all of these entry points.
-
-Ready to dial a peer? Go to [Start building]($link.page('start')).

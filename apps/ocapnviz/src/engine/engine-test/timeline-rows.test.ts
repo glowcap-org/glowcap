@@ -6,7 +6,7 @@ import { observationsOf } from "../temporal/recording-access.ts";
 import { engineTest } from "./harness.ts";
 import { doc } from "./fixtures.ts";
 
-// ─────────── Flash-grade timeline (PR 1) ───────────
+// ─────────── Timeline row order and visibility ───────────
 //
 // `reorder-row` writes `doc.rowOrder[category]`; `set-row-vis-mode`
 // writes `doc.rowHidden[category]`. Both fields are pruned to undefined
@@ -68,7 +68,7 @@ engineTest("reorder-row with same order is a no-op (no history push)", () => {
 	const e3 = new Engine(structuredClone(doc));
 	e3.dispatch({ kind: "reorder-row", category: "peers", order: ["b", "a"] });
 	e3.dispatch({ kind: "reorder-row", category: "peers", order: ["b", "a"] });
-	// Still only one undoable step — the second dispatch was a no-op.
+	// Still only one undoable step. The second dispatch was a no-op.
 	e3.undo();
 	assertEquals(e3.canUndo, false, "only one history entry was recorded");
 	// Reference variable kept to avoid unused-var lint.
@@ -184,7 +184,7 @@ engineTest(
 			mode: "both",
 		});
 		assertEquals(e.doc.categoryVisMode?.peers, "both");
-		// Per-entity arrays UNTOUCHED — the cascade composes at
+		// Per-entity arrays UNTOUCHED. The cascade composes at
 		// render time; the category flag doesn't blast through to
 		// individual entities anymore.
 		assertEquals(e.doc.rowHidden, undefined);
@@ -234,7 +234,7 @@ engineTest(
 		});
 		assertEquals(e.doc.categoryVisMode?.peers, "body");
 		assertEquals(e.doc.rowLabelHidden?.peers, ["a"]);
-		// Cycle category back to visible — entity flag survives.
+		// Cycle category back to visible, entity flag survives.
 		e.dispatch({
 			kind: "set-category-vis-mode",
 			category: "peers",
@@ -255,7 +255,7 @@ engineTest(
 		// Per-category and per-entity arrays UNTOUCHED.
 		assertEquals(e.doc.categoryVisMode, undefined);
 		assertEquals(e.doc.rowHidden, undefined);
-		// Cycle back to visible — flag clears.
+		// Cycle back to visible, flag clears.
 		e.dispatch({ kind: "set-all-vis-mode", mode: "visible" });
 		assertEquals(e.doc.allVisMode, undefined);
 		assertEquals(e.allVisMode(), "visible");
@@ -266,7 +266,7 @@ engineTest(
 	"categoryVisMode returns the stored flag, NOT a survey of entities",
 	() => {
 		// With independent flags, the category mode doesn't read
-		// entity state at all — it's just the user's own setting.
+		// entity state at all, it's just the user's own setting.
 		const e = new Engine(structuredClone(doc));
 		assertEquals(e.categoryVisMode("peers"), "visible");
 		// Setting per-entity flags doesn't change the category flag.
@@ -317,14 +317,14 @@ engineTest(
 		assertEquals(e.effectiveRowVisMode("peers", "a"), "both");
 		// Peer b has no entity flag; only category=body contributes.
 		assertEquals(e.effectiveRowVisMode("peers", "b"), "body");
-		// All=both saturates — already-hidden axes stay hidden, the rest hide too.
+		// All=both saturates, already-hidden axes stay hidden, the rest hide too.
 		e.dispatch({ kind: "set-all-vis-mode", mode: "both" });
 		assertEquals(e.effectiveRowVisMode("peers", "a"), "both");
 		assertEquals(e.effectiveRowVisMode("sessions", "s1"), "both");
-		// Clear the all flag — union of (category=body, entity=label) re-emerges as both.
+		// Clear the all flag, union of (category=body, entity=label) re-emerges as both.
 		e.dispatch({ kind: "set-all-vis-mode", mode: "visible" });
 		assertEquals(e.effectiveRowVisMode("peers", "a"), "both");
-		// Clear the category — entity flag (label on a) is the only contributor again.
+		// Clear the category, entity flag (label on a) is the only contributor again.
 		e.dispatch({
 			kind: "set-category-vis-mode",
 			category: "peers",
@@ -340,8 +340,8 @@ engineTest(
 	() => {
 		// The 4×4×4 = 64 triples are too many to enumerate; this test
 		// covers the asymmetric cases the bug fix is specifically about
-		// (orthogonal-axis combinations that the old winner-take-all
-		// model got wrong) plus a few sanity rows.
+		// (orthogonal-axis combinations that a winner-take-all model gets
+		// wrong) plus a few sanity rows.
 		const cases: Array<
 			{
 				all: "visible" | "label" | "body" | "both";
@@ -361,7 +361,7 @@ engineTest(
 			{ all: "label", cat: "visible", entity: "body", expected: "both" },
 			{ all: "visible", cat: "label", entity: "body", expected: "both" },
 			{ all: "body", cat: "label", entity: "visible", expected: "both" },
-			// All=both saturates — entity can't un-hide.
+			// All=both saturates, entity can't un-hide.
 			{
 				all: "both",
 				cat: "visible",
@@ -372,7 +372,7 @@ engineTest(
 			{ all: "visible", cat: "both", entity: "label", expected: "both" },
 			// Same-axis stacking is idempotent.
 			{ all: "label", cat: "label", entity: "label", expected: "label" },
-			// Identity row — only entity contributes.
+			// Identity row. Only entity contributes.
 			{
 				all: "visible",
 				cat: "visible",
@@ -475,7 +475,7 @@ engineTest(
 	"undo/redo round-trips entities map",
 	() => {
 		// Fixture has peer-joined events for 'a' and 'b'. The parse
-		// transform auto-populates entities.peers for them — so the
+		// transform auto-populates entities.peers for them, so the
 		// baseline isn't empty. The new peer added by `add-peer`
 		// appears / disappears across undo / redo.
 		const e = new Engine(structuredClone(doc));
@@ -525,10 +525,10 @@ engineTest(
 	() => {
 		const e = new Engine(structuredClone(doc));
 		// Engine constructor already projected entities + timing from
-		// the event stream — peer a, peer b, session s1 are already
+		// the event stream, peer a, peer b, session s1 are already
 		// defined with timing derived from the peer-joined / session-
 		// opened observations. Move peer 'b' to an explicit later
-		// start, clear session start — session's effective start
+		// start, clear session start, session's effective start
 		// should follow peer 'b'.
 		e.dispatch({ kind: "set-peer-start", peerId: "b", t: 500 });
 		e.dispatch({ kind: "clear-session-start", sessionId: "s1" });
@@ -540,9 +540,9 @@ engineTest(
 engineTest(
 	"updatePeer mirrors edits into entities.peers (source of truth)",
 	() => {
-		// Regression: pre-Option-B, updatePeer only patched the event
-		// payload. Post-Option-B, Sidebar reads from entities.peers
-		// — so the mirror is required or the user's edit appears to
+		// Regression: updatePeer must patch entities.peers as well as the
+		// event payload. Sidebar reads from entities.peers,
+		// so the mirror is required or the user's edit appears to
 		// vanish on next render.
 		const e = new Engine(structuredClone(doc));
 		e.dispatch({

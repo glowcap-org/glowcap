@@ -53,7 +53,7 @@ a micro-saving earns an asymmetry.
   must remain separate from local `errdefer` cleanup.
 - No `unsafe` as an optimization shortcut.
 - A map removal whose key presence is an invariant asserts it
-  (`std.debug.assert(map.remove(k))`). Only a genuinely idempotent removal
+  (`std.debug.assert(map.remove(k))`). Only an idempotent removal
   discards the result, with an inline `// idempotent:` or `// tolerant:`
   reason; `source-check` holds this in `src/`.
 

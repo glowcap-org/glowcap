@@ -1,5 +1,5 @@
 //! Owned runtime effect custody, activated only by confirmed receipt commit.
-//! Durable effect records remain application content; this owner holds no lease.
+//! Durable effect records remain application content. This owner holds no lease.
 const std = @import("std");
 const driver = @import("driver_core");
 const actors = @import("actors");
@@ -12,7 +12,7 @@ const execution = @import("execution.zig");
 const ReadScope = @import("read_scope.zig").Scope;
 
 /// Callback-scoped receipt custody. Only confirmed activation yields the
-/// owning continuation; the callback cannot dispatch or release a reservation.
+/// owning continuation. The callback cannot dispatch or release a reservation.
 pub const Reservation = opaque {
     pub fn source(self: *Reservation) driver.Capability {
         return reserved(self).source;
@@ -31,7 +31,7 @@ pub const Continuation = opaque {
     pub const Activation = struct {
         context: ?*anyopaque,
         /// Transfers the reservation's owning reference. The executor seat and
-        /// work buffers must already exist; activation cannot refuse or yield.
+        /// work buffers must already exist. Activation cannot refuse or yield.
         activate: *const fn (?*anyopaque, *Continuation) void,
         /// Consumes the executor reservation after restart or confirmed absence.
         cancel: *const fn (?*anyopaque) void,
@@ -41,7 +41,7 @@ pub const Continuation = opaque {
     /// capability-retain spines and the continuation owner. Host actor/registry
     /// storage and executor buffers are separately bounded by their owners.
     pub fn sizeBound(arguments: values.Bounds, verb_bytes: usize, targets: usize) !usize {
-        var bound = try calls.inputAllocationBound(arguments, verb_bytes, false);
+        var bound = try @import("call_memory.zig").inputAllocationBound(arguments, verb_bytes, false);
         try bound.include(try std.math.mul(usize, targets, @sizeOf(driver.Value)), @alignOf(driver.Value), 1);
         try bound.include(try std.math.mul(usize, targets, @sizeOf(driver.Host.StagedCapabilityRetain)), @alignOf(driver.Host.StagedCapabilityRetain), 1);
         return std.math.add(usize, @sizeOf(State), try bound.physicalBytes());
@@ -50,7 +50,7 @@ pub const Continuation = opaque {
     /// Copies borrowed intent once and retains the actual invoking endpoint and
     /// each exact target. Separate custody is necessary because receipt commit
     /// retires the callback's arena, prepared graph and leases. Reservation is
-    /// bounded before staging; failure leaves activation ownership with caller.
+    /// bounded before staging. Failure leaves activation ownership with caller.
     pub fn reserveCopying(call: *h.Call, intent: h.Call.Intent, targets: []const driver.Capability, activation: Activation) !*Reservation {
         if (call.confirmation != null) return error.DuplicateContinuation;
         const owner = call.attachment;
@@ -92,16 +92,16 @@ pub const Continuation = opaque {
         return state(self).source;
     }
 
-    /// Creates one owned dispatch front. It retains this immutable continuation;
-    /// calls copy its original source intent into the existing durable queue.
+    /// Creates one owned dispatch front. It retains this immutable continuation.
+    /// Calls copy its original source intent into the existing durable queue.
     /// Current source admission and the exact target action are distinct. The
-    /// target checks its own policy; no checked raw-target escape is returned.
+    /// target checks its own policy. No checked raw-target escape is returned.
     pub fn project(self: *Continuation, index: usize) !driver.Capability {
         return self.endpoint(index, .protected);
     }
 
     /// Lend only declared read methods over an exact retained target. Read
-    /// scopes share immutable continuation custody; they copy no source intent
+    /// scopes share immutable continuation custody. They copy no source intent
     /// or arguments. Every call and recursive result uses original admission.
     pub fn projectReadsCopying(self: *Continuation, index: usize, interfaces: []const ReadScope.Interface, role: usize) !driver.Capability {
         const admitted = try self.admission();
@@ -144,7 +144,7 @@ pub const Continuation = opaque {
     /// Execute through current source and exact-target admission. The private
     /// result owns the completed outcome even if source admission is lost
     /// while the target waits. Only the application receipt owner may consume
-    /// it; public results use project() and recheck outward disclosure.
+    /// it. Public results use project() and recheck outward disclosure.
     /// Cancellation releases the observer, not an admitted target effect.
     pub fn execute(self: *Continuation, allocator: std.mem.Allocator, index: usize, verb: []const u8, args: []const driver.Value, reply_bytes: usize) !*execution.Execution {
         const value = state(self);
@@ -172,7 +172,7 @@ pub const Continuation = opaque {
     }
 
     /// Releases one owning reference. Dispatched calls own independent input
-    /// copies and retains; their observers do not own this runtime reservation.
+    /// copies and retains. Their observers do not own this runtime reservation.
     pub fn release(self: *Continuation) void {
         const value = state(self);
         std.debug.assert(value.active);

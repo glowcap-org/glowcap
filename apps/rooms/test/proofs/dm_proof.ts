@@ -1,7 +1,7 @@
 import { spawnWeb } from "../support/web_front.ts";
 // The rooms page sends a direct message, end to end, from a real browser. A
 // headless Chromium loads the shipped page, joins a room, and messages a member
-// privately — the three-party handoff `demo-rooms-dm-iroh` proves, now with the
+// privately, the three-party handoff `demo-rooms-dm-iroh` proves, with the
 // browser as the recipient. The browser asks the room to introduce it, redeems
 // the handoff-give by dialing the member through serve.ts's `/relay` iroh path,
 // and its message lands on the member's own endpoint, never through the room.
@@ -68,7 +68,7 @@ const bobSeed = crypto.getRandomValues(new Uint8Array(32));
 const bobHost = roomsHost(bobSeed);
 // A Host publication answers the browser over the connection the DM arrived on
 // (`currentSession()`), sending to the reply inbox the browser hosts on that same
-// connection. Bob never dials the browser, which cannot be dialed — the shared
+// connection. Bob never dials the browser, which cannot be dialed, the shared
 // `recordingReplyDm` owns that receiver primitive.
 const dmFor = (_peer: string) => recordingReplyDm(bobInbox, (text) => `got your DM: ${text}`);
 const bobEndpoint = await iroh.listen(
@@ -149,11 +149,11 @@ try {
 	await tab.fill("#line", DM_TEXT);
 	await tab.press("#line", "Enter");
 
-	// Bob receives it on his own endpoint — the room never carried it.
+	// Bob receives it on his own endpoint, the room never carried it.
 	await until(() => bobInbox.includes(DM_TEXT), "Bob to receive the browser's direct message");
 
 	// Bob replies over the same direct connection to the reply inbox the browser
-	// hosts on it, and the page paints it in the DM thread — the member reached a
+	// hosts on it, and the page paints it in the DM thread, the member reached a
 	// browser that never listens, the bidirectional completion of the handoff.
 	const replyDeadline = Date.now() + 20_000;
 	while (!((await tab.textContent("#log").catch(() => "")) ?? "").includes(REPLY_TEXT)) {

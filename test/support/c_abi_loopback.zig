@@ -14,7 +14,7 @@ pub const frame_cap = 4096;
 
 pub const Step = enum { received, closed };
 
-/// Unsigned-handshake peer for boundary proofs; keyed verification lives in
+/// Unsigned-handshake peer for boundary proofs. Keyed verification lives in
 /// `pairing_test`.
 pub fn stubNegotiatingPeer(allocator: std.mem.Allocator) engine.Peer {
     return engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });

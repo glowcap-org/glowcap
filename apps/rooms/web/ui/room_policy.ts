@@ -1,14 +1,15 @@
-// Room access controls render Rust policy values; their cycle is a UI choice.
+// Room access controls render Rust policy values. Their cycle is a UI choice.
 import { applicationModule } from "./application.ts";
-import type { RoomPolicy, RoomPreset } from "../../lib/room/policy.ts";
+import { isRoomPolicy, type RoomPolicy, type RoomPreset } from "../../lib/room/policy.ts";
 export type { RoomPolicy, RoomPreset } from "../../lib/room/policy.ts";
 
 const policies = new Map<RoomPreset, RoomPolicy>();
 export function policyForRoomPreset(preset: RoomPreset): RoomPolicy {
 	let policy = policies.get(preset);
 	if (policy === undefined) {
-		policy = Object.freeze(JSON.parse(applicationModule().roomPolicyForPreset(preset))) as RoomPolicy;
-		policies.set(preset, policy);
+		const raw: unknown = JSON.parse(applicationModule().roomPolicyForPreset(preset));
+		if (!isRoomPolicy(raw)) throw new Error("the Rooms application answered an invalid room policy");
+		policies.set(preset, policy = Object.freeze(raw));
 	}
 	return policy;
 }

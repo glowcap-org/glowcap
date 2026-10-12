@@ -9,7 +9,7 @@ const Where = bans.Where;
 /// registered transport packages. The byte-fed C embedder may still use
 /// GlowcapDialPlan, but projecting that plan into a binding restores concrete
 /// transport dispatch to generic runtime code. The rest of this table holds
-/// current lifecycle and style invariants; exact-spelling bans of retired
+/// current lifecycle and style invariants, exact-spelling bans of retired
 /// names are pruned once the tree and its generated mirrors agree.
 pub const binding_public_api_retirements: []const Ban = &.{
     .{
@@ -142,7 +142,7 @@ pub const binding_public_api_retirements: []const Ban = &.{
 
 /// An unowned deferral marker in first-party source is a decision hidden in a
 /// comment. The boundary it defers belongs where the release bar can see it:
-/// `docs/boundaries.md`, `docs/roadmap.md`, or an ADR — or the fix lands now,
+/// `docs/boundaries.md`, `docs/roadmap.md`, or an ADR, or the fix lands now,
 /// which prerelease already names as the default verdict. Third-party and
 /// generated trees (extracted Zig packages, cargo `target/`) are skipped, and
 /// this file is excluded because the table must name the markers it bans.
@@ -251,7 +251,7 @@ pub const test_only_surface: []const Ban = &.{
 /// The rooms application's environment namespace: every env var it reads or
 /// documents is `GLOWCAP_ROOMS_*`, so a deployment's environment sorts by
 /// product. A bare `ROOMS_*` string is either a stale name or a new knob
-/// minted outside the namespace; the announce tokens (`ROOMS-…`) are dashes
+/// minted outside the namespace. The announce tokens (`ROOMS-…`) are dashes
 /// and stay untouched.
 pub const rooms_env_namespace: []const Ban = &.{
     .{

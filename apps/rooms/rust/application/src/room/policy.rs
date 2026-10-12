@@ -1,5 +1,5 @@
 //! The three supported room policies. Impossible mode combinations cannot be
-//! constructed; parsing holds the current three-slot Rooms wire contract.
+//! constructed. Parsing holds the current three-slot Rooms wire contract.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -63,7 +63,7 @@ impl RoomPolicy {
 	}
 
 	/// The public entrance's offered facet. Private rooms have no public
-	/// entrance; invitation authority chooses its facet independently.
+	/// entrance. Invitation authority chooses its facet independently.
 	pub const fn public_membership(self) -> Option<MembershipKind> {
 		match self {
 			Self::Open => Some(MembershipKind::Participant),

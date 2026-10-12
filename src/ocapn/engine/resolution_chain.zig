@@ -1,7 +1,7 @@
 //! Exact-incarnation traversal for consequences of stored promise resolutions.
 //!
 //! A wire promise names a reusable answer position. The stored resolution owns
-//! the row incarnation captured when that value was committed; every later
+//! the row incarnation captured when that value was committed. Every later
 //! listener, pipelined call, and projection follows that same stamp or stops.
 
 const std = @import("std");

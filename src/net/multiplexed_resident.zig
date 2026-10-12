@@ -16,7 +16,7 @@
 //!
 //! `driver.HostRuntime` consumes the same contract for dialing and accepting.
 //! Listener start, locator publication, accepted-connection claim, and stop are explicit
-//! operations; an accept readiness bit never appears without an ownership path.
+//! operations. An accept readiness bit never appears without an ownership path.
 
 const std = @import("std");
 
@@ -158,7 +158,7 @@ pub const MultiplexedResident = struct {
         /// coalesced wake. Returns how many records were written.
         drain_ready: *const fn (ctx: *anyopaque, out: []ReadyEvent) ContractError!usize,
         /// Dial and listen are complete operation groups: absent means the
-        /// runtime does not implement that capability; present means every
+        /// runtime does not implement that capability. Present means every
         /// callback in the group is callable. Profiles routed through this
         /// runtime do not carry a second, fallible copy of that fact.
         dial: ?DialVTable = null,
@@ -175,18 +175,18 @@ pub const MultiplexedResident = struct {
         try_write: *const fn (ctx: *anyopaque, conn: usize, bytes: []const u8) isize,
         /// The caller finished one batch of writes on `conn`. A resident that
         /// declares it may hold consumed bytes until this call, so a frame
-        /// and its length prefix leave in one send; one without it sends as
+        /// and its length prefix leave in one send. One without it sends as
         /// each write arrives.
         flush_writes: ?*const fn (ctx: *anyopaque, conn: usize) void = null,
         /// Claim one exact connection-local read/write failure. Null is clean
-        /// EOF or no retained failure; a claimed value cannot reappear.
+        /// EOF or no retained failure. A claimed value cannot reappear.
         take_failure: ?*const fn (ctx: *anyopaque, conn: usize) ?foundation.FailureChain = null,
         /// Close and release one connection. Later records naming the id
         /// drain to nothing.
         conn_close: *const fn (ctx: *anyopaque, conn: usize) TeardownOutcome,
         /// The channel-authenticated remote durable key, when this transport
         /// proves one (iroh's remote node id). Null on a transport whose
-        /// channel proves nothing; the realizer seam then stays silent.
+        /// channel proves nothing. The realizer seam then stays silent.
         conn_remote_key: *const fn (ctx: *anyopaque, conn: usize) ContractError!?crypto.PeerKey,
     };
 
@@ -194,7 +194,7 @@ pub const MultiplexedResident = struct {
         /// Begin a dial toward the complete locator. Transport-specific hint
         /// interpretation belongs to the resident. Completion arrives as an
         /// `ev_connect` record carrying `request_id`. An error admits no
-        /// operation; the provider has already cleaned any partial work.
+        /// operation. The provider has already cleaned any partial work.
         start_connect: *const fn (
             ctx: *anyopaque,
             request_id: usize,
@@ -202,8 +202,8 @@ pub const MultiplexedResident = struct {
             options: netlayer.OperationOptions,
         ) RawDialStartOutcome,
         /// Claim the connection a completed `ev_connect` announced. The raw
-        /// id immediately enters `ClaimedConnection` ownership in the wrapper;
-        /// a failed dial surfaces its typed reason here. The request is consumed
+        /// id immediately enters `ClaimedConnection` ownership in the wrapper.
+        /// A failed dial surfaces its typed reason here. The request is consumed
         /// on every return path.
         finish_connect: *const fn (ctx: *anyopaque, request_id: usize) RawDialFinishOutcome,
         /// Abandon a dial. Idempotent, and valid after its `ev_connect` was
@@ -242,9 +242,9 @@ pub const MultiplexedResident = struct {
         /// expected identity or address, empty asking for the canonical one,
         /// and `identity` is the durable key of the Host the listener serves,
         /// which a key-designated profile publishes. Immediate completion
-        /// returns the listener handle; externally paced setup returns pending
+        /// returns the listener handle. Externally paced setup returns pending
         /// and later emits `ev_listen` for `route_id`. An error admits no
-        /// operation; the provider has already cleaned partial work.
+        /// operation. The provider has already cleaned partial work.
         listen: *const fn (
             ctx: *anyopaque,
             route_id: usize,
@@ -477,7 +477,7 @@ pub const MultiplexedResident = struct {
     };
 
     /// One profile-scoped listener owned by a multiplexed runtime. Its opaque
-    /// provider handle owns listener state; `route_id` is the caller's stable
+    /// provider handle owns listener state. `route_id` is the caller's stable
     /// readiness identity and is what `ev_accept` records carry.
     pub const Listener = struct {
         acceptor: Acceptor,

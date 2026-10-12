@@ -1,6 +1,6 @@
 //! Allocation-context contract independent of any CapTP application handle.
 //! A caller-supplied allocator owns the context, TCP netlayer, listener,
-//! connections, their buffers, and an owned frame; teardown returns every byte
+//! connections, their buffers, and an owned frame. Teardown returns every byte
 //! through the same callbacks.
 
 const std = @import("std");

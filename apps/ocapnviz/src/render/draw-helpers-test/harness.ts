@@ -1,7 +1,7 @@
 /**
  * Shared assertions and the dashed-rect canvas stand-in.
  *
- * Outline and loose-end tests both paint through `RectCanvas`; the
+ * Outline and loose-end tests both paint through `RectCanvas`. The
  * claim body extends that recorder rather than inventing a second one.
  */
 
@@ -42,7 +42,7 @@ export class RectRecorder implements RectCanvas {
 		assert(s, "expected a stroke");
 		return s.width;
 	}
-	/** The dashes, as (start, end) pairs — every `lineTo` and the `moveTo`
+	/** The dashes, as (start, end) pairs. Every `lineTo` and the `moveTo`
 	 *  that opened it. */
 	dashes(): { x0: number; y0: number; x1: number; y1: number }[] {
 		const out: { x0: number; y0: number; x1: number; y1: number }[] = [];

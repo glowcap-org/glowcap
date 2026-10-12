@@ -2,7 +2,7 @@
 //!
 //! The reserved durable namespace and mutable bootstrap registry meet here so
 //! the mutable door cannot accidentally admit a durable name. Session owns the
-//! table and arena; this module owns allocation, replacement, lookup, and the
+//! table and arena. This module owns allocation, replacement, lookup, and the
 //! infallible rollback paired with a failed publication.
 
 const std = @import("std");
@@ -26,7 +26,7 @@ pub fn isDurableSwiss(swissnum: []const u8) bool {
 }
 
 /// Allocate a fresh export and publish it behind a mutable bootstrap name.
-/// Re-registering replaces the discovery mapping; already-issued authority to
+/// Re-registering replaces the discovery mapping. Already-issued authority to
 /// the displaced export remains valid.
 pub fn register(self: *Session, swissnum: []const u8) !model.ExportPosition {
     const export_position = try self.allocateExport();

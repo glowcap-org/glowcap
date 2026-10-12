@@ -54,7 +54,7 @@ const DrivenGiftSeams = struct {
 
 /// Drive a complete signed give, early withdraw, deposit, redemption, and
 /// direct call across three real keyed sessions. The surrounding session may
-/// use either codec; handoff signatures remain in the Syrup signing domain.
+/// use either codec. Handoff signatures remain in the Syrup signing domain.
 pub fn run(allocator: std.mem.Allocator, codec_id: model.CodecId) ![]u8 {
     const crypto = foundation.crypto;
     const gifter_secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x11)));

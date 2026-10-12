@@ -1,7 +1,7 @@
 //! TCP profile locators and optional native transport.
 //!
 //! Locator construction requires no socket provider. The `tcp` feature adds
-//! the blocking frame transport; `tcp` plus `async` adds runtime integration.
+//! the blocking frame transport. `tcp` plus `async` adds runtime integration.
 
 #[cfg(all(feature = "tcp", feature = "async"))]
 use crate::Result;

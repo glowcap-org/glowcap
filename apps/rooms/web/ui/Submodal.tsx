@@ -4,7 +4,7 @@
 // the ordinary head, and what differs between them is only the width each asks
 // for.
 //
-// A form earns one; a question does not. A question belongs to the row that
+// A form earns one. A question does not. A question belongs to the row that
 // raised it and stays inline there, which is `Confirm` and its own reasons.
 
 import { type ReactNode, useRef } from "react";

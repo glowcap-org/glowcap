@@ -21,8 +21,8 @@ import type { Page } from "playwright";
  * stops and the worst answer is the one returned, because a reader meets all of
  * them.
  *
- * It returns null rather than a number whenever it could not do that — nothing
- * on screen, no opaque ground beneath, or a colour the canvas would not take —
+ * It returns null rather than a number whenever it could not do that, nothing
+ * on screen, no opaque ground beneath, or a colour the canvas would not take,
  * because "no answer" and "passes" must never look alike. Three separate
  * versions of this measured nothing at all while reporting it exactly the way a
  * pass reports. */
@@ -39,7 +39,7 @@ export function inkContrast(page: Page, selector: string): Promise<{ ratio: numb
 		// back the same both times.
 		// A colour the canvas will not parse, rewritten into one it will. A
 		// `color-mix()` computes to `color(srgb …)`, which this Chromium's canvas
-		// does not take — and the check below is right to refuse what it cannot
+		// does not take, and the check below is right to refuse what it cannot
 		// read, so without this every stack with a mixed wash anywhere above it
 		// measures as "no answer". Which is most of the page's own surfaces.
 		const canvasColour = (css: string): string => {

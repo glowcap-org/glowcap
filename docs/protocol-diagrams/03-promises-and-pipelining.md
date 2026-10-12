@@ -1,12 +1,12 @@
 # Promises and pipelining
 
-Anchors: CapTP Specification § Promises, § Promise pipelining, § op:listen.
-The diagrams use next's integer listen modes. Goblins V1.0 translates its
-Boolean `wants-partial?` at the codec boundary.
+These diagrams follow the CapTP Specification sections Promises, Promise
+pipelining, and op:listen. They use next's integer listen modes. Goblins V1.0
+translates its Boolean `wants-partial?` at the codec boundary.
 
 ## PP-1: Promise lifecycle
 
-A promise settles exactly once into Fulfilled or Broken. Fulfilling with
+A promise settles once, into Fulfilled or Broken. Fulfilling with
 _another promise_ is a partial step: the promise stays pending against the new
 target until a non-promise value or an error arrives.
 

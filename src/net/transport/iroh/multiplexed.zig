@@ -2,7 +2,7 @@
 //!
 //! The endpoint outlives this heap-stable adapter and every registered runtime.
 //! C and native consumers share connection identity, listener state and failure
-//! custody here; each boundary only projects its values.
+//! custody here. Each boundary only projects its values.
 
 const std = @import("std");
 const foundation = @import("foundation");
@@ -15,7 +15,7 @@ const sidecar = @import("sidecar.zig");
 pub const MultiplexedAdapter = struct {
     allocator: std.mem.Allocator,
     endpoint: *resident.Resident,
-    /// Drained readiness names stable ids; sidecar I/O needs the owned handle.
+    /// Drained readiness names stable ids. Sidecar I/O needs the owned handle.
     /// One POD row per claimed connection keeps those identities together.
     /// Claim allocates before transfer, refusal closes the unregistered handle,
     /// and close removes the row before releasing it. No byte payload is copied.

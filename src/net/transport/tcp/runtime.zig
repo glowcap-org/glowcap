@@ -2,7 +2,7 @@
 //!
 //! This module owns the one transition from `std.Io` to TCP sockets: dialing,
 //! binding, accepting, stream tuning, readiness, byte I/O, and close. OCapN
-//! locator/profile semantics stay in the sibling adapters; engine connections
+//! locator/profile semantics stay in the sibling adapters. Engine connections
 //! and C callbacks both project this same runtime instead of reimplementing it.
 
 const std = @import("std");
@@ -94,7 +94,7 @@ pub const Connection = struct {
 };
 
 /// A bound TCP socket. Shutdown interrupts an in-flight readiness or accept
-/// wait through the accept gate's private wake descriptor; deinit joins that
+/// wait through the accept gate's private wake descriptor. Deinit joins that
 /// operation before releasing storage.
 pub const Listener = struct {
     server: Server,
@@ -118,9 +118,9 @@ pub const Listener = struct {
     /// the kernel choose which peer a dial reaches. So the IPv4 path builds
     /// the listener through `socket.openListenerReuseAddr`, taking the
     /// restart contract that helper documents without the port sharing.
-    /// IPv6 and non-POSIX targets keep the plain std listen and with it the
-    /// old restart behavior; nothing in this tree binds a blocking IPv6
-    /// listener today, and that boundary is named here rather than papered
+    /// IPv6 and non-POSIX targets keep the plain std listen, with the
+    /// TIME_WAIT restart behavior. Nothing in this tree binds a blocking IPv6
+    /// listener today, and that boundary stays visible instead of being papered
     /// over with untested sockaddr packing.
     fn listenExclusiveReuseAddr(io: std.Io, address: IpAddress) IpAddress.ListenError!Server {
         const os: socket.Os = switch (builtin.os.tag) {

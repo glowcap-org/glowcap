@@ -3,7 +3,7 @@
  *
  * The other half of the panel `SourcePicker` opens: that one says where the
  * buffer came from and how to swap it, this one says what the buffer IS. Two
- * files because they are two questions — a document's identity does not change
+ * files because they are two questions, a document's identity does not change
  * when you load a different one, it is simply a different document's identity.
  *
  * It is built out of the Inspector's own parts rather than out of new ones:
@@ -15,7 +15,7 @@
  * These are the rows only. The panel they sit in belongs to `SourcePicker`, which
  * holds the source select above them: what a document is and where it came from
  * are one thing to a reader, so they share one box and it needs no heading of its
- * own — the section around it is already called Document.
+ * own, the section around it is already called Document.
  *
  * # Every field is optional, and absence shows as absence
  *
@@ -33,13 +33,13 @@
  *
  * # Reading and editing
  *
- * Build edits, Play reads. That is the app's existing line — the Inspector takes
- * an `editor` only in Build — and a document's own fields are authoring like any
+ * Build edits, Play reads. That is the app's existing line, the Inspector takes
+ * an `editor` only in Build, and a document's own fields are authoring like any
  * other.
  *
  * # One form, one record of when it changed
  *
- * Every keystroke reaches the document immediately; what waits is only the record
+ * Every keystroke reaches the document immediately. What waits is only the record
  * of when. `dct:modified` is stamped once, when focus leaves the panel, because
  * tabbing from the title to the creator is not finishing with it. Enter finishes
  * a one-line field by blurring it, so it arrives at the same place.
@@ -50,7 +50,7 @@
  * (`EditBracket`), so a typing burst is one entry rather than one per letter.
  *
  * Where the document opens, too, through the Opens-at row's pin. Looking around
- * is not an edit — panning changes no document and records no history — so the
+ * is not an edit, panning changes no document and records no history, so the
  * press is what makes it one, and undo takes it back like a title.
  *
  * `dct:created` and `dct:modified` are not edited here at all: created is stamped
@@ -98,7 +98,7 @@ export function DocumentFields(
 	if (!editing) {
 		// Reading: only what the document actually says. A row per absent field
 		// would be a panel of placeholders that says nothing, and a document is
-		// allowed to say nothing — every one of these is optional.
+		// allowed to say nothing. Every one of these is optional.
 		const said = [
 			{ label: "Title", text: meta?.["dct:title"], style: valueName },
 			{ label: "About", text: meta?.["dct:description"], style: prose },
@@ -201,13 +201,13 @@ export function DocumentFields(
  * The panel behaves as one form: finishing with it stamps `dct:modified` once.
  *
  * Per FIELD would be wrong, and it is the obvious thing to write. Tabbing from
- * the title to the creator is not finishing — it is still the same visit — so a
+ * the title to the creator is not finishing. It is still the same visit, so a
  * stamp per blur would record two modifications for one sitting, and typing in
  * three fields would record three. What ends the visit is focus leaving the form,
  * which is what `relatedTarget` still being inside it rules out.
  *
  * Nothing is deferred until then. Every keystroke is already in the document and
- * already bracketed for undo by the field that owns the caret; the only thing
+ * already bracketed for undo by the field that owns the caret. The only thing
  * waiting for the form to be done is the record of WHEN it was done.
  *
  * Enter finishes a one-line field by blurring it (`InlineTextField`'s
@@ -254,10 +254,10 @@ function formCommit(engine: Engine): {
 /**
  * Where this buffer came from, and whether it has been changed since.
  *
- * Last, and a row like every other one. It used to be a line of small-caps text
- * between the picker and the fields, at its own size, in its own voice — the one
- * thing in the panel that was neither a control nor a labelled fact. A reader
- * scanning keys down the left had to step over it.
+ * Last, and a row like every other one. A line of small-caps text between the
+ * picker and the fields would be the one thing in the panel that is neither a
+ * control nor a labelled fact, and a reader scanning keys down the left would
+ * have to step over it.
  *
  * "Origin" rather than "Source": the row above the fields is the Source, being the
  * one that CHANGES which document is loaded. This one says what that source turned
@@ -268,7 +268,7 @@ function formCommit(engine: Engine): {
  * where it came from, and a reader who wants the origin knows to look for it.
  *
  * `edited` is a badge rather than a word because it is a state rather than a
- * value, and `stateChipBase` is the app's badge box — the same one the Inspector's
+ * value, and `stateChipBase` is the app's badge box, the same one the Inspector's
  * lifecycle chips and the Reference's transport verdicts wear.
  */
 function OriginRow(
@@ -306,7 +306,7 @@ function sourceKindLabel(source: BufferSourceInfo): string {
  *
  * ISO-8601 in UTC, whole. It was briefly shown as its day alone with the rest on
  * hover, which was right while these rows shared a half-width column and wrapped
- * onto two lines; they are full-width rows now, and twenty characters of mono fit
+ * onto two lines. They are full-width rows, and twenty characters of mono fit
  * a rail at its usual width. Hiding a fact behind a hover needs a reason, and that
  * reason went away with the columns.
  *
@@ -338,7 +338,7 @@ const entryVersion = new WeakMap<Element, number>();
  *
  * The button is the whole indication that there is anything to press. It comes
  * alive once the camera has come to rest somewhere other than where the document
- * opens, and goes inert again when they agree — so a reader who pans sees a
+ * opens, and goes inert again when they agree. So a reader who pans sees a
  * control light up rather than a badge claiming they changed something. That is
  * the app's existing rule for a command with nothing to do: stay put, go inert,
  * and say why (`ToolCommandButton`).
@@ -420,8 +420,8 @@ function OpeningView(
 }
 
 /** The pair at the end of the row. Together rather than each pushed to the edge,
- *  so they read as two answers to one question — pin what is pending, or abandon
- *  it — and the ✕ lands where every other row's ✕ does. */
+ *  so they read as two answers to one question, pin what is pending, or abandon
+ *  it, and the ✕ lands where every other row's ✕ does. */
 const openingButtons = {
 	display: "flex",
 	alignItems: "center",
@@ -446,7 +446,7 @@ const openingRow = {
  * `.ocv-field` is a subgrid row: it spans its parent's tracks and re-inherits
  * them, which is what keeps every key in one column. A plain `<form>` between the
  * grid and the rows would be an opaque grid item, and the rows inside it would
- * invent their own tracks — so the source row's key and the title row's key would
+ * invent their own tracks. So the source row's key and the title row's key would
  * stop lining up.
  *
  * So the form is itself a subgrid row: it spans the tracks and passes them
@@ -462,8 +462,8 @@ const formRows = {
 
 const grow = { flex: 1, minWidth: 0 } satisfies React.CSSProperties;
 
-/** A description is `valueText` — the Inspector's face for a value that is a
- *  sentence — and it keeps the line breaks a writer typed. It wraps where
+/** A description is `valueText`, the Inspector's face for a value that is a
+ *  sentence, and it keeps the line breaks a writer typed. It wraps where
  *  `valueName` would ellipsize, because a title can be clipped and still identify
  *  the thing while a paragraph cannot. */
 const prose = {

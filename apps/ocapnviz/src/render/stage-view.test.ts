@@ -1,7 +1,7 @@
 /**
  * The camera's bounds, the view a document opens at, and what the controls do.
  *
- * A document is an input, so the interesting cases here are the dishonest
+ * A document is an input, so the interesting cases here are the invalid
  * ones: a scale a hand-edited file names that this build will not go to, and a
  * center that is not a number. Both have to open at something usable rather
  * than refuse or produce a viewport nobody can pan.
@@ -117,7 +117,7 @@ Deno.test("stepping stops at each bound and says so", () => {
 	assertEquals(canStepIn(MAX_STAGE_SCALE), false);
 	assert(canStepIn(MAX_STAGE_SCALE / 2));
 
-	// And in the middle, where the reader actually is, both directions move.
+	// And in the middle, where the reader is, both directions move.
 	assert(canStepIn(1) && canStepOut(1));
 });
 
@@ -162,7 +162,7 @@ Deno.test("fit leaves the padding it is asked for", () => {
 
 Deno.test("content with no extent still centers on itself", () => {
 	// One node, or a row of nodes at one y. An axis with no extent cannot name a
-	// scale — it would divide by zero and fit at infinity — so it is skipped, and
+	// scale, it would divide by zero and fit at infinity, so it is skipped, and
 	// content with no extent at all keeps the default and just centers.
 	const flat = fitStageView(
 		{ x: -50, y: 10, width: 100, height: 0 },
@@ -195,7 +195,7 @@ Deno.test("a viewport too small for its padding still answers", () => {
 
 Deno.test("fit never names a scale the camera cannot reach", () => {
 	// Content vast enough to want less than the floor is content the camera
-	// cannot show whole, and the honest answer is the floor rather than a scale
+	// cannot show whole, and the answer is the floor rather than a scale
 	// `clampZoom` will quietly override.
 	const view = fitStageView(
 		{ x: 0, y: 0, width: 10_000_000, height: 10_000_000 },

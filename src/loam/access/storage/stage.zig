@@ -42,7 +42,7 @@ pub fn contentStagingSizeBound(resource_path: usize, receipt: bool) !ContentStag
 }
 
 /// Creates an empty owner root in the caller's staging transaction. Opening
-/// failure never replaces an owner; callers explicitly retain this reference.
+/// failure never replaces an owner. Callers explicitly retain this reference.
 pub fn createOwner(store: *loam.Store, owner: core.OwnerId, policy: core.Policy, options: Options) !loam.ObjectId {
     if (store.phase != .staging) return error.WrongPhase;
     if (options.max_resource_depth > 64 or options.max_grant_depth > 64) return error.DepthLimit;

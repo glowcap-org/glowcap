@@ -1,5 +1,5 @@
 // Glowcap-only three-party handoff (TCP): the gifter half, end to end, with
-// glowcap as all three parties — no Goblins, no manual export bookkeeping.
+// glowcap as all three parties, with no Goblins and no manual export bookkeeping.
 //
 //   Exporter  (Bob)    publishes a Host-published "dm" inbox and listens.
 //   Gifter    (Broker) holds Bob's dm and exposes an "introducer".
@@ -7,7 +7,7 @@
 //                      the give, and DMs Bob *directly*.
 //
 // The proof: Carol's message reaches Bob's inbox, and it travels on Carol's own
-// direct connection to Bob — the broker is never in the message path. This is
+// direct connection to Bob. The broker is never in the message path. This is
 // the exporter half of ADR-0009 the engine's swiss re-resolution makes possible:
 // the gift is deposited on the broker-to-Bob connection and withdrawn on the
 // separate Carol-to-Bob connection, against one host-wide object identity.
@@ -45,8 +45,8 @@ async function main(): Promise<void> {
 		for await (const session of broker) session.serve().catch(() => {});
 	})();
 
-	// The broker dials Bob as a member would — keyed with the broker node's own
-	// identity — and fetches Bob's Host publication dm. The fetched ref's home is this
+	// The broker dials Bob as a member would (keyed with the broker node's own
+	// identity) and fetches Bob's Host publication dm. The fetched ref's home is this
 	// broker-to-Bob connection, so the broker can re-gift it.
 	const brokerToBob = await brokerRuntime.connect(locator("127.0.0.1", bobPort));
 	brokerToBob.serve().catch(() => {});

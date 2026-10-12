@@ -1,5 +1,5 @@
 //! Shared direct-C relay-provider fixtures. Tests above the driver use a
-//! different harness; this one deliberately meets the multiplexed table at
+//! different harness. This one meets the multiplexed table at
 //! its ownership boundary.
 
 const std = @import("std");

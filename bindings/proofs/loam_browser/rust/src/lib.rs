@@ -1,5 +1,5 @@
 //! The browser projects Loam lifecycle and custody. Zig owns managed admission
-//! and transaction outcomes; Chromium owns IndexedDB scheduling and Web Locks.
+//! and transaction outcomes. Chromium owns IndexedDB scheduling and Web Locks.
 use glowcap::loam::{
 	Call, Content, ControlPowers, Delivery, EffectExecution, EffectResult, Graph, Invocation, InvocationBounds,
 	KindRule, Limits, Method, PendingContinuation, Policy, ReferenceRequest, Registration, Requirement, Resource,
@@ -16,6 +16,8 @@ use std::{
 use wasm_bindgen::prelude::*;
 #[wasm_bindgen]
 extern "C" {
+	#[wasm_bindgen(js_namespace = console, js_name = error)]
+	fn report_panic(reason: &str);
 	#[wasm_bindgen(js_namespace = globalThis, js_name = blockLoamStorage)]
 	fn block_storage(observe_restore: bool) -> js_sys::Promise;
 	#[wasm_bindgen(js_namespace = globalThis, js_name = unblockLoamStorage)]
@@ -26,6 +28,12 @@ extern "C" {
 	fn wait_restore_retired() -> js_sys::Promise;
 	#[wasm_bindgen(js_namespace = globalThis, js_name = refuseLoamWrite)]
 	fn refuse_storage();
+}
+#[wasm_bindgen(start)]
+pub fn initialize() {
+	// Wasm aborts cannot unwind the pending Rust future. Preserve the assertion
+	// and source location so the browser harness reports its cause before timeout.
+	std::panic::set_hook(Box::new(|info| report_panic(&info.to_string())));
 }
 #[path = "../../../_support/loam_context.rs"]
 mod context;

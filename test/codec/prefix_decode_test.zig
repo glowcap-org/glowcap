@@ -1,15 +1,15 @@
 //! Differential prefix-decode property test for the one-parser stream framer.
 //!
-//! Profile-aware session paths run `decodePrefix`; peer-less byte streams run
+//! Profile-aware session paths run `decodePrefix`. Peer-less byte streams run
 //! the same codec's structural `framePrefix`. Both are untrusted-input
 //! surfaces and must agree on frame boundaries:
 //!
 //!   * report `.incomplete` for every strict prefix of a valid frame, and
 //!     exactly `.decoded{ consumed = frame_len }` at the full length, never a
-//!     partial apply, never an over-read;
-//!   * find the boundary of the first frame in a concatenation and stop there;
-//!   * reject structurally-invalid bytes as `.malformed` regardless of length;
-//!   * reject a frame past `max_frame_bytes` as `.too_large`;
+//!     partial apply, never an over-read.
+//!   * find the boundary of the first frame in a concatenation and stop there.
+//!   * reject structurally-invalid bytes as `.malformed` regardless of length.
+//!   * reject a frame past `max_frame_bytes` as `.too_large`.
 //!   * fail a pathologically deep nesting loud (bounded recursion), not crash.
 //!
 //! Driven entirely in-memory (no sockets): the same guarantee the connection
@@ -27,13 +27,13 @@ const big_max: usize = 1 << 20;
 
 const Verdict = glowcap.ocapn.codec.framing.StreamScan.Verdict;
 
-/// Every strict prefix of `bytes` is `.incomplete`; the full buffer is
+/// Every strict prefix of `bytes` is `.incomplete`. The full buffer is
 /// `.decoded` consuming exactly `bytes.len`, with the same body discriminant as
 /// the whole-frame decode. This is the core "split at every byte" property.
 fn sweepSyrupExact(bytes: []const u8) !void {
     // The resumable scan reads the same growing buffer a stream consumer does,
     // so it is driven once across the whole sweep rather than restarted per
-    // prefix — restarting it would prove nothing about resuming.
+    // prefix, restarting it would prove nothing about resuming.
     var scan: glowcap.ocapn.codec.framing.StreamScan = .{};
     var k: usize = 0;
     while (k < bytes.len) : (k += 1) {
@@ -44,8 +44,8 @@ fn sweepSyrupExact(bytes: []const u8) !void {
         };
         // Below the full length there is no frame to find, so a scan that is
         // both safe and useful withholds the decoder at every one of these.
-        // Answering `ready` early is not a stall — the decoder would just say
-        // `incomplete` — but it retires the filter for this frame and returns
+        // Answering `ready` early is not a stall, the decoder would just say
+        // `incomplete`, but it retires the filter for this frame and returns
         // the walk to once per chunk, which is the cost this exists to remove.
         const verdict = syrup.scanStream(bytes[0..k], &scan, big_max);
         std.testing.expectEqual(Verdict.need_more, verdict) catch |err| {
@@ -209,7 +209,7 @@ test "capnp decodePrefix: an incomplete prefix declaring a body past max_frame_b
 
 /// `<op:deliver>` to `<desc:export 0>` whose args are `depth`-deep empty lists,
 /// hand-built so the test controls the exact nesting (the encoder bottoms out a
-/// model tree; raw bytes are clearer here).
+/// model tree. Raw bytes are clearer here).
 fn deepNestedDeliver(allocator: std.mem.Allocator, depth: usize) ![]u8 {
     var buf: std.ArrayList(u8) = .empty;
     errdefer buf.deinit(allocator);

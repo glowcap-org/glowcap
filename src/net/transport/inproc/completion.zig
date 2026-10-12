@@ -41,7 +41,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         /// routes dials to a backend's one sink.
         pub const ListenTarget = union(enum) {
             platform: Platform.ListenTarget,
-            /// Borrowed for the call; the exchange keeps its own copy.
+            /// Borrowed for the call. The exchange keeps its own copy.
             inproc: []const u8,
         };
         pub const ConnectTarget = union(enum) {
@@ -57,7 +57,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             pending: completion.HintedPending = .{},
         };
 
-        /// One connection's adapter row; its link is a separate named cost.
+        /// One connection's adapter row. Its link is a separate named cost.
         pub const connection_state_bytes = @sizeOf(ConnEntry);
 
         const TryIoOps = struct {
@@ -190,6 +190,24 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 return .{ .inproc = listener.designator };
             }
             return .{ .platform = try self.platform.listenerAddress(fd) };
+        }
+
+        /// An inproc listener's setup is synchronous, so only a wrapped
+        /// backend's listener can report pending.
+        pub fn listenerPending(self: *const Self, fd: Fd) bool {
+            if (fd == listen_fd) return false;
+            return self.platform.listenerPending(fd);
+        }
+
+        /// Complete `user_data` when the listener's setup ends. Only a
+        /// wrapped backend's listener can be pending; the runtime never asks
+        /// about an inproc one.
+        pub fn submitListenReady(self: *Self, user_data: u64, fd: Fd) !void {
+            if (fd == listen_fd) return error.ListenerClosed;
+            // The seat exists only for a backend that reports pending
+            // listeners; a plain platform never does.
+            if (comptime !@hasDecl(Platform, "submitListenReady")) return error.ListenerClosed;
+            return self.platform.submitListenReady(user_data, fd);
         }
 
         pub fn listenerPort(address: ListenerAddress) ?u16 {
@@ -400,7 +418,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
     };
 }
 
-/// Resolve `inproc` locators to an in-process dial; every other transport
+/// Resolve `inproc` locators to an in-process dial. Every other transport
 /// resolves through `InnerResolver` to a platform target.
 pub fn DialResolver(comptime Backend: type, comptime InnerResolver: type) type {
     return struct {

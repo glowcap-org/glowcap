@@ -2,16 +2,16 @@
 host family (ADR-0072), loaded from ``libglowcap_host``.
 
 Nothing here is public. The driver is a separate archive and exports only
-``glowcap_driver_*``; it adopts a Host created through this family. The Host
+``glowcap_driver_*``. It adopts a Host created through this family. The Host
 surface lives in :mod:`glowcap._host` and :mod:`glowcap._session`.
 
-Callback discipline: the ONE native callback in the whole binding — the shared
-behavior trampoline (:mod:`glowcap._trampoline`) — fires synchronously on the
+Callback discipline: the ONE native callback in the whole binding, the shared
+behavior trampoline (:mod:`glowcap._trampoline`), fires synchronously on the
 thread executing the enclosing ``glowcap_host_*`` call, with ctypes
 re-acquiring the GIL for it. Settlements carry no callback at all: they ride
 the action queue as SETTLE/FAIL and the drain routes them by vow id
 (:mod:`glowcap._host`). ``fetch``/``enliven``/``send`` and the ``vow_*`` verbs
-each mint a host vow whose id lands in the trailing out-param; the outcome
+each mint a host vow whose id lands in the trailing out-param. The outcome
 arrives as that vow's SETTLE/FAIL action. The ``free`` parameter of
 publish/spawn is always NULL from this binding: the Python side owns its
 behavior entries in the trampoline registry, so there is nothing for the
@@ -74,7 +74,7 @@ pin_struct(_SessionLimitOptions, "GLOWCAP_SESSION_LIMIT_OPTIONS")
 
 
 class _HostAction(ctypes.Structure):
-    # GlowcapHostAction (glowcap_host.h) — hand-mirrored field-for-field,
+    # GlowcapHostAction (glowcap_host.h): hand-mirrored field-for-field,
     # pinned by `pin_struct` below against the generated layout facts. `kind`
     # selects the live fields; every popped byte view and `value`'s
     # sub-structure are host-owned and valid until the NEXT
@@ -92,7 +92,7 @@ class _HostAction(ctypes.Structure):
 
 
 class _PartnerIdentity(ctypes.Structure):
-    # GlowcapPartnerIdentity (glowcap_host.h) — the verified partner identity
+    # GlowcapPartnerIdentity (glowcap_host.h): the verified partner identity
     # glowcap_host_session_partner_identity borrows out. Every view is
     # session-owned and stays valid until the session is released; designator
     # and locator_record are NULL with a zero length when the partner's
@@ -123,7 +123,7 @@ pin_struct(_PartnerIdentity, "GLOWCAP_PARTNER_IDENTITY")
 #               size_t verb_len, const GlowcapArgument *args, size_t args_len,
 #               GlowcapArgument *out_reply);
 # The one shared instance lives in :mod:`glowcap._trampoline`.
-# GlowcapTraceEvent — one live-trace fact (glowcap_host_set_trace). Field
+# GlowcapTraceEvent: one live-trace fact (glowcap_host_set_trace). Field
 # order and widths mirror the generated header; the layout facts in
 # ``_layouts_gen`` pin them.
 class _TraceEvent(ctypes.Structure):
@@ -153,7 +153,7 @@ class _TraceEvent(ctypes.Structure):
 pin_struct(_TraceEvent, "GLOWCAP_TRACE_EVENT")
 
 
-# GlowcapTraceCallback — void (*)(void *ctx, const GlowcapTraceEvent *event).
+# GlowcapTraceCallback: void (*)(void *ctx, const GlowcapTraceEvent *event).
 _TraceCallback = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(_TraceEvent))
 
 
@@ -168,7 +168,7 @@ _HostBehavior = ctypes.CFUNCTYPE(
     ctypes.POINTER(_Argument),
 )
 
-# GlowcapHostPumpArmFn / GlowcapHostPumpHooks — sync arms for
+# GlowcapHostPumpArmFn / GlowcapHostPumpHooks: sync arms for
 # glowcap_host_pump_drain; bindings park decoded actions and await after.
 _HostPumpArmFn = ctypes.CFUNCTYPE(
     ctypes.c_int32,

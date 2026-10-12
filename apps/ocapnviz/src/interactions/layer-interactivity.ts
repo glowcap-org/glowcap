@@ -1,5 +1,5 @@
 /**
- * Layer interactivity — implements § 7 of the interaction model.
+ * Layer interactivity, implements § 7 of the interaction model.
  *
  * Single source of truth for "which Pixi sprite layers accept
  * pointer events right now", driven by `Stage`'s `gestureCtx`.
@@ -25,7 +25,7 @@ export function layerInteractivity(ctx: {
 	spaceHeld: boolean;
 	activeTool: BuilderTool;
 }): LayerEventModes {
-	// P1 — Space wins. While held, the whole stage is pointer-
+	// P1, Space wins. While held, the whole stage is pointer-
 	// transparent so the global pan layer receives every event.
 	if (ctx.spaceHeld) {
 		return { peers: "none", edges: "none", messages: "none" };

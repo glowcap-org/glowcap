@@ -4,7 +4,7 @@
 //! The server binds an iroh endpoint, registers the `iroh` netlayer resident,
 //! and serves a Greeter actor behind the verified keyed handshake. The client
 //! binds its *own* iroh endpoint and dials by the server's endpoint id, the
-//! locator's designator — with the server's direct socket addresses riding the
+//! locator's designator, with the server's direct socket addresses riding the
 //! locator's `direct-addresses` hint (relay-less, lookup-less: ADR-0055's
 //! slice 1). The bytes on the wire are QUIC: encrypted and authenticated to the
 //! server's Ed25519 endpoint key by iroh, then carrying the same
@@ -67,10 +67,10 @@ const greeting = "hello over iroh";
 /// The published actor: answers `greet` with a static greeting.
 const Greeter = harness.StaticReplyActor("greet", greeting);
 
-/// Server half: accept one partner over iroh signing with `secret` — the
+/// Server half: accept one partner over iroh signing with `secret`, the
 /// endpoint's own key, so the session key a dialer's identity pin verifies is
-/// the node id it dialed — publish the greeter, serve until the client hangs
-/// up. iroh is a key-designator transport, so every accept here is keyed; an
+/// the node id it dialed, publish the greeter, serve until the client hangs
+/// up. iroh is a key-designator transport, so every accept here is keyed. An
 /// ephemeral accept identity is refused by the driver.
 const hostOnce = harness.AcceptServeOne(
     Greeter,
@@ -129,8 +129,8 @@ fn callOnce(
     std.debug.print("iroh-interop: client called greet and the reply matched\n", .{});
 }
 
-/// Dial by endpoint id with no direct-address hint — the discovery path, where
-/// the netlayer resolves the partner by id alone — then fetch and call the
+/// Dial by endpoint id with no direct-address hint, the discovery path, where
+/// the netlayer resolves the partner by id alone, then fetch and call the
 /// greeter. The locator carries an empty hint set, so a successful session
 /// proves the dial was resolved, not hinted.
 fn callByIdOnly(
@@ -161,12 +161,10 @@ fn callByIdOnly(
 /// authenticated, and the partner's OCapN session pubkey is deliberately
 /// *not* that key.
 ///
-/// This used to assert all three were one value, the meaning of key
-/// unification while a host signed every session with its durable key. Each
-/// session now draws its own signing key, so the durable identity and the
+/// Each session draws its own signing key, so the durable identity and the
 /// session identity are different facts about the same peer: `node_id_hex`
 /// names who the partner is, and the session key names only this session.
-/// Asserting the difference is what would catch a regression back to one key.
+/// Asserting the difference catches a regression to one shared key.
 fn assertPartnerIsNodeId(cv: *driver.BlockingSession, node_id_hex: []const u8) !void {
     const designator = cv.served.port.peer.session_state.partnerDesignator() orelse return error.NoPartnerDesignator;
     if (!std.mem.eql(u8, designator, node_id_hex)) return error.PartnerDesignatorMismatch;

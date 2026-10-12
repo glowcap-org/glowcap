@@ -38,7 +38,7 @@ pub(super) fn authorize(input: Invocation<'_>, root: &Ref) -> Result<()> {
 }
 
 /// One page-sized declaration spine restores the selected occurrences only.
-/// Coordinates own scalar metadata through this callback; Loam owns all saved
+/// Coordinates own scalar metadata through this callback. Loam owns all saved
 /// recipes and their restore budget. No inventory scan or bearer codec runs.
 pub(super) fn references(input: Invocation<'_>, root: &Ref) -> Result<Vec<ReferenceRequest>> {
 	authorize(input, root)?;
@@ -115,7 +115,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 	}
 
 	/// Exact saved occurrences and their canonical publication home. One URI
-	/// result copy survives the callback; shared preparation retains bytes only
+	/// result copy survives the callback. Shared preparation retains bytes only
 	/// for these explicitly requested fields. Worker restoration pays none.
 	pub async fn restore_publication_custody(
 		&self,
@@ -131,12 +131,12 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 					if pair.len() != 2 {
 						return Err(refuse("invalid publication custody"));
 					}
-					let uri = match pair.pop().expect("checked pair") {
+					let uri = match pair.pop().ok_or_else(|| refuse("invalid publication custody"))? {
 						Argument::Void => None,
 						Argument::String(uri) => Some(uri),
 						_ => return Err(refuse("invalid saved URI")),
 					};
-					(pair.pop().expect("checked pair"), uri)
+					(pair.pop().ok_or_else(|| refuse("invalid publication custody"))?, uri)
 				};
 				Ref::try_from(&value)
 					.map(|reference| (reference, uri))

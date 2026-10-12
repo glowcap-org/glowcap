@@ -4,12 +4,13 @@
 //! and borrowed `model.view.*` projections. It validates reference roles,
 //! nesting, handoff arguments, and set/struct uniqueness while recording every
 //! introduced import for apply. It reads session authority but never mutates
-//! it; only the caller-owned `IntroducedImports` turn record changes.
+//! it. Only the caller-owned `IntroducedImports` turn record changes.
 
 const std = @import("std");
 const model = @import("model");
 const session = @import("../mod.zig");
 const locator_vocabulary = @import("locator_vocabulary.zig");
+const set_uniqueness = @import("set_uniqueness.zig");
 
 const Session = session.Session;
 const Error = session.Error;
@@ -37,26 +38,26 @@ const inline_uniqueness_stack_cap = 8;
 /// counts prospective installs against `SessionLimits.max_imports` with the
 /// same rules `registerImport` applies (bootstrap excluded, already-held ids
 /// are refcount refreshes, one new id counts once however often the message
-/// repeats it). `seen` records those distinct fresh rows; `mentions` records
-/// every non-bootstrap far mention — repeats included, each is one wire-delta
-/// retain apply must take — and supports the cold exact-overflow check. Lazy: a
+/// repeats it). `seen` records those distinct fresh rows. `mentions` records
+/// every non-bootstrap far mention, repeats included, each is one wire-delta
+/// retain apply must take, and supports the cold exact-overflow check. Lazy: a
 /// message that carries no far reference never allocates. The record spine
-/// backs it with the per-turn `recv_scratch` arena (no deinit; the turn reset
-/// reclaims it); a validation-only caller backs it with the gpa and pairs it
+/// backs it with the per-turn `recv_scratch` arena (no deinit, the turn reset
+/// reclaims it). A validation-only caller backs it with the gpa and pairs it
 /// with `deinit`.
 pub const IntroducedImports = struct {
     allocator: std.mem.Allocator,
     /// Distinct fresh rows for import-cap and capacity preparation. Already
     /// held rows stay off this map, preserving the steady-state allocation
-    /// budget; exact overflow counting is a cold prepare branch.
+    /// budget. Exact overflow counting is a cold prepare branch.
     seen: std.AutoHashMapUnmanaged(model.ImportPosition, void) = .empty,
     mentions: std.ArrayListUnmanaged(model.ImportPosition) = .empty,
     /// Index in `mentions` owned by the answer's inline V1.0 resolver link,
     /// not by the surfaced application arguments. Stateless event GC excludes
-    /// this retain; settlement releases it beside the resolver callback.
+    /// this retain. Settlement releases it beside the resolver callback.
     resolver_mention_index: ?usize = null,
     /// Promise-shaped far mentions that require the next profile's one private
-    /// shortening subscription. Repeats are retained here; the session table
+    /// shortening subscription. Repeats are retained here. The session table
     /// deduplicates by live import identity when the engine schedules them.
     promise_mentions: std.ArrayListUnmanaged(model.ImportPosition) = .empty,
     /// What is left of this message's equality-comparison allowance, spent by
@@ -128,7 +129,7 @@ pub const IntroducedImports = struct {
 
 /// Whose message the one reference validator is looking at. A `near` names one
 /// of our exports on both paths, but the admission rule differs by direction:
-/// our own send needs only a live row (a reserved export may marshal — that
+/// our own send needs only a live row (a reserved export may marshal, that
 /// first marshal is what grants it), while a partner may only name an export
 /// it holds a wire reference to. A reserved-but-ungranted position is refused
 /// with the same `InvalidReference` as a nonexistent one, so a partner probing
@@ -136,9 +137,9 @@ pub const IntroducedImports = struct {
 pub const Perspective = enum { sent, received };
 
 /// How the one reference validator treats a `far`. Everything else about a
-/// reference is position-independent — `promise`/`broken` are always
+/// reference is position-independent, `promise`/`broken` are always
 /// acceptable, and a `sturdy` always requires the negotiated sturdyref
-/// feature — so beyond the `near` perspective rule, the `far` arm is the only
+/// feature, so beyond the `near` perspective rule, the `far` arm is the only
 /// axis a position varies on.
 pub const FarPolicy = enum {
     /// The `far` names an import we must already hold: a deliver/listen target,
@@ -146,9 +147,9 @@ pub const FarPolicy = enum {
     /// The bootstrap import (0) is implicitly held (ADR-0006). An unheld `far`
     /// here names a capability that does not exist for this session.
     held_import,
-    /// The `far` is a fresh introduction — the partner handing us a new
-    /// `<desc:import-object>` in argument or fulfill-payload position — accepted
-    /// here and installed in apply. Every `u64` is valid; node-local routes use
+    /// The `far` is a fresh introduction, the partner handing us a new
+    /// `<desc:import-object>` in argument or fulfill-payload position, accepted
+    /// here and installed in apply. Every `u64` is valid. Node-local routes use
     /// the distinct `Reference.routed` arm.
     introduction,
 };
@@ -159,7 +160,7 @@ pub const FarPolicy = enum {
 /// allocated (`promise` -> wire `desc:answer`). On receive those roles flip to
 /// one of our granted exports (`near`) or an answer the partner allocated
 /// (`promise`). A live answer is a row still present in the matching table,
-/// pending or settled; `op:gc-answers` is what ends its addressability.
+/// pending or settled. `op:gc-answers` is what ends its addressability.
 ///
 /// `anytype` keeps this one rule shared by owned and borrowed inbound paths.
 pub fn validateDeliverOrListenTarget(
@@ -190,7 +191,7 @@ pub fn validateDeliverOrListenTarget(
 }
 
 /// Validate `op:listen`'s notification destination in its own descriptor role.
-/// We send one of our exports (`near` -> wire `desc:import-*`); a partner sends
+/// We send one of our exports (`near` -> wire `desc:import-*`). A partner sends
 /// one of its exports as a fresh import (`far`, decoded from `desc:import-*`).
 /// Targets and listener destinations are both references, but they are not
 /// interchangeable protocol positions.
@@ -212,7 +213,7 @@ pub fn validateListenListener(
 }
 
 /// The one reference-position validator. Post perspective-flip (ADR-0010) a
-/// decoded `near` names one of our exports; the `near` arm varies by
+/// decoded `near` names one of our exports. The `near` arm varies by
 /// `perspective` and the `far` arm by `far_policy`. Dual-shape over the
 /// borrowed view reference and the owned `model.Reference`, like the argument
 /// walkers that call it.
@@ -287,11 +288,16 @@ pub fn validateInboundArgument(
         .list => |items| try validateInboundArguments(self, items, depth + 1, introduced),
         .set => |items| {
             try validateInboundArguments(self, items, depth + 1, introduced);
-            try checkInboundSetUniqueness(self, items, introduced);
+            const scratch = self.recv_scratch.allocator();
+            if (comptime @TypeOf(items) == model.view.Args) {
+                try set_uniqueness.checkBorrowed(scratch, items, &introduced.compare_budget);
+            } else {
+                try set_uniqueness.checkOwned(scratch, items, &introduced.compare_budget);
+            }
         },
         .tagged => |tagged| try validateInboundArguments(self, tagged.value, depth + 1, introduced),
         .@"struct" => |entries| try validateInboundStructEntries(self, entries, depth + 1, introduced),
-        // Exhaustive on purpose: a new Argument arm must decide here whether it
+        // Exhaustive: a new Argument arm must decide here whether it
         // can carry a reference. The struct arm above was once missed behind an
         // `else`, which let a struct-wrapped reference dodge this walk entirely.
         .handoff => |handoff| try validateInboundHandoffArgument(self, handoff),
@@ -299,146 +305,10 @@ pub fn validateInboundArgument(
     }
 }
 
-/// A set admits each member once: two Equal elements are two wire encodings of
-/// one set, so an inbound duplicate is refused (`DuplicateSetElement`) instead
-/// of admitted. The Syrup decoder already refuses this at the byte layer
-/// (strictly ascending encoded elements), so in practice this fold is the
-/// backstop that holds the same invariant for Cap'n Proto — whose pointer wire
-/// form cannot prove uniqueness for free — and for any future codec. It runs
-/// on the shared walk, so both the borrowed view path and the owned fallback
-/// enforce it identically. Borrowed elements are hashed/compared as views
-/// (`viewArgumentHash` / `viewArgumentsEqualBounded`) — scratch holds only the view
-/// handles and hash rows, never a `toOwned` materialization. The owned
-/// fallback projects through the same spine (`argumentsEqualBounded`) and
-/// charges the same per-message budget, so the two arms cannot drift in
-/// semantics or in cost. A hash group is confirmed before refusing,
-/// so a collision never causes a false refusal. Confirming is not free: two
-/// sets compare as multisets, so an equal-hashed pair of width N costs on the
-/// order of N² element visits, and the commutative set hash lets a partner
-/// build that pair deliberately. Every visit therefore charges the session's
-/// per-message budget (`SessionLimits.max_compare_visits`), which refuses
-/// loudly rather than grinding. The nesting depth of every element was already
-/// bounded by the surrounding walk.
-fn checkInboundSetUniqueness(
-    self: *Session,
-    items: anytype,
-    introduced: *IntroducedImports,
-) RecvViewError!void {
-    const arena = self.recv_scratch.allocator();
-    if (comptime @TypeOf(items) == model.view.Args) {
-        // Cap'n Proto reads this off the list header; Syrup walks the region to
-        // count it. Either way the walk below must agree with it, and the two
-        // answers come from different files, so the loop checks rather than
-        // trusts.
-        const count = try items.len();
-        if (count < 2) return;
-        // Small sets stay on the stack so the common deliver path never grows
-        // `recv_scratch` past its retain limit (a per-turn arena grow would
-        // break the flat scratch budget in deliver_set_scratch_budget_test).
-        var stack_elements: [inline_uniqueness_stack_cap]model.view.Argument = undefined;
-        var stack_rows: [inline_uniqueness_stack_cap]SetHashRow = undefined;
-        const elements: []model.view.Argument = if (count <= inline_uniqueness_stack_cap)
-            stack_elements[0..count]
-        else
-            try arena.alloc(model.view.Argument, count);
-        const rows: []SetHashRow = if (count <= inline_uniqueness_stack_cap)
-            stack_rows[0..count]
-        else
-            try arena.alloc(SetHashRow, count);
-        var it = items.iterator();
-        var i: usize = 0;
-        while (try it.next()) |element| : (i += 1) {
-            // A walk that outruns the count would write past `elements`, and
-            // the small arm is a stack array. A walk that falls short would
-            // leave rows undefined for the sort to order and then index
-            // `elements` by. `model.view`'s own `toOwnedSliceDepth` guards
-            // both directions; this fold is the one place that did not.
-            if (i >= elements.len) return Error.MalformedMessage;
-            elements[i] = element;
-            rows[i] = .{ .hash = try model.equality.viewArgumentHash(element), .index = i };
-        }
-        if (i != elements.len) return Error.MalformedMessage;
-        std.mem.sort(SetHashRow, rows, {}, SetHashRow.lessThan);
-        var run_start: usize = 0;
-        for (rows, 0..) |row, ri| {
-            if (row.hash != rows[run_start].hash) run_start = ri;
-            for (rows[run_start..ri]) |prior| {
-                if (try model.equality.viewArgumentsEqualBounded(
-                    elements[prior.index],
-                    elements[row.index],
-                    .{ .scratch = arena, .budget = &introduced.compare_budget },
-                )) {
-                    return Error.DuplicateSetElement;
-                }
-            }
-        }
-        return;
-    }
-    // Same per-message allowance as the borrowed arm above: whichever arm a
-    // message's sets take, one budget bounds the whole message's confirms.
-    try checkOwnedSetUniqueness(arena, items, &introduced.compare_budget);
-}
-
-/// One hash row of the set-uniqueness fold: sort by hash so Equal elements
-/// land adjacent, confirm with a real compare before refusing.
-const SetHashRow = struct {
-    hash: u64,
-    index: usize,
-    fn lessThan(_: void, a: @This(), b: @This()) bool {
-        return a.hash < b.hash;
-    }
-};
-
-/// The owned-slice arm of the set-uniqueness fold, shared by the inbound
-/// owned fallback above and the send-side walk (`validateArgument`). The
-/// inbound path hands the recv arena (rows die in the turn reset); the send
-/// path hands the session gpa (no recv turn brackets a send), so small sets
-/// stay on the stack and a spilled row slice is freed here precisely.
-/// Confirming charges `budget` per element visit exactly as the borrowed fold
-/// does — both folds run the one comparison spine — so a partner-influenced
-/// owned tree (a stored relayed resolution) buys bounded work, not trusted
-/// work.
-fn checkOwnedSetUniqueness(
-    scratch: std.mem.Allocator,
-    elements: []const model.Argument,
-    budget: *model.equality.CompareBudget,
-) error{ OutOfMemory, DuplicateSetElement, CompareBudgetExhausted }!void {
-    if (elements.len < 2) return;
-    var stack_rows: [inline_uniqueness_stack_cap]SetHashRow = undefined;
-    const spilled = elements.len > inline_uniqueness_stack_cap;
-    const rows: []SetHashRow = if (spilled)
-        try scratch.alloc(SetHashRow, elements.len)
-    else
-        stack_rows[0..elements.len];
-    defer if (spilled) scratch.free(rows);
-    for (elements, 0..) |element, idx| {
-        rows[idx] = .{ .hash = model.equality.argumentHash(element), .index = idx };
-    }
-    std.mem.sort(SetHashRow, rows, {}, SetHashRow.lessThan);
-    var run_start: usize = 0;
-    for (rows, 0..) |row, ri| {
-        if (row.hash != rows[run_start].hash) run_start = ri;
-        for (rows[run_start..ri]) |prior| {
-            const equal = model.equality.argumentsEqualBounded(
-                &elements[prior.index],
-                &elements[row.index],
-                .{ .scratch = scratch, .budget = budget },
-            ) catch |err| switch (err) {
-                // An owned tree projects slice-backed with `.projected`
-                // hints, so the lazy-view failure arm cannot fire on it.
-                error.MalformedView => unreachable,
-                error.OutOfMemory => return error.OutOfMemory,
-                error.CompareBudgetExhausted => return error.CompareBudgetExhausted,
-            };
-            if (equal) return error.DuplicateSetElement;
-        }
-    }
-}
-
 /// Refuse a send-side struct carrying two entries with the same key, the
 /// validate-time twin of the codecs' canonical-order refusals (ADR-0003).
 /// Sorts a shallow copy of the borrowed key slices so a repeat is an adjacent
-/// pair; small structs stay on the stack, a spill is freed here precisely.
+/// pair. Small structs stay on the stack, a spill is freed here.
 fn checkSentStructKeyUniqueness(
     scratch: std.mem.Allocator,
     entries: []const model.StructEntry,
@@ -463,7 +333,7 @@ fn checkSentStructKeyUniqueness(
 }
 
 /// Struct entries carry full argument values, so a reference can arrive inside
-/// one; walk every entry's value like a list element. Dual-shape like its
+/// one. Walk every entry's value like a list element. Dual-shape like its
 /// callers: the borrowed `model.view.StructEntries` walks its lazy cursor,
 /// the owned slice walks directly.
 fn validateInboundStructEntries(
@@ -510,7 +380,7 @@ pub fn validateHandoffGiftId(captp_version: model.CaptpVersion, gift_id: []const
 /// A give is addressed to the local key of the session on which it arrived.
 /// Check that claim in session authority before Host can project its locator or
 /// queue a dial. A receive embeds the same give on a different session, so it
-/// deliberately does not take this Receiver-side check.
+/// does not take this Receiver-side check.
 fn validateInboundHandoffArgument(self: *const Session, handoff: anytype) Error!void {
     try validateHandoffArgument(self, handoff);
     const value = if (comptime @typeInfo(@TypeOf(handoff)) == .pointer)
@@ -557,7 +427,7 @@ fn validateOutboundHandoffArgument(self: *const Session, handoff: model.Handoff)
 /// export this partner never made. Nothing downstream recovers it. A partner
 /// that numbers its exports from zero, as Goblins does, is liable to hold a
 /// live and unrelated object at that number, so the reference designates the
-/// wrong capability instead of failing; a partner that does not holds nothing
+/// wrong capability instead of failing. A partner that does not holds nothing
 /// there and refuses the whole session. The far arm of the deliver path's
 /// rule is what closes it, and it is the import-side twin of the export-range
 /// admission `retainSentExportRef` already performs for the `near` arm above.
@@ -604,13 +474,13 @@ pub fn validateArgument(self: *Session, arg: model.Argument, depth: usize, compt
             // that never ships, the same all-or-nothing breach the depth
             // bound above closes. This fold is at least as strict as encode:
             // model-Equal-but-byte-distinct forms (two NaN bit patterns)
-            // refuse only here, exactly as they would inbound. No message-wide
-            // budget brackets a send, so each fold mints its own allowance —
+            // refuse only here, as they would inbound. No message-wide
+            // budget brackets a send, so each fold mints its own allowance,
             // per set rather than per message, which still bounds the one
             // partner-influenced caller (`validateStoredResolution`, a relayed
             // fulfillment) at the same rate the inbound fold charges.
             var compare_budget = model.equality.CompareBudget.init(self.limits.max_compare_visits);
-            try checkOwnedSetUniqueness(self.allocator, items, &compare_budget);
+            try set_uniqueness.checkOwned(self.allocator, items, &compare_budget);
         },
         .tagged => |tagged| try validateArguments(self, tagged.value, depth + 1, ref_check),
         .@"struct" => |entries| {
@@ -620,7 +490,7 @@ pub fn validateArgument(self: *Session, arg: model.Argument, depth: usize, compt
             // pre-commit, not at encode.
             try checkSentStructKeyUniqueness(self.allocator, entries);
         },
-        // Exhaustive on purpose, see `validateInboundArgument`.
+        // Exhaustive, see `validateInboundArgument`.
         .handoff => |handoff| try validateOutboundHandoffArgument(self, handoff.*),
         .bytes, .symbol, .string, .keyword, .integer, .big_integer, .boolean, .float64, .void, .@"error" => {},
     }

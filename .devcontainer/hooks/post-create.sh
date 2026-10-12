@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Confirm host binds are writable, assert pins and config sync, fill submodules.
-# Load-bearing project gate: zig build check (not this script).
+# The project gate is zig build check, not this script.
 
 set -euo pipefail
 
@@ -43,6 +43,7 @@ mkdir -p \
     "${UV_CACHE_DIR}" \
     "${ZIG_CACHE_DIR}" \
     "${CACHE_ROOT}/zls" \
+    "${CACHE_ROOT}/installed" \
     "${CARGO_HOME_RUNTIME}"
 if [[ -n "${ZIG_LOCAL_CACHE_DIR:-}" && -n "${ZIG_LOCAL_PKG_DIR:-}" ]]; then
     # This target is the dedicated Docker volume, never a host bind. Own it as
@@ -110,6 +111,26 @@ bash "${dir}/test/env-sync.sh"
 # declared keeps running without it, and the service that wanted it falls back
 # to a default nobody chose.
 bash "${dir}/hooks/verify-compose-env.sh"
+# Managed tools (the AI harnesses) install on first use through the checkout's
+# dispatcher, so opening the container owes only the wiring: every managed
+# command name resolves to the dispatcher, the dispatcher is readable, and the
+# shared install root is writable. Installing here would defeat laziness and
+# cannot prove a seed; the strict cold-seed check is a CI gate of its own.
+# shellcheck source=../tools/lib/registry.sh
+source "${dir}/tools/lib/registry.sh"
+tools_wrapper="/workspaces/glowcap/.devcontainer/tools/wrapper.sh"
+for managed_name in $(glowcap_tools_path_names); do
+    if [[ "$(readlink "/usr/local/bin/${managed_name}" 2>/dev/null || true)" != "${tools_wrapper}" ]]; then
+        echo "hooks/post-create: /usr/local/bin/${managed_name} does not link to the tools dispatcher" >&2
+        exit 1
+    fi
+done
+if [[ ! -r "${tools_wrapper}" ]]; then
+    echo "hooks/post-create: the tools dispatcher is not readable at ${tools_wrapper}" >&2
+    exit 1
+fi
+probe="${GLOWCAP_CACHE_DIR}/installed/.wiring-probe-$$"
+touch "${probe}" && rm -f "${probe}"
 # Linked worktrees do not inherit submodule working trees from the clone.
 # CI checks them out with the repository; this hook fills them here so every
 # checkout is a complete environment.

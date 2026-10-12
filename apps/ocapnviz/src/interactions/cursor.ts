@@ -1,7 +1,7 @@
 /**
- * Cursor derivation — implements `docs/cursor.md`.
+ * Cursor derivation, implements `docs/cursor.md`.
  *
- * THE cursor authority. Pure; no DOM access. Nothing else in the app decides
+ * THE cursor authority. Pure. No DOM access. Nothing else in the app decides
  * what the pointer looks like.
  *
  * Three elements can carry a cursor, because the Timeline's two DOM hosts sit
@@ -14,7 +14,7 @@
  * The cursor is the tool's contract with the user: it shows what the NEXT
  * click will do. So it is derived from the same `resolveGesture` that click
  * goes through, and from the same `PointerMachineState` that runs it. A second
- * spelling of the rule would be a second answer, and the two drift — a node
+ * spelling of the rule would be a second answer, and the two drift, a node
  * reading as a target while the click declines it is the shape that drift
  * takes, and this module exists so there is nowhere for it to happen.
  *
@@ -27,7 +27,7 @@
  * offered to every host that shares the ladder: the tool-create tier can only
  * arise from a Stage hit because `resolveGesture` only mints it there, and
  * `restingCursorOver` refuses to answer for any surface outside
- * `STAGE_SURFACES`. Sharing the ladder is the point of this module; sharing a
+ * `STAGE_SURFACES`. Sharing the ladder is the point of this module. Sharing a
  * rung that means nothing on the asking surface was the defect.
  */
 
@@ -58,7 +58,7 @@ export type CSSCursor =
 	 *  retimed, the overview window's ends. */
 	| "ew-resize"
 	| "move"
-	/** Open Session's resting cursor — the spreadsheet-style pick. */
+	/** Open Session's resting cursor. The spreadsheet-style pick. */
 	| "cell"
 	/** A click or marquee would ADD to the selection (Shift), and Send
 	 *  Message's resting cursor. */
@@ -74,7 +74,7 @@ export type CSSCursor =
  * plus the pick a two-click tool is holding.
  *
  * `toolState` is here and not in `GestureContext` because the resolver does
- * not read it — a pick resolves from the tool and the node under the pointer
+ * not read it. A pick resolves from the tool and the node under the pointer
  * alone. The cursor is the one reader: with a pick armed, whether the node
  * ahead is a legal partner is a question about the document, and
  * {@link ToolWillPick} answers it from the armed node. The host supplies it
@@ -91,7 +91,7 @@ export type CursorContext = SurfaceGestureCtx & {
  * Injected because it is a fact about the DOCUMENT, and this module is pure
  * over `GestureContext`. With a pick already armed, the legal partners depend
  * on the sessions those two nodes are on, which no gesture context can see.
- * The host supplies `builder/two-click.ts`'s `twoClickAccepts` — the same
+ * The host supplies `builder/two-click.ts`'s `twoClickAccepts`, the same
  * statement the click path consults, so the pointer refuses exactly what the
  * click refuses.
  *
@@ -151,7 +151,7 @@ export function cursorFor(
 				return "not-allowed";
 			}
 		}
-		// The tool's own cursor outranks the verb here — cursor.md step 5 before step
+		// The tool's own cursor outranks the verb here, cursor.md step 5 before step
 		// 6. The tool is what the user chose, and the node it is about to act on
 		// is the last place to stop saying which tool that is: every authoring
 		// tool would otherwise read `crosshair` at the exact moment of aiming.
@@ -172,10 +172,10 @@ export function cursorFor(
  *
  * This rung is where the one cursor authority leaked. Sharing the ladder across
  * the Stage and the Timeline is right, and `cursor.ts` exists so there is one
- * answer; what was missing is that a rung meaning something on one surface
+ * answer. What was missing is that a rung meaning something on one surface
  * family was not scoped to it. The Timeline asks the same `cursorFor` through
  * `ui/Timeline/timeline-cursor.ts`, so it inherited `crosshair` over a lane and
- * `cell` over the gutter — a promise about the next click that no Timeline
+ * `cell` over the gutter. A promise about the next click that no Timeline
  * surface can keep, because no build tool acts there.
  *
  * Scoped by the surface under the pointer rather than by which host is asking.
@@ -238,7 +238,7 @@ function verbTouchesSelection(verb: ResolvedGesture): boolean {
 }
 
 /**
- * The cursor a tool shows over a surface it has no verb for — its statement of
+ * The cursor a tool shows over a surface it has no verb for. Its statement of
  * which tool is active, held across the whole canvas so the affordance does
  * not blink out the instant the pointer crosses something.
  *
@@ -246,7 +246,7 @@ function verbTouchesSelection(verb: ResolvedGesture): boolean {
  * Hand never reaches this rung. Where an authoring tool DOES act, the verb
  * answers instead (a pick is a crosshair, because a pick is aimed).
  *
- * The tools these name exist only in Build; the app-state reducer refuses them
+ * The tools these name exist only in Build. The app-state reducer refuses them
  * in any other mode, so the tool implies the mode and neither the resolver nor
  * this function has to read one.
  */
@@ -266,7 +266,7 @@ function restingCursor(tool: BuilderTool): CSSCursor | null {
 	}
 }
 
-/** Cursor for a verb resolved at a HOVER hit (no press yet) — what the next
+/** Cursor for a verb resolved at a HOVER hit (no press yet), what the next
  *  click on this surface would do. */
 function cursorForResolvedHover(
 	verb: ResolvedGesture,
@@ -313,7 +313,7 @@ function cursorForResolvedHover(
 //
 // The render layer asks: "for the entity the user is hovering, what
 // affordance should be drawn?" The answer is derived from the SAME
-// `resolveGesture` the click pipeline uses — guaranteeing the
+// `resolveGesture` the click pipeline uses, guaranteeing the
 // preview matches the action. New tools change behavior here only
 // by virtue of changing what `resolveGesture` returns.
 
@@ -344,7 +344,7 @@ export function verbIsPan(verb: ResolvedGesture): boolean {
 	return verb.tier === "space-pan" || verb.tier === "hand-tool";
 }
 
-/** Cursor while `verb` is in flight — a press the FSM has resolved, the drag
+/** Cursor while `verb` is in flight. A press the FSM has resolved, the drag
  *  it became, or a pan that interrupted one. */
 function cursorForGestureInFlight(
 	verb: ResolvedGesture,

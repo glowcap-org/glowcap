@@ -2,7 +2,7 @@
 //!
 //! This internal owner composes the existing capability routing, value
 //! lowering, Vow, Served, and pump authorities into one delivery transaction.
-//! It owns no duplicate state or walker; supported verbs remain Host aliases.
+//! It owns no duplicate state or walker. Supported verbs remain Host aliases.
 
 const std = @import("std");
 
@@ -10,7 +10,7 @@ const model = @import("model");
 const actors = @import("actors");
 
 const host_mod = @import("../host.zig");
-const served_mod = @import("../served.zig");
+const pending_send = @import("../pending_send.zig");
 const capability = @import("../capability.zig");
 const capability_promise = @import("../capability_promise.zig");
 const vow_settlement = @import("../vows/settlement.zig");
@@ -28,7 +28,7 @@ const HostSession = host_mod.HostSession;
 pub fn beginSendNamed(
     self: *Host,
     session: *HostSession,
-    pending: *served_mod.Served.PendingSend,
+    pending: *pending_send.PendingSend,
     name: []const u8,
     msg: actors.Message,
     terminal: actors.Listener,
@@ -40,7 +40,7 @@ pub fn beginSendNamed(
 pub fn beginTellNamed(
     self: *Host,
     session: *HostSession,
-    pending: *served_mod.Served.PendingSend,
+    pending: *pending_send.PendingSend,
     name: []const u8,
     msg: actors.Message,
     terminal: actors.Listener,
@@ -51,7 +51,7 @@ pub fn beginTellNamed(
 pub fn beginSendNamedValues(
     self: *Host,
     session: *HostSession,
-    pending: *served_mod.Served.PendingSend,
+    pending: *pending_send.PendingSend,
     name: []const u8,
     verb: []const u8,
     values: []const value_mod.Value,
@@ -68,7 +68,7 @@ pub fn beginSendNamedValues(
 pub fn beginTellNamedValues(
     self: *Host,
     session: *HostSession,
-    pending: *served_mod.Served.PendingSend,
+    pending: *pending_send.PendingSend,
     name: []const u8,
     verb: []const u8,
     values: []const value_mod.Value,
@@ -85,7 +85,7 @@ pub fn beginTellNamedValues(
 fn beginDeliverNamed(
     self: *Host,
     session: *HostSession,
-    pending: *served_mod.Served.PendingSend,
+    pending: *pending_send.PendingSend,
     name: []const u8,
     msg: actors.Message,
     terminal: actors.Listener,
@@ -95,7 +95,7 @@ fn beginDeliverNamed(
     try self.admitSessionOperation(session);
     try self.checkSession(session);
     try self.checkOutboundAdmission(session);
-    const completion: served_mod.Served.PendingSend.Completion = .{
+    const completion: pending_send.PendingSend.Completion = .{
         .ctx = session,
         .func = finishPendingSend,
     };
@@ -150,9 +150,9 @@ pub fn sendValues(
     return sendValuesWithProgress(self, session, target, verb, values, arena, true, null, .application);
 }
 
-/// An application need not choose a transport session for held authority.
-/// Local targets use the owning queue; foreign targets use their actual home
-/// and the same routed delivery as an explicitly selected session.
+/// An application need not choose a transport session for held authority. Local
+/// targets use the owning queue. Foreign targets use their actual home and the
+/// same routed delivery as an explicitly selected session.
 pub fn sendApplicationValues(self: *Host, target: capability.Ref, verb: []const u8, values: []const value_mod.Value, arena: std.mem.Allocator) !u64 {
     try self.refuseReentry();
     const selected = try routing.applicationTarget(self, target);

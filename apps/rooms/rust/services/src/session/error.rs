@@ -57,7 +57,7 @@ pub enum Error {
 		cause: Option<Box<Error>>,
 	},
 	/// A cleanup that failed while the peer was already failing. The primary
-	/// cause stays first; the cleanup keeps its own name instead of being
+	/// cause stays first. The cleanup keeps its own name instead of being
 	/// folded into a sentence.
 	Cleanup {
 		primary: Box<Error>,

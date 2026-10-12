@@ -1,12 +1,9 @@
 # Waiting on upstream
 
-These are open questions in OCapN and Spritely Goblins. glowcap cannot settle
-any of them alone, so they are not on [the roadmap](roadmap.md). A few already
-have an answer glowcap meets; those say so, and say what holds it.
-
-Each section names the proposal that is deciding the question, because `glowcap-next`
-follows current direction rather than only merged text. Every number below was
-open at the last review.
+These are open questions in OCapN and Spritely Goblins that glowcap cannot
+settle alone, so they are not on [the roadmap](roadmap.md). Each section names
+the proposal deciding it, because `glowcap-next` follows current direction as
+well as merged text. Every number below was open at the last review.
 
 Where two pinned sources disagree, `zig build ocapn-findings-check` reproduces
 the disagreement against the exact upstream revisions this repository pins, and
@@ -18,7 +15,7 @@ fails if an observation stops matching its source. The
 OCapN PR 288 changes `op:start-session` from four fields to five by adding a
 `crypto-version`. It also replaces the structured gcrypt public-key and
 signature records with 32-byte Ed25519 public keys and 64-byte signatures.
-That is a wire-breaking session change, not a routine specification refresh.
+That is a wire-breaking session change.
 
 The merged text currently names the required version as `Ed25519_SHA256` when
 describing the sender and `Ed25519` when describing the receiver. Keep the
@@ -26,9 +23,12 @@ specification pin at `d05fd192be530b448e6d80c14714b9ff16644c4e` until that
 contract is consistent and glowcap can move its session codecs, fixtures, live
 Goblins checks, and both profiles together.
 
-The [transition plan](planning/ocapn-crypto-version-handshake.md) records the
-external readiness requirements and the implementation sequence after they
-are met.
+As of September 13, 2026, the Racket and Guile Goblins issues for this change
+are open and unassigned, with no public implementation. Racket Goblins `master`
+and the pinned OCapN suite still use the four-field record.
+
+The [transition plan](planning/ocapn-crypto-version-handshake.md) lists what
+must be ready upstream and the steps after that.
 
 ## OCapN Null
 
@@ -38,10 +38,9 @@ model arm, codec round trips, and a live Goblins check.
 
 ## Live `op:untag`
 
-The 1.0 responder, initiator, fixtures, C Host, and bindings ship. Glowcap
-accepts the operation from every 1.0 peer and sends it only after the partner
-advertises the `untag` feature. Goblins has no live marshaller for the
-operation, so there is no outside implementation path to exercise yet.
+glowcap accepts the operation from every 1.0 peer and sends it only after the
+partner advertises the `untag` feature. Goblins has no live marshaller for it,
+so no outside implementation exercises it yet.
 
 ## Promise-listening proposal
 
@@ -54,20 +53,19 @@ proposal while it is under review. The reviewed proposal revision is
 
 ## Locator hints type
 
-The draft describes hints as a mapping; the pinned Goblins constructor contract
+The draft describes hints as a mapping. The pinned Goblins constructor contract
 accepts only false or a string. The wire unmarshaller builds nodes through the
-raw constructor, so a mapping-shaped hints field does decode in practice, which
-`zig build goblins-gift-hints` observes live.
-
-`zig build goblins-gift-hints` keeps this pinned with opaque route metadata; no
-glowcap authentication mechanism depends on the extension point.
+raw constructor, so a mapping-shaped hints field does decode in practice.
+`zig build goblins-gift-hints` observes this live and keeps it pinned with
+opaque route metadata. No glowcap authentication mechanism depends on the
+extension point.
 
 ## Handoff withdrawal lookup
 
 Goblins resolves a give's session by the full node value including hints, while
-its own node equality deliberately ignores hints. glowcap embeds the peer-owned
+its own node equality ignores hints. glowcap embeds the peer-owned
 acceptable-location claim verbatim. That selected route may differ from the
-transport carrying the session. Onion uses the stable hint-less locator; an
+transport carrying the session. Onion uses the stable hint-less locator. An
 iroh direct-address refresh applies to subsequent sessions and gifts. This is
 pinned interop behavior, not a glowcap architecture boundary.
 
@@ -75,21 +73,17 @@ pinned interop behavior, not a glowcap architecture boundary.
 
 Goblins records an accepted `handoff-count` on the Gifter-Exporter session.
 The count belongs to the Receiver-Exporter session named by the receive
-certificate. Two independent receivers may therefore each use zero on their
-first session, but Goblins compares the second receiver's value with the first
-receiver's count retained on their shared Gifter-Exporter session and rejects
-the valid certificate. The same mismatch appears when one receiver closes and
-reconnects with a fresh session-local counter.
+certificate. So two independent receivers that each start at zero collide on
+their shared Gifter-Exporter session, and Goblins rejects the second valid
+certificate. The same happens when one receiver reconnects with a fresh
+counter.
 
-glowcap's automatic V1 redeem path issues from one Node-lifetime monotonic
-cursor, which keeps replacement sessions from moving backward against Goblins.
-`zig build goblins-rooms-dm-iroh` closes the first browser DM, opens a distinct
-replacement, and requires its first message and reply to cross the live Goblins
-session. Accepted replay state and all next-profile issuance remain scoped to
-the Receiver-Exporter session. Independent receivers cannot coordinate a
-counter the protocol assigns to separate sessions. The pinned source evidence
-lives in `conformance/ocapn-findings/`; `zig build goblins-rooms-matrix-iroh`
-reproduces the live rejection before running its clean four-peer matrix.
+glowcap's V1 redeem path issues from one counter for the Node's lifetime, so
+its own replacement sessions never move backward
+(`zig build goblins-rooms-dm-iroh`). Independent receivers cannot coordinate a
+counter the protocol assigns to separate sessions.
+`zig build goblins-rooms-matrix-iroh` reproduces the rejection, and
+`conformance/ocapn-findings/` holds the source evidence.
 
 ## Promise settlement
 
@@ -105,23 +99,20 @@ peer sends to a particular object or promise arrive in the order they were sent,
 and that order survives promise shortening. glowcap's local invariant matches
 that shape: every shortening edge names an import on the same session, so a
 retargeted deliver leaves on the same wire its predecessors left on. A test in
-`test/engine/peer/shortening_test.zig` pins the retargeting and same-wire emission.
+`test/engine/peer/shortening_test.zig` pins the retargeting and same-wire
+emission.
 
-The receiver's half of that claim has no live outside-peer evidence. Automatic
-shortening listeners run only under `glowcap-next`; the pinned Goblins checks
-use CapTP 1.0. A Goblins test cannot exercise this path until an outside peer
-implements compatible shortening behavior. Two glowcap peers cannot supply
-the missing promise producer either: the engine refuses a listen on a bare
-promise export because glowcap mints no free-standing resolvable promise for
-a partner to listen on. Keep the existing in-tree sender-order scenario while
-that external support is absent. Watch the proposal for a requirement that
-reaches across sessions, which this session-local forest cannot express.
+The receiver's half has no live outside evidence. Automatic shortening runs
+only under `glowcap-next`, the Goblins checks use CapTP 1.0, and two glowcap
+peers cannot test it either, because glowcap mints no free-standing promise for
+a partner to listen on. Watch the proposal for a requirement that reaches
+across sessions, which this session-local design cannot express.
 
 ## Goblins Error interop
 
 The pinned OCapN Model defines Error as Passable data. OCapN PR 248 and issue
 142 track its still-open invariants. glowcap carries that value through the
-neutral model, both codecs, the owning Host, the C ABI, and every binding; a
+neutral model, both codecs, the owning Host, the C ABI, and every binding. A
 broken promise remains a different result shape. The pinned Goblins
 unmarshaller refuses an `<error>` record, so glowcap's Goblins-compatible
 resolver callback keeps its established bare-Symbol break reason. Watch for a
@@ -160,7 +151,7 @@ locator value and hint names are what have to agree.
 
 ## Native Zig QUIC
 
-glowcap uses iroh rather than implementing QUIC. The decision reopens when
+glowcap uses iroh and does not implement QUIC. The decision reopens when
 iroh's protocols stabilize and a production Zig QUIC stack exists
 ([ADR-0055](decisions/adr/ADR-0055-iroh-netlayer-sidecar.md)).
 
@@ -170,23 +161,13 @@ OCapN issue 208 proposes a Noise-based identity layer that would run inside any
 byte transport, and an NLnet grant funds a standardized end-to-end encrypted
 relay netlayer at Spritely. Neither has spec text yet. glowcap's own sealed
 channel is [ADR-0107](decisions/adr/ADR-0107-sealed-byte-channel.md)
-(`Noise_XK` under two glowcap-only symbols, `noise-tcp` and `noise-relay`);
-if upstream lands a Noise netlayer, the handshake pattern, prologue, and
+(`Noise_XK` under two glowcap-only symbols, `noise-tcp` and `noise-relay`).
+If upstream lands a Noise netlayer, the handshake pattern, prologue, and
 locator shape are what have to agree before the symbols can converge.
 
-ADR-0125's identity-route implementation is present but not an upstream claim.
-The model recognizes `id` and its `via` hint behind the negotiated
-`multi_location` feature. Handoff redeem parses `id` and `alt-locators` through
-the same route-bundle owner. Paths under `via` must prove the durable
-key the outer `id` designator names; optional `alt-locators` are weak handoff
-fallbacks that neither establish that identity nor become sturdyref dial
-paths. Declared `via` order ranks a bounded two-attempt strong-route race;
-`alt-locators` remain ordered and serial after every strong route fails, with no
-transport-name weighting presented as upstream behavior. Session validation
-keeps route vocabulary out of a first hello until the remote side has offered
-`glowcap-next` with the feature bit, and
-settled-session payloads require the negotiated bit. Host-level `id` sturdyrefs
-use the same opted-in feature gate and
-resolve through the Node pending-dial waist rather than through a physical
-`id` transport. Arbitrary carrier wrapping, route-key binding, and final hint
-schema remain the private extension surface to reconcile with future spec text.
+The `id` locator from
+[ADR-0125](decisions/adr/ADR-0125-identity-route-multihome.md) is glowcap's
+own, gated behind the negotiated `multi_location` feature, and the
+[multi-home routes diagrams](protocol-diagrams/08-multihome-routes.md) describe
+it. Carrier wrapping, route-key binding, and the hint schema are what must be
+reconciled with future spec text.

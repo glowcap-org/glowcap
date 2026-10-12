@@ -26,7 +26,7 @@ pub fn Machine(comptime Self: type, comptime Fd: type) type {
             }
         }
 
-        /// Required Backend contract; WebRTC has no OS recv to unblock.
+        /// Required Backend contract. WebRTC has no OS recv to unblock.
         pub fn shutdownFd(self: *Self, fd: Fd) void {
             _ = self;
             _ = fd;

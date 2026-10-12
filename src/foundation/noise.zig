@@ -13,7 +13,7 @@
 //! entropy. An ephemeral key is built from a 32-byte seed the caller supplies,
 //! the same door the published test vectors inject through, and it builds for
 //! `wasm32` as-is. Key conversion from durable Ed25519 identities lives in
-//! `crypto.zig`; everything here works in raw X25519 material.
+//! `crypto.zig`. Everything here works in raw X25519 material.
 //!
 //! Callers are `foundation.sealed.SealedChannel` (the composition the
 //! byte-fed Host boxes per sealed session) and the cacophony vectors in
@@ -48,10 +48,10 @@ pub const KeyPair = crypto.X25519KeyMaterial;
 
 /// The ways the state machine can refuse. Everything inbound bytes can reach
 /// arrives through `readMessage` or `CipherState.decrypt`, and both fail
-/// closed with a typed reason; the rest guard caller arithmetic.
+/// closed with a typed reason. The rest guard caller arithmetic.
 pub const NoiseError = error{
     /// An AEAD tag did not verify. The message was forged, replayed under the
-    /// wrong key, or corrupted; the receiving state did not advance.
+    /// wrong key, or corrupted. The receiving state did not advance.
     DecryptFailed,
     /// An inbound handshake message is shorter than its fixed layout.
     MessageTooShort,
@@ -59,7 +59,7 @@ pub const NoiseError = error{
     BufferTooSmall,
     /// A payload would push the message past `MAX_MESSAGE_BYTES`.
     PayloadTooLong,
-    /// A cipher's 64-bit nonce space is spent; the reserved final nonce never
+    /// A cipher's 64-bit nonce space is spent. The reserved final nonce never
     /// encrypts. The channel above renegotiates or closes.
     NonceExhausted,
     /// A Diffie-Hellman input mapped to the identity element, so the shared
@@ -125,7 +125,7 @@ pub const CipherState = struct {
     }
 
     /// Replace the key with `ENCRYPT(k, 2^64-1, "", zeros)` truncated to the
-    /// key width, the specification's `REKEY`. The nonce is not reset; Noise
+    /// key width, the specification's `REKEY`. The nonce is not reset. Noise
     /// leaves that to the protocol above, and the sealed channel does not
     /// reset it either.
     pub fn rekey(self: *CipherState) void {
@@ -146,7 +146,7 @@ pub const CipherState = struct {
         if (messages > remaining) return NoiseError.NonceExhausted;
     }
 
-    /// Wipe the key. The owner calls this when the channel closes; the state
+    /// Wipe the key. The owner calls this when the channel closes. The state
     /// is unusable afterwards.
     pub fn deinit(self: *CipherState) void {
         std.crypto.secureZero(u8, &self.k);
@@ -189,7 +189,7 @@ pub const HandshakeState = struct {
     cipher: CipherState,
     has_cipher: bool,
     role: Role,
-    /// Index of the next handshake message, 0 through 2; 3 means complete,
+    /// Index of the next handshake message, 0 through 2. 3 means complete,
     /// `retired_stage` means split or wiped, with nothing left to derive from.
     stage: u8,
     s: KeyPair,
@@ -213,8 +213,8 @@ pub const HandshakeState = struct {
     /// Start the dialing side. `local_static` is this peer's converted durable
     /// key, `remote_static` the responder's X25519 public derived from the
     /// designator being dialed, `ephemeral` a fresh pair from caller entropy,
-    /// and `prologue` the transport-and-designator binding both sides compute;
-    /// a transcript replayed against a different transport or identity
+    /// and `prologue` the transport-and-designator binding both sides compute.
+    /// A transcript replayed against a different transport or identity
     /// diverges from the first hash.
     pub fn initInitiator(
         local_static: *const KeyPair,
@@ -319,7 +319,7 @@ pub const HandshakeState = struct {
     /// Consume the next handshake message, writing the peer's payload into
     /// `out` and returning it. Asserts it is the peer's turn to have written.
     /// On any failure the state has still advanced its transcript hash and
-    /// must be discarded; the channel owner closes the connection, which is
+    /// must be discarded. The channel owner closes the connection, which is
     /// the only recovery `XK` defines.
     pub fn readMessage(self: *HandshakeState, message: []const u8, out: []u8) NoiseError![]u8 {
         std.debug.assert(!self.myTurn() and self.stage <= 2);
@@ -364,7 +364,7 @@ pub const HandshakeState = struct {
     }
 
     /// The far side's static X25519 key, once learned. The responder reads it
-    /// after message three; the initiator holds it from init. It names a
+    /// after message three. The initiator holds it from init. It names a
     /// curve point, not a durable identity: the sealed channel verifies a
     /// signed exact Ed25519 identity proof against this value.
     pub fn remoteStatic(self: *const HandshakeState) ?[KEY_BYTES]u8 {
@@ -384,7 +384,7 @@ pub const HandshakeState = struct {
     /// Finish: derive the two transport ciphers and wipe the handshake's
     /// working state. The chaining key, ephemeral secret, static-secret copy,
     /// and payload cipher are zeroed here, which is the completion-time
-    /// cleanup ADR-0107 budgets for; only the returned keys and the transcript
+    /// cleanup ADR-0107 budgets for. Only the returned keys and the transcript
     /// hash survive.
     pub fn split(self: *HandshakeState) NoiseError!TransportKeys {
         if (self.stage <= 2) return NoiseError.HandshakeNotComplete;
@@ -480,11 +480,11 @@ pub const RECORD_HEADER_BYTES: usize = 2;
 /// The ceiling one record's body may declare, tag included.
 pub const MAX_RECORD_BYTES: usize = 65535;
 
-/// The most plaintext one record can carry; a longer frame spans records.
+/// The most plaintext one record can carry. A longer frame spans records.
 pub const MAX_RECORD_PLAINTEXT_BYTES: usize = MAX_RECORD_BYTES - TAG_BYTES;
 
 /// Seal one record: header, ciphertext, tag, written into `out` as one span.
-/// `plaintext` must fit one record; the channel above slices a larger frame.
+/// `plaintext` must fit one record. The channel above slices a larger frame.
 pub fn sealRecord(cipher: *CipherState, plaintext: []const u8, out: []u8) NoiseError![]u8 {
     if (plaintext.len > MAX_RECORD_PLAINTEXT_BYTES) return NoiseError.PayloadTooLong;
     const body_len = std.math.add(usize, plaintext.len, TAG_BYTES) catch

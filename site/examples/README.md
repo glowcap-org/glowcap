@@ -1,9 +1,9 @@
 # Site transport examples
 
-Author CapTP first-call snippets here once; `zig build gen-site-examples`
+Author CapTP first-call snippets here once. `zig build gen-site-examples`
 assembles them into SuperMD `code-tabs` blocks on the binding, Start, and
 transport pages. The numbered Zig chapters and C programs live under
-[`examples/`](../../examples/README.md); this directory is only the
+[`examples/`](../../examples/README.md). This directory is only the
 per-transport first-call matrix. The site's Examples page is the
 runnable inventory: rooms, chapters, C, and the demo apps.
 
@@ -18,7 +18,7 @@ paths first, then trusted-network paths, then testing-only paths. A page that
 covers more than one transport profile gives each profile its own group when
 the programs differ: the Noise page separates TCP from relay, and the relay
 dial axis separates Noise from keyed cleartext. Relay listen is the sealed
-path once; keyed registration is the same constructor with a different
+path once. Keyed registration is the same constructor with a different
 profile, not a second full program.
 
 ## Layout
@@ -46,14 +46,14 @@ The available tabs are:
 | Tab | Why it earns a place |
 | --- | --- |
 | `iroh` | Managed native Zig, C and language-binding providers |
-| `noise-tcp` | Same sockets as keyed; Noise_XK seals CapTP |
-| `keyed-tcp` | Key designator, cleartext; restart-stable identity |
-| `tcp` | Cleartext address dial; testing and the Goblins TCP suite |
+| `noise-tcp` | Same sockets as keyed. Noise_XK seals CapTP |
+| `keyed-tcp` | Key designator, cleartext. Restart-stable identity |
+| `tcp` | Cleartext address dial. Testing and the Goblins TCP suite |
 
 The full inventory also includes `webrtc`, `noise-relay`, `onion`,
 `keyed-relay`, and `inproc`. Onion needs Tor daemon endpoints, WebRTC needs a
 signaling capability, and relay locators name the rendezvous service. In-process
-dials share a Zig `Network`; managed bindings keep their in-process API at the
+dials share a Zig `Network`. Managed bindings keep their in-process API at the
 raw frame-transport seam.
 
 Transport pages may also carry an explicitly marked `PLANNED` snippet for a
@@ -68,8 +68,8 @@ unmarked example is a shipped, checked claim.
 1. Change or add a snippet file under the folders above.
 2. If you add a transport or page slot, update `matrix` / `slots` in
    [`tools/gen/site_examples.zig`](../../tools/gen/site_examples.zig).
-3. Run `zig build gen-site-examples`, or keep `zig build docs-serve` running —
-   the preview regenerates tabs on start and whenever `site/examples/` (or the
+3. Run `zig build gen-site-examples`, or keep `zig build docs-serve` running.
+   The preview regenerates tabs on start and whenever `site/examples/` (or the
    assembler) changes.
 4. `zig build gen-site-examples-check` (on `check`) fails when a page marker is
    stale.
@@ -77,6 +77,6 @@ unmarked example is a shipped, checked claim.
    file through the same public packages readers use. Explicit `PLANNED`
    snippets are skipped, because the API they show is not yet public.
 
-Do not hand-edit between the begin/end markers in `site/content/**/*.smd`;
-the gen step overwrites that span. Each marker is an HTML comment inside a
+Do not hand-edit between the begin/end markers in `site/content/**/*.smd`.
+The gen step overwrites that span. Each marker is an HTML comment inside a
 ` ```=html ` fence so SuperMD accepts it (same escape as the performance page).

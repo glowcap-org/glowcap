@@ -1,15 +1,15 @@
 //! The live trace tap: the one place the Host core reports its own protocol
-//! activity — a session finishing its handshake, a message passing with its
-//! verb, a session closing — to whoever installed a sink. Every binding's
-//! `enable_trace` and the native tier's own observer stand on this seam, so
+//! activity (a session finishing its handshake, a message passing with its
+//! verb, a session closing) to whoever installed a sink. Every binding's
+//! `enable_trace` and every Zig observer stand on this seam, so
 //! the facts are produced once, by the layer that owns them: the core knows
 //! the real codec, the real open transition (after crossed hellos), and
 //! every deliver's verb, where a binding-side tap could only approximate
 //! them from its own surface.
 //!
 //! The core stays sans-io and deterministic: an emit is one callback with
-//! borrowed fields, valid only for the call. The sink stamps time and
-//! formats — those belong to the embedder, which owns clocks and bytes. With
+//! borrowed fields, valid only for the call. The embedder owns clocks and bytes,
+//! so it stamps time and formats. With
 //! no sink installed every emit site is a single null check.
 
 const std = @import("std");
@@ -21,14 +21,14 @@ const vocab = @import("vocab.zig");
 
 /// The OCapN **Session ID**, written as 64 lowercase hex digits.
 ///
-/// The spec's own term, and its own value: the CapTP specification derives
+/// The spec's term and value: the CapTP specification derives
 /// it from the two peers' Public Identifiers, sorted, so both sides of one
 /// session compute the same 32 bytes and dial order does not enter it
 /// (`foundation.crypto.sessionIdFromPeerIds`).
 ///
 /// A trace consumer that merges feeds from several producers needs this.
 /// A producer's own session handle says nothing across a process boundary,
-/// and the two peers of one session each report their own; this is the one
+/// and the two peers of one session each report their own. This is the one
 /// name they agree on, and it is protocol identity rather than a producer's
 /// claim.
 pub const SessionId = [64]u8;
@@ -52,8 +52,8 @@ pub const Event = union(enum) {
     ///
     /// A designator is half a name. The spec is explicit that a designator
     /// and a transport together are what tell two locations apart, so the
-    /// same key reached over `iroh` and over `keyed-relay` is two locators
-    /// — and which transport carried the session is what decides how its
+    /// same key reached over `iroh` and over `keyed-relay` is two locators.
+    /// The transport that carried the session decides how its
     /// name could have been proved.
     ///
     /// `provenance` says what proved the durable name rather than whether
@@ -62,9 +62,9 @@ pub const Event = union(enum) {
     /// whose claim nothing on its path was able to prove.
     session_open: struct {
         /// This producer's own handle for the session. Local, and not the
-        /// OCapN Session ID below — nothing outside this host can read it.
+        /// OCapN Session ID below. Nothing outside this host can read it.
         session: engine.PeerHandle,
-        /// OCapN: the partner's **Designator** — the name inside the
+        /// OCapN: the partner's **Designator**, the name inside the
         /// netlayer, a key spelling or an address.
         designator: []const u8,
         /// OCapN: the locator's **Transport**, the netlayer symbol
@@ -84,11 +84,11 @@ pub const Event = union(enum) {
         captp_version: model.CaptpVersion,
     },
     /// One message crossing the wire on an open session. `outbound` reads
-    /// from this host's side; `verb` is the deliver's own verb symbol;
+    /// from this host's side. `verb` is the deliver's own verb symbol.
     /// `frame` is the message's wire frame, borrowed for the callback.
     /// Both fact sites sit at the wire boundary (inbound dispatch, the
-    /// outbound drain), so a near send — in-process, never encoded — is
-    /// deliberately not a message fact.
+    /// outbound drain), so a near send (in-process, never encoded) is
+    /// not a message fact.
     message: struct {
         session: engine.PeerHandle,
         outbound: bool,
@@ -98,7 +98,7 @@ pub const Event = union(enum) {
         /// peers that carried it.
         ///
         /// One frame crosses one wire, so both ends hold the same bytes and
-        /// derive the same tag with no coordination and no counter — nothing
+        /// derive the same tag with no coordination and no counter. Nothing
         /// per-session is retained for it, keeping it off the footprint
         /// budget. A consumer can therefore merge two
         /// observers' views of one session instead of discarding one, and it
@@ -119,7 +119,7 @@ pub const Event = union(enum) {
 
 /// Width of a message's wire-bytes tag. 128 bits: this identifies one frame
 /// among the frames of one session, so the birthday bound over a session's
-/// own traffic is what matters, not a global one.
+/// traffic is what matters, not a global one.
 pub const digest_bytes = 16;
 
 /// The installed sink: `emit` is called synchronously at the fact site, on

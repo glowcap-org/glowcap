@@ -51,6 +51,7 @@ pub const RelayOptions = completion.RelayOptions;
 pub const CompletionBackend = completion.CompletionBackend;
 pub const default_send_staging_bytes = completion.default_send_staging_bytes;
 pub const validateConfigurationUrls = configuration.validateUrls;
+pub const Configuration = configuration.Options;
 
 pub const white_box = if (builtin.is_test) struct {
     pub const FailureLedger = address_race.FailureLedger;

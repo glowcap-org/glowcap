@@ -7,12 +7,13 @@
 import type { Browser, Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { fail } from "./harness.ts";
+import { proveRoomDepartures } from "./departure.ts";
 
 export async function run(tab: Page, browser: Browser, httpPort: number): Promise<Page> {
 	// ── The two rails ────────────────────────────────────────────────────
 	// A second peer, so the roster has someone in it other than you: the row that
 	// carries a direct-line button is the one the checks below are about, and you
-	// never get one for yourself. The name is long on purpose.
+	// never get one for yourself. The name is long.
 	const second = await browser.newPage();
 	second.on("pageerror", (e) => console.error("  [page error, second peer]", e.message));
 	second.on("console", (message) => {
@@ -26,6 +27,7 @@ export async function run(tab: Page, browser: Browser, httpPort: number): Promis
 	await second.waitForSelector("#line:not([disabled])", { timeout: 60_000 }).catch(async () => {
 		fail(`the second peer did not join lobby: ${await second.locator("body").innerText()}`);
 	});
+	await proveRoomDepartures(second, "lobby");
 	await tab.waitForFunction(
 		() => document.querySelectorAll("#members li .dm-btn").length > 0,
 		undefined,
@@ -54,8 +56,8 @@ export async function run(tab: Page, browser: Browser, httpPort: number): Promis
 
 	// ── Ignoring a name that turns out to be your own ────────────────────
 	// The ignore list is names, and a name is a claim a directory grants and
-	// takes back — so a reader's own current name can sit on their own list,
-	// put there against a previous holder or by a slip. That used to hide their
+	// takes back, so a reader's own current name can sit on their own list,
+	// put there against a previous holder or by a slip. That must not hide their
 	// own messages from them: typed, sent, delivered to everybody else, and
 	// invisible only at home, with nothing anywhere saying why.
 	{
@@ -69,8 +71,8 @@ export async function run(tab: Page, browser: Browser, httpPort: number): Promis
 			const log = ((await tab.textContent("#log")) ?? "").slice(-160);
 			fail(`ignoring your own name does not say so: ${JSON.stringify(log)}`);
 		});
-		// Their own line still draws. This is the reported failure: it used to
-		// vanish into the same filter that hides everybody else's.
+		// Their own line still draws. It must not vanish into the same filter
+		// that hides everybody else's.
 		await tab.fill("#line", "my own line, while my name is on my own ignore list");
 		await tab.press("#line", "Enter");
 		await tab.waitForFunction(

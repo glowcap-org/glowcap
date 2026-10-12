@@ -1,6 +1,6 @@
 //! Synchronous transaction evaluation for embedding-owned atomic KV stores.
-//! A missing input suspends the batch cursor; earlier writes stay in the same
-//! atomic transaction. Only get suspends; put/remove synchronously consume bytes.
+//! A missing input suspends the batch cursor. Earlier writes stay in the same
+//! atomic transaction. Only get suspends. Put and remove consume bytes synchronously.
 //! Only a terminal database event can retire a plan and permit installation.
 const std = @import("std");
 const common = @import("common.zig");

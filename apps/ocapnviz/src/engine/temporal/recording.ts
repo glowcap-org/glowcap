@@ -1,5 +1,5 @@
 /**
- * Recording layer — the append-only observed history of a
+ * Recording layer. The append-only observed history of a
  * glowcap document. See `docs/data-model.md` for the three-layer
  * architecture (identity / behavior / recording).
  *
@@ -15,7 +15,7 @@
  * `TimelineEvent` for the authoring side, so an event and an
  * observation are one declaration, not two kept in step. The
  * parser accepts either a top-level `events: [...]` array (fixture-
- * friendly flat input) or a fully-populated `recording`; both
+ * friendly flat input) or a fully-populated `recording`. Both
  * normalize to `recording.sources[*].observations` post-parse.
  * Readers go through `observationsOf(doc)` / `sourcesOf(doc)` and
  * never touch a top-level observation array.
@@ -56,7 +56,7 @@ const PeerJoinedObs = z.object({
 	profile: PeerProfile,
 	designator: z.string().optional(),
 	/** Authored render-space position. Under `layoutMode: "authored"`
-	 *  it IS the peer's position; under the force modes it pins the
+	 *  it IS the peer's position. Under the force modes it pins the
 	 *  peer there while neighbors settle around it. */
 	position: Position.optional(),
 });
@@ -72,7 +72,7 @@ const PeerLeftObs = z.object({
  *
  *  A telemetry producer going away is a fact about the FEED. The peer
  *  it was reporting may have departed, or may be running happily with
- *  nobody watching it — from here the two are indistinguishable, and
+ *  nobody watching it, from here the two are indistinguishable, and
  *  `peer-left` would pick the first and state it as fact. This says
  *  only what is known: the picture ends here because the viewer lost
  *  sight, not because anything on the network moved. */
@@ -86,9 +86,9 @@ const SessionOpenedObs = z.object({
 	...observationBase,
 	kind: z.literal("session-opened"),
 	sessionId: z.string().min(1),
-	/** The session's two ends. Either may be loose — a claim nothing
-	 *  proved, attached to no peer — which is why these are endpoints and
-	 *  not the bare peer ids they used to be. An authored scenario writes a
+	/** The session's two ends. Either may be loose, a claim nothing
+	 *  proved, attached to no peer, which is why these are endpoints and
+	 *  not bare peer ids. An authored scenario writes a
 	 *  peer id and means `{ peer }`. */
 	a: SessionEndpoint,
 	b: SessionEndpoint,
@@ -141,26 +141,26 @@ const SessionUnobservedObs = z.object({
  *  and this observation is a keyframe on it
  *  (`SessionDefinition.keyframes.a` / `.b`).
  *
- *  Nothing on the wire moved. The session did not close and reopen;
+ *  Nothing on the wire moved. The session did not close and reopen.
  *  the claim on one of its ends stopped being only a claim. */
 const SessionEndpointAttributedObs = z.object({
 	...observationBase,
 	kind: z.literal("session-endpoint-attributed"),
 	sessionId: z.string().min(1),
-	/** Which end — the same two names `session-opened` gives them. */
+	/** Which end. The same two names `session-opened` gives them. */
 	side: SessionSide,
 	peerId: z.string().min(1),
 	/** What backed the claim, when anything did.
 	 *
 	 *  The pair it states with `peerId` is what the keyframe track carries
 	 *  (`EndpointAttachment`), so an end attributed partway through says as
-	 *  much as one the session was born with — which is the whole reason this
+	 *  much as one the session was born with, which is the whole reason this
 	 *  field exists.
 	 *
 	 *  Optional for the reason the genesis endpoint's own `attributedBy` is:
 	 *  the invariant runs one way. Something that attributed an end names the
 	 *  peer, and an end may be attached with nothing recorded about what put
-	 *  it there — a live producer that stated no verdict, and an author, both
+	 *  it there, a live producer that stated no verdict, and an author, both
 	 *  land there. Requiring a word here would make those two writes invent
 	 *  one. Loose is the absence of `peerId`'s attachment altogether, which is
 	 *  the absence of this observation. */
@@ -170,7 +170,7 @@ const SessionEndpointAttributedObs = z.object({
 /**
  * `message-sent` spawns a transient message-in-flight that travels
  * from sender to receiver along the named session. `arrivalT` lets
- * the renderer interpolate progress without knowing the future; the
+ * the renderer interpolate progress without knowing the future. The
  * paired `message-delivered` observation terminates the entity.
  */
 const MessageSentObs = z.object({
@@ -216,13 +216,13 @@ const PeerUpdatedObs = z.object({
 	/** The implementation the peer is known by from here on.
 	 *
 	 *  An author states one directly. A live feed states one when it
-	 *  learns something it could not know at the join — a peer drawn as
-	 *  somebody else's partner, later reporting a session of its own —
+	 *  learns something it could not know at the join, a peer drawn as
+	 *  somebody else's partner, later reporting a session of its own,
 	 *  so a peer's implementation arrives the way its name does, at the
 	 *  moment somebody could say it. `StageLedger` holds what counts as
 	 *  knowing. */
 	profile: PeerProfile.optional(),
-	// No `designator` here, deliberately. A peer only ever reaches the stage
+	// No `designator` here. A peer only ever reaches the stage
 	// under a name somebody stated (`StageLedger.ensurePeer`), so its join
 	// carries the durable name it answers to and nothing arrives later with a
 	// first one. An author edits that name on the definition and the join
@@ -252,7 +252,7 @@ export const Observation = z.discriminatedUnion("kind", [
 export type Observation = z.infer<typeof Observation>;
 
 export const RecordingSourceMeta = z.object({
-	/** Emitter family / kind — "glowcap-host" (a live host tap), "griddle"
+	/** Emitter family / kind, "glowcap-host" (a live host tap), "griddle"
 	 * (the deterministic simulator), etc. */
 	kind: z.string().min(1),
 	version: z.string().optional(),

@@ -171,8 +171,8 @@ test "core host: deinit closes every traced open exactly once" {
 }
 
 test "core host: a glowcap-to-glowcap pair holds the next profile over capnp" {
-    // The native glowcap job — `engine.negotiation.Offer.native` prefers
-    // `next` and Cap'n Proto together — run at the Host tier for the first
+    // The native glowcap job, `engine.negotiation.Offer.native` prefers
+    // `next` and Cap'n Proto together, run at the Host tier for the first
     // time. Only `engine.pairing` (in-process, no Host) had ever exercised
     // `next`, because `Host.Options` carried no version and every socket
     // session took the v1.0 floor. The profile is a wire difference, not a
@@ -320,7 +320,7 @@ test "core host: the live trace reports each session's settled profile, not the 
 
 test "core host: both peers of one session report the same wire name" {
     // The name a consumer merges two producers' feeds on. A session id is
-    // host-local — every host starts counting at one — so two peers tracing
+    // host-local, every host starts counting at one, so two peers tracing
     // the same conversation say nothing to each other by it. The wire name is
     // the OCapN session identifier, derived from both session public keys with
     // the pair sorted, so the dialer and the accepter compute the same digits
@@ -367,7 +367,7 @@ test "core host: both peers of one session report the same wire name" {
 test "core host: a three-vat handoff holds native between the glowcap pair and baseline with the third" {
     // The cast `apps/ocapnviz/src/fixtures/three-vat-handoff-mixed.ts` draws:
     // a glowcap gifter introduces a peer that speaks only the v1.0 Syrup
-    // baseline — a Goblins vat's profile — to a glowcap exporter. Three
+    // baseline, a Goblins vat's profile, to a glowcap exporter. Three
     // sessions, and the profile each runs on is a property of its pair:
     // gifter-to-exporter is native because both ends can be, and both of the
     // recipient's sessions are the baseline because it cannot.
@@ -515,8 +515,8 @@ test "core host: both ends of a wire tag one message identically" {
 
     // And the tag must cover the frame, not something coarser that happens to
     // agree across ends. Two sends of the SAME verb carrying different
-    // arguments are different messages, and a tag over the verb alone — which
-    // both ends would also agree on — cannot tell them apart.
+    // arguments are different messages, and a tag over the verb alone, which
+    // both ends would also agree on, cannot tell them apart.
     var second = CapturedString{};
     try client.vowOn(
         try client.send(pair.a, widget, .{ .verb = "poke", .args = &.{.{ .string = "again" }} }),

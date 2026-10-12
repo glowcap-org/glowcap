@@ -16,6 +16,9 @@ use std::{
 #[derive(Clone, Default)]
 struct Platform(Rc<Cell<u8>>);
 impl rooms_glowcap::client::Deadline for Platform {
+	fn monotonic_millis(&self) -> u64 {
+		0
+	}
 	async fn within<T>(&self, ms: u64, work: impl Future<Output = T>) -> Option<T> {
 		HostPlatform.within(ms, work).await
 	}

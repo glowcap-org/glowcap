@@ -9,7 +9,7 @@ const std = @import("std");
 
 pub const Posture = union(enum) {
     /// A deterministic test or proof subprocess. The source gate holds this to
-    /// the project's 30-second maximum; the build-time check keeps direct
+    /// the project's 30-second maximum. The build-time check keeps direct
     /// callers from constructing an invalid value outside that scan.
     deterministic: u8,
     /// A Zig server-mode test. The canonical build invocations set one
@@ -20,14 +20,14 @@ pub const Posture = union(enum) {
     /// Chromium launch, on-demand bundling, and multi-peer choreography, so
     /// its owner-calibrated ceiling is minutes: the scenario's own deadline
     /// stays the semantic timer, and this wrapper is the containment above
-    /// it, set to that deadline plus scheduling headroom. Bounded 31..900 —
-    /// a proof that fits 30 seconds is simply deterministic.
+    /// it, set to that deadline plus scheduling headroom. Bounded 31..900,
+    /// a proof that fits 30 seconds is deterministic.
     browser_proof: u16,
     /// Intentional unbounded postures. These are names, not escape hatches:
     /// the source gate inventories which artifact owns each one.
     benchmark,
     /// Compilation, generation, formatting, cache population, or setup. This
-    /// is not a test escape hatch; source-check inventories every call site.
+    /// is not a test escape hatch, source-check inventories every call site.
     build_tool,
     /// A finite orchestrator whose child processes each own their deadline.
     /// The parent cannot use one fixed deadline because its healthy duration
@@ -200,17 +200,10 @@ fn collectReachable(
     }
 }
 
-/// Where the deadline wrapper is, said absolutely.
-///
-/// A step is free to run from wherever its artifact lives, and several do: the
-/// TypeScript binding tests run from `bindings/ts`. A relative path here is read
-/// against that directory rather than against the repository, so the wrapper is
-/// simply not there and the process exits 2 before the command under test has
-/// started. That failure wears a deadline's clothes — the step that fails is the
-/// one with a deadline on it — while the test it names passes in milliseconds on
-/// its own, so it reads as a flake and outlives several attempts to reproduce it.
-fn wrapperPath(b: *std.Build) []const u8 {
-    return b.root.joinString(b.allocator, "tools/run-with-timeout.py") catch @panic("OOM");
+/// Build-owned fronts resolve from the repository root. Each Run may choose
+/// its working directory independently.
+fn repoPath(b: *std.Build, relative: []const u8) []const u8 {
+    return b.root.joinString(b.allocator, relative) catch @panic("OOM");
 }
 
 fn boundedCommand(
@@ -232,6 +225,27 @@ fn browserBoundedCommand(
     if (seconds <= 30 or seconds > 900) {
         @panic("browser-proof process deadline must be 31..900 seconds");
     }
+    // In the devcontainer, every browser consumer runs under the managed-tool
+    // exec front: it prepares the checkout's exact pinned browsers and supplies
+    // PLAYWRIGHT_BROWSERS_PATH for this command, resolved once before the
+    // timeout wrapper launches the real command. A child preflight cannot
+    // export an environment value back into sibling build steps, so this
+    // handoff is the seam that carries it. On a host build (macOS CI, a direct
+    // host run) the existing local Playwright environment is kept and the
+    // container-only front is never invoked.
+    const in_devcontainer = b.graph.environ_map.get("GLOWCAP_DEVCONTAINER_DIR") != null;
+    if (in_devcontainer) {
+        const prefixed = b.allocator.alloc([]const u8, argv.len + 5) catch @panic("OOM");
+        prefixed[0] = "bash";
+        prefixed[1] = repoPath(b, ".devcontainer/bin/tools.sh");
+        prefixed[2] = "exec";
+        prefixed[3] = "playwright";
+        prefixed[4] = "--";
+        for (argv, 0..) |arg, i| {
+            prefixed[5 + i] = arg;
+        }
+        return wrappedCommand(b, prefixed, seconds, false);
+    }
     return wrappedCommand(b, argv, seconds, false);
 }
 
@@ -243,7 +257,7 @@ fn wrappedCommand(
 ) *std.Build.Step.Run {
     const run = b.addSystemCommand(&.{
         "python3",
-        wrapperPath(b),
+        repoPath(b, "tools/run-with-timeout.py"),
         "--kill-after",
         "2s",
     });

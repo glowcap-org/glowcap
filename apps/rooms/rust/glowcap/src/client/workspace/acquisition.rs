@@ -5,7 +5,7 @@ use glowcap::{Argument, Ref, Result, loam};
 use rooms_application::content::session::{custody, records, workspace::Intent};
 
 /// A checked role and its actual held capability. The optional URI is an exact
-/// persistence recipe; live roles cannot acquire a durable recipe.
+/// persistence recipe. Live roles cannot acquire a durable recipe.
 pub struct Import {
 	pub coordinate: custody::Coordinate,
 	pub reference: Ref,
@@ -42,7 +42,7 @@ pub fn import_arguments(imports: Vec<Import>) -> Result<Argument> {
 
 /// Wire material shared with the trusted embedding's serialized writer. It
 /// moves imported capabilities and URI strings into their final spines. The
-/// bounded candidate serializes once and survives every submission; no newer
+/// bounded candidate serializes once and survives every submission. No newer
 /// snapshot can replace either its intent or its expected revision.
 pub struct AcquisitionRequest {
 	arguments: [Argument; 4],
@@ -108,6 +108,26 @@ pub struct Acquisition<D> {
 	method: &'static str,
 }
 impl<D: Deadline + Clone> Workspace<D> {
+	/// Private retirement uses the same bounded candidate and grant checks.
+	/// The witness grants scheduling access, never workspace permissions.
+	pub fn prepare_owner_acquisition(&self, owner: &Ref, expected: u64, intent: &Intent) -> Result<Acquisition<D>> {
+		let [base, imports, releases, intent] = AcquisitionRequest::new(expected, Vec::new(), &[], intent)?.arguments;
+		Ok(Acquisition {
+			caller: self.caller.clone(),
+			source: self.reference.clone(),
+			request: Vec::from([
+				owner.clone().into(),
+				rooms_application::content::session::continuing::Method::AcquireWorkspace
+					.wire()
+					.into(),
+				base,
+				imports,
+				releases,
+				intent,
+			]),
+			method: "continue-workspace",
+		})
+	}
 	pub fn prepare_acquisition(
 		&self,
 		expected: u64,
@@ -139,7 +159,7 @@ impl<D: Deadline> Acquisition<D> {
 	/// while replacing only the rejected revision and composed workspace intent.
 	/// The bounded import spines and URI strings copy once because both immutable
 	/// candidates coexist until the replacement is admitted by the handle budget.
-	/// Capability clones share custody; no endpoint is fetched or substituted.
+	/// Capability clones share custody. No endpoint is fetched or substituted.
 	pub(super) fn recompose(&self, expected: u64, intent: &Intent) -> Result<Self>
 	where
 		D: Clone,

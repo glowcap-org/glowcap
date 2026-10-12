@@ -7,7 +7,7 @@ patterns: granting a tool, wrapping it as read-only, and switching a grant off.
 zig build demo-tools
 ```
 
-Deno runs the coordinator and one agent; the Zig agent always joins. Python,
+Deno runs the coordinator and one agent. The Zig agent always joins. Python,
 Racket, and Rust agents join when their runtimes are available. Common port and
 attach options are in the [app index](../README.md#how-the-cross-language-demos-run).
 
@@ -69,7 +69,7 @@ No global permission table is involved.
 
 glowcap also provides these common wrappers as
 `session.attenuate(capability, methods)` and `session.caretaker(capability)`.
-This demo keeps the small hand-written versions so their behavior is visible.
+This demo uses small hand-written versions so their behavior is visible.
 
 ## Limits of the demo
 
@@ -84,5 +84,5 @@ boundaries concrete, but do not choose the policy or make the surrounding
 system safe.
 
 The coordinator and Deno agent live under [`deno/`](deno/). The Python, Racket,
-Rust, and Zig directories contain agents that exercise the same three patterns;
+Rust, and Zig directories contain agents that exercise the same three patterns.
 [`demo.ts`](demo.ts) coordinates the run.

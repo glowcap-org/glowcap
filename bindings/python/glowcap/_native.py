@@ -36,8 +36,8 @@ class NativeHandle:
     """Own one native handle across calls that may release the GIL.
 
     Closing first interrupts blocking operations, waits for every operation
-    lease to return, and only then frees the handle.  The synchronous wait is
-    intentional: ``close`` does not return while foreign code can still touch
+    lease to return, and only then frees the handle.  The synchronous wait
+    ensures ``close`` does not return while foreign code can still touch
     the storage it owns.
     """
 

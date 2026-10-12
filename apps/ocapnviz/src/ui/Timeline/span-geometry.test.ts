@@ -1,6 +1,6 @@
 /**
  * `spanScreenRect` is the single source of truth for "where on the
- * canvas does this t-range live?" — paint and hit-test both rely on
+ * canvas does this t-range live?", paint and hit-test both rely on
  * its clamp policy, stamp promotion, and edge-clamp flags agreeing
  * with each other. These tests exercise the six branch dimensions
  * directly so a future change to the clamp math gets caught here

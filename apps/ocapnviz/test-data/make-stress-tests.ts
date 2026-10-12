@@ -5,7 +5,7 @@
  * Absolute milliseconds on one document say almost nothing: a profile of
  * `the-kids-masterpiece.json` puts every function in `src/` together at a
  * fraction of a percent, which rules out a hot function and rules nothing else
- * out. What a stutter needs is the SHAPE of the curve — four times the entities
+ * out. What a stutter needs is the SHAPE of the curve, four times the entities
  * costing four times the work is a renderer doing its job, and costing sixteen
  * times is a quadratic hiding under a small constant.
  *
@@ -13,7 +13,7 @@
  * is, and holds the stage area fixed. Density is the point: spreading the extra
  * entities over a proportionally larger stage would leave every neighbourhood
  * looking exactly as it did, and it is the neighbourhoods that do the expensive
- * work — labels dodging each other, edge chips walking their corridors, curves
+ * work, labels dodging each other, edge chips walking their corridors, curves
  * bundling between the same pair of peers.
  *
  * Each factor is generated from a fixed seed, so a run is reproducible and two
@@ -60,7 +60,7 @@ type Doc = {
   };
 };
 
-/** Mulberry32 — small, seeded, and good enough to place nodes with. */
+/** Mulberry32, small, seeded, and good enough to place nodes with. */
 function rng(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
@@ -111,7 +111,7 @@ export function stressTest(source: Doc, factor: number, seed = SEED): Doc {
   }
 
   // Session starts are drawn from the source's own, so the arrival pattern over
-  // the timeline keeps its shape — a stutter that only shows when a group lands
+  // the timeline keeps its shape. A stutter that only shows when a group lands
   // needs the groups.
   const starts = srcSessions.map((s) => s.timing.start.value);
   const sessions: Doc["entities"]["sessions"] = {};
@@ -128,7 +128,7 @@ export function stressTest(source: Doc, factor: number, seed = SEED): Doc {
       b: { peer: b },
       // Both codecs and both versions, whatever the source happened to use.
       // The source is entirely capnp over 1.0, and a dashed wire is the
-      // expensive one to draw — it is walked in 24 samples and stroked twice, so
+      // expensive one to draw. It is walked in 24 samples and stroked twice, so
       // a stress test made only of solid wires never reaches the path most
       // likely to give way. The state is left as the source set it, because a
       // session that is not open may not be drawn at all, and a stress test that

@@ -400,6 +400,10 @@ pub const ReentrantSessionRelease = struct {
     result: i32 = c.GLOWCAP_OK,
     readiness_result: i32 = c.GLOWCAP_OK,
     restoration_result: i32 = c.GLOWCAP_OK,
+    exporter_result: i32 = c.GLOWCAP_ERR_INTERNAL,
+    claim_result: i32 = c.GLOWCAP_ERR_INTERNAL,
+    repeated_claim_result: i32 = c.GLOWCAP_ERR_INTERNAL,
+    exporter: ?*cd.GlowcapHostSession = null,
     ran: bool = false,
 };
 
@@ -436,10 +440,14 @@ pub fn reentrantSessionReleaseBehavior(
     args_len: usize,
     out_reply: *c.GlowcapArgument,
 ) callconv(.c) i32 {
-    _ = .{ turn, args, args_len };
+    _ = turn;
     if (!std.mem.eql(u8, verb[0..verb_len], "probe")) return c.GLOWCAP_ERR_INVALID_ARGUMENT;
+    if (args_len != 1 or args.?[0].kind != c.GLOWCAP_ARG_REFERENCE) return c.GLOWCAP_ERR_INVALID_ARGUMENT;
     const ctx: *ReentrantSessionRelease = @ptrCast(@alignCast(raw_ctx.?));
     ctx.ran = true;
+    ctx.exporter_result = cdrv.glowcap_driver_claim_reference_exporter(ctx.loop, &args.?[0].reference, &ctx.exporter);
+    ctx.claim_result = cdrv.glowcap_driver_claim_exporter_session(ctx.loop, ctx.exporter);
+    ctx.repeated_claim_result = cdrv.glowcap_driver_claim_exporter_session(ctx.loop, ctx.exporter);
     var readiness_fd: i32 = -1;
     ctx.readiness_result = cdrv.glowcap_driver_readiness_fd(ctx.loop, &readiness_fd);
     var restoration_len: usize = 0;

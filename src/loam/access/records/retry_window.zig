@@ -13,7 +13,7 @@ pub const RetryWindow = struct {
         if (self.count > capacity or self.next <= self.count or self.next > std.math.maxInt(i64)) return error.InvalidRecord;
     }
 
-    /// Null is the next operation; a retained sequence names its exact receipt.
+    /// Null is the next operation. A retained sequence names its exact receipt.
     /// The persisted floor refuses expired requests rather than reminting them.
     pub fn lookup(self: RetryWindow, sequence: u64) !?loam.ObjectId {
         try self.validate();

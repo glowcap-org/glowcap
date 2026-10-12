@@ -1,14 +1,15 @@
 //! The sans-io driver core: the vat serve loop (`Served`), its options, the
-//! shared vocabulary, and stateless GC — everything the driver tier needs that
+//! shared vocabulary, and stateless GC. It holds everything the driver tier needs that
 //! touches no socket. This layer is `core = true` in `build.zig`'s
 //! `layer_table`, so blocking I/O, sockets, and threads are an `arch-check`
-//! failure here, exactly as they are in `engine`. It gives the serve core the
+//! failure here, as they are in `engine`. It gives the serve core the
 //! same I/O ban `engine.Node` already has, so the boundary the driver stands on
-//! is enforced by the build, not by convention (ADR-0072). The I/O bindings —
-//! `BlockingSession`, `driver.HostRuntime` (the transport-resident embedder over
-//! this layer's `Host`), the transport constructors — live above it in `driver`.
+//! is enforced by the build, not by convention (ADR-0072). The I/O bindings live
+//! above it in `driver`: `BlockingSession`, `driver.HostRuntime` (the
+//! transport-resident embedder over this layer's `Host`), and the transport constructors.
 
 const served = @import("served.zig");
+const pending_send = @import("pending_send.zig");
 const builtin = @import("builtin");
 const vocab = @import("vocab.zig");
 const host = @import("host.zig");
@@ -56,6 +57,7 @@ pub const DriveError = served.DriveError;
 pub const ServeOptions = served.ServeOptions;
 pub const BeforeServeHook = served.BeforeServeHook;
 pub const Publish = served.Publish;
+pub const PendingSend = pending_send.PendingSend;
 pub const default_loop_local_turn_budget = served.default_loop_local_turn_budget;
 
 // The byte-fed multi-session CapTP host core (ADR-0072): the node's decisions

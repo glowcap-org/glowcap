@@ -16,7 +16,7 @@ export const emptyDoc = (): TimelineDocument => ({
 });
 
 /** Synthesize a recording source on `doc` carrying `events`.
- *  Observation streams live under `recording.sources` post-parse;
+ *  Observation streams live under `recording.sources` post-parse.
  *  these tests construct docs by hand so they wrap events here. */
 export function withEvents(
 	doc: TimelineDocument,

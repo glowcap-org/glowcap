@@ -43,7 +43,7 @@ pub const Progress = struct {
 pub const Request = struct {
     roots: []const records.ObjectId,
     work_limit: usize,
-    /// Exclusive worker scratch; never part of the immutable operation digest.
+    /// Exclusive worker scratch. Never part of the immutable operation digest.
     scratch: []u8,
 };
 

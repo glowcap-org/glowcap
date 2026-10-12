@@ -22,8 +22,8 @@ pub struct Credentials {
 }
 impl Credentials {
 	/// Bind the journal to the private Loam owner identity. The embedding must
-	/// hold that owner's exclusive Store lease through document retirement;
-	/// construction does not acquire a second lock or confer session authority.
+	/// hold that owner's exclusive Store lease through document retirement.
+	/// Construction does not acquire a second lock or confer session authority.
 	pub fn new(database: Database, owner: &[u8; 16]) -> Self {
 		Self {
 			database,

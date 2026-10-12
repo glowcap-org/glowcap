@@ -69,7 +69,7 @@ pub const ConnPayload = struct {
     netlayer: *NetlayerPayload,
 };
 
-/// C projection storage; transport state lives in the native adapter.
+/// C projection storage. Transport state lives in the native adapter.
 pub const MultiplexedAdapter = struct {
     payload: *NetlayerPayload,
     profile: c.GlowcapTransportProfile,

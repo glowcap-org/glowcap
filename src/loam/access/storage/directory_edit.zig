@@ -91,7 +91,7 @@ pub const DirectoryEdit = struct {
     /// Called by the managed staging path inside an existing Loam transaction.
     /// Failures require aborting that transaction, including its content changes.
     /// Existing pages keep their identity. Only a changed child mapping needs
-    /// encoding and staging; an in-place leaf edit does not rewrite its parents.
+    /// encoding and staging. An in-place leaf edit does not rewrite its parents.
     /// Each changed page owns one temporary payload and one Store proposal.
     pub fn stage(self: *DirectoryEdit, target: ?loam.ObjectId) !?loam.ObjectId {
         try self.view.current();

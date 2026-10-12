@@ -8,12 +8,12 @@ designator this module takes is that bare service id: 56 base32 characters with 
 ``.onion`` suffix.
 
 The product surface is this module's :func:`listen` plus
-:class:`glowcap.Runtime` composed with :func:`provider`; both yield ordinary
+:class:`glowcap.Runtime` composed with :func:`provider`. Both yield ordinary
 :class:`glowcap.Session` objects. :class:`OnionNetlayer` remains the explicit raw
 byte-stream embedding surface for callers that own their own loop and framing.
 
 **glowcap starts no Tor.** An :class:`OnionNetlayer` names where an already-running
-daemon listens — its SOCKS endpoint to dial, its control endpoint to host — and
+daemon listens, its SOCKS endpoint to dial, its control endpoint to host, and
 never spawns, supervises, or configures one. Each endpoint is an absolute Unix
 socket path or a ``host:port``. Omit the control endpoint and the netlayer can dial
 and cannot host, which :meth:`OnionNetlayer.listen` reports rather than pretending::
@@ -34,8 +34,8 @@ hidden service nothing about who dialed it, so a partner's claimed location on t
 side is unverified.
 
 Every call that reaches Tor blocks the calling thread, and a circuit costs seconds
-rather than milliseconds. Both handles expose ``readiness_fd()`` — the socket they
-sit on — so a caller with its own loop can :func:`select.select` before accepting or
+rather than milliseconds. Both handles expose ``readiness_fd()``, the socket they
+sit on, so a caller with its own loop can :func:`select.select` before accepting or
 reading. The connection descriptor is only a byte-readiness hint: a fragmented
 frame can make ``read_frame()`` wait for later bytes. An onion connection is an
 ordinary socket, which is why a real descriptor is available here.
@@ -183,7 +183,7 @@ class OnionConnection(_NativeHandleOwner):
 
         Select before reading, but do not treat readability as a complete-frame
         guarantee: a fragmented frame can make :meth:`read_frame` wait for later
-        bytes. The connection owns this descriptor; do not close it."""
+        bytes. The connection owns this descriptor. Do not close it."""
         out = ctypes.c_int32()
         with self._native.lease() as raw:
             _check_onion(
@@ -194,7 +194,7 @@ class OnionConnection(_NativeHandleOwner):
     def read_frame(self) -> bytes:
         """Block for one whole frame. Raises GlowcapError(ERR_CLOSED) on clean EOF.
 
-        Prefer selecting on :meth:`readiness_fd` first; this parks when nothing has
+        Prefer selecting on :meth:`readiness_fd` first. This parks when nothing has
         arrived."""
         with self._reads, self._native.lease() as raw:
             frame = _ManagedFrame()
@@ -308,12 +308,12 @@ class OnionListener(_NativeHandleOwner):
 
 
 class OnionNetlayer(_NativeHandleOwner):
-    """Owns where Tor listens and the one I/O backend its streams block on; outlives
+    """Owns where Tor listens and the one I/O backend its streams block on. Outlives
     the connections and listeners made from it. Released on :meth:`release` / context
     exit.
 
     ``socks`` is required. ``control`` empty means dial-only. ``service_key`` empty
-    asks Tor for a fresh service; otherwise pass back the exact bytes an earlier
+    asks Tor for a fresh service. Otherwise pass back the exact bytes an earlier
     :attr:`OnionListener.service_key` reported. ``forward`` empty binds a loopback
     port and reports it to Tor."""
 
@@ -422,7 +422,7 @@ class OnionNetlayer(_NativeHandleOwner):
     def listen(self) -> OnionListener:
         """Ask Tor for an onion service and bind its local end.
 
-        Requires a control endpoint; without one this raises rather than reporting a
+        Requires a control endpoint. Without one this raises rather than reporting a
         service nothing could reach."""
         id_buf = ctypes.create_string_buffer(SERVICE_ID_LENGTH)
         id_len = ctypes.c_size_t()
@@ -488,7 +488,7 @@ class OnionServer(DriverServer):
 
     The driver owns Tor provider execution and listener admission. The server
     only projects the driver's locator and restoration state into the Python
-    API; CapTP remains owned by each yielded session.
+    API. CapTP remains owned by each yielded session.
     """
 
     def __init__(
@@ -527,7 +527,7 @@ async def listen(
     """Bind an onion service through the generic driver listener seam.
 
     ``socks`` and ``control`` name an already-running Tor daemon. The provider
-    archive owns that configuration; the returned server owns neither Tor nor
+    archive owns that configuration. The returned server owns neither Tor nor
     the supplied Host. ``service_key`` restores a prior service when supplied.
     Tor's control exchange runs synchronously before this function returns.
     """

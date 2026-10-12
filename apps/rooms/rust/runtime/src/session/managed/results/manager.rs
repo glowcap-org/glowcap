@@ -5,7 +5,7 @@ use rooms_application::content::session::results::RoomManager;
 fn coordinate() -> Coordinate {
 	Coordinate {
 		role: custody::Role::RoomControl,
-		key: FieldKey::new(NonZeroU64::new(1).unwrap(), NonZeroU64::new(1).unwrap()),
+		key: FieldKey::new(NonZeroU64::MIN, NonZeroU64::MIN),
 	}
 }
 pub(super) fn read(value: &Argument, intent: &str) -> Result<Acquisition> {

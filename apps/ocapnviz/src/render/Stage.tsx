@@ -18,7 +18,7 @@ import { applyStageWheel } from "./stage-camera-commands.ts";
 import { type SelectMode, type StageHover, type StageSelection, type StageVisibility } from "./types.ts";
 
 /**
- * Stage scene — a sub-container of the unified PixiJS canvas, bound
+ * Stage scene. A sub-container of the unified PixiJS canvas, bound
  * to a DOM region marker for layout. The scene tracks the marker's
  * `getBoundingClientRect()` each frame via the `RegionRegistry`.
  *
@@ -33,7 +33,7 @@ import { type SelectMode, type StageHover, type StageSelection, type StageVisibi
  *
  * Node-body drag lives in `stage-node-drag.ts`. Empty-stage rubber-band
  * and spacebar-pan live in `use-stage-empty-gestures.ts`. The Pixi scene
- * itself lives in `use-stage-scene.ts`; each frame is `stage-tick.ts`.
+ * itself lives in `use-stage-scene.ts`. Each frame is `stage-tick.ts`.
  */
 
 export type StageProps = {
@@ -50,26 +50,26 @@ export type StageProps = {
 	/**
 	 * Fires on a click of empty viewport space. World-space coords
 	 * (post-viewport-transform). When set, an empty-canvas click does
-	 * NOT also call `onSelect(null)` — the assumption is the builder
+	 * NOT also call `onSelect(null)`. The assumption is the builder
 	 * tool is consuming the click. The `| undefined` is for
 	 * `exactOptionalPropertyTypes`: callers pass `cond ? fn : undefined`.
 	 */
 	onCanvasClick?: ((worldX: number, worldY: number) => void) | undefined;
 	/**
 	 * Node-body drag lifecycle, phases:
-	 *   `"start"` — cursor world coords at pointerdown.
-	 *   `"move"`  — target node position (cursor + pickup offset).
-	 *   `"end"`   — last known target position.
+	 *   `"start"`, cursor world coords at pointerdown.
+	 *   `"move"`:  target node position (cursor + pickup offset).
+	 *   `"end"`:   last known target position.
 	 *
-	 * When set, node bodies become draggable; when undefined, they're
+	 * When set, node bodies become draggable, when undefined, they're
 	 * click-only. A node is a peer or an unattributed session end: both
 	 * hold a place on the stage and both take an authored position, and the
 	 * `kind` says which table the host writes that position to.
 	 *
 	 * On `"start"` and `"move"`, `group` lists every node in the gesture
 	 * (lead first, then multi-select siblings) at their target positions.
-	 * The host applies the whole group in one placement pass; `"end"` has
-	 * no group — it only closes the transaction.
+	 * The host applies the whole group in one placement pass, `"end"` has
+	 * no group, it only closes the transaction.
 	 */
 	onNodeDrag?:
 		| ((
@@ -108,25 +108,25 @@ export type StageProps = {
 	gestureCtx: SurfaceGestureCtx;
 	/** Called when the user finishes a rubber-band drag on empty
 	 * stage. `entities` is the set of entity keys that overlapped
-	 * the rect at drag-end; `mode` reflects the modifiers latched
+	 * the rect at drag-end, `mode` reflects the modifiers latched
 	 * during the gesture:
-	 *   "replace" — no modifier; replace selection.
-	 *   "add"     — shift; add captured to selection.
-	 *   "remove"  — shift+option; remove captured from selection.
+	 *   "replace", no modifier. Replace selection.
+	 *   "add":     shift. Add captured to selection.
+	 *   "remove":  shift+option. Remove captured from selection.
 	 * App routes to the selection-store. */
 	onRubberBandCommit?: (
 		entities: ReadonlySet<EntityRefKey>,
 		mode: "replace" | "add" | "remove",
 	) => void;
-	/** THE selection — the set of entities (peers / sessions /
+	/** THE selection. The set of entities (peers / sessions /
 	 * messages) the user has selected. SOLE source of truth for
 	 * which Stage entities paint their selected halo. Single-click
-	 * on an entity replaces this set with `[that entity]`; shift-
-	 * click toggles in/out; a marquee replaces (or shift-marquee
+	 * on an entity replaces this set with `[that entity]`. Shift-
+	 * click toggles in/out. A marquee replaces (or shift-marquee
 	 * unions). Inspector follows the store's `anchor` slot, which
 	 * the same store reducer keeps consistent with this set. */
 	selection?: ReadonlySet<EntityRefKey>;
-	/** Anchor — the Inspector-follow entity, always also in
+	/** Anchor. The Inspector-follow entity, always also in
 	 * `selection` when set. Stage paints an additional inner
 	 * ring on the anchor's halo so the user can see WHICH
 	 * selected entity the Inspector tracks under multi-select. */
@@ -190,7 +190,7 @@ export function Stage(
 	// Sprite pointer listeners read `onSelectRef.current` so they
 	// always see the latest. Without this, the scene-init effect's
 	// `[ctx, engine, onSelect]` deps cause a full rebuild on every
-	// selection-state change — and pointer events landing during
+	// selection-state change, and pointer events landing during
 	// the rebuild are silently dropped (loses two-click commits).
 	const onSelectRef = useRef(onSelect);
 	onSelectRef.current = onSelect;
@@ -206,13 +206,13 @@ export function Stage(
 	const armedNodeRef = useRef(armedNode);
 	armedNodeRef.current = armedNode;
 
-	// Gesture context for the resolver, cursor, and node-drag — the ticker
+	// Gesture context for the resolver, cursor, and node-drag, the ticker
 	// and event handlers read the latest value without re-mounting.
 	const resolvedGestureCtxRef = useRef<StageProps["gestureCtx"]>(gestureCtx);
 	resolvedGestureCtxRef.current = gestureCtx;
 
 	// The PixiJS canvas (shared with Timeline / Overview / Scrubber via
-	// the unified-canvas architecture) is the real event target — the
+	// the unified-canvas architecture) is the real event target, the
 	// Stage's marker div sits OVER it with `pointer-events: none` so
 	// Pixi's sprite hit-testing works. Hooks attach to the canvas; a
 	// marker-rect bounds check in `use-stage-empty-gestures` keeps stage-only
@@ -236,10 +236,10 @@ export function Stage(
 	/**
 	 * A press on the stage hands the keyboard back to the stage.
 	 *
-	 * The canvas is deliberately not focusable, and the stage's own pointer
+	 * The canvas is not focusable, and the stage's own pointer
 	 * handling refuses the default that would move focus, so a click here does not
-	 * blur whatever had it. That is right for a button — the reader keeps their
-	 * shortcuts — and wrong for a TEXT FIELD, because every keyboard pipeline steps
+	 * blur whatever had it. That is right for a button, the reader keeps their
+	 * shortcuts, and wrong for a TEXT FIELD, because every keyboard pipeline steps
 	 * aside while one is focused (`isTextInputTarget`). A reader who typed a title,
 	 * clicked the stage and pressed Space got a space in the title instead of a pan,
 	 * and nothing on screen said why.
@@ -287,7 +287,7 @@ export function Stage(
 		gestureCtx,
 	});
 
-	// Ref (not state) — hover changes shouldn't re-reconcile React;
+	// Ref (not state), hover changes shouldn't re-reconcile React;
 	// the Pixi ticker observes the change on its next paint.
 	const hoverRef = useRef<StageHover>(null);
 

@@ -8,7 +8,7 @@ use std::cell::RefCell;
 /// bootstrap outcome and two successful Ref slots. Successful outcomes copy
 /// only two validated URIs, each bounded by ReferenceRequest::MAX_URI_BYTES.
 /// Retry copies those texts into its two-field settlement spine. The executor
-/// holds the whole future across deadlines; terminal bootstrap errors stay
+/// holds the whole future across deadlines. Terminal bootstrap errors stay
 /// cached here. Deleting either cache would repeat issuance or lose completed
 /// authority when a later lookup refuses. All custody retires with the job.
 pub(super) struct Acquisition {
@@ -21,8 +21,8 @@ pub(super) struct Acquisition {
 }
 fn row() -> ManagedRoom {
 	ManagedRoom {
-		room: FieldKey::new(NonZeroU64::new(1).unwrap(), NonZeroU64::new(1).unwrap()),
-		control: FieldKey::new(NonZeroU64::new(1).unwrap(), NonZeroU64::new(1).unwrap()),
+		room: FieldKey::new(NonZeroU64::MIN, NonZeroU64::MIN),
+		control: FieldKey::new(NonZeroU64::MIN, NonZeroU64::MIN),
 	}
 }
 fn coordinates(row: &ManagedRoom) -> [Coordinate; 2] {
@@ -85,7 +85,7 @@ impl Acquisition {
 			.authorities
 			.borrow()
 			.as_ref()
-			.expect("observed bootstrap")
+			.ok_or_else(|| loam::refusal("bootstrap authorities were not observed"))?
 			.clone()?;
 		let mut fields = Vec::with_capacity(2);
 		for (index, coordinate) in coordinates(&row()).into_iter().enumerate() {

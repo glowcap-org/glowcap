@@ -1,7 +1,7 @@
 """Python dogfood of the Zig glowcap C ABI archives, through the idiomatic
 ``glowcap`` module: drive OCapN with native Python values, no FFI in sight.
 The public ``connect`` / ``listen`` scenarios run over the native loop
-archive (``libglowcap_driver``, ADR-0112); the keyed-relay byte seam is tested
+archive (``libglowcap_driver``, ADR-0112). The keyed-relay byte seam is tested
 only through its explicit low-level adapter. This is the consumer ``zig build
 bindings`` runs."""
 

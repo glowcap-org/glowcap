@@ -12,10 +12,10 @@ unreleased contract. External protocol interop still answers to its outside
 authority. A replaced prerelease contract keeps version `1`; increment only to
 support a distinct older contract on purpose.
 
-"It would change a shared type," "touch the spine," or "ripple through callers"
-name a migration cost, and there is none to pay. They never justify a
-workaround, a named compromise, or a follow-up PR when the clean fix is in
-reach this session. Before accepting a compromise, re-derive it against the
+"It would change a shared type," "touch the spine," and "ripple through callers"
+name a migration cost, and there is none to pay. None justifies a workaround,
+a named compromise, or a follow-up PR when the clean fix is in reach this
+session. Before accepting a compromise, re-derive it against the
 full option set, not the binary it first presents. A survivor is named in the
 open.
 
@@ -32,13 +32,13 @@ implementation. Before reverting, classify it:
   boundary): build it. It is usually smaller than the revert.
 - **A contradiction in the design's own terms:** only this earns a retreat.
 
-On a red gate, the cheapest green is always a retreat: revert the default,
-weaken the assertion, raise the budget, skip the step. Each leaves an unfixed
-defect behind a passing build. Reproduce alone first (the
+On a red gate, the cheapest green is a retreat: revert the default, weaken
+the assertion, raise the budget, skip the step. Each leaves an unfixed defect
+behind a passing build. Reproduce alone first (the
 [debugging skill](../skills/debugging/SKILL.md)), read `conformance/` before
 designing around protocol behavior, then classify and act. Reporting a defect
 instead of fixing it does not close it.
 
 Ask the human only when the answer turns on what only they know: a product
-call, a priority, an outside commitment. A question these rules already answer
-is a deferral; decide, do it, and say why.
+call, a priority, an outside commitment. When these rules already answer the
+question, decide, do it, and say why.

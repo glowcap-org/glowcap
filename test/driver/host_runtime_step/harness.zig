@@ -87,7 +87,7 @@ pub fn stepServe(
         _ = std.posix.poll(&fds, 50) catch return error.PollFailed;
         if (fds[0].revents & std.posix.POLL.IN == 0) continue;
         // Drain to quiet: level-shaped members keep the descriptor readable
-        // while anything is pending, so quiet means genuinely serviced.
+        // while anything is pending, so quiet means serviced.
         while (true) {
             const progress = server.runtime.stepAny(0) catch |err| switch (err) {
                 error.ConnectionClosed, error.ProtocolAbort => break,
@@ -149,7 +149,7 @@ pub fn connectAndHold(
 }
 
 /// A sink that takes exactly the settled/failed completions and remembers
-/// what it saw; it owns each taken action and frees it through the core.
+/// what it saw. It owns each taken action and frees it through the core.
 /// The sink is installed at construction, before the core exists, so the
 /// test points it at the core once the runtime is built.
 pub const RecordingSink = struct {

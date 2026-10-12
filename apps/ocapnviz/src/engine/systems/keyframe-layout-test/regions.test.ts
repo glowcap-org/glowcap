@@ -9,7 +9,7 @@
  *    spread across continents.
  * 2. Running the layout system on a fresh `GameWorld`.
  * 3. Asserting that each peer's final position is closer to its
- *    region's centroid than to other regions' centroids — i.e. the
+ *    region's centroid than to other regions' centroids, i.e. the
  *    region pull force won.
  *
  * This pins the behavior so a future refactor can't accidentally
@@ -101,7 +101,7 @@ layoutTest("region-prefixed peers land near their continental centroid", () => {
 	const ap = positions.get("ap-carol")!;
 
 	// Each peer must be closer to ITS centroid than to either of the
-	// other two — the region force won over the link / charge forces.
+	// other two. The region force won over the link / charge forces.
 	assert(
 		dist(us, usCentroid) < dist(us, euCentroid),
 		`us-alice should be closer to US than EU; got us=${JSON.stringify(us)}`,
@@ -164,7 +164,7 @@ layoutTest(
 		layout.update(world, 0);
 
 		// Without region prefix, both peers should be within ~400 of the
-		// origin — the existing behavior. Far less than the ~480 a US-only
+		// origin. The existing behavior. Far less than the ~480 a US-only
 		// centroid would pull them.
 		for (const e of world.with("peer", "position")) {
 			const d = Math.hypot(e.position.x, e.position.y);
@@ -317,7 +317,7 @@ layoutTest(
 layoutTest(
 	"single-segment 'us-alice' falls back to continental rollup",
 	() => {
-		// Multiple peers across continents — d3-force's `forceCenter`
+		// Multiple peers across continents, d3-force's `forceCenter`
 		// anchors center-of-mass to origin, so single-peer scenarios
 		// are degenerate (the lone peer IS the COM and gets pulled to
 		// origin). With three peers in three continents, COM averages
@@ -366,7 +366,7 @@ layoutTest(
 		}
 		// 'us' continental rollup is at x=-480, eu at x=60, ap at x=480.
 		// After force settles, us-alice should be CLEARLY left of eu-bob
-		// and eu-bob clearly left of ap-carol — proving rollup parsing
+		// and eu-bob clearly left of ap-carol, proving rollup parsing
 		// handed each peer to its continental centroid.
 		const us = positions.get("us-alice")!;
 		const eu = positions.get("eu-bob")!;
@@ -378,6 +378,6 @@ layoutTest(
 
 // `authored` layout mode is the builder's substrate: peer positions
 // come straight from each `peer-joined` event's `position` field and
-// no d3-force convergence runs. These tests pin that contract — a
+// no d3-force convergence runs. These tests pin that contract, a
 // builder that writes `(140, -82)` should see the canvas place that
 // peer at exactly `(140, -82)`, every frame, forever.

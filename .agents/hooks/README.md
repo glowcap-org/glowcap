@@ -9,7 +9,7 @@ Cursor `afterFileEdit` or Claude `PostToolUse` event:
   nearest `deno.json` applies.
 
 An unfinished edit may fail to format. The hook reports formatter errors but
-exits zero so the next edit can proceed; the owning format check remains
+exits zero so the next edit can proceed, and the owning format check remains
 required. Python and Racket formatting belongs to `bindings-fmt-check`.
 
 `zig build source-check` verifies the tool wiring.
@@ -17,5 +17,5 @@ required. Python and Racket formatting belongs to `bindings-fmt-check`.
 Rust file isolation, Deno config discovery, and formatter failure behavior.
 
 Design review belongs to the [work skill](../skills/work/SKILL.md#review-the-diff-cold).
-Hooks perform bounded operations; they do not repeat advisory review prose on
-every shell command.
+Hooks perform bounded operations and repeat no advisory review prose on every
+shell command.

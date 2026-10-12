@@ -3,7 +3,7 @@
 //! projection (ADR-0007 / ADR-0050 / ADR-0052). Also the shared fetch/enliven
 //! mint→await→classify path (`await_minted` / `fetch_like`) and the far-send
 //! mint→`RemotePromise` factory (`send_promise`). Session owns CapTP verb
-//! wrappers; this module owns the handle type, post-mint wait/classify,
+//! wrappers. This module owns the handle type, post-mint wait/classify,
 //! send→promise construction, and the projection FFI.
 
 use std::future::{Future, IntoFuture};
@@ -16,7 +16,7 @@ use crate::sys::host as ffi;
 use crate::trampoline::DeliverGuard;
 use crate::{Argument, Error, Ref, Result, SendArena, sys};
 
-/// Shared fetch/enliven wait: the mint already registered the vow; kick the
+/// Shared fetch/enliven wait: the mint already registered the vow. Kick the
 /// drain so the deliver leaves now, and await the drain-routed outcome.
 pub(crate) async fn await_minted(shared: &Rc<SessionShared>, vow: u64, track_gc: bool) -> Result<Argument> {
 	let _release = crate::gc::VowGuard::new(&shared.host, vow);
@@ -26,7 +26,7 @@ pub(crate) async fn await_minted(shared: &Rc<SessionShared>, vow: u64, track_gc:
 }
 
 /// The one mint/await/classify body under `fetch` and `enliven`: mint the
-/// host vow with `mint`, await its drain-routed completion, and classify —
+/// host vow with `mint`, await its drain-routed completion, and classify:
 /// only an opaque Host reference is a capability this surface can hand out.
 /// `track` enrolls the fulfilled application value in distributed GC.
 pub(crate) async fn fetch_like(
@@ -39,6 +39,9 @@ pub(crate) async fn fetch_like(
 	shared.guard_open()?;
 	shared.drain_gc()?;
 	let mut vow: u64 = 0;
+	// SAFETY: `shared.ptr.get()` is this `SessionShared`'s session handle, still live because `guard_open` above found
+	// it unreleased; `mint` is one of the session's `glowcap_host_session_*` mint verbs, `swiss` borrows the caller's
+	// slice for the call, and `vow` is a local out-parameter the callee writes.
 	check_host(unsafe { mint(shared.ptr.get(), swiss.as_ptr(), swiss.len(), &mut vow) })?;
 	let value = await_minted(shared, vow, track).await?;
 	match value {
@@ -48,7 +51,7 @@ pub(crate) async fn fetch_like(
 }
 
 /// `Session::listen`'s wire half: mint the listen vow over a held far reference
-/// (CapTP `op:listen`) and hand back the settle handle. The vow is plain — a
+/// (CapTP `op:listen`) and hand back the settle handle. The vow is plain: a
 /// listen may settle to any value, not only a capability.
 pub(crate) fn listen_far(shared: &Rc<SessionShared>, target: &crate::Ref) -> RemotePromise {
 	let failed = |error: Error, session: &Rc<SessionShared>| RemotePromise::failed(error, Rc::clone(session));
@@ -67,6 +70,9 @@ pub(crate) fn listen_far(shared: &Rc<SessionShared>, target: &crate::Ref) -> Rem
 	};
 	let mut vow: u64 = 0;
 	let _arrival = DeliverGuard::enter(shared);
+	// SAFETY: `shared.ptr.get()` is this `SessionShared`'s session handle, still live because `guard_open` above found
+	// it unreleased; `wire` is a local `GlowcapReference` from `target.to_sys()` and `vow` a local out-parameter, both
+	// borrowed for the call.
 	let rc = unsafe { ffi::glowcap_host_session_listen(shared.ptr.get(), &wire, &mut vow) };
 	if let Err(error) = check_host(rc) {
 		return failed(error, shared);
@@ -89,6 +95,9 @@ pub(crate) async fn resolve(shared: &Rc<SessionShared>, target: &Ref) -> Result<
 	let mut vow = 0;
 	{
 		let _arrival = DeliverGuard::enter(shared);
+		// SAFETY: `shared.ptr.get()` is this `SessionShared`'s session handle, still live because `guard_open` above
+		// found it unreleased; `wire` is a local `GlowcapReference` from `target.to_sys()`, and `reference` and `vow`
+		// are local out-parameters the callee writes.
 		check_host(unsafe { ffi::glowcap_host_session_resolve(shared.ptr.get(), &wire, &mut reference, &mut vow) })?;
 	}
 	if vow != 0 {
@@ -128,6 +137,10 @@ pub(crate) fn send_promise(
 				Ok(wire) => wire,
 				Err(error) => return failed(error, shared),
 			};
+			// SAFETY: `shared.ptr.get()` is this `SessionShared`'s session handle, still live because `guard_open`
+			// above found it unreleased; `wire` is a local `GlowcapReference` from `reference.to_sys()`, `verb` borrows
+			// the caller's `&str`, and `args_ptr` and `args_len` come from the local `arena`, which borrows `args` and
+			// outlives the call; `vow` is a local out-parameter the callee writes.
 			unsafe {
 				ffi::glowcap_host_session_send(
 					shared.ptr.get(),
@@ -163,6 +176,10 @@ pub(crate) fn send_promise(
 					shared,
 				);
 			}
+			// SAFETY: `shared.host.raw()` is the live Host handle of `shared.host`, which the `Rc::ptr_eq` check above
+			// shows minted `source`; `verb` borrows the caller's `&str`, and `args_ptr` and `args_len` come from the
+			// local `arena`, which borrows `args` and outlives the call; `vow` is a local out-parameter the callee
+			// writes.
 			unsafe {
 				ffi::glowcap_host_vow_send(
 					shared.host.raw(),
@@ -214,6 +231,9 @@ pub(crate) fn tell_target(shared: &Rc<SessionShared>, target: CmdTarget, verb: &
 			}
 			let mut arena = SendArena::default();
 			let (args_ptr, args_len) = arena.build(args)?;
+			// SAFETY: `shared.host.raw()` is the live Host handle of `shared.host`, which the `Rc::ptr_eq` check above
+			// shows minted `source`; `verb` borrows the caller's `&str`, and `args_ptr` and `args_len` come from the
+			// local `arena`, which borrows `args` and outlives the call.
 			check_host(unsafe {
 				ffi::glowcap_host_vow_tell(
 					shared.host.raw(),
@@ -230,11 +250,11 @@ pub(crate) fn tell_target(shared: &Rc<SessionShared>, target: CmdTarget, verb: &
 }
 
 /// Where a `send` is addressed. A `Ref` names a capability (a near export or a
-/// far token) as usual; a `Pipeline` names the still-pending answer of an
+/// far token) as usual. A `Pipeline` names the still-pending answer of an
 /// earlier send by its Host vow. `None` denotes an await-only observer or a
-/// refused operation; neither has a pipeline target.
-/// Public only because it appears in the [`AsSendTarget`] trait's plumbing;
-/// hidden from docs and not meant to be named by applications.
+/// refused operation. Neither has a pipeline target.
+/// Public only because it appears in the [`AsSendTarget`] trait's plumbing.
+/// Hidden from docs and not meant to be named by applications.
 #[doc(hidden)]
 pub struct CmdTarget(CmdTargetKind);
 
@@ -285,13 +305,13 @@ pub(crate) enum PromiseState {
 }
 
 /// The handle [`crate::Session::send`] returns: the eventual result of one
-/// eventual-send, and — the point of promise pipelining (ADR-0007) — a target
+/// eventual-send, and (the point of promise pipelining, ADR-0007) a target
 /// you can `send` to before it resolves.
 ///
 /// It is `IntoFuture<Output = Result<Argument>>`, so `session.send(...).await` yields
 /// the reply exactly as a plain future would (a [`crate::Ref`] via `Ref::try_from(&arg)`
-/// if the partner returned a capability; a typed `Err` on a break). Pass it
-/// *unawaited* — by reference — as the `target` of a later `send` to address the
+/// if the partner returned a capability. A typed `Err` on a break). Pass it
+/// *unawaited*, by reference, as the `target` of a later `send` to address the
 /// object the answer will resolve to: the dependent call rides a `desc:answer`
 /// deliver the partner queues until the answer settles, so a `create -> use`
 /// chain costs one round trip instead of one per link:
@@ -302,11 +322,11 @@ pub(crate) enum PromiseState {
 /// let status = session.send(&task, "status", &[]).await?;     // settles the chain
 /// ```
 ///
-/// A handle awaited for its value resolves once; a handle only used as a target
-/// (never awaited) is a dependency anchor whose own reply is dropped — the
+/// A handle awaited for its value resolves once. A handle only used as a target
+/// (never awaited) is a dependency anchor whose own reply is dropped: the
 /// settle is drain-routed and stored, so an unawaited anchor whose far answer
 /// breaks never faults anything.
-/// A pipeline target belongs to the Host that minted it; another Host refuses
+/// A pipeline target belongs to the Host that minted it. Another Host refuses
 /// it before interpreting the Host-local vow number.
 ///
 /// The projection verbs [`index`](RemotePromise::index) /
@@ -323,7 +343,7 @@ pub struct RemotePromise {
 
 impl RemotePromise {
 	/// Return an eagerly refused operation before publishing dependent state.
-	/// Success means admission succeeded; the remote outcome still requires
+	/// Success means admission succeeded. The remote outcome still requires
 	/// awaiting this promise. This consumes the same operation without polling,
 	/// sending again, or running the event loop inside the caller's transaction.
 	pub fn into_admitted(self) -> Result<Self> {
@@ -373,7 +393,7 @@ impl RemotePromise {
 		let source = match &self.state {
 			PromiseState::Call(source) => *source,
 			// Preserve the first refusal. Reclassifying it as an await-only promise
-			// hides the operation that actually failed and sends callers debugging
+			// hides the operation that failed and sends callers debugging
 			// the projection instead of the rejected send.
 			PromiseState::Failed(error) => return RemotePromise::failed(error.clone(), Rc::clone(&self.session)),
 			PromiseState::Observer(_) => {
@@ -389,12 +409,18 @@ impl RemotePromise {
 		let mut vow: u64 = 0;
 		let _arrival = DeliverGuard::enter(&self.session);
 		let rc = match &op {
+			// SAFETY: `self.session.host.raw()` is the Host handle of the session this promise was minted on, and
+			// `source` is the vow it holds in `PromiseState::Call`; `vow` is a local out-parameter the callee writes.
 			ProjectOp::Index(i) => unsafe {
 				ffi::glowcap_host_vow_index(self.session.host.raw(), source, *i as u64, &mut vow)
 			},
+			// SAFETY: as the `ProjectOp::Index` arm above for the handle and `source`; `tag` borrows the caller's
+			// `&str` for the call, and `vow` is a local out-parameter the callee writes.
 			ProjectOp::Untag(tag) => unsafe {
 				ffi::glowcap_host_vow_untag(self.session.host.raw(), source, tag.as_ptr(), tag.len(), &mut vow)
 			},
+			// SAFETY: as the `ProjectOp::Index` arm above for the handle and `source`; `field` borrows the caller's
+			// `&str` for the call, and `vow` is a local out-parameter the callee writes.
 			ProjectOp::Get(field) => unsafe {
 				ffi::glowcap_host_vow_get(self.session.host.raw(), source, field.as_ptr(), field.len(), &mut vow)
 			},
@@ -450,7 +476,7 @@ impl IntoFuture for RemotePromise {
 				PromiseState::Call(vow) | PromiseState::Observer(vow) => {
 					self.session.attend_inbound()?;
 					// Await the drain-routed completion. The waiter registers
-					// synchronously (the row already exists — the mint was the
+					// synchronously (the row already exists: the mint was the
 					// registration), then the kick puts the queued batch on the
 					// wire and routes any already-arrived outcome.
 					self.session.host.observe_vow(vow).await

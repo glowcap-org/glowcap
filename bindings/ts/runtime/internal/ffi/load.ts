@@ -7,8 +7,8 @@
 //
 // Publishable cascade (ADR-0077; see `c-abi-resolve.json` and
 // `bindings/README.md`):
-//   1. `GLOWCAP_LIB_DIR` (configure) — never downloads.
-//   2. Abi-versioned download cache — language-native fetch (HTTP + tar) that
+//   1. `GLOWCAP_LIB_DIR` (configure) never downloads.
+//   2. Abi-versioned download cache: a language-native fetch (HTTP + tar) that
 //      ships inside this package; no monorepo operator shell helper required.
 //   3. In-tree `zig-out/lib` when a glowcap checkout is discoverable (dev only).
 //   4. Bare library name (OS dynamic-linker search).
@@ -22,7 +22,7 @@ import { libFile } from "./surface.ts";
 import { curlTransportArgs, failArchiveSecurity, HardFailError, requireSecureReleaseUrl } from "./release_security.ts";
 
 // The host built-ins the cascade rides. Static imports (not top-level await)
-// so this module ships no top-level await — a browser bundle flattens every
+// so this module ships no top-level await: a browser bundle flattens every
 // module's top-level await into one file and the runtime's import graph
 // deadlocks around one. A browser build maps these `node:*` specifiers to
 // empty stubs (`bindings/ts/web/browser-bundle.json`); the injected-adapter
@@ -51,7 +51,7 @@ type HostModules = {
 // An injected adapter (the wasm browser binding, ADR-0070) means `dlopen`
 // ignores paths and there is no archive cascade to run, so `host` is null and
 // the stubbed `node:*` imports above are never touched. Deno and Bun get the
-// real built-ins. No top-level await — see the import note above.
+// real built-ins. No top-level await: see the import note above.
 const host: HostModules | null = (globalThis as Record<symbol, unknown>)[injected_adapter_key] !== undefined ? null : {
 	process: nodeProcess,
 	fs: nodeFs,
@@ -67,6 +67,8 @@ function hostOnly(): never {
 	throw new Error("glowcap archive resolution needs a host runtime (Deno/Bun)");
 }
 const process = host?.process ??
+	// The host abstraction supplies only the fields the binding reads, and the
+	// full `node:process` surface is the outside world's, unknown here.
 	({
 		env: {} as Record<string, string | undefined>,
 		arch: "",
@@ -263,7 +265,7 @@ function hostTargetTriple(): string {
 	// (`tools/c-abi/c-abi-host-aliases.json`). Full corpus (string literals for
 	// source_check per-port presence): "x86_64" "amd64" "x64" "aarch64" "arm64"
 	// "macos" "darwin" "macosx" "Darwin" "linux" "Linux" "windows" "win32".
-	// Node uses x64; others use amd64 — map both to x86_64.
+	// Node uses x64; others use amd64. Map both to x86_64.
 	const archRaw: string = process.arch;
 	const arch = archRaw === "x64" || archRaw === "amd64"
 		? "x86_64"
@@ -335,8 +337,8 @@ function curlDownload(
  * Refuse/link and extract failures hard-fail; tar list failure returns false
  * (tooling soft-fail at the caller).
  *
- * Exported so the C-ABI extract matrix can run this exact path — the listing
- * and the extract, with the environment this function builds — against
+ * Exported so the C-ABI extract matrix can run this exact path (the listing
+ * and the extract, with the environment this function builds) against
  * untrusted archives. Counting the environment's spelling in the source cannot
  * show that the environment reaching both subprocesses is the one intended. */
 export function safeExtractPrefix(
@@ -490,7 +492,7 @@ function fetchIntoCache(
 		} catch { /* soft-fail */ }
 	} catch (err) {
 		// Soft-fail: missing curl/tar, denied permissions, or I/O error.
-		// HardFailError and STRICT always re-throw — do not swallow them.
+		// HardFailError and STRICT always re-throw. Do not swallow them.
 		if (err instanceof HardFailError) throw err;
 		if (envTruthy("GLOWCAP_STRICT")) throw err;
 	} finally {

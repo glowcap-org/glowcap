@@ -2,7 +2,7 @@
 //!
 //! Keeping this walk ahead of builder admission makes malformed outbound text
 //! a deterministic protocol refusal instead of an allocation-dependent partial
-//! encode. The encoder owns representation; this leaf owns only admissibility.
+//! encode. The encoder owns representation. This leaf owns only admissibility.
 
 const std = @import("std");
 

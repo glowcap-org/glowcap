@@ -12,6 +12,10 @@ const value_mod = @import("../value.zig");
 
 const Host = host_mod.Host;
 
+/// The clone family keeps `anyerror` because `cloneValuesAt` and
+/// `cloneValue` are mutually recursive, which this toolchain refuses to
+/// resolve as inferred sets. The family's true set mirrors the
+/// capability-retention machinery's inferred sets.
 pub fn cloneValues(
     self: *Host,
     allocator: std.mem.Allocator,

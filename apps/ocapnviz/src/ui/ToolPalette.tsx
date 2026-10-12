@@ -1,5 +1,5 @@
 /**
- * Tool affordances — the compact tool strip in the left pane and
+ * Tool affordances. The compact tool strip in the left pane and
  * the routing to the App reducer's `set-tool` dispatch. Rendered in
  * every mode: which tools appear comes from `toolsForMode` (the
  * same authority the reducer enforces), so the strip can never
@@ -66,7 +66,7 @@ export function toolLabel(tool: BuilderTool): string {
 }
 
 /** Left-rail tool strip. Compact icon-only buttons that wrap under
- * panel resize; each button's tooltip carries the label, what the
+ * panel resize. Each button's tooltip carries the label, what the
  * tool does, and its shortcut key. */
 export function ToolPalette(
 	{ mode, tool, onPick }: {
@@ -116,7 +116,7 @@ const paletteRow = {
 	justifyContent: "center",
 } satisfies React.CSSProperties;
 
-// Geometry comes from `.ocv-btn.is-icon` — the same square the top
+// Geometry comes from `.ocv-btn.is-icon`. The same square the top
 // bar's icon buttons take, so the left rail and the header read as one
 // app. All that is left here is this palette's own type size.
 const paletteButton = {

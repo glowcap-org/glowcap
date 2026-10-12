@@ -18,7 +18,14 @@ let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 const deadline = setTimeout(() => fail("operations-refresh scenario timed out after 180s"), 180_000);
 try {
 	spawnWeb({
-		args: ["--transport=tcp", String(http), String(room)],
+		// This pagination fixture creates 35 resources in seconds.
+		args: [
+			"--transport=tcp",
+			"--admission-rates=create=64/120",
+			"--browser-admission-rates=create=64/120",
+			String(http),
+			String(room),
+		],
 		cwd: root,
 		env: { GLOWCAP_ROOMS_STATE: state, GLOWCAP_ROOMS_OPERATOR: "1" },
 		stdout: "null",

@@ -1,14 +1,14 @@
 //! A fake Tor daemon: a control endpoint and a SOCKS endpoint on loopback.
 //!
 //! It exists so the onion transport's checks run in the ordinary suite with no Tor
-//! and no network. It is deliberately not a Tor emulator. It answers the exact
+//! and no network. It is not a Tor emulator. It answers the exact
 //! requests glowcap sends, in the exact shapes the two reference implementations
 //! use, and it forwards a dial to a local address the test names.
 //!
 //! **What it cannot prove is that a real Tor answers the same way.** The bytes are
 //! pinned against the pinned Spritely Goblins netlayer and the upstream OCapN
-//! suite in `test/net/onion_socks5_test.zig` and `test/net/onion_control_test.zig`;
-//! this file only replays what those tests hold. A green run here means the
+//! suite in `test/net/onion_socks5_test.zig` and `test/net/onion_control_test.zig`.
+//! This file only replays what those tests hold. A green run here means the
 //! transport agrees with those pinned bytes, never that it agrees with Tor.
 
 const std = @import("std");
@@ -45,11 +45,14 @@ pub const Daemon = struct {
     /// the SOCKS side at the very endpoint the listener bound.
     last_forward: [64]u8 = undefined,
     last_forward_len: usize = 0,
+    /// How long a control conversation waits before its first reply, so a test
+    /// can watch other work interleave with a pending publish.
+    control_delay_ms: u32 = 0,
     control_thread: ?std.Io.Future(anyerror!void) = null,
     /// Set by `stop` so the accept loop leaves on its own. A parked `accept` is
     /// what a fake must never hold: closing the listen descriptor under it is the
     /// hazard the netlayer contract's `waitAcceptable` exists to avoid, and here it
-    /// simply hangs.
+    /// hangs.
     stopping: bool = false,
 
     pub fn start(allocator: std.mem.Allocator, io: std.Io) !*Daemon {
@@ -147,6 +150,9 @@ pub const Daemon = struct {
     /// the peer goes away.
     fn controlConversation(self: *Daemon, stream: std.Io.net.Stream) anyerror!void {
         defer stream.close(self.io);
+        if (self.control_delay_ms != 0) {
+            std.Io.sleep(self.io, std.Io.Duration.fromMilliseconds(self.control_delay_ms), .real) catch {};
+        }
 
         var read_buf: [1024]u8 = undefined;
         var write_buf: [1024]u8 = undefined;
@@ -187,7 +193,7 @@ pub const Daemon = struct {
 
     /// Splice one SOCKS dial onto the local endpoint named by the last
     /// `ADD_ONION`, as a real Tor circuit would. The two pumps must forward each
-    /// available read; waiting for a full relay buffer deadlocks small CapTP
+    /// available read. Waiting for a full relay buffer deadlocks small CapTP
     /// handshake frames.
     pub fn spliceDial(self: *Daemon) anyerror!void {
         const client = try self.acceptDial();

@@ -3,9 +3,9 @@
 const bans = @import("../bans.zig");
 const Ban = bans.Ban;
 
-/// The stream scan gate — ask the cheap scan, decode only once it says a frame
+/// The stream scan gate (ask the cheap scan, decode only once it says a frame
 /// may be whole, reset on completion, restate the cap on an open prefix at
-/// the cap — lives once, in `codec/dispatch.zig`'s `withScan`. A second copy
+/// the cap) lives once, in `codec/dispatch.zig`'s `withScan`. A second copy
 /// of that gate is how the two engine entry points once came to differ by a
 /// single byte on the cap check.
 pub const frame_scan_gate: []const Ban = &.{

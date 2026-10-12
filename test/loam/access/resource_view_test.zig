@@ -1,4 +1,4 @@
-//! Resource lookup supplies data; the shared managed access scope evaluator owns the
+//! Resource lookup supplies data. The shared managed access scope evaluator owns the
 //! answer. Fake unloaded rows model record demand, not asynchronous storage.
 const structural_policy = @import("grant_fixture.zig").structural_policy;
 const std = @import("std");

@@ -156,7 +156,7 @@ class _Profile:
         """Register this profile's durable key at the relay and accept sessions.
 
         The native relay provider holds the registration socket open and the
-        driver owns admission, handshakes, and session lifetime; iterate the
+        driver owns admission, handshakes, and session lifetime. Iterate the
         returned server for each accepted :class:`glowcap.Session`. ``seed``
         is a 32-byte secret kept across restarts so the advertised locator
         survives them, or ``None`` for a fresh identity shared with the Host.
@@ -236,6 +236,9 @@ class RelayConfig:
     relay_url: str
     register_url: str = ""
     trust_pem: bytes | None = None
+    # Redirect this exact advertised dial route to relay_url. Both must reach
+    # the same registry. Other peer hints retain their routes.
+    relay_alias_url: str = ""
 
     @classmethod
     def dial_only(cls, relay_url: str) -> "RelayConfig":
@@ -252,6 +255,7 @@ class RelayRuntime(_NativeHandleOwner):
     def __init__(self, config: RelayConfig):
         relay_buf, relay_len = _str_buf(config.relay_url)
         register_buf, register_len = _str_buf(config.register_url)
+        alias_buf, alias_len = _str_buf(config.relay_alias_url)
         trust_pem = config.trust_pem
         trust_buf = (
             ctypes.create_string_buffer(trust_pem, len(trust_pem))
@@ -268,6 +272,8 @@ class RelayRuntime(_NativeHandleOwner):
             _c.RELAY_TRUST_SYSTEM if trust_pem is None else _c.RELAY_TRUST_COPIED_PEM,
             ctypes.cast(trust_buf, ctypes.c_void_p) if trust_buf else None,
             len(trust_pem) if trust_pem else 0,
+            ctypes.cast(alias_buf, ctypes.c_void_p),
+            alias_len,
         )
         out = ctypes.c_void_p()
         _check_relay(
@@ -319,6 +325,11 @@ def connector(config: RelayConfig | str) -> Connector:
     """
     if isinstance(config, str):
         config = RelayConfig(config)
+    if config.relay_alias_url:
+        raise GlowcapError(
+            _c.ERR_INVALID_ARGUMENT,
+            "relay aliases require the native relay provider",
+        )
 
     async def realize(host, locator, handshake_timeout_ms):
         route = _route_from_locator(locator) or config.relay_url

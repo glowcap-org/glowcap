@@ -1,6 +1,6 @@
 //! Exercise the gateway through the same Config/run path as rooms-server.
 mod operator;
-use super::super::{Temp, runtime, start_with, tcp};
+use super::super::{Temp, runtime, start_with, start_with_admission, tcp};
 use crate::server::{Asked, Config};
 use glowcap::{Argument, ConnectOptions, PendingWork, Ref};
 use std::{cell::RefCell, rc::Rc, time::Duration};
@@ -33,9 +33,18 @@ async fn host_irc_gateway_seats_two_channels_and_retires_exact_capabilities() {
 		.await;
 }
 async fn scenario() {
-	let config = Config::parse(["--irc".into(), "--transport=tcp".into()], |_| None)
-		.unwrap()
-		.unwrap();
+	// This lifetime proof replaces the same membership repeatedly without the
+	// pauses of ordinary use; keep that work separate from the churn budget proof.
+	let config = Config::parse(
+		[
+			"--irc".into(),
+			"--transport=tcp".into(),
+			"--admission-rates=room-join=8/12".into(),
+		],
+		|_| None,
+	)
+	.unwrap()
+	.unwrap();
 	assert!(config.asked.irc);
 	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
 	let port = listener.local_addr().unwrap().port();
@@ -96,7 +105,7 @@ async fn scenario() {
 		trace: true,
 		..Default::default()
 	};
-	let running = start_with(temp.0.clone(), tcp(), asked.clone()).await;
+	let running = start_with_admission(temp.0.clone(), tcp(), asked.clone(), config.admission).await;
 	let viewer = super::trace::Viewer::subscribe(running.trace.as_deref().unwrap()).await;
 	let runtime = runtime().await;
 	let session = runtime

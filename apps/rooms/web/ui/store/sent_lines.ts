@@ -1,76 +1,69 @@
 // A line this reader sent, named by its commit receipt and settled by result
 // acquisition, with the room's echo of it folded into the one bubble.
 
-import type { ChatItem, HistoryCoordinate } from "../types.ts";
+import type { HistoryCoordinate } from "../types.ts";
 import type { PageProjection } from "./core.ts";
 import { foldLine, historyOf, lineByCoordinate, lineByLineId, updateItem } from "./items.ts";
 
 /** The room's names for a committed send. */
 export interface SentLineReceipt {
-	id: number;
+	id?: number;
 	history?: HistoryCoordinate | null;
 }
 
-/** Name a send at its commit receipt, before result acquisition settles it, so
- * the room's echo lands on this bubble. */
-export function nameSentLine(projection: PageProjection, key: string, id: number, receipt: SentLineReceipt): void {
-	adoptSentLine(projection, key, id, receipt, null);
+/** Commit observation proves delivery before returned names or controls can be
+ * read. Consume the operation association without inventing either identity. */
+export function confirmSentOperations(projection: PageProjection, operations: ReadonlySet<string>): void {
+	for (const [key, history] of projection.get().histories) {
+		for (const item of history) {
+			if (item.kind !== "chat" || item.operation == null || !operations.has(item.operation)) continue;
+			updateItem(projection, key, item.id, {
+				state: undefined,
+				awaitingReceipt: undefined,
+				correlation: item.correlation ?? item.operation,
+				operation: undefined,
+				retryable: undefined,
+			});
+		}
+	}
 }
 
-/** The committed receipt identifies the original send, including archive replay
- * or a normalized server echo that arrived first. Transfer that custody once. */
+/** Settle delivery after acquisition. Only an acquired live field permits a
+ * numeric name. Archive coordinates remain exact after membership retirement. */
 export function confirmSentLine(
 	projection: PageProjection,
 	key: string,
 	id: number,
 	receipt: SentLineReceipt & { held: boolean },
 ): void {
-	adoptSentLine(projection, key, id, receipt, {
-		state: undefined,
-		awaitingReceipt: undefined,
-		operation: undefined,
-		retryable: undefined,
-		held: receipt.held,
-	});
-}
-
-/** Name the original send and fold in an echo already stored under those names,
- * keeping the original's id and time. Null `settled` keeps its send state. */
-function adoptSentLine(
-	projection: PageProjection,
-	key: string,
-	id: number,
-	receipt: SentLineReceipt,
-	settled: Partial<ChatItem> | null,
-): void {
 	const history = historyOf(projection, key);
 	const original = history.find((item) => item.id === id && item.kind === "chat");
 	if (original?.kind !== "chat") return;
-	const echo = receipt.history == null
-		? lineByLineId(history, receipt.id)
-		: lineByCoordinate(history, receipt.history);
+	const conversation = projection.get().convs.get(key);
+	// An ended notice can retire membership before the next workspace snapshot.
+	const liveId = conversation?.type === "room" && conversation.membership !== "joined" ? undefined : receipt.id;
+	const echo = receipt.history != null
+		? lineByCoordinate(history, receipt.history)
+		: liveId == null
+		? undefined
+		: lineByLineId(history, liveId);
 	const named = {
-		...(settled ?? {}),
-		lineId: receipt.id,
+		state: undefined,
+		awaitingReceipt: undefined,
+		operation: undefined,
+		correlation: liveId != null || receipt.history != null ? undefined : original.correlation ?? original.operation,
+		retryable: undefined,
+		// An archive match may already have a live name from the current
+		// membership. An older receipt cannot take that identity away.
+		lineId: liveId ?? echo?.lineId,
+		held: liveId == null ? echo?.held ?? false : receipt.held,
 		...(receipt.history == null ? {} : { history: receipt.history }),
 	};
 	if (echo == null || echo.id === id || (receipt.history == null && !echo.mine)) {
 		updateItem(projection, key, id, named);
 		return;
 	}
-	const sending = settled != null ? {} : {
-		state: original.state,
-		awaitingReceipt: original.awaitingReceipt,
-		operation: original.operation,
-		retryable: original.retryable,
-	};
-	foldLine(
-		projection,
-		key,
-		original,
-		{ ...echo, ...sending, ...named, id, at: original.at, mine: original.mine },
-		echo,
-	);
+	foldLine(projection, key, original, { ...echo, ...named, id, at: original.at, mine: original.mine }, echo);
 }
 
 /** The reader let a send's receipt go. Its outcome stays unknown for good, so

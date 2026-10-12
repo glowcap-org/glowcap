@@ -1,6 +1,6 @@
 //! The directory a Rooms server answers: who is registered, who is watching,
 //! and the signaling it relays between members. Connections are the adapter's
-//! keys (`C`) and capabilities its tokens (`R`); the policy holds neither open
+//! keys (`C`) and capabilities its tokens (`R`). The policy holds neither open
 //! and performs no effect. Every verb answers with what the adapter must do
 //! next, so the same decisions run under any host, and a test can read them
 //! without a wire.
@@ -42,9 +42,9 @@ pub use super::{Refusal, Release};
 /// What a member's register inbox is told.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Notice {
-	/// The name is filed; the registration id names this exact holding.
+	/// The name is filed. The registration id names this exact holding.
 	Registered { nick: String, id: Id },
-	/// A peer offered an inbox for this member; `introduce` may be retried.
+	/// A peer offered an inbox for this member. `introduce` may be retried.
 	Introducible { nick: String, id: Id, opening: String },
 	/// A peer asked to be introduced and no inbox was offered for it yet.
 	MintInboxFor { nick: String, id: Id, opening: String },
@@ -77,7 +77,7 @@ pub struct Dropped<C, R> {
 	pub id: String,
 	pub originator: C,
 	pub reply: R,
-	/// Why, when the originator is told; a completed exchange says nothing.
+	/// Why, when the originator is told. A completed exchange says nothing.
 	pub reason: Option<String>,
 }
 
@@ -147,7 +147,7 @@ impl<C: Copy + Ord, R: Clone> Default for Directory<C, R> {
 impl<C: Copy + Ord, R: Clone> Directory<C, R> {
 	/// File `request` under `connection`. `id` is the registration's fresh
 	/// identity, minted by the adapter. A name another live connection holds
-	/// needs a current voucher for it; a member re-registering on a connection
+	/// needs a current voucher for it. A member re-registering on a connection
 	/// the directory can prove is the same peer replaces its own rows.
 	pub fn register(
 		&mut self,
@@ -216,6 +216,12 @@ impl<C: Copy + Ord, R: Clone> Directory<C, R> {
 	) -> Result<Introduction<C, R>, Refusal> {
 		self.registry.introduce(connection, nick, id, opening)
 	}
+	pub fn introduction_ready(&self, connection: C, nick: &str, id: &str, opening: &str) -> bool {
+		self.registry.introduction_ready(connection, nick, id, opening)
+	}
+	pub fn direct_request_due(&self, connection: C, nick: &str, id: &str, now: u64) -> Result<bool, Refusal> {
+		self.registry.direct_request_due(connection, nick, id, now)
+	}
 	pub fn request_direct(
 		&mut self,
 		connection: C,
@@ -271,7 +277,7 @@ impl<C: Copy + Ord, R: Clone> Directory<C, R> {
 		self.registry.redeem(nick, voucher)
 	}
 	/// Watch the directory from `connection`. Watching again replaces, so a
-	/// connection holds one view; the replaced observer is given back.
+	/// connection holds one view. The replaced observer is given back.
 	pub fn watch(
 		&mut self,
 		connection: C,
@@ -284,7 +290,7 @@ impl<C: Copy + Ord, R: Clone> Directory<C, R> {
 		Ok((snapshot, replaced.map(|capability| Release { connection, capability })))
 	}
 	/// Cancel exactly this connection's observer. A delayed cancellation of a
-	/// replaced observer cannot retire its successor; repeated cancellation is empty.
+	/// replaced observer cannot retire its successor. Repeated cancellation is empty.
 	pub fn unwatch(&mut self, connection: C, observer: &R) -> Option<Release<C, R>>
 	where
 		R: PartialEq,
@@ -331,19 +337,32 @@ impl<C: Copy + Ord, R: Clone> Directory<C, R> {
 	pub fn release_signaling(&mut self, nick: &str) -> Option<Release<C, R>> {
 		self.registry.release_signaling(nick)
 	}
-	/// An operator drops one exchange; its originator hears why.
+	/// An operator drops one exchange. Its originator hears why.
 	pub fn drop_exchange(&mut self, id: &str) -> Option<Dropped<C, R>> {
 		self.exchanges
 			.drop(id, Some("an operator released this signaling exchange".into()))
 	}
 	/// A watcher whose delivery failed is dropped only once its connection is
-	/// known to be gone; the adapter decides that and calls `connection_closed`.
+	/// known to be gone. The adapter decides that and calls `connection_closed`.
 	pub fn offer_signaling(&mut self, connection: C, inbox: R) -> Result<Option<Release<C, R>>, Refusal> {
 		self.registry.offer_signaling(connection, inbox)
 	}
 	/// Start an exchange toward the member registered at `designator`. The
-	/// exchange id is minted here; the adapter delivers `offer` to the target
+	/// exchange id is minted here. The adapter delivers `offer` to the target
 	/// and, once that delivery is accepted, tells the originator `accepted`.
+	/// Resolve recipient work from the proved registration, before mutation.
+	pub fn signaling_recipient(&self, connection: C, designator: &str) -> Result<C, Refusal> {
+		if self.registry.nick_of(connection).is_none() {
+			return Err(Refusal::coded(
+				FailureCode::NotRegistered,
+				"signalOffer needs a registered name",
+			));
+		}
+		self.registry
+			.signaling_target(designator)
+			.map(|(_, (target, _))| target)
+			.ok_or_else(|| Refusal::coded(FailureCode::PeerOffline, "no signaling inbox for that designator"))
+	}
 	pub fn signal_offer(
 		&mut self,
 		connection: C,

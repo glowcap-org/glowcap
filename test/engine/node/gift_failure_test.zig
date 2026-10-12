@@ -467,8 +467,8 @@ test "recipient admission failure publishes no orphan deposit" {
     const ask = node.nextAction().?;
 
     // The exporter can prepare its deposit, but the recipient cannot admit the
-    // give. Origination must publish neither half; the old deposit-first order
-    // left a real deposit queued here with no give that could ever name it.
+    // give. Origination must publish neither half: a deposit-first order would
+    // leave a real deposit queued here with no give that could ever name it.
     node.peer(recipient).?.outbound_budget = 1;
     const gift_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x6d));
     try node.provideGiftId(ask.need_gift_id.ticket, &gift_id);
@@ -640,7 +640,7 @@ test "a projected relayed value breaks from admission escrow under allocation fa
 
 // ── The serve step: the sans-io redeem state machine ─────────────────────────
 //
-// These prove the *decisions* the serve step owns — interception, the exporter
-// cache, dial dedup, pending withdraws, route settlement, fail-closed arms —
+// These prove the *decisions* the serve step owns, interception, the exporter
+// cache, dial dedup, pending withdraws, route settlement, fail-closed arms,
 // as data in and actions out, with no socket. The live proof that the same
 // step drives a real three-party redeem is `zig build goblins-handoff`.

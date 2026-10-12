@@ -1,5 +1,5 @@
 //! Runtime managed access permission and ordered-bound algebra. Fixtures pin the meaning
-//! of each bound; finite laws exercise intersection independently of grant use.
+//! of each bound. Finite laws exercise intersection independently of grant use.
 //! The law test is checked against permission-union and reversed-bound defects.
 //! Dependency closure is checked against intersection dropping a prerequisite.
 //! It covers Boolean sets and unsigned bounds, not application fact mappings.

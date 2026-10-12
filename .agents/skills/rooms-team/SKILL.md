@@ -8,9 +8,9 @@ description: >-
 
 # Rooms team
 
-Read [rooms-peer](../rooms-peer/SKILL.md) first. Lead and members use exactly
-that CLI, session, inbox, and listening procedure. This skill adds roster
-ownership and coordination; it supplies no alternative peer implementation.
+Read [rooms-peer](../rooms-peer/SKILL.md) first. Lead and members use that
+CLI, session, inbox, and listening procedure. This skill adds roster ownership
+and coordination, not an alternative peer implementation.
 
 ## Form the team
 
@@ -21,9 +21,8 @@ letters, digits, underscore, or hyphen because each names its own directory.
 
 Resolve the CLI once using rooms-peer's startup procedure and pass that exact
 executable to every member. Check that the harness can run a model consumer for
-each member before creating the roster; if it cannot, report that limitation.
-Then use the real
-deployment URL in place of the example:
+each member before creating the roster, and report the limitation if it cannot.
+Then use the real deployment URL in place of the example:
 
 ```sh
 glowcap apps rooms team start --dir "$HOME/.rooms/team-design" \
@@ -43,16 +42,16 @@ member agent per member, with its nickname, workspace path, room assignments,
 and the member brief below. The lead is this session, not an extra subagent.
 Do not claim the team is responsive until every peer has an active consumer.
 
-Use operator-supplied personas when provided. Do not invent a persona
-requirement for a member who only needs a concrete assignment. Persona files
-belong to the harness; the released skills require no repository lookup.
+Use operator-supplied personas when provided. A member who needs only a
+concrete assignment gets no persona. Persona files belong to the harness, and
+the released skills require no repository lookup.
 
 ## Coordinate
 
-The human directs the lead; the lead assigns members. A strategy or persona
-never overrides a human correction. Announce the strategy, assignments,
+The human directs the lead; the lead assigns members. A human correction
+overrides any strategy or persona. Announce the strategy, assignments,
 acceptance criteria, and who integrates the result. Select a suitable
-[strategy](strategies.md) without adding a team to a single-person task.
+[strategy](strategies.md), and add no team to a single-person task.
 
 Default public speaking policy: the lead answers human room questions;
 a member answers when directly assigned or mentioned. Members may answer
@@ -63,14 +62,15 @@ their own DMs. Announce changes to this policy in the room.
 Each peer keeps one consumer active, using rooms-peer's harness-aware choice
 of `listen` or individual `tick` calls. Do not build a team polling script.
 On every batch, handle human
-DMs, human room questions, then peer coordination. DM-first is order, not
-permission to ignore rooms. Read all joined conversations, not just mentions.
+DMs, then human room questions, then peer coordination. DM-first is order,
+not permission to ignore rooms. Read all joined conversations, not just
+mentions.
 
 Pending is per-peer. A broadcast gives each peer its own event ID. The lead
 answering does not acknowledge a member's copy. Members read and dismiss
 copies that need no response from them; that does not answer the question
-on the lead's behalf. A content-free reminder is appropriate if the lead
-missed an assignment, not a chain of acknowledgment messages.
+on the lead's behalf. If the lead missed an assignment, send a content-free
+reminder, not a chain of acknowledgment messages.
 
 Reply with `--id` to preserve the source conversation automatically. Never
 quote or paraphrase a DM into a public room. Unsolicited room messages need
@@ -89,9 +89,9 @@ glowcap apps rooms team stop --dir "$HOME/.rooms/team-design"
 ```
 
 Team status reports session health without returning message bodies. Pending
-events mean unread work, not proof that a model is stuck. Check the harness
+events mean unread work and do not show that a model is stuck. Check the harness
 consumer as well as the peer. If the model ended but its peer is healthy,
-resume the model's listener rather than restarting the peer.
+resume the model's listener and leave the peer running.
 
 Do not overwrite a roster to remove somebody from supervision. Stop individual
 members through ordinary `stop --dir <member-dir>`; use a new team directory
@@ -112,8 +112,8 @@ operator-selected persona:
 > The lead is <lead>. Human instructions take priority; report blockers to the lead.
 > Use reply --id for received messages, and keep private content in its DM.
 > Read and dismiss your own copies of room events that need no response from you.
-> Keep the harness wait active; a final answer ends your consumer even if the
-> peer keeps receiving. Quiet timeouts are not a stopping condition.
+> Keep the harness wait active: a final answer ends your consumer even if the
+> peer keeps receiving. A quiet timeout is not a stopping condition.
 > Stop when the human or lead asks; do not rejoin without direction.
 
 End the mission by reporting the outcome on its original surface, stopping

@@ -1,5 +1,5 @@
 //! One consumer trace for both TCP/LMDB and Chromium/IndexedDB. Zig's grant
-//! scenarios own semantics; this trace catches projection and persistence drift.
+//! scenarios own semantics. This trace catches projection and persistence drift.
 use super::{Argument, ControlPowers, Policy, Ref, Session};
 
 pub async fn revision(session: &Session, control: &Ref) -> u64 {

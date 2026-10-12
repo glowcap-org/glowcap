@@ -1,4 +1,5 @@
 //! Human doc voice: the banned scaffold needles, habitual em-dash shapes,
+//! semicolons and em dashes in reader prose,
 //! the justification tic and its closed `apps/` debt list, connective arrows
 //! outside fences, headings that spend contrast before the subject has a
 //! name, and the prose sentence-length ceiling.
@@ -6,6 +7,7 @@
 const std = @import("std");
 const util = @import("../util.zig");
 const voice_debt = @import("voice_debt.zig");
+const reader_voice = @import("reader_voice.zig");
 
 const appendViolation = util.appendViolation;
 const bans = @import("../bans.zig");
@@ -57,6 +59,31 @@ pub fn checkHumanDocVoice(
         }
     }
 
+    for (reader_scopes) |where| {
+        var files: std.ArrayList([]const u8) = .empty;
+        defer files.deinit(arena);
+        // tolerant: an unopenable tree already violates through the ban rows.
+        bans.collectFiles(io, arena, root, where, &files) catch continue;
+        for (files.items) |path| {
+            // tolerant: a read failure already reports through the ban rows.
+            const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
+            try reader_voice.banReaderFlaws(gpa, violations, path, contents, !reader_voice.speaksToContributors(path));
+        }
+    }
+
+    for (contributor_scopes) |where| {
+        var files: std.ArrayList([]const u8) = .empty;
+        defer files.deinit(arena);
+        // tolerant: an unopenable tree already violates through the ban rows.
+        bans.collectFiles(io, arena, root, where, &files) catch continue;
+        for (files.items) |path| {
+            if (isReaderPage(path)) continue;
+            // tolerant: a read failure already reports through the ban rows.
+            const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
+            try reader_voice.banReaderFlaws(gpa, violations, path, contents, false);
+        }
+    }
+
     // The justification tic runs its own, wider walk over every first-party
     // prose tree. `apps/` files still carrying it ride the closed debt list
     // in `voice_debt.zig` until each is rewritten.
@@ -85,25 +112,69 @@ pub fn checkHumanDocVoice(
     }
 }
 
-/// First-party prose, wider than the human first-read scopes above, because the
-/// habits these checks refuse show up most in source comments. Read by the
-/// sentence-length ceiling, and by the em-dash scopes that extend it.
-const prose_scopes = [_]bans.Where{
-    .{ .tree = .{ .dir = "src", .suffixes = &.{".zig"} } },
-    .{ .tree = .{ .dir = "cli", .suffixes = &.{".zig"} } },
-    .{ .tree = .{ .dir = "docs", .suffixes = &.{".md"}, .recursive = false } },
+/// The pages people read to use glowcap or run Rooms: the website, the
+/// repository's front door, the binding READMEs, and the Rooms operator
+/// guides. Other human surfaces join this list as they are cleared. Read by
+/// the reader punctuation and insider-word check, and by the prose scopes
+/// below.
+const reader_scopes = [_]bans.Where{
     .{ .tree = .{ .dir = "site/content", .suffixes = &.{".smd"} } },
-    // The registered living-state pages a reviewer opens before any code.
-    // They carried the least-checked prose on the branch that added most of
-    // it, which is the wrong way round for the first thing anyone reads.
     .{ .files = &.{
         "README.md",
         "SECURITY.md",
         "PROVENANCE.md",
         "CONTRIBUTING.md",
         "apps/rooms/README.md",
+        "apps/rooms/operating.md",
+        "apps/rooms/web/deploy/README.md",
+        "bindings/python/README.md",
+        "bindings/racket/README.md",
+        "bindings/rust/README.md",
+        "bindings/ts/README.md",
+        "examples/README.md",
         "ui/README.md",
     } },
+};
+
+/// Markdown written for people building glowcap: design records, plans,
+/// guides, and the READMEs beside the code. It keeps the reader pages'
+/// punctuation rule but not their word list, because the working words
+/// belong here. Vendored upstream checkouts and `third_party/` are not ours.
+const contributor_scopes = [_]bans.Where{
+    .{ .tree = .{ .dir = "docs", .suffixes = &.{".md"} } },
+    .{ .tree = .{ .dir = "apps", .suffixes = &.{".md"} } },
+    .{ .tree = .{ .dir = "bench", .suffixes = &.{".md"} } },
+    .{ .tree = .{ .dir = "bindings", .suffixes = &.{".md"} } },
+    .{ .tree = .{ .dir = "conformance", .suffixes = &.{".md"}, .skip_dirs = &.{"upstream"} } },
+    .{ .tree = .{ .dir = "examples", .suffixes = &.{".md"} } },
+    .{ .tree = .{ .dir = "interop", .suffixes = &.{".md"} } },
+    .{ .tree = .{ .dir = "site", .suffixes = &.{".md"} } },
+    .{ .tree = .{ .dir = "test", .suffixes = &.{".md"} } },
+    .{ .tree = .{ .dir = "tools", .suffixes = &.{".md"} } },
+    .{ .tree = .{ .dir = "ui", .suffixes = &.{".md"} } },
+    .{ .file = ".devcontainer/README.md" },
+};
+
+/// Whether a reader scope already holds this file, so a contributor walk
+/// does not report it twice.
+fn isReaderPage(path: []const u8) bool {
+    for (reader_scopes) |where| switch (where) {
+        .tree => |tree| if (std.mem.startsWith(u8, path, tree.dir) and std.mem.endsWith(u8, path, ".smd")) return true,
+        .files => |paths| for (paths) |reader| {
+            if (std.mem.eql(u8, path, reader)) return true;
+        },
+        .file => |reader| if (std.mem.eql(u8, path, reader)) return true,
+    };
+    return false;
+}
+
+/// First-party prose, wider than the reader pages above, because the habits
+/// these checks refuse show up most in source comments. Read by the
+/// sentence-length ceiling, and by the em-dash scopes that extend it.
+const prose_scopes = reader_scopes ++ [_]bans.Where{
+    .{ .tree = .{ .dir = "src", .suffixes = &.{".zig"} } },
+    .{ .tree = .{ .dir = "cli", .suffixes = &.{".zig"} } },
+    .{ .tree = .{ .dir = "docs", .suffixes = &.{".md"}, .recursive = false } },
     .{ .tree = .{ .dir = "conformance/ocapn-findings", .suffixes = &.{".md"} } },
 };
 
@@ -115,9 +186,7 @@ const prose_scopes = [_]bans.Where{
 /// files, and prose it finds here is prose it reads as house style, so a habit
 /// indulged in a rule is a habit handed to every surface that rule governs,
 /// including the reader-facing ones where the same dash is an AI tell. The
-/// scaffolding was already clear of both forms when this scope was added, so
-/// nothing here is a migration: it is a line already held, now held by the
-/// build instead of by whoever last noticed.
+/// build holds this line instead of whoever last noticed.
 ///
 /// Its own list rather than the prose one, because that list feeds the
 /// sentence-length check too, and widening it for this would have quietly
@@ -134,7 +203,7 @@ const em_dash_scopes = prose_scopes ++ [_]bans.Where{
 /// The em-dash is a strong occasional tool, and doc-voice allows exactly two
 /// uses: a matched pair standing in for parentheses, and a single dash for a
 /// turn a comma cannot carry. It bans the rest by name, and these two spellings
-/// are the ones a writer reaches for out of habit — a relative clause or a
+/// are the ones a writer reaches for out of habit, a relative clause or a
 /// continuation that a comma or a period carries just as well. They are checked
 /// rather than merely written down because habit is what a rule sentence is
 /// worst at stopping.
@@ -219,7 +288,7 @@ fn banHabitualJustification(
 }
 
 /// Arrow connective tissue in running prose (`miss→break`, `N→1`) is a doc-voice
-/// tell. Fenced code and ASCII `->` diagrams may keep arrows; Unicode `→`/`⇒`
+/// tell. Fenced code and ASCII `->` diagrams may keep arrows, Unicode `→`/`⇒`
 /// stay inside fences on human first-read paths.
 fn banConnectiveArrowOutsideFences(
     gpa: std.mem.Allocator,
@@ -321,7 +390,7 @@ fn headingSubject(trimmed: []const u8) ?[]const u8 {
 /// sentence has stopped being one. Every sentence over it that we looked at was
 /// three or four ideas joined by semicolons, usually with a stack of identifiers
 /// and a decision-record number wedged in. doc-voice already asks for one idea
-/// per sentence; this is the part of that a build can hold.
+/// per sentence. This is the part of that a build can hold.
 const max_prose_sentence = 250;
 
 pub fn checkProseSentenceLength(
@@ -373,7 +442,7 @@ fn checkSentencesIn(
         line_no += 1;
         const trimmed = std.mem.trim(u8, line, " \t\r");
         // SuperMD `code-tabs` nest fences inside blockquotes (`> ```lang`), so a
-        // leading `>` must not hide the fence from this scanner — otherwise the
+        // leading `>` must not hide the fence from this scanner, otherwise the
         // tab bodies are read as one enormous prose sentence.
         const fence_line = blk: {
             var rest = trimmed;
@@ -393,8 +462,8 @@ fn checkSentencesIn(
             continue;
         }
         // A table row is prose when its cells are sentences. Exempting every
-        // row put the densest paragraphs in the tree — the evidence matrix a
-        // reviewer opens first — outside the only gate that reads for
+        // row put the densest paragraphs in the tree, the evidence matrix a
+        // reviewer opens first: outside the only gate that reads for
         // readability. A row of short labels carries no sentence punctuation
         // and so cannot trip the bar anyway; a row whose cells argue in
         // sentences is exactly what the bar is for. Each cell is measured on

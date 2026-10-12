@@ -1,21 +1,21 @@
 //! The relay transport's blocking resident: RFC 6455 WebSocket client legs
-//! over TCP sockets, so a native peer dials — and is dialed through — a relay's
+//! over TCP sockets, so a native peer dials, and is dialed through, a relay's
 //! rendezvous (ADR-0088). The resident owns both byte-channel profiles:
 //! clear `keyed-relay` and Host-sealed `noise-relay`.
 //!
 //! A `keyed-relay` locator names a peer by its Ed25519 key designator and may
 //! carry a provider-owned `rendezvous-relay` hint. Without that hint, a dialer
-//! uses its deployment relay; with it, the provider asks the named relay for
-//! the same designator. The relay carries bytes and parses nothing; the keyed
+//! uses its deployment relay. With it, the provider asks the named relay for
+//! the same designator. The relay carries bytes and parses nothing. The keyed
 //! CapTP handshake carries the claimed designator end to end with the same
-//! unauthenticated posture as `keyed-tcp` (the channel is cleartext `ws://`;
-//! see `docs/boundaries.md`).
+//! unauthenticated posture as `keyed-tcp` (the channel is cleartext `ws://`.
+//! See `docs/boundaries.md`).
 //!
 //! Both halves live here. `dial` opens `relay_url` with `?rendezvous=<key>`
 //! and yields a `Connection` over the socket. `listen` registers the host's
 //! own key at `register_url` (`?id=<key>`) and parks a registration task. That
 //! task answers relay pings away from the caller's reactor and wakes
-//! `waitAcceptable` only when dialer bytes arrive; `accept` hands over that
+//! `waitAcceptable` only when dialer bytes arrive. `accept` hands over that
 //! registered socket and immediately starts its replacement. This is the
 //! rendezvous shape of a TCP accept loop without network I/O hidden in a
 //! readiness query.
@@ -24,24 +24,24 @@
 //! with `Sec-WebSocket-Accept` verification, masked outbound binary frames,
 //! and inbound binary/continuation streaming with ping/pong and close
 //! handling. Text frames, extensions (non-zero RSV bits), masked server
-//! frames, and oversized control frames are refused — every inbound byte is
+//! frames, and oversized control frames are refused, every inbound byte is
 //! peer-influenced until the CapTP session validates it, so the codec
 //! fails closed. Inbound payload lengths are streamed, never allocated from.
 //!
 //! Costs, named: masking is a per-byte transform RFC 6455 requires of clients,
 //! paid as one copy into the socket writer's buffer (there is no in-place
-//! spelling — the caller's bytes are borrowed). The blocking resident copies
+//! spelling, the caller's bytes are borrowed). The blocking resident copies
 //! inbound payload from its socket reader into the CapTP reader. The completion
 //! path instead lends ordinary payload directly from the wrapped backend's
-//! shared buffer; only split headers, control frames, upgrade residue, and a
+//! shared buffer. Only split headers, control frames, upgrade residue, and a
 //! coalesced next-frame tail copy into a bounded per-connection spill, whose
 //! burst capacity is released after drain. Each blocking connection pins one
 //! `RelayStream` (the ADR-0043 stable-address pin) carrying the socket
-//! reader/writer stores; that is an application-tier cost, not the loop tier's.
+//! reader/writer stores. That is an application-tier cost, not the loop tier's.
 //!
 //! The native scale path is the sibling `completion.zig` adapter, which wraps
 //! the host platform completion backend and keeps TCP plus outbound relay dials
-//! in one `completion.Loop`. Registration accept remains resident-owned; when
+//! in one `completion.Loop`. Registration accept remains resident-owned. When
 //! the profile is `noise-relay`, `driver_core.Host` seals that byte pipe.
 
 const std = @import("std");
@@ -95,11 +95,11 @@ const registration_retry_delay_ms: i64 = 100;
 // --- The keyed-relay netlayer resident -------------------------------------
 
 /// The relay netlayer's state: the selected channel profile, host `std.Io`, the
-/// relay's rendezvous URL a dial opens, and — for a host that registers to be
-/// cold-dialed — the registration URL and identity key it registers under. The resident owns
-/// one configuration block that both parsed URLs view, so a netlayer can safely
+/// relay's rendezvous URL a dial opens, and, for a host that registers to be
+/// cold-dialed, the registration URL and identity key it registers under. The resident owns
+/// one configuration block that all parsed URLs view, so a netlayer can safely
 /// outlive the caller's argv, environment, or request buffer. A listener copies
-/// its registration URL when it is minted; its replacement-registration task
+/// its registration URL when it is minted. Its replacement-registration task
 /// therefore depends on the listener, not this resident.
 pub const Resident = struct {
     pub const InitError = error{ InvalidRelayUrl, OutOfMemory };
@@ -108,6 +108,16 @@ pub const Resident = struct {
     config: relay_configuration.Lease,
     carrier: carrier_runtime.Lease,
     profile: ChannelProfile,
+
+    pub fn initConfigured(
+        allocator: std.mem.Allocator,
+        io: std.Io,
+        options: relay_configuration.Options,
+        profile: ChannelProfile,
+        tls: ?*tls_runtime.Runtime,
+    ) InitError!Resident {
+        return finishInit(allocator, io, try relay_configuration.Lease.init(allocator, options), profile, tls);
+    }
 
     /// Copy and parse `url` into a dial-only resident.
     pub fn init(allocator: std.mem.Allocator, io: std.Io, url: []const u8) InitError!Resident {
@@ -143,7 +153,7 @@ pub const Resident = struct {
     /// Parse a resident that can both dial through `relay_url` and register a
     /// listener at `register_url`. The caller derives `public_key` from the Host
     /// identity used to sign accepted sessions. Production builds registered
-    /// residents through `Provider`; this direct form is reached only by tests.
+    /// residents through `Provider`. This direct form is reached only by tests.
     pub fn initRegistered(
         allocator: std.mem.Allocator,
         io: std.Io,
@@ -172,26 +182,6 @@ pub const Resident = struct {
         );
     }
 
-    /// Parse a resident whose listener identity is supplied by the owning Host
-    /// at listen time. This is the provider-package posture: deployment owns
-    /// relay URLs, while the Host remains the sole identity authority.
-    pub fn initProviderProfile(
-        allocator: std.mem.Allocator,
-        io: std.Io,
-        relay_url: []const u8,
-        register_url: []const u8,
-        profile: ChannelProfile,
-        tls: ?*tls_runtime.Runtime,
-    ) InitError!Resident {
-        return finishInit(
-            allocator,
-            io,
-            try relay_configuration.Lease.registered(allocator, relay_url, register_url, null),
-            profile,
-            tls,
-        );
-    }
-
     /// Deterministic runtime release. A refusal consumes nothing, so
     /// the process owner may finish outstanding channel barriers and retry.
     pub fn deinit(self: *Resident) ?foundation.FailureChain {
@@ -203,7 +193,7 @@ pub const Resident = struct {
     }
 
     /// Whether two resident packages express the same deployment policy.
-    /// Runtime state and Host identity are deliberately outside this comparison.
+    /// Runtime state and Host identity are outside this comparison.
     pub fn sameConfiguration(self: *const Resident, other: *const Resident) bool {
         return self.profile == other.profile and
             self.config.same(other.config) and
@@ -237,8 +227,8 @@ pub const Resident = struct {
 
     /// Open the relay leg without attaching it to a protocol peer, keeping only
     /// the failure's classification. The provider archive dials through
-    /// `dialRawOutcome` so it can project the whole failure; this collapsed
-    /// form is reached only by tests.
+    /// `dialRawOutcome` so it can project the whole failure. This collapsed
+    /// form serves tests only.
     pub fn dialRaw(self: *Resident, locator: model.PeerLocator) DialError!RawConnection {
         return switch (self.dialRawOutcome(locator)) {
             .connected => |raw| raw,
@@ -317,16 +307,16 @@ fn finishInit(
 }
 
 /// Select the relay for one provider dial. A keyed-relay locator's designator
-/// remains the target identity; this hint only tells the provider which relay
+/// remains the target identity. This hint only tells the provider which relay
 /// to ask for that identity. The deployment URL remains the default so
 /// existing locators retain shared-relay behavior.
 fn relayForDial(self: *const Resident, locator: model.PeerLocator) error{InvalidAddress}!RelayUrl {
     model.validatePeerLocator(locator) catch return error.InvalidAddress;
-    return (route.relayHint(locator.hints) catch return error.InvalidAddress) orelse self.config.view().relay_url;
+    return self.config.view().selectDialRoute(route.relayHint(locator.hints) catch return error.InvalidAddress);
 }
 
 /// One raw registered relay listener. Registration and replacement work is
-/// background-owned; these methods only observe its wake descriptor or claim a
+/// background-owned. These methods only observe its wake descriptor or claim a
 /// stream that is already acceptable.
 pub const RawListener = struct {
     box: *listener_state.Box,

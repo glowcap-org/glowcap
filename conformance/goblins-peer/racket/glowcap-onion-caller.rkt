@@ -1,5 +1,5 @@
 #lang racket/base
-;; glowcap-onion-caller.rkt — a Goblins client that calls a glowcap actor across
+;; glowcap-onion-caller.rkt: a Goblins client that calls a glowcap actor across
 ;; a Tor hidden service circuit.
 ;;
 ;; It is `glowcap-actor-call.rkt`'s sibling, and the only difference is the

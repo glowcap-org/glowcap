@@ -9,7 +9,7 @@
 //! Modes: `latency`, `throughput`, `connections`, `cold` (one settled unit from
 //! a fresh process, for the orchestrator's spawn-to-first-settle timing), and
 //! `local` (the local-turn instrument: in-process actor dispatch vs the same
-//! behavior forced across an in-process loopback pair; host/port unused).
+//! behavior forced across an in-process loopback pair, host/port unused).
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -44,7 +44,7 @@ fn runUnit(conn: *driver.Session, root: driver.Capability, arena: std.mem.Alloca
 
 /// The same four verbs as `runUnit`, but pipelined (ADR-0007, questioner half):
 /// `assign`/`complete`/`status` are addressed at the *answer* `create` will
-/// resolve to. The first two are one-way deliveries; only `status` allocates an
+/// resolve to. The first two are one-way deliveries. Only `status` allocates an
 /// answer and settles. The whole unit therefore costs one round trip instead
 /// of four without leaving discarded result promises behind.
 fn runUnitPipelined(conn: *driver.Session, root: driver.Capability, arena: std.mem.Allocator) !void {
@@ -187,7 +187,7 @@ const Counter = struct {
 };
 
 /// The accept half of the `local` mode's loopback pair: accept the one dialer,
-/// publish the counter, and serve until it leaves. Runs on its own fiber; a
+/// publish the counter, and serve until it leaves. Runs on its own fiber. A
 /// failure here would strand the dialing half in a blocked read, so it fails
 /// the process loudly instead of returning quietly.
 fn serveLocalCounter(server: *driver.Server) void {
@@ -232,17 +232,17 @@ fn meanNs(samples: []const u64) f64 {
 }
 
 /// Nearest-rank percentile over latencies already sorted ascending, in
-/// nanoseconds (the `local` mode's unit; `percentileMs` is the same rank in
+/// nanoseconds (the `local` mode's unit, `percentileMs` is the same rank in
 /// milliseconds).
 fn percentileNs(sorted_ns: []const u64, p: f64) f64 {
     return percentileMs(sorted_ns, p) * 1_000_000.0;
 }
 
-/// The `local` mode (see contract.md): (a) in_lang — a counter spawned on this
-/// connection's vat, hit through the native near path, no wire; (b) via_host —
+/// The `local` mode (see contract.md): (a) in_lang, a counter spawned on this
+/// connection's vat, hit through the native near path, no wire, (b) via_host,
 /// the same behavior published across a loopback pair inside this process, so
 /// every turn pays wire codec, feed, and dispatch both ways. The orchestrator's
-/// host/port arguments are unused; the pair is self-contained.
+/// host/port arguments are unused. The pair is self-contained.
 fn runLocal(io: std.Io, allocator: std.mem.Allocator, n: usize) !void {
     var server = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap, .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } });
     defer server.deinit();

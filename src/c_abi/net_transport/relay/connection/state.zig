@@ -1,6 +1,6 @@
 //! One C relay connection's transport state. The runtime owns admission and
-//! lookup; this subject owns I/O serialization, terminal event publication,
-//! explicit release, and the claim-once exact failure latch.
+//! lookup. This subject owns I/O serialization, terminal event publication,
+//! explicit release, and the claim-once failure latch.
 
 const std = @import("std");
 const foundation = @import("foundation");
@@ -62,7 +62,7 @@ pub const State = struct {
 
     /// One nonblocking application read plus the exact runtime wakes its state
     /// transition requires. The projection performs the wakes after releasing
-    /// this connection's I/O lock; readiness ownership stays here.
+    /// this connection's I/O lock. Readiness ownership stays here.
     pub const ReadOutcome = struct {
         count: isize,
         signal_control: bool = false,
@@ -144,8 +144,8 @@ pub const State = struct {
     }
 
     /// Advance WebSocket close, peer acknowledgement, and carrier shutdown
-    /// under the connection's I/O lock. The deadline is owned here rather than
-    /// by a binding or caller so every explicit release settles exactly once.
+    /// under the connection's I/O lock. The deadline lives here, so every
+    /// explicit release settles once.
     pub fn advanceRelease(self: *State, io: std.Io) bool {
         self.io_mutex.lock();
         defer self.io_mutex.unlock();

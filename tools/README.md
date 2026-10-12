@@ -1,8 +1,8 @@
 # tools/
 
-These are maintainer tools, not product APIs. Correctness scenarios stay in
-top-level [`test/`](../test/); checks, generators, and operator scripts live
-here.
+These are maintainer tools, not product APIs. Checks, generators, and operator
+scripts live here, and correctness scenarios live in top-level
+[`test/`](../test/).
 
 | Path | Owns |
 |------|------|
@@ -18,7 +18,7 @@ here.
 
 Product code belongs in [`apps/`](../apps/) or [`cli/`](../cli/).
 
-An operation is placed by what it acts on, not here by default. A command
+An operation lives where the thing it acts on lives. A command
 against the toolchain is a `zig build` step. The installed glowcap CLI owns
 host installation and Rooms deployment, while Compose templates and the image
 recipe stay beside the Rooms deployable. Container scripts stay under
@@ -28,5 +28,5 @@ and account facts in gitignored tooling under `.local/`.
 See [ADR-0085](../docs/decisions/adr/ADR-0085-repository-product-and-devtool-layout.md)
 for the layout decision and
 [ADR-0150](../docs/decisions/adr/ADR-0150-operations-fronts-and-script-placement.md)
-for historical script placement and lifecycle. [ADR-0175](../docs/decisions/adr/ADR-0175-product-installation-and-rooms-deployment.md)
-owns the current CLI installation and Rooms deployment boundary.
+for script placement and lifecycle. [ADR-0175](../docs/decisions/adr/ADR-0175-product-installation-and-rooms-deployment.md)
+owns the CLI installation and Rooms deployment boundary.

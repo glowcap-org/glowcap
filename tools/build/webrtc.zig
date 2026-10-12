@@ -13,7 +13,7 @@ const execution = @import("execution.zig");
 /// the shared layer-module instances the resident and archives import, the
 /// C archive modules the driver-provider seam composes, and the steps the
 /// browser proofs hang off. Everything here is minted by the root before the
-/// family registers; the family adds no layer of its own.
+/// family registers. The family adds no layer of its own.
 pub const Context = struct {
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -45,7 +45,7 @@ pub const Registered = struct {
 /// `src/c_abi/net_transport/webrtc/mod.zig` with the injected `webrtc`
 /// resident alongside the shared vocabulary leaf, keeping
 /// `libglowcap_net_transport_webrtc` symbol-disjoint from `libglowcap_ocapn`
-/// (ADR-0089 phase 3, mirroring the iroh companion).
+/// (ADR-0089).
 pub fn abiModule(
     b: *std.Build,
     t: std.Build.ResolvedTarget,
@@ -61,7 +61,7 @@ pub fn abiModule(
     });
 }
 
-/// The WebRTC sidecar (ADR-0089 phase 2). The hermetic compile-only objects
+/// The WebRTC sidecar (ADR-0089). The hermetic compile-only objects
 /// leave this off, so their externs stay unresolved and they need no cargo.
 fn linkSidecar(
     b: *std.Build,
@@ -194,7 +194,7 @@ pub fn register(ctx: Context) Registered {
     // when the sidecar staticlib links, so exporting it would drag the Rust
     // sidecar into every gate. A hermetic object build type-checks it under plain
     // `zig build check` with no cargo, catching resident rot the same way the
-    // iroh resident check does (ADR-0089 phase 2).
+    // iroh resident check does (ADR-0089).
     const webrtc_resident_mod = b.createModule(.{
         .root_source_file = b.path("src/net/transport/webrtc.zig"),
         .target = target,
@@ -287,7 +287,7 @@ pub fn register(ctx: Context) Registered {
     };
     for (live_drivers) |drv| addLiveDriver(ctx, webrtc_resident_mod, webrtc_common_mod, webrtc_probe_build, drv);
 
-    // The native answerer for the webrtc-browser-peer proof (ADR-0089 phase 6):
+    // The native answerer for the webrtc-browser-peer proof (ADR-0089):
     // it serves a keyed session over the sidecar with signaling ferried over
     // stdio, so a real browser (@glowcap/webrtc + the wasm Host) is the offerer.
     // Rides `check` as a hermetic compile object; the sidecar-linked binary is
@@ -372,7 +372,7 @@ pub fn register(ctx: Context) Registered {
     }
 
     // libglowcap_net_transport_webrtc: the WebRTC transport's public C ABI
-    // companion (ADR-0089 phase 3). Like the iroh companion it links the Rust
+    // companion (ADR-0089). Like the iroh companion it links the Rust
     // sidecar and exports only its own `glowcap_webrtc_*` family, sharing the
     // base ABI by layout, so it is a sibling of `check` (needs cargo). The
     // header generator and its staleness check are the root's

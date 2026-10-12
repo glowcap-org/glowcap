@@ -1,6 +1,6 @@
 //! Application declarations, independent of shared Zig policy semantics. The
-//! same body runs on Linux and in browser Wasm. Exact held roles are fixtures;
-//! these tests do not claim runtime replacement or saved-reference support.
+//! same body runs on Linux and in browser Wasm. Exact held roles are fixtures.
+//! These tests do not claim runtime replacement or saved-reference support.
 use Permission::*;
 use core::num::NonZeroU64;
 use rooms_application::{

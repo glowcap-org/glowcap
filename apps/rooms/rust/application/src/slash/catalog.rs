@@ -392,10 +392,23 @@ impl Name {
 			})
 			.map(|entry| entry.id)
 	}
+	/// The catalog lists every command once, in declaration order, which the
+	/// test below holds.
 	pub fn definition(self) -> &'static Definition {
-		CATALOG
-			.iter()
-			.find(|entry| entry.id == self)
-			.expect("every command has one definition")
+		&CATALOG[self as usize]
+	}
+}
+
+#[cfg(test)]
+mod order {
+	use super::{CATALOG, Name};
+
+	#[test]
+	fn the_catalog_lists_every_command_once_in_declaration_order() {
+		for (index, entry) in CATALOG.iter().enumerate() {
+			assert_eq!(entry.id as usize, index, "{:?} is out of order", entry.name);
+			// `CATALOG` is a const, so each use is its own copy; compare by name.
+			assert_eq!(Name::definition(entry.id).name, entry.name);
+		}
 	}
 }

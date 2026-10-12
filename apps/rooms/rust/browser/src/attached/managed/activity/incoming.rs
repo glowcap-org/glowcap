@@ -40,7 +40,7 @@ impl RoomsManagedIncoming {
 		});
 	}
 	/// The candidate uses the received authority's declared role. An optional
-	/// source coordinate saves the same initiating endpoint beside it; no owner
+	/// source coordinate saves the same initiating endpoint beside it. No owner
 	/// root or replacement source can enter this request.
 	#[wasm_bindgen(js_name = prepareAcquisition)]
 	pub fn prepare_acquisition(

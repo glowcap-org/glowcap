@@ -2,10 +2,10 @@
 //!
 //! The Host owns the queue and all transaction semantics. This leaf turns one
 //! borrowed action into its C carrier and sends embedder acknowledgements back
-//! to that same owner; it introduces no scheduling or policy.
+//! to that same owner. It introduces no scheduling or policy.
 //! A pop is consume-on-success: allocator refusal leaves the action and the
-//! preceding borrowed projection intact. Embedders drain through WOULD_BLOCK;
-//! ignoring a returned action intentionally leaves its dial, flush, handoff,
+//! preceding borrowed projection intact. Embedders drain through WOULD_BLOCK.
+//! Ignoring a returned action leaves its dial, flush, handoff,
 //! or settlement consequence unsettled.
 
 const shared = @import("c_abi_shared");

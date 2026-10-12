@@ -1,5 +1,5 @@
 //! Rooms another directory publishes here. A peering holder hands this
-//! server a room capability under a name; once the room resolves, the
+//! server a room capability under a name. Once the room resolves, the
 //! directory lists it beside its own and hands the same capability to
 //! whoever enters. Nothing here persists: a publication lives exactly as
 //! long as the session that made it, or until its lease revokes it.

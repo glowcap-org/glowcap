@@ -147,7 +147,7 @@ impl Deletion {
 	}
 }
 /// Setup owns this handle without starting a Host. Repeated clicks observe the
-/// same pending deletion; a blocked browser request cannot be cancelled.
+/// same pending deletion. A blocked browser request cannot be cancelled.
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub struct RoomsBrowserArchive(Rc<Eraser>);
 #[wasm_bindgen::prelude::wasm_bindgen]

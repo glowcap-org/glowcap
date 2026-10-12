@@ -8,7 +8,7 @@ const baseName = @import("reflect").baseName;
 pub const step_name = "gen-binding-loam-layout";
 pub const outputs = [_]Output{.{ .path = "bindings/rust/src/sys/loam_gen.rs", .generate = generate }};
 fn spelling(comptime T: type) []const u8 {
-    inline for (.{ "GlowcapLoamRequirementFn", "GlowcapLoamInvokeFn", "GlowcapLoamReferencesFn", "GlowcapLoamEntropyFn", "GlowcapLoamKvFn" }) |name| {
+    inline for (.{ "GlowcapLoamRequirementFn", "GlowcapLoamInvokeFn", "GlowcapLoamForwardFn", "GlowcapLoamReferencesFn", "GlowcapLoamEntropyFn", "GlowcapLoamKvFn" }) |name| {
         const Callback = @field(c, name);
         if (T == Callback) return name;
         if (T == ?Callback) return "Option<" ++ name ++ ">";
@@ -44,7 +44,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         if (comptime std.mem.eql(u8, name, "GlowcapLoamLmdb")) try out.appendSlice(gpa, "#[cfg(not(target_arch = \"wasm32\"))]\n");
         try out.print(gpa, "pub enum {s} {{}}\n", .{name});
     }
-    inline for (.{ "GlowcapLoamRequirementFn", "GlowcapLoamInvokeFn", "GlowcapLoamReferencesFn", "GlowcapLoamEntropyFn", "GlowcapLoamKvFn" }) |name| {
+    inline for (.{ "GlowcapLoamRequirementFn", "GlowcapLoamInvokeFn", "GlowcapLoamForwardFn", "GlowcapLoamReferencesFn", "GlowcapLoamEntropyFn", "GlowcapLoamKvFn" }) |name| {
         const info = @typeInfo(@typeInfo(@field(c, name)).pointer.child).@"fn";
         var signature: std.ArrayList(u8) = .empty;
         defer signature.deinit(gpa);

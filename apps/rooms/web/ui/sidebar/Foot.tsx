@@ -1,6 +1,6 @@
 // The reader's own seat under the rail.
 //
-// Its sibling files are about what this tab holds — the rooms, the direct
+// Its sibling files are about what this tab holds: the rooms, the direct
 // lines, the directory each of them is on. This one is about the reader: who a
 // directory says they are, and where they say they are. That is why it is not
 // part of either list, and why it does not switch with the conversation being
@@ -22,7 +22,7 @@ import {
 } from "../../../lib/text/rail.ts";
 
 /** The rail's foot: one lockup saying who this reader is and how they stand,
- * and pressing it opens the standing menu — the roster's two-row shape, worn by
+ * and pressing it opens the standing menu: the roster's two-row shape, worn by
  * the reader themselves.
  *
  * The foot is the one part of the page about the reader rather than about a
@@ -35,8 +35,8 @@ import {
  *
  * Which is exactly what a lone name at the foot of a page does look like it is
  * claiming, so when this tab holds more than one named directory the name
- * wears that directory's own mark — the same `data-dir` colour its rooms wear
- * in the rail above — and the chip beside it counts the other names in words.
+ * wears that directory's own mark, the same `data-dir` colour its rooms wear
+ * in the rail above, and the chip beside it counts the other names in words.
  * A reader can then see that this name belongs to one of the directories on
  * screen rather than to the page. */
 export function Foot(
@@ -127,7 +127,7 @@ export function Foot(
 				face={
 					/* While the session cannot reach anybody the chip dims the way an
 						   offline member's does, so the reader's own state is said in the
-						   page's one vocabulary; the dot's shape still names which of the
+						   page's one vocabulary. The dot's shape still names which of the
 						   four phases this is, on the corner seat it has always held. */
 
 

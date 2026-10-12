@@ -1,7 +1,7 @@
 //! Generates the TypeScript ABI mirror from Zig declarations.
 //!
 //! Constants go to `@glowcap/abi` because they are target-independent. Native
-//! struct offsets stay in `@glowcap/runtime`; wasm32 reports its own layout at
+//! struct offsets stay in `@glowcap/runtime`, wasm32 reports its own layout at
 //! runtime. The FFI symbol tables reflect each archive's `symbols.zig`, so the
 //! binding reads the C ABI without hand-kept offsets or signatures.
 
@@ -185,7 +185,7 @@ const constants = [_]Const{
     kd("CLOSE_GRACE_UNBOUNDED", "GLOWCAP_CLOSE_GRACE_UNBOUNDED"),
     kd("SESSION_LIMIT_OPTIONS_ABI_VERSION", "GLOWCAP_SESSION_LIMIT_OPTIONS_ABI_VERSION"),
     // Frame-cap defaults: Host protocol admission and direct raw transport
-    // frame-shuttle helpers intentionally keep separate memory postures.
+    // frame-shuttle helpers keep separate memory postures.
     kd("DEFAULT_FRAME_CAP", "GLOWCAP_DEFAULT_FRAME_CAP"),
     k("RAW_TRANSPORT_DEFAULT_FRAME_CAP", "GLOWCAP_RAW_TRANSPORT_DEFAULT_FRAME_CAP"),
     kd("MAX_LOCAL_FORWARD_HOPS", "GLOWCAP_MAX_LOCAL_FORWARD_HOPS"),
@@ -198,6 +198,7 @@ const constants = [_]Const{
     kdr("DRIVER_OPTIONS_ABI_VERSION", "GLOWCAP_DRIVER_OPTIONS_ABI_VERSION"),
     kdr("DRIVER_FAILURE_ABI_VERSION", "GLOWCAP_DRIVER_FAILURE_ABI_VERSION"),
     kdr("DRIVER_MAX_WAIT_MS", "GLOWCAP_DRIVER_MAX_WAIT_MS"),
+    kdr("DRIVER_WAIT_UNBOUNDED", "GLOWCAP_DRIVER_WAIT_UNBOUNDED"),
     kdr("DRIVER_DEFAULT_WIRE_BUFFER_BYTES", "GLOWCAP_DRIVER_DEFAULT_WIRE_BUFFER_BYTES"),
     kdr("DRIVER_DEFAULT_MAX_PENDING_OPENS", "GLOWCAP_DRIVER_DEFAULT_MAX_PENDING_OPENS"),
     kdr("DRIVER_DEFAULT_HANDSHAKE_MS", "GLOWCAP_DRIVER_DEFAULT_HANDSHAKE_MS"),
@@ -371,7 +372,7 @@ fn emitLayout(
 }
 
 /// The wasm layout manifest is the shared table in `c_abi_host`
-/// (`wasm_layout_manifest`) — the same authority the wasm module's
+/// (`wasm_layout_manifest`), the same authority the wasm module's
 /// descriptor exporter walks, so the two mirrors cannot drift.
 const wasm_manifest = cd.wasm_layout_manifest;
 

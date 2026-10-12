@@ -11,7 +11,7 @@
 //!
 //! Portable runtime owners are outside these host trees: some deliberately
 //! drop a handle while observing completion through their own state channel.
-//! `spawn_blocking`, aliases, and other spellings require ordinary review; this
+//! `spawn_blocking`, aliases, and other spellings require ordinary review. This
 //! check does not pretend textual scanning proves their lifetime semantics.
 //! The unit test below plants the exact regression this check claims to catch.
 

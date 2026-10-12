@@ -5,7 +5,7 @@ import { spawnWeb } from "../support/web_front.ts";
 // A directory session dies whenever the room server
 // restarts, and everything it held dies with it: the room it had us in, the
 // lines redeemed over it, the name it advertised. What the *page* knows does
-// not — the conversation you were reading is still yours — and neither does what
+// not, the conversation you were reading is still yours, and neither does what
 // makes this tab reachable, because a cold-dial line runs browser to browser
 // through the relay and a room respawn has nothing to do with it.
 //
@@ -22,10 +22,10 @@ import { spawnWeb } from "../support/web_front.ts";
 //      touching the browser.
 //   3. The conversation is still there. History belongs to the page, not to the
 //      session that happened to deliver it.
-//   4. The room works again — a line sent afterwards reaches the room and comes
+//   4. The room works again, a line sent afterwards reaches the room and comes
 //      back, so what reconnected is a live capability and not a hopeful button.
 //   5. The directory is repopulated, because a new session replays what it knows
-//      and the page had thrown the old answers away.
+//      and the page has thrown the earlier answers away.
 //
 // `serve.ts` supervises the room server and respawns it. This remains a
 // *reconnect* rather than a restart because the test kills only the room, and
@@ -36,15 +36,15 @@ import { spawnWeb } from "../support/web_front.ts";
 // discarding the conversations with the session fails at (3); reconnecting
 // without re-entering the room fails at (1). Each names its own cause, which is
 // the reason the disabled-composer check asks for an attached element rather
-// than a visible one — a vanished composer also refuses lines, and would
+// than a visible one, a vanished composer also refuses lines, and would
 // otherwise be reported as a page that had not noticed.
 //
 // What a pass here does not cover, so nobody reads more into it than it says:
 // the direct lines and reply routes a session holds, and the presence it
 // advertised, are all torn down and rebuilt by the same path, but none of that
 // is observable with one peer in the room. The other half of the lifetime claim
-// — that the inbox host and its rendezvous registration are untouched by a room
-// respawn, because a cold-dial line has nothing to do with the room server — is
+// (that the inbox host and its rendezvous registration are untouched by a room
+// respawn, because a cold-dial line has nothing to do with the room server) is
 // two-peer work and lives with `rooms-web-dm-tabs`. So is the line that is in
 // flight when the session dies, which should come back with a retry action.
 //
@@ -141,7 +141,7 @@ try {
 	await openRailRoom(tab, "workshop", false);
 
 	// Stepped away before the ground moves. What the roster shows is the room's
-	// word, and a membership belongs to a connection — so a reconnect grants a
+	// word, and a membership belongs to a connection, so a reconnect grants a
 	// fresh one with nobody away, which would put this reader back in front of
 	// everyone else while their own screen still said they had stepped out.
 	await tab.fill("#line", "/away making tea");
@@ -150,42 +150,53 @@ try {
 		.catch(() => fail("saying you had stepped away did not show in the room"));
 
 	// ── The room goes away ───────────────────────────────────────────────
+	// The page notices, and it comes back by itself within a second or two, so
+	// both signs of noticing are recorded from before the kill rather than
+	// waited for afterward: a wait that starts once the composer has closed can
+	// begin after the page has already reconnected and the row has nothing left
+	// to say.
+	await tab.evaluate(() => {
+		const seen = { closed: false, rowSaid: false };
+		(globalThis as unknown as { __roomGone: typeof seen }).__roomGone = seen;
+		const look = () => {
+			// Attached rather than visible. A composer that has
+			// vanished also refuses lines, but for a different reason (the page
+			// has no conversation open at all), and asking for a visible one would
+			// report that as this, sending a reader after the wrong thing.
+			if (document.querySelector("#line[disabled]") != null) seen.closed = true;
+			// A room whose directory is away is a room this reader cannot reach,
+			// which is a fact about that row, so the row that carries the
+			// directory carries how it is doing. One directory is the case with no
+			// name worth drawing beside it, so the line arrives with the news and
+			// is the only thing on it. That is exactly the case a caption drawn
+			// only when a directory is worth naming would silently lose.
+			if (
+				[...document.querySelectorAll("#roomList li")].some((row) =>
+					(row.querySelector(".rwhere-how")?.textContent ?? "").trim() !== ""
+				)
+			) seen.rowSaid = true;
+		};
+		new MutationObserver(look).observe(document.body, {
+			subtree: true,
+			childList: true,
+			attributes: true,
+			characterData: true,
+		});
+	});
+	const roomGone = (sign: "closed" | "rowSaid") =>
+		tab.waitForFunction(
+			(which) => (globalThis as unknown as { __roomGone: Record<string, boolean> }).__roomGone[which],
+			sign,
+			{ timeout: 30_000 },
+		);
 	await killRoomServer();
 
 	// The composer closes, which is the page saying it knows: a line typed now
-	// would be accepted into a session that no longer exists.
-	//
-	// Attached rather than visible on purpose. A composer that has *vanished*
-	// also refuses lines, but for a different reason — the page has no
-	// conversation open at all — and asking for a visible one would report that
-	// as this, sending a reader after the wrong thing. The checks below tell the
-	// two apart.
-	await tab.waitForSelector("#line[disabled]", { state: "attached", timeout: 30_000 })
-		.catch(() =>
-			fail(
-				"the page kept accepting lines after its session died; it never noticed the room was gone",
-			)
-		);
-
-	// And the room's own row says so. A room whose directory is away is a room
-	// this reader cannot reach, which is a fact about that row, so the row that
-	// carries the directory carries how it is doing. One directory is the case
-	// with no name worth drawing beside it, so the line arrives with the news and
-	// is the only thing on it. That is exactly the case a caption drawn only when
-	// a directory is worth naming would silently lose.
-	await tab.waitForFunction(
-		() =>
-			[...document.querySelectorAll("#roomList li")].some((row) =>
-				(row.querySelector(".rwhere-how")?.textContent ?? "").trim() !== ""
-			),
-		undefined,
-		{ timeout: 30_000 },
-	).catch(async () => {
-		const rail = await tab.evaluate(() =>
-			[...document.querySelectorAll("#roomList li")].map((row) => (row.textContent ?? "").trim())
-		);
-		fail(`the room held on a directory that went away says nothing about it: ${JSON.stringify(rail)}`);
-	});
+	// would be accepted into a session that does not exist.
+	await roomGone("closed").catch(() =>
+		fail("the page kept accepting lines after its session died; it never noticed the room was gone")
+	);
+	await roomGone("rowSaid").catch(() => fail("the room held on a directory that went away never said so on its row"));
 
 	// ── It comes back by itself ──────────────────────────────────────────
 	// Nobody touches the browser here. `serve.ts` respawns the room, the page
@@ -203,7 +214,7 @@ try {
 
 	// The foot settles with the connection: once the room is re-entered the
 	// state row stops narrating the reconnect and hands the line back to the
-	// reader's own word — which survived the session it was said on, and is
+	// reader's own word, which survived the session it was said on, and is
 	// exactly what this test stepped away to prove. The identity row stays who
 	// this tab is; membership itself is the composer above and the rail's row.
 	await tab.waitForFunction(
@@ -244,8 +255,8 @@ try {
 		{ timeout: 30_000 },
 	).catch(() => fail("the room did not echo a line sent after the reconnect, so nothing usable came back"));
 
-	// And this reader is still away in it. The room forgot — it granted a
-	// membership to a connection that did not exist a moment ago — so what makes
+	// And this reader is still away in it. The room forgot, it granted a
+	// membership to a connection that did not exist a moment ago, so what makes
 	// this true is the page saying it again, and what makes it worth checking is
 	// that nobody would have noticed it silently stop being true.
 	await tab.waitForSelector("#members li.away", { timeout: 30_000 })

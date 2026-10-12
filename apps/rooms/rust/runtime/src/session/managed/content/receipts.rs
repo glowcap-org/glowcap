@@ -9,7 +9,7 @@ pub(in crate::session::managed) fn status<R: custody::References>(
 			Outcome::Unresolved if live => "pending",
 			Outcome::Unresolved => "unknown",
 			Outcome::Unknown { .. } => "unknown",
-			Outcome::KnownAbsent => "unsent",
+			Outcome::KnownAbsent | Outcome::Refused { .. } => "unsent",
 			Outcome::Committed { .. } => "committed",
 		}
 		.into(),
@@ -78,9 +78,10 @@ pub(super) fn requirement(input: Invocation<'_>) -> Result<Requirement> {
 			}
 			Requirement::new(&[Permission::ResolvePending.key()], &[])
 		}
-		"effect-intent" | "effect-adopted" => {
-			let [id] = input.args else {
-				return Err(refuse("effect intent takes one operation id"));
+		"effect-status" | "effect-intent" | "effect-adopted" => {
+			let id = match (input.verb, input.args) {
+				("effect-status", [id, _]) | ("effect-intent" | "effect-adopted", [id]) => id,
+				_ => return Err(refuse("invalid receipt inspection arguments")),
 			};
 			let id = operation(id)?;
 			let record = records::metadata(input)?;
@@ -91,7 +92,14 @@ pub(super) fn requirement(input: Invocation<'_>) -> Result<Requirement> {
 				}
 				return Err(refuse("unknown effect"));
 			};
-			effect_requirement_text(text_of(&receipt.canonical_intent)?, &[Permission::ResolvePending])
+			// Completion follows the admitted operation's permissions. Inventory,
+			// intent recovery and executor control retain their separate gate.
+			let additional = if input.verb == "effect-intent" {
+				&[Permission::ResolvePending][..]
+			} else {
+				&[]
+			};
+			effect_requirement_text(text_of(&receipt.canonical_intent)?, additional)
 		}
 		"resume-effect" | "release-effect" => {
 			let [_, intent] = input.args else {
@@ -162,12 +170,15 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 				if text(&input.args[1])? != canonical {
 					return Err(refuse("effect recovery requires the original intent"));
 				}
-				if matches!(receipt.outcome, Outcome::Unknown { .. }) {
+				let retained = owner.jobs.borrow().contains_key(text_of(&id)?);
+				if !retained && matches!(receipt.outcome, Outcome::Unknown { .. }) {
 					return Err(refuse("the original terminal observation cannot resume"));
 				}
-				if matches!(receipt.outcome, Outcome::Unresolved) {
+				if retained || matches!(receipt.outcome, Outcome::Unresolved) {
 					// Only a retained executor can resume. A cold unknown receipt
 					// never creates a new dispatch or infers an outcome.
+					// Settlement can commit before its worker observes the reply.
+					// Continue that exact owner even when the receipt is terminal.
 					super::super::executor::resume(owner, text_of(&id)?)?;
 				}
 				Ok(status(
@@ -238,13 +249,11 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 				let receipt = effects::inspect(&record.effects, &id, &location(&record, &id)?, &intent)
 					.map_err(|_| refuse("original source and intent required"))?
 					.ok_or_else(|| refuse("unknown effect"))?;
+				let running = text(&input.args[0])?;
 				Ok(results::disclose(&receipt.outcome, call, input)?.unwrap_or_else(|| {
 					status(
 						receipt,
-						owner.receipt_running(
-							text(&input.args[0]).expect("checked id"),
-							record.intent.history_erasure.as_ref(),
-						),
+						owner.receipt_running(running, record.intent.history_erasure.as_ref()),
 					)
 				}))
 			}
@@ -308,7 +317,10 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 						return Ok(Argument::Void);
 					}
 					if rooms_application::content::session::bridge::Request::read(
-						intent.text().as_str().expect("scalar intent"),
+						intent
+							.text()
+							.as_str()
+							.ok_or_else(|| refuse("effect intent is not scalar text"))?,
 					)
 					.is_ok()
 					{

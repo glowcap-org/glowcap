@@ -2,7 +2,7 @@
 //
 // The installed Rust server hosts the Rooms directory while
 // two independent dial-only loops join it and prove the existing all-to-all
-// broadcast. Product composition installs the onion provider explicitly; the
+// broadcast. Product composition installs the onion provider explicitly. The
 // generic driver and binding remain unaware of concrete transports.
 
 import { parseLocator, Runtime } from "@glowcap/runtime";

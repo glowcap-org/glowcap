@@ -15,7 +15,7 @@
  * The cascade operations in `cascade.ts` iterate these maps to find
  * every reference site of a target entity, then applies the
  * per-intent policy at each site. No other code in the engine should
- * encode "which fields reference what" — if it does, it has gone
+ * encode "which fields reference what". If it does, it has gone
  * around the schema and will rot.
  *
  * Compile-time guarantees:
@@ -27,8 +27,8 @@
  *   - Each field name listed must actually be a required key on the
  *     variant. Typos and references to optional fields are compile
  *     errors. (Optional refs are forbidden by invariant 2 in the
- *     design doc; if the schema ever grows one, this constraint
- *     surfaces the design question deliberately.)
+ *     design doc, if the schema ever grows one, this constraint
+ *     surfaces the design question.)
  *
  * See `docs/schema-driven-transactions.md`.
  */
@@ -37,7 +37,7 @@ import type { MessageDefinition, PeerDefinition, SessionDefinition, TimelineEven
 import type { EntityKind } from "./refs.ts";
 
 /** Keys of `T` whose value type cannot be `undefined`. Used to forbid
- * optional refs from appearing in the edge maps — every declared ref
+ * optional refs from appearing in the edge maps. Every declared ref
  * must always be present on its variant. */
 type RequiredKeys<T> = {
 	[K in keyof T]-?: undefined extends T[K] ? never : K;
@@ -50,9 +50,9 @@ export type EventEdgeSpec<K extends TimelineEvent["kind"]> = {
 	readonly target: EntityKind;
 	/** Where inside the field the id sits, when the field is a structure
 	 *  rather than the id itself. A session's end is an endpoint, and the peer
-	 *  it is attached to is one property of it — so the reference is at
+	 *  it is attached to is one property of it. So the reference is at
 	 *  `a.peer`, not at `a`. Declaring that here keeps this table the one
-	 *  place that knows where references live; the walker, the rewriter, and
+	 *  place that knows where references live. The walker, the rewriter, and
 	 *  the extractor all read through `readEdgeRef`. */
 	readonly nested?: string;
 };
@@ -147,7 +147,7 @@ export const ENTITY_EDGES: EntityEdges = {
 
 /** The id an edge points at, wherever that edge keeps it.
  *
- * An edge whose field IS the id reads the field; an edge that declares
+ * An edge whose field IS the id reads the field. An edge that declares
  * `nested` reaches one level in. Every walker, rewriter, and extractor asks
  * here, so a reference that moves inside a structure moves in the table and
  * nowhere else. */
@@ -161,7 +161,7 @@ export function readEdgeRef(
 }
 
 /** Point `container`'s edge at `id`, in place, preserving whatever else the
- *  field's structure carries — an endpoint keeps its claim and what
+ *  field's structure carries. An endpoint keeps its claim and what
  *  attributed it when the peer it names is rewritten. */
 export function writeEdgeRef(
 	container: Record<string, unknown>,

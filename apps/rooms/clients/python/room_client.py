@@ -172,7 +172,7 @@ def _watch_rooms(raw) -> "list[RoomInfo]":
 
 def _watch_room_event(args) -> "tuple[str, RoomInfo | None]":
     """Decode one complete watcher callback without treating malformed rows as
-    an event the terminal simply did not care to display."""
+    an event the terminal did not care to display."""
     if not isinstance(args, list) or not args or not isinstance(args[0], str):
         raise ValueError("the directory sent a malformed watch notification")
     kind = args[0]
@@ -192,9 +192,9 @@ def rooms_host() -> Host:
 
 async def _dial(locator: str) -> "tuple[Runtime, Session]":
     """Dial a transport-neutral rooms locator: an ``ocapn://`` URI goes over iroh,
-    a bare ``host:port`` over TCP. The room's wire is identical either way; only
+    a bare ``host:port`` over TCP. The room's wire is identical either way. Only
     how a member reaches it differs. A URI carrying direct-addresses dials those
-    directly (relay-less Direct); a node-id-only URI resolves the peer through
+    directly (relay-less Direct). A node-id-only URI resolves the peer through
     discovery."""
     if "://" in locator:
         loc = parse_locator(locator)
@@ -298,9 +298,9 @@ class Directory:
         )
 
     async def introduce(self, nick: str, registration_id: str | None = None):
-        """Ask the directory to introduce us to a registered member; returns a
+        """Ask the directory to introduce us to a registered member. Returns a
         live capability to the inbox that member minted for us (redeemed by direct
-        dial). Refused ``introduction-pending`` on genuine first contact; retry
+        dial). Refused ``introduction-pending`` on genuine first contact. Retry
         once the member has offered an inbox. This client answers no
         ``mintInboxFor`` request, so it can reach a member but cannot be reached.
 
@@ -365,7 +365,7 @@ def _read_presence(sender: str, text: str, args: list) -> "Presence | None":
 @dataclass
 class Message:
     """One line in the room. ``system`` is true for the room's own announcements
-    (a member joining, your welcome); otherwise ``sender`` is who said it.
+    (a member joining, your welcome). Otherwise ``sender`` is who said it.
     ``presence`` is set on a membership-change system line."""
 
     sender: str
@@ -390,7 +390,7 @@ class DirectMessage:
         return cls(directory.session, await directory.introduce(peer), peer)
 
     async def say(self, text: str) -> None:
-        """Deliver one direct message. There is no sender argument; the inbox is
+        """Deliver one direct message. There is no sender argument. The inbox is
         the sender (see ``offerInbox`` in ``lib/protocol.ts``)."""
         await self._session.send(self._dm, DM, [text])
 

@@ -1,13 +1,12 @@
 /**
- * `doc.entities` mutation helpers — define / patch / remove the
+ * `doc.entities` mutation helpers, define / patch / remove the
  * per-category identity entries, plus the eternal-start injector
  * that adds entities-only (no creation-event) peers and sessions
  * to the ECS world.
  *
  * Pure-ish: each function mutates the passed-in doc (and `world`
- * for the eternal injector) in place; no engine internals, no
- * subscription side effects. Engine methods that previously held
- * these as private fields are now one-line delegates.
+ * for the eternal injector) in place. No engine internals, no
+ * subscription side effects. Engine methods delegate to these in one line.
  */
 
 import type { MessageDefinition, PeerDefinition, SessionDefinition, TimelineDocument } from "./timeline.ts";
@@ -30,7 +29,7 @@ export function definePeer(
 
 /** Patch a subset of a peer's `entities.peers[peerId]` entry. No-op
  * when the peer isn't defined. Empty string for `designator`
- * drops the field (matches the event-payload mutation semantic);
+ * drops the field (matches the event-payload mutation semantic),
  * `label` stores whatever the patch says, including "". */
 export function patchPeerDefinition(
 	doc: TimelineDocument,
@@ -79,7 +78,7 @@ export function patchSessionDefinition(
 		codec?: Codec;
 		captpVersion?: CaptpVersion;
 		initialState?: SessionState;
-		/** The netlayer the session runs over; `null` stops stating one,
+		/** The netlayer the session runs over, `null` stops stating one,
 		 *  the same reading a peer's emptied designator takes above. A
 		 *  session whose transport nothing states is an ordinary state of
 		 *  the document, so the field goes away rather than taking a
@@ -142,5 +141,5 @@ export function patchMessageDefinition(
 // `applyEternalEntities` is retired. The reconciler-based world
 // materialization (engine/systems/world-materializer.ts) walks all
 // entities at each seek and adds the ones whose effective range
-// contains t — the "eternal-start" case (entity defined but never
+// contains t. The "eternal-start" case (entity defined but never
 // 'born' via an event) is handled uniformly with every other span.

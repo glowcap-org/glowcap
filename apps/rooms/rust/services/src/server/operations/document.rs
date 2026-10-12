@@ -29,7 +29,7 @@ pub(crate) struct Writer {
 }
 
 /// Available only inside worker-owned commands. Socket preparation happens
-/// before change(); only persistence and synchronous installation serialize.
+/// before change(). Only persistence and synchronous installation serialize.
 #[derive(Clone)]
 pub(crate) struct Store(Rc<Mutex<Data>>);
 struct Data {

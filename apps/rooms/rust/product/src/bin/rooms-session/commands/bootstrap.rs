@@ -1,5 +1,5 @@
 //! Resolve an explicitly chosen directory URL. Unlike link previews, the user
-//! may select private hosts. TLS is verified; redirects never downgrade HTTPS.
+//! may select private hosts. TLS is verified. Redirects never downgrade HTTPS.
 use super::Failure;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Empty, LengthLimitError, Limited};

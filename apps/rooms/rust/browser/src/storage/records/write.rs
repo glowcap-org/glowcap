@@ -36,7 +36,7 @@ pub(super) fn clear(database: &Database) -> Result<Operation<Put>, Error> {
 }
 /// One committed transaction removes this source's rows and blob addresses
 /// with exact shared byte accounting. The bounded cursor borrows each row only
-/// for its delete; unrelated source metadata and revision remain untouched.
+/// for its delete. Unrelated source metadata and revision remain untouched.
 pub(super) fn clear_source(database: &Database, source: DocumentText) -> Result<Operation<Put>, Error> {
 	Operation::start(
 		database,

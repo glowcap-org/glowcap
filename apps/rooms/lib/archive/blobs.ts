@@ -1,4 +1,4 @@
-// Blob custody behind the member-owned archive capability.
+// Blob storage behind the member-owned archive capability.
 
 import type {
 	ArchiveBackend,
@@ -30,7 +30,7 @@ export interface ArchivedAttachmentRead {
 export interface BlobArchiveBackend extends ArchiveBackend {
 	putWithAttachments(record: ArchiveLine, attachments: readonly ArchivedAttachmentSource[]): Promise<number>;
 	readAttachment(address: ArchiveAttachmentAddress): Promise<ArchivedAttachmentRead | null>;
-	/** On-turn lookup so `blob(digest)` can mint a reader without leaving the inbound turn. */
+	/** On-turn lookup so `blob(digest)` can create a reader without leaving the inbound turn. */
 	peekLine(filter: ArchiveFilter): ArchiveLine | null;
 }
 
@@ -62,7 +62,7 @@ export function attachmentMetadataEqual(left: AttachmentMetadata, right: Attachm
 }
 
 /** Whether two archive rows name the same content-addressed bytes. Metadata
- * may change around content that did not; the digest alone is byte identity. */
+ * may change around content that did not, and the digest alone is byte identity. */
 export function sameArchivedBytes(
 	left: ArchivedAttachment | undefined,
 	right: ArchivedAttachment | undefined,

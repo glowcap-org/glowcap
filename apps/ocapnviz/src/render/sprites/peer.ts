@@ -1,7 +1,7 @@
 /**
- * Peer node sprites — create, update, and the dirty-gated
+ * Peer node sprites, create, update, and the dirty-gated
  * body/halo/label rebuild for one peer per tick. `renderFrame` owns
- * which peers are live and their z-order; this module owns the Pixi
+ * which peers are live and their z-order. This module owns the Pixi
  * objects.
  */
 
@@ -48,7 +48,7 @@ export function syncPeerSprite(
 		// `eventMode = "none"` removes it from hit-test entirely;
 		// Pixi's per-primitive hit-test on `bodyGfx` then makes the
 		// peer body's actual drawn shape the clickable footprint,
-		// automatically — no duplicated bounds constant to keep in
+		// automatically. No duplicated bounds constant to keep in
 		// sync with the body's geometry.
 		const haloGfx = new Graphics();
 		haloGfx.eventMode = "none";
@@ -66,7 +66,7 @@ export function syncPeerSprite(
 			// ("Alice (gifter)"), not a wire identifier (`peer.id`), so
 			// sans wins on content-type grounds. Note that the same
 			// string also renders in the scrubber peers row, which is a
-			// tiny pill (mono by size-tier default) — same content, two
+			// tiny pill (mono by size-tier default), same content, two
 			// size tiers, two families is consistent with the rule.
 			text: labelTextValue,
 			style: {
@@ -79,7 +79,7 @@ export function syncPeerSprite(
 		labelText.anchor.set(0.5);
 		label.addChild(labelBg, labelText);
 
-		// Capture only the peer id — entity objects don't survive
+		// Capture only the peer id, entity objects don't survive
 		// resetWorld() (undo/redo/scenario switch), but ids do.
 		// Reading `body.position` instead of `e.position` for the same
 		// reason: `body` is synced to the live entity each frame, `e`
@@ -123,7 +123,7 @@ export function syncPeerSprite(
 	}
 
 	// Position assignment is short-circuited by Pixi's ObservablePoint
-	// when unchanged — safe to call every frame.
+	// when unchanged, safe to call every frame.
 	sprite.body.position.set(e.position.x, e.position.y);
 
 	const color = colorForProfile(e.peer.profile);
@@ -142,7 +142,7 @@ export function syncPeerSprite(
 		sprite.lastScale = Number.NaN;
 	} else {
 		// The mark and the body answer to different questions, and the camera is why
-		// that now matters: a zoom changes the mark's world geometry and nothing about
+		// that matters: a zoom changes the mark's world geometry and nothing about
 		// the body, so one flag for both would re-stroke every body on every frame of
 		// a zoom gesture. Tier and hover never reached the body anyway.
 		const haloDirty = marked(tier, hovered, sprite.lastHalo, sprite.lastHovered) &&
@@ -154,7 +154,7 @@ export function syncPeerSprite(
 			sprite.lastActivity !== activity ||
 			sprite.lastColor !== color;
 
-		// Skip the body Graphics rebuild when nothing about it changed —
+		// Skip the body Graphics rebuild when nothing about it changed,
 		// the dominant per-frame cost for static peers.
 		if (haloDirty) {
 			sprite.lastHalo = tier;

@@ -7,6 +7,7 @@ import { refusalText } from "../../../../lib/text/failure.ts";
 import { coordinate, fieldKey, type RoomIntent } from "./model.ts";
 import type { BridgeForm } from "../../../../lib/bridge/form.ts";
 import { WorkspaceConflict } from "./operation.ts";
+import { MAX_CONFLICT_REPREPARATIONS } from "./acquisition.ts";
 import { ResultRecipe } from "./result_recipe.ts";
 
 export function managedRoomActions(page: RoomsPageContext, session: ManagedRoomsSession): RoomsRoomController {
@@ -91,7 +92,7 @@ export function managedRoomActions(page: RoomsPageContext, session: ManagedRooms
 				const recipe = new ResultRecipe();
 				recipe.conversation(session.current!, selected.id);
 				const operation = crypto.randomUUID();
-				for (let attempt = 0;; attempt++) {
+				for (let attempt = 0; attempt < MAX_CONFLICT_REPREPARATIONS; attempt++) {
 					try {
 						const command = await session.command(
 							"issueRoomModerator",
@@ -103,9 +104,12 @@ export function managedRoomActions(page: RoomsPageContext, session: ManagedRooms
 						);
 						return await session.completeResult(command);
 					} catch (error) {
-						if (!(error instanceof WorkspaceConflict) || attempt === 3) throw error;
+						if (!(error instanceof WorkspaceConflict) || attempt + 1 === MAX_CONFLICT_REPREPARATIONS) {
+							throw error;
+						}
 					}
 				}
+				throw new Error("Steward issuance exceeded conflict re-preparation attempts.");
 			}),
 		managerRoom: (key, uri) => outcome(() => role(key, "control", uri)),
 		dropRoomManager: (key, token) => outcome(() => drop(key, "control", token)),

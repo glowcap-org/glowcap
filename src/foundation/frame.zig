@@ -50,8 +50,8 @@ pub const Frame = struct {
     const AllocatorOwner = struct {
         allocator: std.mem.Allocator,
         /// The alignment this storage was allocated with. We track it so the
-        /// free matches the allocation exactly. It's kept separate from `shape`
-        /// on purpose: a `byte` frame might be over-aligned, and it should still
+        /// free matches the allocation. It's kept separate from `shape`
+        /// because a `byte` frame might be over-aligned, and it should still
         /// free with the alignment it was really allocated under.
         storage_alignment: std.mem.Alignment,
     };

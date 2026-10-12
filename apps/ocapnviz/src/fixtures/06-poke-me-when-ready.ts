@@ -2,7 +2,7 @@ import { TimelineDocument } from "../engine/timeline.ts";
 import { payloadOf, wireFrames } from "./wire-frames.ts";
 
 /**
- * Chapter 06 — Poke me when it's ready (op:listen).
+ * Chapter 06, Poke me when it's ready (op:listen).
  *
  * A video editor uploads a clip to a transcoder. Encode takes a
  * long time. Editor installs a listener on the unresolved answer
@@ -12,11 +12,11 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  *
  * On the wire: the editor is at `127.0.0.1:9601` and the transcoder at
  * `127.0.0.1:9602`, over plain `tcp`. The editor's end is its own
- * report; the transcoder's end is attached by the two hosts' traces
+ * report. The transcoder's end is attached by the two hosts' traces
  * agreeing on one OCapN Session ID.
  * Both peers run glowcap, so this session settles on Cap'n Proto over
  * glowcap-next. That is the pairing a glowcap fleet configures
- * (`HostRuntime.Options.codec` / `.captp_version` in `src/driver/host_runtime.zig`); the
+ * (`HostRuntime.Options.codec` / `.captp_version` in `src/driver/host_runtime.zig`). The
  * Syrup / OCapN 1.0 baseline is what a session settles on the moment a peer
  * at either end cannot follow.
  */
@@ -150,7 +150,7 @@ export const pokeMeWhenReady = TimelineDocument.parse({
 			kind: "message-delivered",
 			messageId: "listen",
 		},
-		// Long encode — the gap between t=2000 (listen lands) and
+		// Long encode. The gap between t=2000 (listen lands) and
 		// t=4000 (resolve) stands in for the 40s real-world transcode.
 		{
 			id: "transcode-resolve",

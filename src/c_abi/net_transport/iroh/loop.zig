@@ -2,7 +2,7 @@
 //!
 //! This leaf translates the endpoint's stable readiness records and
 //! nonblocking sidecar verbs into the C archive's exact result vocabulary. It
-//! owns no endpoint or connection state; `ownership.zig` owns every payload and
+//! owns no endpoint or connection state. `ownership.zig` owns every payload and
 //! teardown edge, while the caller continues to own framing.
 
 const model = @import("model");
@@ -41,8 +41,8 @@ pub const GlowcapIrohReadyEvent = extern struct {
     events: u32,
 };
 
-/// Close the connection and free the handle; do not use `conn` afterward.
-/// A later readiness record may still carry its stable id; the host drops that
+/// Close the connection and free the handle. Do not use `conn` afterward.
+/// A later readiness record may still carry its stable id. The host drops that
 /// record because its own id-to-connection row is already gone. No call ever
 /// parks on the connection, so this free cannot race a parked read.
 pub export fn glowcap_iroh_conn_release(conn: ?*GlowcapIrohConn) void {
@@ -120,7 +120,7 @@ pub export fn glowcap_iroh_netlayer_drain_ready(
 }
 
 /// Claim one accepted connection without blocking. Drive it after an accept
-/// readiness record; release the returned handle with
+/// readiness record. Release the returned handle with
 /// `glowcap_iroh_conn_release`.
 pub export fn glowcap_iroh_netlayer_try_accept(
     netlayer: ?*GlowcapIrohNetlayer,
@@ -140,7 +140,7 @@ pub export fn glowcap_iroh_netlayer_try_accept(
 }
 
 /// Admit one nonblocking dial. `request_id` must be nonzero and unique among
-/// live requests. Success promises exactly one CONNECT readiness record; a
+/// live requests. Success promises exactly one CONNECT readiness record. A
 /// synchronous error promises none.
 pub export fn glowcap_iroh_netlayer_start_connect(
     netlayer: ?*GlowcapIrohNetlayer,
@@ -236,7 +236,7 @@ pub export fn glowcap_iroh_conn_try_read(conn: ?*GlowcapIrohConn, buf: ?[*]u8, l
     return GLOWCAP_OK;
 }
 
-/// Nonblocking raw write. Success may consume only a prefix; `out_written` is
+/// Nonblocking raw write. Success may consume only a prefix. `out_written` is
 /// untouched on any non-OK result.
 pub export fn glowcap_iroh_conn_try_write(conn: ?*GlowcapIrohConn, buf: ?[*]const u8, len: usize, out_written: ?*usize) i32 {
     c.lastErrorClear();

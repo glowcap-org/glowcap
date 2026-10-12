@@ -1,5 +1,5 @@
 //! Native custody for private session bootstrap metadata. The directory lease
-//! survives every persisted stage; opening never imports retired grant documents.
+//! survives every persisted stage. Opening never imports retired grant documents.
 use super::{Directory, StorageError, atomic, read};
 use crate::HostPlatform;
 use glowcap::{
@@ -14,16 +14,24 @@ const STORE: &str = "loam";
 #[cfg(test)]
 mod tests;
 
-/// Fixed startup metadata and one exclusive directory lease. All filesystem
-/// work runs before traffic is admitted. The fixed encoded buffer is borrowed
-/// by the existing atomic writer, without an additional document copy.
-pub struct Prepared {
+/// Exclusive session-directory ownership, acquired before startup mirrors or
+/// private metadata can be changed.
+pub struct Custody {
 	directory: Arc<Directory>,
-	bootstrap: Bootstrap,
 }
-impl Prepared {
-	pub fn open(path: &Path) -> Result<Self> {
-		let directory = Arc::new(Directory::open(path.to_owned(), ".rooms-session.lock").map_err(storage)?);
+impl Custody {
+	/// Acquire exclusive ownership before changing this session's startup files.
+	pub fn acquire(path: &Path) -> Result<Self> {
+		Ok(Self {
+			directory: Arc::new(Directory::open(path.to_owned(), ".rooms-session.lock").map_err(storage)?),
+		})
+	}
+	pub fn directory(&self) -> &Arc<Directory> {
+		&self.directory
+	}
+	/// Load or initialize private metadata while retaining exclusive ownership.
+	pub fn prepare(self) -> Result<Prepared> {
+		let directory = self.directory;
 		for name in ["session.json", "effects.json", "grants.json"] {
 			if directory
 				.path()
@@ -56,16 +64,33 @@ impl Prepared {
 				let mut random = [0; 64];
 				getrandom::fill(&mut random).map_err(|error| loam::refusal(error.to_string()))?;
 				let bootstrap = Bootstrap {
-					seed: random[..32].try_into().expect("fixed seed"),
-					store_identity: random[32..48].try_into().expect("fixed Store identity"),
-					owner_identity: random[48..].try_into().expect("fixed owner identity"),
+					seed: random[..32]
+						.try_into()
+						.map_err(|_| loam::refusal("bootstrap seed draw has the wrong length"))?,
+					store_identity: random[32..48]
+						.try_into()
+						.map_err(|_| loam::refusal("bootstrap Store identity draw has the wrong length"))?,
+					owner_identity: random[48..]
+						.try_into()
+						.map_err(|_| loam::refusal("bootstrap owner identity draw has the wrong length"))?,
 					anchor: None,
 				};
 				persist(&directory, bootstrap)?;
 				bootstrap
 			}
 		};
-		Ok(Self { directory, bootstrap })
+		Ok(Prepared { directory, bootstrap })
+	}
+}
+/// Fixed startup metadata and its directory lease. Preparation finishes before
+/// traffic is admitted. The atomic writer borrows the fixed encoded buffer.
+pub struct Prepared {
+	directory: Arc<Directory>,
+	bootstrap: Bootstrap,
+}
+impl Prepared {
+	pub fn open(path: &Path) -> Result<Self> {
+		Custody::acquire(path)?.prepare()
 	}
 	pub fn seed(&self) -> [u8; 32] {
 		self.bootstrap.seed

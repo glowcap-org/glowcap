@@ -7,7 +7,7 @@ export function addressesEveryone(who: string): boolean {
 	return applicationModule().addressesEveryone(who);
 }
 
-/** The sentences themselves live in the catalog; these are the names the
+/** The sentences themselves live in the catalog. These are the names the
  * command modules read them by. */
 export {
 	directNotSelf as DIRECT_NOT_SELF,

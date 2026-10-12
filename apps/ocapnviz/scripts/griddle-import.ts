@@ -16,14 +16,14 @@
  * The viewer draws messages inside sessions, which griddle's network layer
  * does not name, so the first frame between a pair of hosts synthesizes one
  * session-opened for that pair. griddle's delivered events carry no message
- * id; they correlate FIFO per directed link, which is sound because the
+ * id. They correlate FIFO per directed link, which is sound because the
  * simulator's links are FIFOs by construction (reordering one would model a
  * broken transport, and it refuses to).
  *
- * Deliberately dropped, until the viewer grows a vocabulary for them:
+ * Dropped, until the viewer grows a vocabulary for them:
  * link_up/link_down (the viewer has no link entity), message_lost (a cut
  * link's loss shows as a message that never arrives), and the captp_* kinds
- * (the viewer's protocol annotations are richer than a kind string; mapping
+ * (the viewer's protocol annotations are richer than a kind string, mapping
  * them flat would mislead). Times convert from simulated nanoseconds to the
  * document's milliseconds.
  */
@@ -124,7 +124,7 @@ for (const line of input.split("\n")) {
 			break;
 		}
 		default:
-			break; // link_up/link_down/message_lost/captp_* — see the module note
+			break; // link_up/link_down/message_lost/captp_*, see the module note
 	}
 }
 

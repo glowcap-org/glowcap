@@ -15,7 +15,7 @@
  * tests drive the real FSM and read the cursor off what it says, and both
  * outcomes appear below.
  *
- * The sibling table in `cursor.test.ts` covers the resting ladder — hover,
+ * The sibling table in `cursor.test.ts` covers the resting ladder, hover,
  * tools, refusals, previews. Pure: no DOM, no React.
  */
 
@@ -96,7 +96,7 @@ function run(
 	return s;
 }
 
-/** What the app reads off a held-gesture set to build the cursor's context —
+/** What the app reads off a held-gesture set to build the cursor's context,
  *  the same two lines `App` runs, so the keyboard authority is under test
  *  here and not paraphrased. */
 function modifiers(held: HeldGestures): ModifierSet {
@@ -140,7 +140,7 @@ Deno.test("Space released mid-pan: the cursor keeps grabbing", () => {
 	assertEquals(cursor(afterKeyUp, { held: released }), "grabbing");
 
 	// The button ends it, and only then does the cursor go back to
-	// describing the surface under the pointer — empty stage with nothing
+	// describing the surface under the pointer, empty stage with nothing
 	// running, which is the ordinary arrow.
 	const done = run(afterKeyUp, [
 		{ kind: "pointer-up", snapshot: snap(40), ctxAtUp: gctx(false) },

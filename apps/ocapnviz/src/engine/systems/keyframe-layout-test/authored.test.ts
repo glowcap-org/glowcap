@@ -87,7 +87,7 @@ layoutTest(
 							kind: "peer-joined",
 							peerId: "alice",
 							profile: "glowcap",
-							// position intentionally omitted
+							// position omitted
 						},
 					],
 				}],
@@ -173,7 +173,7 @@ layoutTest(
 				`alice must sit exactly on her pin in every keyframe; got ${JSON.stringify(alice)} at t=${kf.t}`,
 			);
 		}
-		// Bob gains a link to the pin at t=100 — his converged position
+		// Bob gains a link to the pin at t=100, his converged position
 		// must move between the keyframes (he is NOT pinned).
 		const bobBefore = kfs[0]!.layout.get("bob")!;
 		const bobAfter = kfs[1]!.layout.get("bob")!;
@@ -321,7 +321,7 @@ layoutTest(
 		// Every peer is pinned: the solver must not spend `iterations`
 		// ticks moving nothing. A cold anneal at 5000 ticks on a small
 		// all-pinned graph is tens of milliseconds; the pin-only path
-		// is a map copy. The bound is loose on purpose — it fails when
+		// is a map copy. The bound is loose. It fails when
 		// someone removes the all-pinned short-circuit, not when a
 		// machine is briefly busy.
 		const joins: Array<{

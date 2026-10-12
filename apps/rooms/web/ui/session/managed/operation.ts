@@ -16,8 +16,18 @@ export class WorkspaceConflict extends Error {
 	}
 }
 
-/** The executor has finished observing; the upstream outcome stays unknown. */
+/** The executor has finished observing. The upstream outcome stays unknown. */
 export class TerminalObservationError extends Error {}
+
+/** The original receipt proves absence and retains the refusal diagnostic. */
+export class UnsentEffectError extends Error {}
+
+/** The effect committed. Failure while acquiring its result cannot undo it. */
+export class ResultAcquisitionError extends Error {
+	constructor(readonly result: unknown, cause: unknown) {
+		super(cause instanceof Error ? cause.message : String(cause), { cause });
+	}
+}
 
 /** The effect committed, but the live references its result carried expired
  * with the session that held them, so that result can never be read. */
@@ -41,6 +51,7 @@ export async function readResult(request: Pick<RoomsManagedCommand, "result">): 
 		typeof value === "object" && value != null && "observationFailure" in value &&
 		typeof value.observationFailure === "string"
 	) {
+		if ("knownAbsent" in value && value.knownAbsent === true) throw new UnsentEffectError(value.observationFailure);
 		throw new TerminalObservationError(value.observationFailure);
 	}
 	return value;
@@ -62,14 +73,51 @@ export class ManagedOperation {
 	#recipe: ResultRecipe | null = null;
 	#closed = false;
 	#acquired = false;
+	#committed = false;
 	#receiving: Promise<void> | null = null;
 	#receiveFailure: { error: unknown } | null = null;
-	constructor(id: string, request: RoomsManagedCommand | RoomsManagedRecoveredEffect) {
+	constructor(
+		id: string,
+		request: RoomsManagedCommand | RoomsManagedRecoveredEffect,
+		status?: string,
+		readonly orphan = (_error: unknown) => {},
+	) {
 		this.id = id;
 		this.request = request;
+		if (status != null) this.observeStatus(status);
 	}
-	result(): Promise<unknown> {
-		return readResult(this.request);
+	/** A later failed observation cannot undo an authenticated commit. */
+	get committed(): boolean {
+		return this.#committed;
+	}
+	observeStatus(status: string): void {
+		if (status === "committed") this.#committed = true;
+	}
+	async status(): Promise<string> {
+		try {
+			const status = await this.request.status();
+			this.observeStatus(status);
+			return status;
+		} catch (error) {
+			throw this.completionError(error);
+		}
+	}
+	completionError(error: unknown, result?: unknown): unknown {
+		return !this.#committed || error instanceof ResultExpired || error instanceof ResultAcquisitionError
+			? error
+			: new ResultAcquisitionError(result, error);
+	}
+	async result(): Promise<unknown> {
+		try {
+			const result = await readResult(this.request);
+			this.#committed = true;
+			return result;
+		} catch (error) {
+			if (error instanceof ResultExpired) this.#committed = true;
+			const failure = this.completionError(error);
+			this.orphan(failure);
+			throw failure;
+		}
 	}
 	/** One read owns one wake, including across unrelated workspace updates. */
 	observe(wake: () => void): void {

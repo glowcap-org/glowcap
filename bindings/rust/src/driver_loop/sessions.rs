@@ -30,7 +30,7 @@ impl LoopShared {
 	}
 
 	/// Stop one listener while keeping the loop and yielded sessions alive.
-	/// Provider teardown may span steps; the returned future joins that native
+	/// Provider teardown may span steps. The returned future joins that native
 	/// barrier and preserves its exact asynchronous failure.
 	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay"))]
 	pub(crate) async fn close_listener(self: &Rc<Self>, listener: u64) -> Result<()> {
@@ -122,7 +122,7 @@ impl LoopShared {
 	}
 
 	/// Release accepted sessions that a closing server never yielded. The
-	/// native listener-close contract preserves committed events; the public
+	/// native listener-close contract preserves committed events. The public
 	/// server contract transfers only sessions returned by `accept`.
 	pub(crate) fn discard_accepts(&self, listener: u64) {
 		let queued = self.accepts.borrow().len();
@@ -161,6 +161,10 @@ impl LoopShared {
 		reference: &sys::GlowcapReference,
 	) -> Result<Option<*mut ffi_host::GlowcapHostSession>> {
 		self.driver.claim_reference_exporter(reference)
+	}
+
+	pub(crate) fn claim_exporter_session(&self, session: *mut ffi_host::GlowcapHostSession) -> Result<()> {
+		self.driver.claim_exporter_session(session)
 	}
 
 	/// Release one loop-owned session through the loop's own verb, which also

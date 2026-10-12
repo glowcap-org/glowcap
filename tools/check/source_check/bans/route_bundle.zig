@@ -4,7 +4,7 @@ const bans = @import("../bans.zig");
 const Ban = bans.Ban;
 
 /// Handoff fallback and id route lists share one model-owned parser and cap
-/// table; id dialability has one Session owner.
+/// table, id dialability has one Session owner.
 pub const rows: []const Ban = &.{
     .{
         .where = .{ .file = "src/ocapn/model/route_bundle.zig" },

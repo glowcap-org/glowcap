@@ -1,7 +1,7 @@
 //! The application verbs over the byte shuttle: keyed session open, the
 //! bounded trace, malformed-frame classification, publish, fetch, send and
 //! tell, projected release, and the codec and budget options. Typed values
-//! live in `values_test.zig`; the turn verbs and pipelining in
+//! live in `values_test.zig`. The turn verbs and pipelining in
 //! `turn_test.zig`.
 
 const std = @import("std");
@@ -106,8 +106,8 @@ test "libglowcap_host: the drained trace reports the same facts the callback doe
     // The seam for an embedder that cannot hand the library a function
     // pointer: a browser, whose wasm module declares exactly one import. The
     // facts are the core's either way, so the queue has to carry what the
-    // callback carries — the open with its wire name, both message
-    // directions, the close — and it has to stay bounded, which the callback
+    // callback carries, the open with its wire name, both message
+    // directions, the close, and it has to stay bounded, which the callback
     // never had to be.
     //
     // What this cannot see: clearing the queue while no callback is installed
@@ -297,8 +297,8 @@ test "libglowcap_host: publish, fetch, send, tell, and the enliven cache hit's p
     try pump(&hosts, &.{pair}, &dials, &watches);
     try std.testing.expectEqual(@as(u32, 2), counter.pokes);
 
-    // The empty verb is a real message — Goblins invokes a capability
-    // positionally with verb "" — and the family's `ptr + len` contract admits
+    // The empty verb is a real message, Goblins invokes a capability
+    // positionally with verb "", and the family's `ptr + len` contract admits
     // `(null, 0)` as the empty view, which is exactly what a wasm caller
     // stages for an empty buffer. The call must be accepted at the ABI seam
     // and travel to the behavior, which refuses the verb *there* (a broken
@@ -312,7 +312,7 @@ test "libglowcap_host: publish, fetch, send, tell, and the enliven cache hit's p
     try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_BREAK, empty_verb_settled.kind);
 
     // A fresh enliven rides the wire; the second one hits the dedup cache and
-    // its completion is queued before the registering call returns — no wire
+    // its completion is queued before the registering call returns, no wire
     // traffic, just the next drain.
     const sturdyref = "ocapn://127.0.0.1%3A7001.tcp/s/d2lkZ2V0";
     const wrong_peer = "ocapn://127.0.0.1%3A7999.tcp/s/d2lkZ2V0";
@@ -342,7 +342,7 @@ test "libglowcap_host: publish, fetch, send, tell, and the enliven cache hit's p
 
     // Listen on a capability this session holds (`op:listen` through the C
     // seam): CapTP answers a listen on an already-settled capability at once,
-    // so the vow settles naming the same object — proof the round trip ran.
+    // so the vow settles naming the same object, proof the round trip ran.
     // The vow is plain, and it rides the same SETTLE drain as every other.
     var listened = CapturedSettle{};
     var listen_vow: u64 = 0;

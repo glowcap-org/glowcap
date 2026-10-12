@@ -4,7 +4,7 @@
 //! argument to a glowcap actor. glowcap installs `Session.listenTo` on that
 //! capability, then queues the Goblins settlement request on the same wire.
 //! FIFO delivery therefore makes listen-before-settle a protocol fact. The
-//! listener fulfillment is a list containing a fresh Goblins greeter; calling
+//! listener fulfillment is a list containing a fresh Goblins greeter, calling
 //! that nested capability proves recursive lifting, not merely notification.
 //! Every application retain is released and the session finishes explicitly.
 
@@ -36,7 +36,7 @@ const HolderState = struct {
 
 /// Receives the Goblins-owned unresolved promise as a normal delivered
 /// argument. `lend-to` waits for this answer, so the caller cannot subscribe
-/// before the capability has actually crossed the owning Host boundary.
+/// before the capability has crossed the owning Host boundary.
 const Holder = struct {
     state: *HolderState,
 

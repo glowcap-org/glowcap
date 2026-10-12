@@ -2,13 +2,13 @@
 //! sits on top of, gathered behind one name.
 //!
 //! A netlayer is a locator transport symbol (`tcp`, `keyed-tcp`, `inproc`,
-//! `iroh`); its job is CapTP over a byte stream. The OS plumbing beneath it —
+//! `iroh`). Its job is CapTP over a byte stream. The OS plumbing beneath it,
 //! opening and binding sockets, packing sockaddrs, stream options, and the
-//! pinned reader/writer stream wrapper — is a different concern, and
+//! pinned reader/writer stream wrapper, is a different concern, and
 //! it lives here. Residents reach socket bits through `net.socket`, never by
 //! importing `completion/` internals or `@import`-ing a sibling file, so "tcp
 //! logic" cannot leak back into a netlayer or across a module boundary. The
-//! implementation files live under `completion/`; this module is the boundary
+//! implementation files live under `completion/`. This module is the boundary
 //! that names them as one library.
 
 const std = @import("std");
@@ -34,9 +34,9 @@ pub const sendNonblocking = socket_tcp.sendNonblocking;
 pub const receiveNonblocking = socket_tcp.receiveNonblocking;
 
 /// Opt-in TCP keepalive. `Keepalive{idle_sec,interval_sec,count}` is required in
-/// full when set (no silent OS default); `applyKeepalive` writes the sockopts.
+/// full when set (no silent OS default). `applyKeepalive` writes the sockopts.
 /// The rationale is NAT hold-open and dead-remote-host reclaim, not reaping a
-/// live orphaned process — see `completion/tcp_keepalive.zig`.
+/// live orphaned process, see `completion/tcp_keepalive.zig`.
 pub const Keepalive = keepalive.Keepalive;
 pub const ConfigurationError = std.posix.SetSockOptError || keepalive.ApplyError;
 pub const applyKeepalive = keepalive.apply;

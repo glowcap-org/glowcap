@@ -10,11 +10,11 @@ const expectFileContains = util.expectFileContains;
 const containsAsSymbol = util.containsAsSymbol;
 const extractBraceBlock = util.extractBraceBlock;
 
-/// The iroh sidecar C ABI is spelled four times by hand — the Rust
+/// The iroh sidecar C ABI is spelled four times by hand, the Rust
 /// definitions (`transports/iroh/src/lib.rs`), the C header
 /// (`transports/iroh/include/glowcap_iroh_sidecar.h`), the Zig transport's
 /// externs (`src/net/transport/iroh/sidecar.zig`), and the hermetic linker stub
-/// (`tools/gen/stub/iroh_sidecar.zig`) — and the hermetic gate never links the
+/// (`tools/gen/stub/iroh_sidecar.zig`), and the hermetic gate never links the
 /// real sidecar, so a
 /// drifted spelling would surface only as a crash in the cargo-equipped
 /// `iroh-interop` run, or not at all for a silent width change. The coarse
@@ -42,7 +42,7 @@ const CoarseAbiType = enum {
 };
 
 /// One binding's generated driver FFI table and where its hand code lives. The
-/// table `gen_ffi` declares every `glowcap_host_*` extern the binding can call;
+/// table `gen_ffi` declares every `glowcap_host_*` extern the binding can call,
 /// a `glowcap_host_*` symbol that appears nowhere else in the binding's tree is
 /// reflected but dead.
 const ReflectedFfiBinding = struct {
@@ -62,7 +62,7 @@ const reflected_ffi_bindings = [_]ReflectedFfiBinding{
     .{ .name = "racket", .prefix = "racket/", .gen_ffi = "racket/private/ffi-host-gen.rkt" },
 };
 
-/// A driver FFI symbol reflected into a binding but deliberately not wired there,
+/// A driver FFI symbol reflected into a binding but not wired there,
 /// named with the reason so the state reads as a decision rather than the
 /// oversight a silently-dead generated symbol otherwise would.
 const DeclaredDeferredFfi = struct {
@@ -196,7 +196,7 @@ pub fn checkBindingReflectedFfiWired(
     }
 
     // 3. Every declared symbol is wired or declared-deferred; a declared-deferred
-    //    symbol that is now wired must drop its allowlist row.
+    //    symbol that is wired must drop its allowlist row.
     for (reflected_ffi_bindings, 0..) |b, bi| {
         for (per_binding[bi].items) |e| {
             const deferred = declaredDeferredReason(b.name, e.name);
@@ -262,8 +262,8 @@ fn isAbiIdentChar(c: u8) bool {
     return (c >= 'a' and c <= 'z') or (c >= '0' and c <= '9') or c == '_';
 }
 
-/// Extract `glowcap_iroh_sidecar_*` declarations behind a fixed anchor —
-/// Rust's `extern "C" fn ` (safe or unsafe) or Zig's `extern fn ` — into `out` as name ->
+/// Extract `glowcap_iroh_sidecar_*` declarations behind a fixed anchor,
+/// Rust's `extern "C" fn ` (safe or unsafe) or Zig's `extern fn `, into `out` as name ->
 /// coarse signature. The return type runs from the closing parenthesis to `{`
 /// (Rust, where a leading `->` is stripped) or `;` (Zig).
 fn extractAnchoredAbi(
@@ -294,7 +294,7 @@ fn extractAnchoredAbi(
 
 /// Extract `glowcap_iroh_sidecar_*` declarations from the C header into `out`
 /// as name -> coarse signature. Block comments are blanked first so prose
-/// mentions of the function names cannot match; a declaration is a
+/// mentions of the function names cannot match. A declaration is a
 /// `glowcap_iroh_sidecar_` identifier directly followed by `(`, with its return
 /// type read backward to the previous `;`.
 fn extractCHeaderAbi(
@@ -341,7 +341,7 @@ const SidecarAbiSurface = struct { paths: []const []const u8, anchor: ?[]const u
 
 /// Hold every hand-spelled surface of a sidecar C ABI to the same function set,
 /// arity, and coarse type shape. `prefix` is the shared symbol prefix
-/// (`glowcap_iroh_sidecar_`, `glowcap_webrtc_sidecar_`); `label` names the
+/// (`glowcap_iroh_sidecar_`, `glowcap_webrtc_sidecar_`), `label` names the
 /// sidecar in the diagnostics. The iroh and webrtc checks are thin callers of
 /// this one spine.
 fn checkSidecarAbiParity(
@@ -415,6 +415,7 @@ pub fn checkIrohSidecarAbi(
                 "transports/iroh/src/connect.rs",
                 "transports/iroh/src/conn.rs",
                 "transports/iroh/src/nonblocking.rs",
+                "transports/iroh/src/nonblocking/calls.rs",
             },
             .anchor = "extern \"C\" fn ",
             .ret_end = '{',
@@ -438,7 +439,7 @@ pub fn checkIrohSidecarAbi(
     });
     try expectFileContains(io, gpa, root, violations, "transports/iroh/src/lib.rs", &.{
         "pub reachability: u32,\n\t/// Stream-establishment deadline in milliseconds, 0 for the default.\n\tpub connect_timeout_ms: u64,",
-        "pub idle_timeout_ms: u64,\n\t/// Worker threads for this endpoint's runtime; 0 takes `WORKER_THREADS`.\n\tpub worker_threads: u32,",
+        "pub idle_timeout_ms: u64,\n\t/// Worker threads for this endpoint's runtime. 0 takes `WORKER_THREADS`.\n\tpub worker_threads: u32,",
     });
 }
 
@@ -539,7 +540,7 @@ pub fn checkIrohAcceptQueueBound(
 }
 
 /// The sidecar crates held to exact pins and a committed lockfile. The iroh
-/// sidecar wraps an external network stack (ADR-0055); the shared runtime
+/// sidecar wraps an external network stack (ADR-0055). The shared runtime
 /// crate carries the tokio pin both sidecars build against and is tested on
 /// its own with `--locked`.
 const pinned_sidecar_crates = [_]struct { manifest: []const u8, lockfile: []const u8 }{

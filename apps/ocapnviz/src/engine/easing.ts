@@ -1,5 +1,5 @@
 /**
- * Easing curves — pure mappings `[0, 1] → [0, 1]` that shape interpolation
+ * Easing curves, pure mappings `[0, 1] → [0, 1]` that shape interpolation
  * progress. Pure functions: substituting one for another preserves
  * determinism (same input `t` → same output position).
  */

@@ -1,5 +1,5 @@
 //! Presence and room facts reduce into one bounded session view. Both native
-//! and browser-hosted sessions project this state; widgets never replay it.
+//! and browser-hosted sessions project this state. Widgets never replay it.
 use super::snapshot::{
 	Nullable, Presence as FieldPresence, SafeInteger, Text,
 	views::{Bridge, Member, RoomView, Seat, SeatPhase},
@@ -7,18 +7,24 @@ use super::snapshot::{
 use crate::room::inbox::metadata::{Facts, Presence};
 use alloc::vec::Vec;
 
+#[cfg(test)]
+mod tests;
+
 pub fn apply<T: AsRef<str>>(view: &mut RoomView, presence: Option<&Presence<T>>, facts: Option<&Facts<T>>) {
 	if let Some(presence) = presence {
 		let rows = &mut view.members.0;
 		match presence {
 			Presence::Roster { names } => {
 				view.members_more = Some(false);
-				// Mark known live names first, so inserting a new name cannot
-				// evict a later roster entry and forget its away state.
-				for (name, member) in rows.iter_mut() {
-					member.online = names
+				// A roster replaces membership, preserving away state only for
+				// names still present. Departure is not a connection status.
+				rows.retain(|(name, _)| {
+					names
 						.iter()
-						.any(|candidate| name.text().as_str() == Some(candidate.as_ref()));
+						.any(|candidate| name.text().as_str() == Some(candidate.as_ref()))
+				});
+				for (_, member) in rows.iter_mut() {
+					member.online = true;
 					member.seat = None;
 				}
 				for name in names {
@@ -27,22 +33,42 @@ pub fn apply<T: AsRef<str>>(view: &mut RoomView, presence: Option<&Presence<T>>,
 					}
 				}
 			}
-			Presence::Join { name } | Presence::Leave { name } => {
+			Presence::Leave { name } => {
+				if let Some(index) = find(rows, name.as_ref()) {
+					rows.remove(index);
+				}
+			}
+			Presence::Join { name } => {
 				if let Some(index) = slot(rows, name.as_ref(), &mut view.members_more) {
 					rows[index].1 = Member {
-						online: matches!(presence, Presence::Join { .. }),
+						online: true,
 						away: empty(),
 						seat: None,
 					};
 				}
 			}
+			Presence::Offline { names } => {
+				for name in names {
+					if let Some(index) = slot(rows, name.as_ref(), &mut view.members_more) {
+						rows[index].1 = Member {
+							online: false,
+							away: empty(),
+							seat: None,
+						};
+					}
+				}
+			}
 			Presence::Away { name, reason } => {
-				if let (Some(index), Some(away)) = (find(rows, name.as_ref()), Text::new(reason.as_ref().into())) {
+				if let Some(index) = find_online(rows, name.as_ref())
+					&& let Some(away) = Text::new(reason.as_ref().into())
+				{
 					rows[index].1.away = away;
 				}
 			}
 			Presence::Seat(seat) => {
-				if let (Some(index), Some(seat)) = (find(rows, seat.name.as_ref()), seat_view(seat)) {
+				if let Some(index) = find_online(rows, seat.name.as_ref())
+					&& let Some(seat) = seat_view(seat)
+				{
 					rows[index].1.seat = Some(seat);
 				}
 			}
@@ -65,10 +91,14 @@ pub fn apply<T: AsRef<str>>(view: &mut RoomView, presence: Option<&Presence<T>>,
 }
 type Rows = Vec<(Text<32, true>, Member)>;
 fn empty() -> Text<120> {
-	Text::new("".into()).expect("empty standing fits")
+	Text::default()
 }
 fn find(rows: &Rows, name: &str) -> Option<usize> {
 	rows.iter().position(|(held, _)| held.text().as_str() == Some(name))
+}
+// Away and seat details describe live membership. Join and Roster restore it.
+fn find_online(rows: &Rows, name: &str) -> Option<usize> {
+	find(rows, name).filter(|index| rows[*index].1.online)
 }
 fn slot(rows: &mut Rows, name: &str, more: &mut Option<bool>) -> Option<usize> {
 	if let Some(index) = find(rows, name) {

@@ -85,7 +85,7 @@ pub const Stream = struct {
 
     /// Complete the client handshake within the caller's absolute monotonic
     /// deadline. Cancellation and timeout remain policy classifications at the
-    /// carrier seam; the TLS owner retains only exact transport/TLS causes.
+    /// carrier seam. The TLS owner retains only exact transport/TLS causes.
     pub fn establish(
         self: *Stream,
         deadline_ms: i64,
@@ -177,7 +177,7 @@ pub const Stream = struct {
     }
 
     /// Flush owned plaintext/ciphertext without parking. The return is the
-    /// plaintext prefix consumed from the public writer; ciphertext may remain
+    /// plaintext prefix consumed from the public writer. Ciphertext may remain
     /// internally pending for the next writable edge.
     pub fn tryFlush(self: *Stream) isize {
         const drained = self.tryDrainCipher() catch return -1;
@@ -201,7 +201,7 @@ pub const Stream = struct {
     }
 
     /// Advance the authenticated TLS close without parking the caller. The
-    /// enclosing carrier reactor owns readiness and the close deadline; this
+    /// enclosing carrier reactor owns readiness and the close deadline. This
     /// method owns only engine and socket progress.
     pub fn tryShutdown(self: *Stream) TryError!ShutdownProgress {
         if (self.shutdown_complete) return .complete;

@@ -14,7 +14,7 @@
 
 /* A pane is a column on the card's own gap: the lead and its refresh first,
    then one well per question. The knob rows in a pane are inline fields
-   (forms.css); this is the one width their name column takes here. */
+   (forms.css). This is the one width their name column takes here. */
 /* A pane is its sections, and a section is a title with the well it names.
    The two gaps are not the same number on purpose. A title standing as far
    from the well it belongs to as from the one that ended above it belongs to
@@ -40,7 +40,7 @@
 }
 .ops-head .lead {
 	margin: 0;
-	/* A one-word last line reads as a typo; let the engine balance the break. */
+	/* A one-word last line reads as a typo. Let the engine balance the break. */
 	text-wrap: pretty;
 }
 
@@ -54,8 +54,8 @@
 	color: var(--ink-soft);
 }
 /* The serving mark: a teal dot and two quiet words where a down control
-   would be a dead press. Teal is this page's "you are here" voice — the
-   directory facts' live dot speaks it too — so the mark reads as a state,
+   would be a dead press. Teal is this page's "you are here" voice, the
+   directory facts' live dot speaks it too, so the mark reads as a state,
    never as an action. */
 .ops-serving {
 	display: inline-flex;
@@ -110,8 +110,8 @@
 	white-space: nowrap;
 }
 /* A held capability's first answer. The address is already here, so it stands
-   in the pane's own rhythm — it wears `ops-pane` for that — instead of
-   flashing blank. The traveling sheen is deliberately quiet and stops with
+   in the pane's own rhythm, it wears `ops-pane` for that, instead of
+   flashing blank. The traveling sheen is quiet and stops with
    reduced motion. */
 .ops-loading .well {
 	display: flex;
@@ -400,7 +400,7 @@
 /* ── Two columns, where the rows are peers ──────────────────────────────── */
 /* A list earns a second column when nothing in it is read in order and each
    row is short enough that a full line is mostly empty. Both lists below are
-   that; every other inventory on these pages carries a locator or a sentence
+   that. Every other inventory on these pages carries a locator or a sentence
    that needs the width, and stays one column.
 
    The rule between rows belongs between rows: in a grid the first row's items
@@ -417,7 +417,7 @@
 		display: grid;
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 		/* Twice a column, because each half ends in an act and the next half
-		   begins with a name; at one column the two crowd. */
+		   begins with a name. At one column the two crowd. */
 		column-gap: calc(var(--gap-column) * 2);
 		align-items: start;
 	}

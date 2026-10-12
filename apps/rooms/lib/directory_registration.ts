@@ -201,7 +201,7 @@ export class DirectoryRegistration {
 	}
 }
 
-/** Opening identity is descriptive and bounded; registrations own authority. */
+/** Opening identity is descriptive and bounded. Registrations own authority. */
 export function parseDirectOpening(value: unknown): string {
 	if (typeof value !== "string" || value.length === 0 || value.length > 128) {
 		throw new Error("a direct opening needs a bounded identity");

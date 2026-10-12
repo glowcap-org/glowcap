@@ -34,7 +34,7 @@ pub const Registered = struct {
     check_step: *std.Build.Step,
     runtime_gate: *execution.RuntimeGate,
     test_filter: ?[]const u8,
-    /// The wasm module's install step; every serve path and browser proof
+    /// The wasm module's install step. Every serve path and browser proof
     /// reads the on-disk artifact it writes.
     wasm_install: *std.Build.Step,
     wasm_archives: *std.Build.Step,
@@ -64,14 +64,14 @@ fn crossCoreModule(b: *std.Build, t: std.Build.ResolvedTarget, o: std.builtin.Op
 /// compiled to one loadable wasm module. It roots on `src/c_abi/wasm/mod.zig`,
 /// which forces both export families in and adds the JS<->wasm linear-memory
 /// primitives. The module graph is the sans-io core (the `core = true` prefix)
-/// plus the two ocapn C ABI vocabulary rows; the I/O layers (`net`, `driver`,
+/// plus the two ocapn C ABI vocabulary rows. The I/O layers (`net`, `driver`,
 /// `oracle`) wasm lacks are excluded. ReleaseSmall keeps the download small and
 /// drops the runtime-safety-only `std.Thread.getCurrentId` owner assert.
 /// The `layer_table` rows the wasm driver's base module graph transitively
 /// needs, as a keep-mask over `layer_table`.
 ///
-/// It is the import-closure of the `c_abi_wasm` root's forced families — its own
-/// declared imports, `{c_abi_shared, c_abi, c_abi_host}` — followed over
+/// It is the import-closure of the `c_abi_wasm` root's forced families, its own
+/// declared imports, `{c_abi_shared, c_abi, c_abi_host}`, followed over
 /// `layer_table` edges, then restricted to the `graph = true` rows
 /// `graphFromTable` actually builds. The two `graph = false` reached rows
 /// (`c_abi_host` and the wasm root itself) are minted at the use site below,
@@ -179,7 +179,7 @@ pub fn register(ctx: Context) Registered {
     const driver_abi_mod = ctx.driver_abi_mod;
 
     // ── The gate ─────────────────────────────────────────────────────────────
-    // Steps below are declared in newcomer priority order — `zig build -l`
+    // Steps below are declared in newcomer priority order, `zig build -l`
     // lists them in declaration order. `check` leads; its focused components
     // follow; the non-hermetic sibling steps come last, grouped by concern.
     //
@@ -293,7 +293,7 @@ pub fn register(ctx: Context) Registered {
     const completion_deadlines_tests = b.addTest(.{ .root_module = completion_deadlines_tests_mod });
     const run_completion_deadlines_tests = execution.addZigTest(b, completion_deadlines_tests, .unit_test);
     // ── Mutation fuzzing ─────────────────────────────────────────────────────
-    // Deliberately outside `check`: a search with no natural end does not
+    // Outside `check`: a search with no natural end does not
     // belong in a gate that has to finish. What `check` does carry is the
     // replay of everything the fuzzer has already found, which is the part
     // that must never regress.
@@ -357,6 +357,20 @@ pub fn register(ctx: Context) Registered {
     const onion_loop_step = b.step("onion-loop", "Run the focused native OnionLoop completion tests");
     onion_loop_step.dependOn(&execution.addZigTest(b, onion_loop_tests, .unit_test).step);
 
+    // ADR-0193's pending resident listen for `onion`. The publish conversation
+    // runs on the loop's own turns and never blocks it; the runtime gate
+    // exercises that through the completion residents over the fake daemon.
+    const onion_pending_tests_mod = b.createModule(.{
+        .root_source_file = b.path("test/onion_pending_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    onion_pending_tests_mod.addImport("glowcap", lib_mod);
+    const onion_pending_tests = b.addTest(.{ .root_module = onion_pending_tests_mod });
+    const onion_pending_step = b.step("onion-pending-listen", "Run the onion pending-listen resident tests over the fake daemon");
+    onion_pending_step.dependOn(&execution.addZigTest(b, onion_pending_tests, .unit_test).step);
+    runtime_gate.add(onion_pending_step);
+
     const oracle_tests_mod = b.createModule(.{
         .root_source_file = b.path("test/oracle_check.zig"),
         .target = target,
@@ -407,8 +421,14 @@ pub fn register(ctx: Context) Registered {
     build_front_behaviour.has_side_effects = true;
     const devcontainer_behaviour = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", ".devcontainer/test/host-invariants.sh" });
     devcontainer_behaviour.has_side_effects = true;
+    // The managed-tool lifecycle proof needs flock and GNU coreutils, so it
+    // runs in the Linux devcontainer; on other hosts it prints a visible skip
+    // and exits 0 (see the file's header).
+    const tool_runtime_behaviour = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", ".devcontainer/test/tool-runtime.sh" });
+    tool_runtime_behaviour.has_side_effects = true;
     devcontainer_behaviour.step.dependOn(&build_front_behaviour.step);
     infrastructure_check_step.dependOn(&devcontainer_behaviour.step);
+    infrastructure_check_step.dependOn(&tool_runtime_behaviour.step);
     const worktree_integration_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/check/worktree-integration-test.sh" });
     worktree_integration_contracts.has_side_effects = true;
     worktree_integration_contracts.step.dependOn(&devcontainer_behaviour.step);
@@ -465,8 +485,8 @@ pub fn register(ctx: Context) Registered {
     check_step.dependOn(consumer_check_step);
 
     // The native tree in ReleaseFast. std's runtime-safety
-    // instrumentation — the `pointer_stability` lock every list and map header
-    // carries in Debug and ReleaseSafe — is zero-sized there, so every footprint
+    // instrumentation: the `pointer_stability` lock every list and map header
+    // carries in Debug and ReleaseSafe, is zero-sized there, so every footprint
     // number in `docs/ladder.md` step 2 measures smaller. The ceilings absorb
     // that; the one comptime equality, the loop slot in
     // `src/net/completion/loop/state.zig`, states its fast-mode expectation and

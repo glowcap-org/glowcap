@@ -25,7 +25,7 @@ import type { AuthoringContext } from "./context.ts";
 import { bumpEntities, commitEntityAuthoring, removeObservations, upsertObservation } from "./events.ts";
 
 /** The observation stating one of a session's properties at exactly
- *  `t` — what a keyframe write replaces and a removal drops. The
+ *  `t`, what a keyframe write replaces and a removal drops. The
  *  property itself says which observations state it, so this predicate
  *  is the same shape for a state change and for an end attaching. */
 const momentAt = (property: SessionProperty, sessionId: string, t: number) => (ev: TimelineEvent): boolean =>
@@ -35,7 +35,7 @@ function defaultSessionTiming() {
 	return { start: implicitBound(0), duration: implicitBound(0) };
 }
 
-// Each sync helper writes through a `time-span.ts` authoring op —
+// Each sync helper writes through a `time-span.ts` authoring op,
 // the one vocabulary that produces authored spans (a derived span
 // loses its marker here, so projection stops re-deriving it).
 
@@ -78,7 +78,7 @@ function syncSessionStartCleared(
 }
 
 /** Remove a session and everything that depends on it. Cascades
- * through `cascadeDelete` — message events, message entities on
+ * through `cascadeDelete`, message events, message entities on
  * this session, the session itself, and every doc-level index
  * containing any of the removed ids. */
 export function deleteSession(
@@ -98,10 +98,10 @@ export function deleteSession(
  *   one, because a session whose netlayer nothing named is a shape the
  *   document holds and an author has to be able to reach it.
  * - `state` is timeline-shaped: a non-undefined value inserts a
- *   `session-state-changed` event at `clock.t` (Flash convention —
+ *   `session-state-changed` event at `clock.t` (Flash convention,
  *   the playhead is where you author). If you want to fix the
  *   genesis state, edit `initialState` directly on the
- *   `session-opened` event via a future intent; this path won't
+ *   `session-opened` event via a future intent. This path won't
  *   touch it. */
 export function updateSession(
 	ctx: AuthoringContext,
@@ -131,13 +131,13 @@ export function updateSession(
 		patchSessionDefinition(ctx.doc, sessionId, defPatch);
 	}
 	// State changes over time, so a patched state is a moment at the
-	// playhead — the same write a trajectory row makes, through the same
+	// playhead. The same write a trajectory row makes, through the same
 	// op, so the two cannot disagree about where a state change is kept.
 	if (patch.state !== undefined) {
 		setSessionKeyframe(ctx, sessionId, "state", ctx.clock.t, patch.state);
 	}
 	// The identity path patches the definition directly, without
-	// commitEntityAuthoring, so bump the entities reference here too —
+	// commitEntityAuthoring, so bump the entities reference here too,
 	// otherwise downstream WeakMap caches (e.g. the Scrubber
 	// lane-bundle cache) miss the mutation and segments don't repaint.
 	bumpEntities(ctx);
@@ -191,7 +191,7 @@ export function clearSessionStart(
 	commitEntityAuthoring(ctx);
 }
 
-/** Set the session's duration. Mutates entity.timing.duration directly —
+/** Set the session's duration. Mutates entity.timing.duration directly,
  *  the storage-shaped intent matching the TimeSpan model. */
 export function setSessionDuration(
 	ctx: AuthoringContext,
@@ -255,7 +255,7 @@ export function clearSessionEnd(
  *  moment IS in the recording, and additionally writes the definition
  *  track for the property whose track is durable there. Which
  *  properties exist, what observation carries one, and where its track
- *  lives are all `trajectory.ts`'s business — this op learns none of
+ *  lives are all `trajectory.ts`'s business. This op learns none of
  *  them.
  *
  *  The value the session is BORN with is not a moment:
@@ -291,7 +291,7 @@ export function setSessionKeyframe(
 	// not there is a reference pointing at nothing, and every other
 	// reference site in the document is checked (`schema/edges.ts`). The
 	// name is read through `stated`, which is the property's own answer to
-	// "which entity is this value about" — an end's value is a pair, and
+	// "which entity is this value about". An end's value is a pair, and
 	// only half of it is the reference.
 	const named = spec.stated(parsed);
 	if (
@@ -316,7 +316,7 @@ export function setSessionKeyframe(
 
 /** Stop stating one property at exactly `t`. No-op when it stated
  *  nothing there. Clearing an end's moment is how an end that
- *  attached comes loose again — the attachment stops having
+ *  attached comes loose again. The attachment stops having
  *  happened, and nothing else about the session moves. */
 export function removeSessionKeyframe(
 	ctx: AuthoringContext,
@@ -334,10 +334,10 @@ export function removeSessionKeyframe(
 	commitEntityAuthoring(ctx);
 }
 
-/** Edit one end of a session as it is BORN — what it claims to be,
+/** Edit one end of a session as it is BORN, what it claims to be,
  *  the peer it is attached to, and what attributed it. Row 0 of the
  *  end's trajectory, the way `setSessionInitialState` is row 0 of the
- *  state's; a later attachment is a moment and goes through
+ *  state's. A later attachment is a moment and goes through
  *  `setSessionKeyframe`.
  *
  *  Each field is optional, and `null` clears it: an end with no
@@ -348,7 +348,7 @@ export function removeSessionKeyframe(
  *  result is built by `sessionEndpoint`, so the one-way invariant is the
  *  `EndpointParts` union rather than a rule restated here: an end left with
  *  no peer has no field an attribution could go in. What this op adds is the
- *  reading of a patch that would need one — attributing an end attached to
+ *  reading of a patch that would need one, attributing an end attached to
  *  nobody is refused with a message, and detaching an attributed end takes
  *  the attribution with it rather than failing. */
 export function updateSessionEndpoint(
@@ -417,7 +417,7 @@ export function updateSessionEndpoint(
 }
 
 /** Edit the session's genesis state (`entities.sessions[id].initialState`).
- *  This is row 0 of the trajectory — the value the session is born
+ *  This is row 0 of the trajectory. The value the session is born
  *  with, before any keyframe takes effect. */
 export function setSessionInitialState(
 	ctx: AuthoringContext,

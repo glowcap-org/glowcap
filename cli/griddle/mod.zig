@@ -1,10 +1,10 @@
-//! `glowcap griddle` — the simulator / timeline family.
+//! `glowcap griddle`: the simulator / timeline family.
 //!
 //! `run` drives a whole CapTP conversation under a seeded schedule and prints
 //! its timeline as NDJSON: the same seed replays byte for byte, and a
 //! different seed interleaves the links differently while reaching the same
-//! outcome. The simulator itself is `sim.zig`; this node owns the argv shape
-//! and locks the brand — CapTP verbs stay under `glowcap ocapn` / `repl`.
+//! outcome. The simulator itself is `sim.zig`. This node owns the argv shape
+//! and locks the brand: CapTP verbs stay under `glowcap ocapn` / `repl`.
 //! The viewer for this timeline is `apps/ocapnviz/`, which imports a run
 //! through its `scripts/griddle-import.ts`.
 const std = @import("std");

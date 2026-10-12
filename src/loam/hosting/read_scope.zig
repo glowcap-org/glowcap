@@ -16,7 +16,7 @@ pub const Scope = struct {
     pub const Bounds = struct { interfaces: usize, methods: usize, verb_bytes: usize, result_roles: usize, targets: usize };
 
     pub fn sizeBound(arguments: values.Bounds, source_verb_bytes: usize, declaration: Bounds) !usize {
-        var bound = try calls.inputAllocationBound(arguments, source_verb_bytes, false);
+        var bound = try @import("call_memory.zig").inputAllocationBound(arguments, source_verb_bytes, false);
         try bound.include(try std.math.mul(usize, declaration.interfaces, @sizeOf([]const HeldMethod)), @alignOf([]const HeldMethod), 1);
         try bound.includeTotal(try std.math.mul(usize, declaration.methods, @sizeOf(HeldMethod)), @alignOf(HeldMethod), declaration.interfaces);
         try bound.includeTotal(declaration.verb_bytes, 1, declaration.methods);
@@ -185,7 +185,7 @@ pub const Scope = struct {
     fn countCapability(count: *usize, _: driver.Capability) !void {
         count.* = try std.math.add(usize, count.*, 1);
     }
-    fn transform(method: *HeldMethod, call: *h.Call, value: driver.Value, index: *usize, depth: usize) anyerror!driver.Value {
+    fn transform(method: *HeldMethod, call: *h.Call, value: driver.Value, index: *usize, depth: usize) !driver.Value {
         if (depth > 64) return error.ValueTooDeep;
         switch (value) {
             .capability => |target| {

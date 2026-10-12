@@ -1,8 +1,8 @@
 //! Heap-pinned WebRTC peer and netlayer ownership.
 //!
 //! The public signaling ABI and the generic driver provider are two projections
-//! of these same leases. Keeping their retain/release transaction here prevents
-//! either projection from inventing a second lifetime authority.
+//! of these same leases. Their retain/release transaction lives here, so
+//! neither projection has a second lifetime authority.
 
 const std = @import("std");
 
@@ -24,7 +24,7 @@ pub const NetlayerPayload = struct {
     /// Provider leases plus the construction reference, counted atomically
     /// like every sibling archive: a package retain can arrive from the driver
     /// thread while the owner releases on its own, and a retain against a
-    /// count already at zero must be refused, never revived.
+    /// count already at zero must be refused.
     references: std.atomic.Value(usize) = .init(1),
     peers: std.AutoHashMapUnmanaged(usize, *PeerPayload) = .{},
     provider_profile: c.GlowcapTransportProfile = undefined,

@@ -78,7 +78,7 @@ pub fn suggested_nick(nick: &str) -> String {
 		answer.push(character);
 		used += character.len_utf16();
 	}
-	write!(answer, "{suffix}").expect("a String accepts writes");
+	let _ = write!(answer, "{suffix}");
 	answer
 }
 
@@ -91,7 +91,7 @@ pub enum NicknameAvailability {
 }
 
 /// Project what current discovery evidence proves about an exact nickname.
-/// `None` means that source is not known; `Some` means the supplied view is a
+/// `None` means that source is not known. `Some` means the supplied view is a
 /// usable snapshot. Submission still races safely against directory allocation.
 pub fn nickname_availability<'a>(
 	nick: &str,

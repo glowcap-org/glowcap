@@ -6,7 +6,7 @@ use alloc::string::{String, ToString};
 use core::fmt;
 
 /// A refusal the caller hears as a break. One with a Rooms failure code is
-/// a condition a client acts on, rendered the way `Failure` renders it; a
+/// a condition a client acts on, rendered the way `Failure` renders it. A
 /// plain one is a malformed or over-limit call, or the operator's own
 /// mistake, read as text.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -23,7 +23,7 @@ impl Refusal {
 		}
 	}
 	/// A refusal read as text. The detail is formatted here, so a policy
-	/// hands an error value straight through; formatting an already owned
+	/// hands an error value straight through. Formatting an already owned
 	/// `String` copies it once, on a refusal path only.
 	/// A listener transport this build cannot realize, or an option it cannot
 	/// honor: the one refusal the operations pane draws as a disabled seat.

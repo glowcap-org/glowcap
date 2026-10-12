@@ -1,14 +1,9 @@
 // The operator capabilities: what each one is, and what holding it does.
 //
-// These are the one place in Rooms where precision beats plainness. A reader
-// here is matching a word against a flag a server printed, and softening the
-// vocabulary would only make them guess. What they get instead of simpler
-// words is a straight answer about what turning each one on actually does,
-// since that is the decision in front of them.
-//
-// Every row used to open "Holding it …", which is six sentences with the same
-// shape and the same subject, and every row carried the same `how` sentence
-// word for word. The repetition read as a form letter.
+// Precision beats plainness here. A reader is matching a word against a flag
+// a server printed, and softer vocabulary would make them guess. Each entry
+// instead says what turning the capability on does, since that is the
+// decision in front of them.
 
 export const opsListenersLabel = "Administer listeners";
 export const opsListenersShort = "Listeners";
@@ -30,27 +25,25 @@ export const opsPeeringLabel = "Directory peering";
 export const opsPeeringShort = "Peering";
 export const opsPeeringLead = "Lists a durable room from another server here, for this connection.";
 
-/** The one toggle with a privacy consequence, so it says so in the sentence
- * somebody reads before flipping it rather than in a doc.
+/** The toggle with a privacy consequence, so the sentence read before
+ * flipping it says so.
  *
  * What a browser publishes is the field list in
- * `rust/runtime/src/trace/publish.rs`: who the session talked
- * to, over what, which operations ran and how big they were. Message bytes are
- * not in that list, and saying "not the text" is only honest because of it. If
- * that list ever grows a payload field, this sentence is wrong and has to move
- * with it. */
+ * `rust/runtime/src/trace/publish.rs`: who the session talked to, over what,
+ * which operations ran and how big they were. Message bytes are not in that
+ * list, which is why "not the text" is true. If the list gains a payload
+ * field, this sentence must change with it. */
 export const opsTraceLabel = "Live trace";
 export const opsTraceShort = "Trace";
 export const opsTraceLead =
 	"Publishes which peers this session talks to and what it does with them, direct messages included. Not the text of your messages.";
 
-/** Each complete URI names the exact exporter and authority to acquire. */
+/** Each complete URI names the exporter and authority to acquire. */
 export const opsHowSession = "Paste its complete URI here and Rooms acquires it from the server it names.";
 export const opsHowTrace = "Paste its complete URI here and Rooms acquires the trace endpoint it names.";
 
-/** Holdings, where the toggles live. It draws a line between holding something
- * now and having saved it for next time, and the lead is where that line gets
- * named. */
+/** Holdings, where the toggles live. The lead separates holding something now
+ * from having saved it for next time. */
 export const holdingsSharedLead =
 	"This shared session is holding live capabilities. The links below are saved so they can be taken again.";
 export const holdingsLocalLead =
@@ -82,8 +75,8 @@ export const opsPeeredRoomsLoading = "peered rooms";
 export const opsVisualizerStatusLoading = "visualizer status";
 export const opsOperatorStateLoading = "operator state";
 export const opsDirectoryHoldingsLoading = "what this directory holds";
-export const opsOperatorPane = "operator pane";
-export const opsInspectPane = "inspect pane";
+export const opsOperatorPane = "operator page";
+export const opsInspectPane = "inspect page";
 
 /** Destinations in the operations navigation. */
 export const opsPaneListeners = "Listeners";
@@ -92,8 +85,8 @@ export const opsPaneIrc = "IRC";
 export const opsPanePeering = "Peering";
 export const opsPaneVisualizer = "Visualizer";
 
-/** The Inspect pane: each inventory it reads, what it is, and what an empty
- * one says. Inspect sees that a thing stands, never the thing. */
+/** The Inspect page: each list it reads, what it is, and what an empty one
+ * says. Inspect sees that a thing exists, never the thing. */
 export interface OpsInspectSection {
 	readonly title: string;
 	readonly lead: string;
@@ -137,13 +130,13 @@ export const inspectBootstrap: OpsInspectSection = {
 };
 export const inspectTrouble: OpsInspectSection = {
 	title: "Directory trouble",
-	lead: "The same bounded process journal the server writes as it runs.",
+	lead: "Recent failures the server recorded while it ran.",
 	empty: "No trouble reported.",
 };
 export const inspectLead =
 	"What this directory holds, as the inspect capability sees it. Nothing on this page can be changed from here.";
 
-/** Retained references, on the operator pane. */
+/** Retained references, on the operator page. */
 export const referencesMembership = "Room memberships";
 export const referencesLine = "Direct lines";
 export const referencesUpload = "Uploads in flight";
@@ -167,17 +160,17 @@ export const referencesSweepSubject = "references";
 export const referencesSweepEffect =
 	"Only this server's copies are released. Remote holders keep their copies and their authority.";
 
-/** The operator search box, and what the inventories below it count. */
+/** The operator search box, and what the lists below it count. */
 export const operatorSearching = "Searching this directory…";
 export function operatorFilteredTo(kind: string): string {
 	return `Retained references are filtered to the exact ${kind} kind.`;
 }
-export const operatorCountsAll = "Every inventory below counts what this directory holds.";
+export const operatorCountsAll = "Every list below counts what this directory holds.";
 export function operatorCountsMatching(search: string): string {
-	return `Every inventory below counts what matches “${search}”.`;
+	return `Every list below counts what matches “${search}”.`;
 }
 
-/** A sweep over an inventory, and how far it got. */
+/** A sweep over a list, and how far it got. */
 export function sweepStopped(retired: number, total: number, subject: string): string {
 	return `Stopped after ${retired} of ${total} ${subject}.`;
 }
@@ -191,7 +184,7 @@ export function sectionCountMore(count: number): string {
 	return `${count} read so far, and more remain`;
 }
 
-/** The live trace pane. */
+/** The live trace page. */
 export const tracePublisherShared = "The shared session publishes every connection it opens";
 export const tracePublisherTab = "This tab publishes every session it opens";
 export function traceLead(publisher: string): string {
@@ -200,7 +193,7 @@ export function traceLead(publisher: string): string {
 export const traceNowTitle = "Publishing now";
 export const traceEndpointLabel = "Endpoint";
 
-/** The listeners pane. */
+/** The listeners page. */
 export const listenersLead = "Where this server accepts connections: one listener per transport, switched here.";
 export function listenerTakeDown(transport: string): string {
 	return `Take the ${transport} listener down`;
@@ -212,7 +205,7 @@ export function listenerCopyLocator(transport: string): string {
 	return `Copy the ${transport} listener's locator`;
 }
 
-/** The peering pane. */
+/** The peering page. */
 export function peeringListedAs(name: string): string {
 	return `Listed here as ${name}.`;
 }
@@ -225,24 +218,24 @@ export const peeringAsHint =
 export const peeringPublishedTitle = "Published by this tab";
 export const peeringPublishedEmpty = "No rooms published from this tab yet.";
 
-/** The operations index and its gate. */
+/** The operations index and its permission note. */
 export const opsEditCapabilitySet = "Edit capability set";
 export const opsNeedsAdmin = "An administrator session capability is required to change this set.";
 export const opsNotFoundTitle = "Nothing answers this address";
 export function opsNotFoundSaid(segment: string): string {
-	return `/ops/${segment} names no operations pane.`;
+	return `/ops/${segment} is not one of the operations pages.`;
 }
-export const opsPanesAre = "The panes are";
+export const opsPanesAre = "The pages are";
 export const opsPanesJoin = ", ";
 export const opsPanesJoinLast = ", and ";
 export const opsPanesEach = ". Each opens when this tab holds a capability that fills it.";
 export const opsIndex = "The operations index";
 export const opsNothingHeld =
-	"Nothing is held yet. Each pane below opens when this tab takes its capability from the server that minted it.";
+	"Nothing is held yet. Each page below opens when this tab takes its capability from the server that issued it.";
 export const opsBrowserTroubleTitle = "Browser trouble";
 
-/** The IRC gateway pane. Its nouns come from the server's own form
- * description, so these sentences take them as words. */
+/** The IRC gateway page. Its nouns come from the server's form description,
+ * so these sentences take them as arguments. */
 export const gatewayPrimaryOnly = "Only the main action on this form works yet.";
 export function gatewayNoneYet(connectionsNoun: string): string {
 	return `No ${connectionsNoun} yet.`;

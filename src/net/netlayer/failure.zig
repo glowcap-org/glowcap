@@ -18,7 +18,7 @@ const Connection = connection.Connection;
 pub const RestorationStateError = error{ProviderFailure};
 
 /// The closed retry-classification axis. Exact transport identity lives in
-/// `DialFailure.chain`; policy never depends on private error names.
+/// `DialFailure.chain`. Policy never depends on private error names.
 pub const DialError = error{
     InvalidAddress,
     InvalidOptions,
@@ -35,7 +35,7 @@ pub const DialFailure = struct {
     classification: DialError,
     chain: foundation.FailureChain,
     /// Carrier acquisition phase when the selected transport can name it.
-    /// Generic transports leave this null; policy never depends on it.
+    /// Generic transports leave this null. Policy never depends on it.
     carrier_phase: ?carrier_failure.Phase = null,
     carrier_detail: carrier_failure.Detail = .{},
 

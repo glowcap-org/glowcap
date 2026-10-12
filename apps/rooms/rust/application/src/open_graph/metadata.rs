@@ -41,7 +41,7 @@ impl Property {
 }
 
 /// Parser-neutral input from an HTTP adapter. Document parsing may use any
-/// suitable standards-compliant HTML parser; accepted vocabulary and bounds
+/// suitable standards-compliant HTML parser. Accepted vocabulary and bounds
 /// stay here.
 pub struct Observation<'a> {
 	pub requested_url: &'a str,
@@ -52,7 +52,7 @@ pub struct Observation<'a> {
 }
 
 /// Parser-neutral oEmbed fields. Provider discovery and HTTP stay in an
-/// adapter; the shared application owns how the standard's vocabulary enters
+/// adapter. The shared application owns how the standard's vocabulary enters
 /// the one metadata shape every Rooms presentation consumes.
 pub struct OEmbedObservation<'a> {
 	pub requested_url: &'a str,
@@ -172,7 +172,7 @@ impl Metadata {
 	}
 
 	/// Admit the display-safe subset of oEmbed. Executable embed HTML never
-	/// crosses this boundary; Rooms keeps the authored link as navigation and
+	/// crosses this boundary. Rooms keeps the authored link as navigation and
 	/// proxies only a bounded thumbnail through its existing image service.
 	#[must_use]
 	pub fn from_oembed(input: &OEmbedObservation<'_>) -> Option<Self> {

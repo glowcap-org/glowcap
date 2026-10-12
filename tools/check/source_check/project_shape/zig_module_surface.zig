@@ -10,7 +10,7 @@ const Surface = struct {
     modules: []const []const u8,
 };
 
-/// Whole modules intentionally reachable through each supported consumer root.
+/// Whole modules reachable through each supported consumer root.
 /// Names are qualified through public container namespaces and sorted so a
 /// review sees the API change rather than an opaque fingerprint.
 const surfaces = [_]Surface{

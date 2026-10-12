@@ -1,5 +1,5 @@
 //! WebRTC DataChannel transport: a peer-to-peer channel for keyed OCapN
-//! sessions. Unlike TCP or iroh, there is no dialable address — the channel is
+//! sessions. Unlike TCP or iroh, there is no dialable address. The channel is
 //! established by an SDP signaling exchange (offer, answer, ICE candidates).
 //! A `Resident` owns the shared sidecar runtime and readiness fd. Callers create
 //! `Peer`s from it, drive signaling directly, then move one codec frame per
@@ -11,10 +11,10 @@
 //!
 //! 1. Call `Resident.init`, register `Resident.readinessFd`, then create a peer
 //!    in one signaling role with `resident.newPeer(is_offerer)`.
-//! 2. Submit offers, answers, and remote candidates outside the reactor turn;
-//!    peer creation and signaling submissions are synchronous control calls.
+//! 2. Submit offers, answers, and remote candidates outside the reactor turn.
+//!    Peer creation and signaling submissions are synchronous control calls.
 //! 3. When the fd wakes, call `Resident.drainReady` and route each record by its
-//!    stable `PeerId`. Drain local candidates on `ev_candidate`; call `checkOpen`
+//!    stable `PeerId`. Drain local candidates on `ev_candidate`. Call `checkOpen`
 //!    on `ev_open` and stop on `ev_closed`. A blocking owner can use
 //!    `Resident.pollReady`, which performs the same ordered drain.
 //! 4. Once open, use `tryReceivePacket` / `trySendPacket` from that readiness
@@ -22,7 +22,7 @@
 //!
 //! ## Dial posture
 //!
-//! A `Resident` deliberately has no `dial` or `listen`: a bare WebRTC locator
+//! A `Resident` has no `dial` or `listen`: a bare WebRTC locator
 //! carries no signaling authority. The dial classifier still recognizes the
 //! transport symbol and validates the key designator. `driver_core.planDial` returns
 //! `DialPlan.signaling`, and `GLOWCAP_DIAL_SHAPE_SIGNALING` ships in every
@@ -30,7 +30,7 @@
 //! `zig build check` but is not a `Netlayer`. Generic Host integration is the
 //! completion `Backend` below: as a `net.completion_resident` on
 //! `driver.HostRuntime` it serves adopted answerers and drives offerer dials
-//! through a configured `SignalingAuthority` (`zig build webrtc-loop`; the
+//! through a configured `SignalingAuthority` (`zig build webrtc-loop`. The
 //! three-party redeem over a bare webrtc give is `zig build webrtc-redeem`). A
 //! blocking caller may still drive signaling and adopt the channel
 //! explicitly.
@@ -47,7 +47,7 @@ const model = @import("model");
 const net = @import("net");
 
 /// The transport symbol this resident signs into `op:start-session`. The dial
-/// classifier recognizes it; the resident is not registered as a `Netlayer`
+/// classifier recognizes it. The resident is not registered as a `Netlayer`
 /// (see "Dial posture" above).
 const known_transport = model.transport.Known.webrtc;
 pub const transport_name = known_transport.metadata().symbol;
@@ -64,7 +64,7 @@ pub const data_channel_queue_bytes: usize = 1 * 1024 * 1024;
 pub const sctp_receive_buffer_bytes: usize = data_channel_queue_bytes;
 
 /// WebRTC locators name peers by keyed-session identity even though this
-/// resident intentionally exposes no address-based `Netlayer` vtable.
+/// resident exposes no address-based `Netlayer` vtable.
 pub const designator_scheme: net.netlayer.DesignatorScheme = known_transport.metadata().designator_scheme;
 
 /// The peer's Ed25519 designator length, the same key width keyed-tcp and iroh

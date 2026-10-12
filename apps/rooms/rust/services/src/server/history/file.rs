@@ -1,7 +1,7 @@
 //! Where kept lines persist: one JSONL file per room under `history/`, one
 //! row per line, appended in place and compacted back to the kept tail once
 //! the file has grown past the compaction point. Retention lives in the
-//! policy's index; this worker only persists what the index admitted, one
+//! policy's index. This worker only persists what the index admitted, one
 //! change at a time, in order. The directory is leased to one server, so two
 //! servers pointed at one `--storage` refuse rather than interleave, and a
 //! staging file a crashed compaction left behind is swept before restore.

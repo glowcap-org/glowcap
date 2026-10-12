@@ -1,9 +1,9 @@
 /**
  * How a named camera command becomes a viewport mutation.
  *
- * The camera itself lives in pixi-viewport; the controls know only the
+ * The camera itself lives in pixi-viewport. The controls know only the
  * four things they can ask for (`StageCameraCommand`). This module is
- * the mapping between those two, including Fit's layer list — which
+ * the mapping between those two, including Fit's layer list, which
  * layers count as the picture is a fact about the command, not about
  * the React host that attached the port.
  *
@@ -20,8 +20,8 @@ import { clampStageZoom, DEFAULT_STAGE_VIEW, fitStageView, steppedStageZoom, uni
  * Breathing room Fit leaves around the content, in screen pixels.
  *
  * Screen pixels because it is margin for a reader rather than a fact about the
- * world, and generous enough that a node's focus ring and caption — which hold
- * their own screen size and so are not in the world bounds Fit measures — still
+ * world, and generous enough that a node's focus ring and caption, which hold
+ * their own screen size and so are not in the world bounds Fit measures, still
  * have somewhere to be.
  */
 export const FIT_PADDING_PX = 24;
@@ -48,9 +48,9 @@ export type StageFitLayer = {
  * Fit measures the document's own picture from the scene graph rather than
  * recomputing from entity positions, so a thing that is drawn cannot be left
  * out of the fit. Three layers rather than the viewport whole, and each
- * exclusion is load-bearing. The GRID spans the world, so fitting it fits the
- * world and a three-node document lands at 16% in an empty field — which is
- * exactly what fitting the viewport did. The AFFORDANCE layer is a wire
+ * exclusion matters. The GRID spans the world, so fitting it fits the
+ * world and a three-node document lands at 16% in an empty field, which is
+ * what fitting the viewport did. The AFFORDANCE layer is a wire
  * preview chasing the cursor, which is not content. And the LABELS hold
  * constant screen size, so their world bounds depend on the current zoom:
  * fitting them would make the answer depend on the question. `FIT_PADDING_PX`
@@ -60,7 +60,7 @@ export type StageFitLayer = {
  * a viewport, so the exclusions are held by the caller's list and this
  * comment. `unionBounds` skips empty rectangles (the always-present edge
  * stroke batch reports origin bounds when nothing is stroked) and
- * `fitStageView` carries the arithmetic; both are covered in
+ * `fitStageView` carries the arithmetic. Both are covered in
  * `stage-view.test.ts`. A new content layer has to be added at the call site
  * by hand, and fitting the world instead of the picture is what it looks like
  * when one is missing.
@@ -140,9 +140,9 @@ export type StageWheelTarget = {
  * Apply one wheel effect to the viewport, or ignore it when the cursor is
  * outside the Stage marker.
  *
- * The canvas is shared with Timeline / Overview; a zoom whose pivot is not
+ * The canvas is shared with Timeline / Overview. A zoom whose pivot is not
  * in the Stage region is somebody else's. Pan-step skips that check (rare
- * in practice — trackpad horizontal swipes anywhere on the canvas pan the
+ * in practice, trackpad horizontal swipes anywhere on the canvas pan the
  * stage, which is the right behavior since the stage is the primary spatial
  * surface).
  */

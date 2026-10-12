@@ -1,5 +1,5 @@
 //! Closed vocabulary for the relay reactor's polled subjects and listener
-//! lifecycle slot. The reactor owns transitions; these types only make its
+//! lifecycle slot. The reactor owns transitions. These types make its
 //! mutually exclusive states explicit.
 
 pub fn PollSubject(

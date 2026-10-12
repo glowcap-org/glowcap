@@ -7,6 +7,7 @@ use rooms_application::{
 	directory::registration::NicknameAllocation,
 };
 mod contact;
+mod participation;
 mod sender;
 const REGISTRATION: &str = "00000000-0000-4000-8000-000000000001";
 const DIRECTORY: Schema = Schema {
@@ -573,6 +574,7 @@ pub(super) async fn run() {
 						intent.active = Some(rooms_application::fields::Text::new("direct".into()).unwrap());
 						owner.replace_workspace(&intent).await.unwrap();
 						contact::adopt_exact(&host, &root, &platform).await;
+						participation::run(&host, &owner, &platform).await;
 					}
 					owner.close().await.unwrap();
 					let marker = attachment.live_marker().unwrap().unwrap();
@@ -593,7 +595,7 @@ pub(super) async fn run() {
 					let (root, root_control) =
 						environment::restore(&attachment, loam::Resource::decode(resource.encode())).await;
 					owner.bind(root.clone(), root_control.clone()).unwrap();
-					assert_eq!(acquisitions.get(), if malformed || pending { 1 } else { 2 });
+					assert_eq!(acquisitions.get(), if malformed || pending { 1 } else { 4 });
 					if !malformed && !pending {
 						// This inbox was imported through the unrevoked private root.
 						// Expiry alone refuses its saved registration alias.

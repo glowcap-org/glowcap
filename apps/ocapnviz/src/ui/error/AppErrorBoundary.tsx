@@ -11,7 +11,7 @@ interface AppErrorBoundaryState {
 
 /**
  * Top-level React error boundary. Catches synchronous throws during
- * the render phase of any descendant — including the synchronous
+ * the render phase of any descendant, including the synchronous
  * setup of `useEffect` bodies (Pixi `new Application()` ctor) but
  * NOT async rejections from `app.init().then(...)`, ticker callbacks,
  * or `window` event handlers. Those four async paths land on the

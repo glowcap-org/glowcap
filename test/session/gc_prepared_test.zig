@@ -1,9 +1,9 @@
 //! The prepared-commit record path allocates nothing, whatever a message
 //! names. `recordSend`'s GC re-verification folds pending totals through a
-//! fixed stack tier and spills to the heap past it — the right cost for a
+//! fixed stack tier and spills to the heap past it, the right cost for a
 //! caller with no proof, and exactly the arm a prepare/commit pair's commit
-//! cannot answer: its reservations are spent and an allocator refusal there
-//! used to land on `catch unreachable`. These cases hold both halves: the
+//! cannot answer: its reservations are spent, so an allocator refusal there
+//! must not land on `catch unreachable`. These cases hold both halves: the
 //! prepared path touches the allocator zero times past the fold's tier, and
 //! the checked path demonstrably spills on the same message.
 

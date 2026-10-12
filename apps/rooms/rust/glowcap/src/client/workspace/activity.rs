@@ -1,5 +1,5 @@
 //! Session presentation retains its original callback authority on the owner.
-//! Cursors select retained data only; files are dependent read capabilities.
+//! Cursors select retained data only. Files are dependent read capabilities.
 use super::{Acquisition, Caller, Deadline, Error, Workspace};
 use glowcap::{Argument, Ref, loam};
 use rooms_application::content::session::{custody, workspace::Intent};

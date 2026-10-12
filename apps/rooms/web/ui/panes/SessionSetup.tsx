@@ -210,7 +210,7 @@ export function SessionSetup(
 					{
 						/* The third door is drawn shut. Signing in to a session a server
 						    keeps, so it can be reached from any device without carrying a
-						    capability, is not built; the row says so as a state rather
+						    capability, is not built. The row says so as a state rather
 						    than offering a button that refuses, and it stands here so
 						    the shape of the choice is already the shape it will have. */
 					}

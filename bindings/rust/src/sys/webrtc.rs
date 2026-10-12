@@ -2,7 +2,7 @@
 //! (`libglowcap_net_transport_webrtc`).
 //!
 //! Linked only with the `webrtc` feature (ADR-0089/ADR-0059). Like the iroh
-//! companion this is a dynamic library that links a Rust sidecar; it exports
+//! companion this is a dynamic library that links a Rust sidecar. It exports
 //! only the `glowcap_webrtc_*` family and its own thread-local last-error
 //! (`glowcap_webrtc_last_error`), sharing no core symbol. The shared vocabulary
 //! it speaks is reused by layout from [`crate::sys`].
@@ -20,7 +20,7 @@ pub struct GlowcapWebrtcNetlayer {
 }
 
 /// One WebRTC peer: its `RTCPeerConnection` and single reliable, ordered data
-/// channel. Opaque; the C ABI hands back a pointer to it, released with
+/// channel. Opaque. The C ABI hands back a pointer to it, released with
 /// `glowcap_webrtc_peer_release`.
 #[repr(C)]
 pub struct GlowcapWebrtcPeer {

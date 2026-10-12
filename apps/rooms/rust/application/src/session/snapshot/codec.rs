@@ -41,11 +41,8 @@ fn list<A: SnapshotArgument, T, const N: usize>(
 	values.map(read).collect::<Result<Vec<_>, _>>().map(List)
 }
 fn tuple<A: SnapshotArgument, const N: usize>(arg: &A) -> Result<[A::Item<'_>; N], Refusal> {
-	let mut values = arg.list().ok_or(Refusal::Shape)?;
-	if values.len() != N {
-		return Err(Refusal::Shape);
-	}
-	Ok(core::array::from_fn(|_| values.next().expect("exact length checked")))
+	let values = arg.list().ok_or(Refusal::Shape)?;
+	<[A::Item<'_>; N]>::try_from(values.collect::<alloc::vec::Vec<_>>()).map_err(|_| Refusal::Shape)
 }
 // Inspect only the schema's bounded nesting before retaining data. A malformed
 // nested tree is refused without recursive walking or capability cloning.
@@ -126,7 +123,7 @@ fn render<T: Serialize + ?Sized>(value: &T) -> Result<String, Refusal> {
 }
 // serde_json's no-std surface exposes owned serialization only. Stage one
 // bounded row, check its size, then copy it once into the retained JSON list.
-// This intentional staging bounds overflow work to one row instead of building
+// This staging bounds overflow work to one row instead of building
 // every live row before dropping the oversized list.
 fn live<T: Serialize>(values: impl IntoIterator<Item = T>, max_units: usize) -> Result<Option<String>, Refusal> {
 	let mut output = String::from("[");

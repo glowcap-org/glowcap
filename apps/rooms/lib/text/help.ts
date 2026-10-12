@@ -1,48 +1,39 @@
 // Help, in two tiers, because two different people open it.
 //
-// The first tier is somebody who was sent a link and wants to know what they
-// have opened. The second is the glossary, for a reader matching a word on
-// this screen against a word a server printed.
+// The first tier is for somebody who was sent a link and wants to know what
+// they have opened. The second is the glossary, for a reader matching a word
+// on this screen against a word a server printed.
 //
-// The first tier is written the way you would explain Rooms to a friend, and
-// that mostly means saying what it is like. Rooms is IRC with links instead of
-// accounts; anybody who has used IRC knows nine tenths of this product
-// already, and telling them so is faster and more honest than describing the
-// same thing from scratch in careful sentences. It also bridges real IRC, so
-// the comparison is a fact about the software rather than a metaphor.
+// The first tier explains Rooms the way you would to a friend, by saying what
+// it is like. Rooms is IRC with links instead of accounts, and anybody who has
+// used IRC already knows most of it. Rooms also bridges real IRC, so the
+// comparison is literal.
 //
-// What this tier is not is a pitch, and it took three tries to stop writing
-// one. The failures are worth naming because they are the ones to watch for:
-// copy that sold ("a link is the permission"), copy that was false ("nothing
-// to forget", when losing the link is exactly how you lose your rooms), and
-// copy that was technically true and left the wrong picture ("runs in this
-// page, not on a server" — there is a server, and room messages go through
-// it). The last is the worst of the three, because it survives review.
+// This tier is not a pitch. Three failures to watch for: copy that sells ("a
+// link is the permission"), copy that is false ("nothing to forget", when
+// losing the link is how you lose your rooms), and copy that is technically
+// true and leaves the wrong picture ("runs in this page, not on a server",
+// when there is a server and room messages go through it).
 
 export const helpTitle = "Help";
 export const helpPartsCatalog = "the parts catalog";
 
-/** The three tabs. One word each, because three of them share one row on a
- * phone. */
+/** The three tabs. One word each, because they share one row on a phone. */
 export const helpTabAbout = "About";
 export const helpTabWriting = "Writing";
 export const helpTabGlossary = "Glossary";
 
 /** A pointer to something a reader may already know. Rooms bridges real IRC,
- * so the comparison is to software a reader might have used, not one picked
- * for flavour. */
+ * so the comparison is to software a reader might have used. */
 export type HelpLink = { text: string; href: string };
 
-/** A sentence with links in it, in the pieces the component sets: a string is
- * text, a link is drawn as one. */
+/** A sentence with links in it, in the pieces the component sets. A string is
+ * text and a link is drawn as one. */
 export type LinkedText = readonly (string | HelpLink)[];
 
 /** The one-liner. Everything under it is a detail of this sentence, and a
- * reader who has used IRC can stop here.
- *
- * The contrast has to be with IRC, since that is what the sentence compares
- * to, and "instead of an account" was not one: IRC has no accounts either.
- * What IRC does not have is a room that is a link. */
+ * reader who has used IRC can stop here. The contrast with IRC is a room that
+ * is a link. */
 export const helpAboutLead: LinkedText = [
 	"Rooms is a chat app. It's inspired by ",
 	{ text: "IRC", href: "https://en.wikipedia.org/wiki/Internet_Relay_Chat" },
@@ -83,16 +74,26 @@ export const helpAbout: readonly { title: string; said: string; link?: HelpLink 
 	},
 ];
 
+/** The credit, last on the About tab, for the reader who wants to know what
+ * Rooms is made from or to read its code. */
+export const helpAboutCredit: LinkedText = [
+	"Rooms is built with ",
+	{ text: "glowcap", href: "https://jimisaacs.github.io/glowcap/" },
+	", an OCapN library. Both are open source, and the code is on ",
+	{ text: "GitHub", href: "https://github.com/jimisaacs/glowcap" },
+	".",
+];
+
 /** The protocol's own words, for the reader matching them against a server's
- * output. Kept exact rather than softened: an approximate definition is worse
- * than none to the person who needs this tier. */
+ * output. They stay exact, since an approximate definition is worse than none
+ * for the person who needs this tier. */
 export const helpGlossaryLead =
 	"Rooms is built on OCapN, and a server prints these words. You don't need any of them to use Rooms.";
 
 export const helpDirectory = "Directory";
-/** The bridge between the two tiers. A guest reads "server" everywhere and an
- * operator reads "directory" on the Operations pages, and until this said so
- * nothing connected them. */
+/** The link between the two tiers. A guest reads "server" and an operator
+ * reads "directory" on the Operations pages, and this entry says they are the
+ * same thing. */
 export const helpDirectorySaid =
 	"What the rest of Rooms calls the server. The object this page starts from: rooms live on it, and fetching it is how a peer arrives. A session can hold more than one, which is why the Operations pages name them.";
 
@@ -104,8 +105,8 @@ export const helpCapability = "Capability";
 export const helpCapabilitySaid = "A reference whose possession is permission, without a separate account check.";
 
 export const helpSwiss = "Swiss number";
-/** Split around the secret door, which is a control rather than a word, so the
- * sentence is written in the two halves the component sets it in. */
+/** Split around the "secret" control, so the sentence comes in the two halves
+ * the component sets around it. */
 export const helpSwissBefore = "A";
 export const helpSwissSecret = "secret";
 export const helpSwissAfter =

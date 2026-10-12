@@ -12,10 +12,10 @@ const collectBulletSpans = util.collectBulletSpans;
 /// the claim. Anchoring matters: a bare search for the number anywhere in the
 /// file is satisfied by any incidental mention of the same number, so a quote
 /// could read 112 while an unrelated line said 128 and a naive check would
-/// pass — which is precisely the drift this exists to catch.
+/// pass: which is the drift this exists to catch.
 const BudgetQuote = struct {
     path: []const u8,
-    /// The phrase that makes the claim; the number must follow it directly.
+    /// The phrase that makes the claim. The number must follow it directly.
     anchor: []const u8,
     /// Text required immediately after the number (`" bytes"`, `")"`, "`").
     suffix: []const u8 = " bytes",

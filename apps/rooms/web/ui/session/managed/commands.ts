@@ -1,5 +1,7 @@
-// Slash commands select exact conversation fields; command names confer no
+import { editLine } from "./edit.ts";
+// Slash commands select exact conversation fields. Command names confer no
 // authority and never cause recovery through a stronger entrance.
+import { withdrawLine } from "./withdraw.ts";
 import * as store from "../../store.ts";
 import type { RoomsPageContext } from "../../page.ts";
 import type { RoomsBrowserController } from "../../controller/browser.ts";
@@ -20,6 +22,7 @@ export function managedCommandPowers(
 	session: ManagedRoomsSession,
 	rooms: RoomsRoomController,
 	pick: (id: DirId, name: string) => Promise<void>,
+	select: (id: string) => Promise<void>,
 ): CommandPowers {
 	const projection = page.projection;
 	const active = () => store.activeConv(projection);
@@ -45,7 +48,17 @@ export function managedCommandPowers(
 		const row = selected();
 		const line = row?.lines?.at(-1);
 		if (row == null || line == null) return false;
-		await session.actions.run(verb, [row.id, String(line.id), ...(text == null ? [] : [text])]);
+		const conversation = store.convByPersistId(projection, row.id);
+		const item = conversation == null
+			? null
+			: store.historyOf(projection, conversation.key).find((item) =>
+				item.kind === "chat" && item.lineId === line.id
+			);
+		if (verb === "withdrawLine" && conversation != null && item != null) {
+			await withdrawLine(page, session, conversation.key, item.id);
+		} else if (verb === "editLine" && conversation != null && item != null) {
+			await editLine(page, session, conversation.key, item.id, text ?? "");
+		} else await session.actions.run(verb, [row.id, String(line.id), ...(text == null ? [] : [text])]);
 		return true;
 	};
 	return {
@@ -64,7 +77,7 @@ export function managedCommandPowers(
 				if (destination == null) throw new Error("that is not a room entry link");
 				const held = await enteredBy(link);
 				if (held != null) {
-					await session.navigation.select(held);
+					await select(held);
 					const key = store.convByPersistId(projection, held)?.key;
 					if (key != null) store.deliver(projection, key, store.sysItem(projection, alreadyInRoom));
 					return null;
@@ -73,12 +86,15 @@ export function managedCommandPowers(
 				const row = rows.find((row) => row.id === destination.directory);
 				const current = rows.find((row) => row.id === directory());
 				const nick = row?.nick ?? current?.nick ?? JOIN_DEFAULT_NICK;
-				await session.actions.roomLink(destination.directory, link, name, {
-					route: destination.address,
-					nick: row?.nickAllocation === "exact"
-						? { kind: "exact", name: nick }
-						: { kind: "automatic", base: nick },
-					home: row?.home ?? false,
+				await session.openings.run(async (opening) => {
+					const room = await session.actions.roomLink(destination.directory, link, name, {
+						route: destination.address,
+						nick: row?.nickAllocation === "exact"
+							? { kind: "exact", name: nick }
+							: { kind: "automatic", base: nick },
+						home: row?.home ?? false,
+					}, opening);
+					await opening.select(room);
 				});
 			} catch (error) {
 				return thatLinkDidNotOpen(refusalText(error));
@@ -93,7 +109,10 @@ export function managedCommandPowers(
 		directMessage: async (who) => {
 			const id = directory();
 			if (id == null) return NOT_ON_A_DIRECTORY;
-			await session.actions.direct(id, who, true);
+			await session.openings.run(async (opening) => {
+				const conversation = await session.actions.direct(id, who, false, undefined, opening);
+				await opening.select(conversation);
+			}, { kind: "direct", peer: who });
 			return null;
 		},
 		setTheme: browser.setTheme,

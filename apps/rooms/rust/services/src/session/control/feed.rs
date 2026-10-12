@@ -38,10 +38,9 @@ impl Feed {
 			})
 			.collect::<Vec<_>>();
 		let mut data: serde_json::Value = serde_json::from_str(&event.data)?;
-		data["notice"]["history"] = event.history().map_or(
-			serde_json::Value::Null,
-			|history| json!({"source":history.source,"generation":history.generation,"id":history.id}),
-		);
+		data["notice"]["history"] = event
+			.history()
+			.map_or(serde_json::Value::Null, rooms_application::archive::history_data);
 		let token = self.app.activity.token(token).map_err(Failure::uncertain)?;
 		let id = self
 			.inbox

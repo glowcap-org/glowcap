@@ -21,7 +21,7 @@ pub const Store = struct {
     startup_evaluation: ?core.Batch.Evaluation = null,
     startup_result: ?core.Resolution = null,
     /// Validate foreign configuration before a storage open has durable effects.
-    /// The core checks schema and cache laws; this profile only bounds its ABI.
+    /// The core checks schema and cache laws. This profile only bounds its ABI.
     pub fn validateConfiguration(schemas: []const c.GlowcapLoamSchema, limits: c.GlowcapLoamLimits) !void {
         if (schemas.len == 0 or schemas.len > 128 or limits.max_retentions == 0) return error.InvalidLimits;
         try hostingOptions(limits).validate(0);
@@ -77,7 +77,7 @@ threadlocal var active_evaluation: ?*EvaluationGuard = null;
 
 /// Only the synchronous callback stack owns reentry state. Independent workers
 /// and Host progress share no guard bytes. Each submitted Work still has one
-/// executor; finish, complete and release require that executor to have joined.
+/// executor. Finish, complete and release require that executor to have joined.
 /// Stable local frames support nested different-Store calls without allocation.
 pub const EvaluationGuard = struct {
     owner: *Store = undefined,

@@ -65,6 +65,11 @@ gate() {
 if [ -n "${GATES_SOURCE_ONLY:-}" ]; then return 0; fi
 
 gate bash .devcontainer/hooks/post-create.sh
+# The managed tools install on first use, so post-create cannot prove a seed
+# is installable; this strict cold-seed run is the harness pins' required
+# check, and it also proves the dispatcher wiring end to end with real
+# downloads in an isolated root.
+gate bash .devcontainer/test/tool-install.sh claude codex cursor-agent opencode
 # The deadline wrapper bounds every gate below, and this sequence branches on
 # the codes it returns, so its behaviour is checked before anything relies on
 # it: exit codes, the signal a child actually receives, and no survivors.

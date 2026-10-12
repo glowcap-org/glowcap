@@ -11,6 +11,7 @@ import { Confirm } from "../Confirm.tsx";
 import { useHeldModal, useModalDialog } from "../modal.ts";
 import { useManagedSession } from "../session/managed/context.tsx";
 import type { EffectView } from "../session/managed/model.ts";
+import { isRetainedCommandIntent } from "../session/managed/admission.ts";
 import { useRoomsProjection, useRoomsState } from "../hooks.ts";
 import { releaseSentLine } from "../store.ts";
 import {
@@ -22,6 +23,8 @@ import {
 	recoveryLetGoLabel,
 	recoveryLetGoSay,
 	recoveryLetGoSend,
+	recoveryListUnread,
+	recoveryOperationDetails,
 	recoveryPickUp,
 	recoveryRetryUpdates,
 	recoveryRowHint,
@@ -32,7 +35,9 @@ import {
 } from "../../../lib/text/recovery.ts";
 import { refusalText } from "../../../lib/text/failure.ts";
 
-export function SessionRecoveryModal({ open, onClose }: { open: boolean; onClose(): void }) {
+export function SessionRecoveryModal(
+	{ open, onClose, dismissWhenEmpty = true }: { open: boolean; onClose(): void; dismissWhenEmpty?: boolean },
+) {
 	const session = useManagedSession();
 	const dialog = useRef<HTMLDialogElement>(null);
 	const close = useRef<HTMLButtonElement>(null);
@@ -93,7 +98,10 @@ export function SessionRecoveryModal({ open, onClose }: { open: boolean; onClose
 						dirty = false;
 						try {
 							const rows: EffectView[] = await session.workspace.effects();
-							if (current && !dirty) setRows(rows);
+							if (current && !dirty) {
+								setRows(rows);
+								setSaid((prior) => prior.list ? { ...prior, list: "" } : prior);
+							}
 						} catch (error) {
 							if (current && !dirty) setSaid((prior) => ({ ...prior, list: refusalText(error) }));
 						}
@@ -169,13 +177,16 @@ export function SessionRecoveryModal({ open, onClose }: { open: boolean; onClose
 	// notice's count dips: a row being recovered stays open until it lands.
 	const empty = rows != null && items.length === 0;
 	useEffect(() => {
-		if (open && empty) onClose();
-	}, [open, empty, onClose]);
+		if (open && empty && dismissWhenEmpty) onClose();
+	}, [open, empty, dismissWhenEmpty, onClose]);
 	if (!held) return null;
 	const conversation = (id: string) => {
 		for (const row of convs.values()) if (row.type !== "directory" && row.persistId === id) return row.id;
 		return null;
 	};
+	const diagnostics = new Map(
+		[...session.effects.diagnostics, ...session.actions.diagnostics].map((row) => [row.operation, row]),
+	);
 	const intents = new Map<string, readonly unknown[] | Record<string, unknown>>();
 	for (const operation of session.pendingOperations) intents.set(operation.id, operation.request.originalIntent());
 	const isSend = (id: string) => {
@@ -184,8 +195,13 @@ export function SessionRecoveryModal({ open, onClose }: { open: boolean; onClose
 	};
 	const subject = (id: string) => {
 		const original = intents.get(id);
-		if (Array.isArray(original)) return recoverySubject(String(original[2]), original[3] as string[], conversation);
-		if (original != null && "upload" in original) {
+		if (
+			isRetainedCommandIntent(original) &&
+			original[3].every((arg): arg is string => typeof arg === "string")
+		) {
+			return recoverySubject(original[2], original[3], conversation);
+		}
+		if (original != null && !Array.isArray(original) && "upload" in original) {
 			return recoverySubject("upload", [String(original.conversation)], conversation);
 		}
 		return recoverySubject("", [], conversation);
@@ -208,9 +224,20 @@ export function SessionRecoveryModal({ open, onClose }: { open: boolean; onClose
 						onClose={onClose}
 						closeRef={close}
 					/>
-					<p className="lead">{recoveryLead(items.length)}</p>
-					<div className="group well">
-						<ul className="entries" id="sessionRecoveryList">
+					{
+						/* Held in place until the first read settles, so the count does not
+						   change under the reader. A failed read settles it too: the card
+						   then says what it could not read, where the count would be. */
+					}
+					{said.list
+						? <Said kind="failure">{recoveryListUnread(said.list)}</Said>
+						: (
+							<p className="lead" style={{ visibility: rows == null ? "hidden" : undefined }}>
+								{recoveryLead(items.length)}
+							</p>
+						)}
+					<div className={items.length === 0 ? undefined : "group well"}>
+						<ul className="entries" id="sessionRecoveryList" aria-busy={rows == null}>
 							{items.map((item) => (
 								<li
 									className="entry"
@@ -276,11 +303,21 @@ export function SessionRecoveryModal({ open, onClose }: { open: boolean; onClose
 										/>
 									)}
 									{said[item.id] && <Said kind="failure">{said[item.id]}</Said>}
+									{
+										/* What the session recorded about this operation, for whoever has
+										   to diagnose it: after everything the reader decides from, and
+										   folded, because few readers need it. */
+									}
+									{diagnostics.has(item.id) && (
+										<details className="disclosure">
+											<summary>{recoveryOperationDetails}</summary>
+											<pre className="error-body">{JSON.stringify(diagnostics.get(item.id), null, 2)}</pre>
+										</details>
+									)}
 								</li>
 							))}
 						</ul>
 					</div>
-					{said.list && <Said kind="failure">{said.list}</Said>}
 					{session.updatesFailure != null && (
 						<>
 							<Said kind="warning">{recoveryUpdatesStopped(refusalText(session.updatesFailure))}</Said>

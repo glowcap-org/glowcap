@@ -42,21 +42,21 @@ export type EngineOptions = {
 };
 
 /**
- * Engine — the single main loop. Each `tick(wallDt)`:
+ * Engine, the single main loop. Each `tick(wallDt)`:
  *   1. drains intents,
  *   2. advances the clock,
  *   3. folds events into the world,
  *   4. recomputes positions,
  *   5. notifies subscribers (only when something changed).
  *
- * Tests may call `restart` / `seekTo` imperatively; the app routes
+ * Tests may call `restart` / `seekTo` imperatively. The app routes
  * through intents.
  *
  * **Doc ownership.** The engine takes ownership of the
  * `TimelineDocument` passed to its constructor and treats its
- * `events` array as mutable internal state — Zod's `readonly` is
+ * `events` array as mutable internal state, Zod's `readonly` is
  * a caller-side contract. Callers must not continue mutating the
- * doc after handing it off; clone first if a separate copy is
+ * doc after handing it off. Clone first if a separate copy is
  * needed.
  *
  * Playback, edit history, and document authoring each have their own
@@ -78,7 +78,7 @@ export class Engine extends EngineDocApi implements PlacementCommands {
 	// whether to re-render.
 	#version = 0;
 	#docVersion = 0;
-	// Per-engine authored-event id counter — two side-by-side
+	// Per-engine authored-event id counter, two side-by-side
 	// engines don't collide because each owns its own doc.
 	#authoredCounter = 0;
 	#playback!: Playback;
@@ -101,7 +101,7 @@ export class Engine extends EngineDocApi implements PlacementCommands {
 		// doesn't yet carry one. Newly-authored entities already
 		// populate timing at creation; this catches loaded / imported
 		// docs so every reader can rely on entity.timing being
-		// present. Idempotent — no-op on fully-projected docs.
+		// present. Idempotent, no-op on fully-projected docs.
 		this.doc = projectFromObservations(doc);
 		this.clock = new Clock(this.doc.duration);
 		this.world = createWorld();
@@ -114,7 +114,7 @@ export class Engine extends EngineDocApi implements PlacementCommands {
 		// Precedence: opts override > doc default > DEFAULT_LAYOUT_CONFIG.
 		const mode = opts.layoutMode ?? this.doc.layoutMode ??
 			DEFAULT_LAYOUT_CONFIG.mode;
-		// Bind the layout to `this.doc` — the projection above may have
+		// Bind the layout to `this.doc`. The projection above may have
 		// returned a fresh object, and the layout must read the doc the
 		// engine mutates, not the constructor argument.
 		this.layout = new KeyframeLayoutSystem(this.doc, {
@@ -148,7 +148,7 @@ export class Engine extends EngineDocApi implements PlacementCommands {
 			seekWorld: (t) => this.#playback.seekTo(t),
 			source: () => this.#source,
 		});
-		// Authoring context — narrow surface the `./authoring/`
+		// Authoring context, narrow surface the `./authoring/`
 		// subsystem reads. Built once; `mintId` and `seekTo` close over
 		// `this` so the counter survives across calls and the seek
 		// routes through the Engine's cursor/world rebuild path.
@@ -226,7 +226,7 @@ export class Engine extends EngineDocApi implements PlacementCommands {
 	 *   - validation failures from mutation APIs such as paste.
 	 *
 	 * The UI mounts toast / modal surfaces over this channel. Errors are
-	 * delivered synchronously; listeners that throw are isolated so one
+	 * delivered synchronously. Listeners that throw are isolated so one
 	 * bad subscriber can't starve the rest.
 	 */
 	onError(listener: (err: EngineError) => void): () => void {
@@ -251,7 +251,7 @@ export class Engine extends EngineDocApi implements PlacementCommands {
 
 	/**
 	 * Pre-flight check for an intent. Returns `{ ok: true }` when the
-	 * intent is safe to enqueue/dispatch; returns `{ ok: false, error }`
+	 * intent is safe to enqueue/dispatch. Returns `{ ok: false, error }`
 	 * when the caller should block the action and surface the error
 	 * inline (Inspector ID field, options bar) without ever mutating
 	 * engine state.
@@ -264,8 +264,8 @@ export class Engine extends EngineDocApi implements PlacementCommands {
 
 	/**
 	 * Monotonic counter bumped only when the DOCUMENT changed, which
-	 * `useDocVersion` reads. A panel showing what the document says — its source,
-	 * its title, whether an id is taken — subscribes here instead of to
+	 * `useDocVersion` reads. A panel showing what the document says, its source,
+	 * its title, whether an id is taken, subscribes here instead of to
 	 * {@link version}, and then a playing clock costs it nothing.
 	 *
 	 * It never moves without `version` moving too, so a consumer that wants
@@ -275,7 +275,7 @@ export class Engine extends EngineDocApi implements PlacementCommands {
 		return this.#docVersion;
 	}
 
-	/** Monotonic counter bumped on every `#notify`; `useEngineVersion` reads it. */
+	/** Monotonic counter bumped on every `#notify`, `useEngineVersion` reads it. */
 	get version(): number {
 		return this.#version;
 	}
@@ -295,7 +295,7 @@ export class Engine extends EngineDocApi implements PlacementCommands {
 
 	/**
 	 * The claim/bundle tables the last layout + message pass produced.
-	 * Stage reads these for the frame instead of rebuilding; flight already
+	 * Stage reads these for the frame instead of rebuilding. Flight already
 	 * used them to place dots, so an edge drawn from a second map would
 	 * disagree with its own traffic.
 	 */
@@ -308,7 +308,7 @@ export class Engine extends EngineDocApi implements PlacementCommands {
 	 * entities by insertion. Renderers / inspectors iterate this
 	 * instead of `queries.peers` so the Stage z-order, Timeline
 	 * gutter row order, and Inspector connection lists all agree
-	 * automatically — no caller has to remember to call a sort
+	 * automatically. No caller has to remember to call a sort
 	 * helper. New consumers get the ordering for free.
 	 *
 	 * Allocates one small array per call (per category per frame),
@@ -404,14 +404,14 @@ export class Engine extends EngineDocApi implements PlacementCommands {
 		this.notify();
 	}
 
-	/** Move a peer in-place — rewrites the `position` on its
+	/** Move a peer in-place, rewrites the `position` on its
 	 * `peer-joined` event, which pins the peer in the force modes.
 	 * No-op if the peer id is unknown. Called continuously during
 	 * builder drags. The layout re-derives through the placement
 	 * rule (`recomputeForPlacement`): an era the edit did not
-	 * disturb — the pin sits where the era already had the peer —
+	 * disturb, the pin sits where the era already had the peer,
 	 * keeps its layout verbatim, and a disturbed era re-derives
-	 * cold, so neighbors re-balance around a genuinely moved pin
+	 * cold, so neighbors re-balance around a moved pin
 	 * with the canonical, history-free response a drag wants. */
 	repositionPeer(peerId: string, position: { x: number; y: number }): void {
 		writePeerPosition(this.doc, peerId, position);
@@ -421,10 +421,10 @@ export class Engine extends EngineDocApi implements PlacementCommands {
 	/**
 	 * Pin several peers and/or session ends in one placement pass.
 	 *
-	 * A multi-select drag used to call `repositionPeer` / `repositionEndpoint`
-	 * once per member per pointermove, each paying a full
-	 * `recomputeForPlacement` and a subscriber wake. One call writes every
-	 * pin, then recomputes and notifies once — same document result, one
+	 * Calling `repositionPeer` / `repositionEndpoint` once per member per
+	 * pointermove would pay a full `recomputeForPlacement` and a subscriber
+	 * wake each. One call writes every
+	 * pin, then recomputes and notifies once, same document result, one
 	 * layout solve.
 	 */
 	repositionNodes(
@@ -456,7 +456,7 @@ export class Engine extends EngineDocApi implements PlacementCommands {
 		this.notify(!this.#edits.isOpen);
 	}
 
-	/** Unpin a peer — remove its authored `position` from the
+	/** Unpin a peer, remove its authored `position` from the
 	 * definition and the `peer-joined` event so the force modes own
 	 * its placement again. No-op if the peer was never pinned. A
 	 * removal goes through `recompute` rather than
@@ -531,8 +531,8 @@ export class Engine extends EngineDocApi implements PlacementCommands {
 		//      bumped, `definePeer` ran, then `applyAuthored` threw)
 		//      would desync state vs. fixture identity. The user-visible
 		//      symptom shows up the moment validation/collision checks
-		//      start throwing intentionally (rename / paste / duplicate).
-		//   2. The undo entry's "before" image — recorded on success
+		//      start throwing (rename / paste / duplicate).
+		//   2. The undo entry's "before" image, recorded on success
 		//      when we're outside a transaction. Inside a transaction,
 		//      `beginTransaction` already captured the txn-begin
 		//      snapshot, so we only use this one for the rollback path.
@@ -540,11 +540,11 @@ export class Engine extends EngineDocApi implements PlacementCommands {
 		// Inside a transaction `beginTransaction` already holds the undo
 		// image. Cloning again per dispatch was the second tax on Unpin all
 		// and multi-delete (after the per-member layout/seek). Rollback of a
-		// failed member uses the txn snapshot — the whole gesture, which is
+		// failed member uses the txn snapshot, the whole gesture, which is
 		// what `asOneEdit` means.
 		const snapshotBefore = this.#edits.isOpen ? this.#edits.txnSnapshot! : this.#edits.takeSnapshot();
 		// `#authoredCounter` lives outside the doc snapshot (undo/redo
-		// deliberately doesn't reuse IDs across boundaries), so rollback
+		// doesn't reuse IDs across boundaries), so rollback
 		// restores it separately. Without this a half-applied dispatch
 		// would silently burn an ID slot.
 		const counterBefore = this.#authoredCounter;
@@ -569,7 +569,7 @@ export class Engine extends EngineDocApi implements PlacementCommands {
 	 *  subscribers. Returns the id-remap so the UI can update its
 	 *  selection state to the pasted entities. On validation failure
 	 *  (dangling external refs): emits the error on the bus, returns
-	 *  the result; doc untouched. */
+	 *  the result. Doc untouched. */
 	paste(
 		payload: ClipboardPayload,
 		clockT?: number,
@@ -603,7 +603,7 @@ export class Engine extends EngineDocApi implements PlacementCommands {
 		return ok({ remap: r.value.remap });
 	}
 
-	/** Duplicate a selection — extract a payload from the current doc
+	/** Duplicate a selection, extract a payload from the current doc
 	 *  and immediately paste it. Equivalent to copy + paste in one
 	 *  step but doesn't touch any external clipboard state. Returns
 	 *  the id-remap so callers can select the duplicated entities. */

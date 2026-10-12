@@ -2,13 +2,13 @@
 //! local time-travel (ADR-0060).
 //!
 //! A `StateBox` heads the single `Boxed` allocation that also carries the
-//! behavior's state; a `Cell` is the vat's one owning reference plus the
+//! behavior's state. A `Cell` is the vat's one owning reference plus the
 //! bookkeeping that keeps `become` safe under reentrant near-calls. Snapshots
 //! share boxes by refcount (zero bytes copied), copy-on-write clones a shared
 //! box the first time a turn would mutate it, and a persistent actor's
 //! functional `become` stages a fresh box installed when its outermost frame
 //! unwinds. `releaseBox` is the one lifetime chokepoint. The `Vat` exposes the
-//! local snapshot verbs (`snapshot`, `restore`); everything else is reached by
+//! local snapshot verbs (`snapshot`, `restore`). Everything else is reached by
 //! the sibling vat modules.
 
 const std = @import("std");
@@ -48,7 +48,7 @@ pub const StateBox = struct {
     /// no separate state free.
     drop: *const fn (box: *StateBox, allocator: std.mem.Allocator) void,
     /// Deep-copy this box's state into a fresh `Boxed` block, for copy-on-write.
-    /// Null when the actor opted out of cloning; such a box is snapshottable only
+    /// Null when the actor opted out of cloning. Such a box is snapshottable only
     /// if it is `persistent`.
     clone: ?*const fn (box: *const StateBox, allocator: std.mem.Allocator) ?*StateBox,
     /// Set at spawn for a persistent actor: its state is never mutated in place,
@@ -70,8 +70,8 @@ fn Boxed(comptime Behavior: type) type {
 /// The heap block behind a *hosted* actor (ADR-0071): the refcounted `StateBox`
 /// header beside the `HostedActor` the vat calls through. `box.ptr` points at
 /// the block, so the box-level `handle` recovers the callback and `ctx` from it.
-/// The box carries no `clone`, so such an actor is not snapshottable — the vat
-/// cannot copy state it does not own — and copy-on-write already no-ops on a
+/// The box carries no `clone`, so such an actor is not snapshottable, the vat
+/// cannot copy state it does not own, and copy-on-write already no-ops on a
 /// null clone. One allocation, one free through `drop`, like `Boxed`.
 const HostedBlock = struct {
     box: StateBox,
@@ -105,8 +105,8 @@ pub const Cell = struct {
     running: u32 = 0,
     /// Explicit roots (ADR-0101): the spawn's own root plus one per rooting
     /// relationship (host-wide alias row, Host capability slot, Port export
-    /// binding, exact gift row). The count reaching zero retires the row —
-    /// deferred past any running frame — while queued turns deliberately hold
+    /// binding, exact gift row). The count reaching zero retires the row,
+    /// deferred past any running frame, while queued turns hold
     /// none and take the typed `NoSuchActor` refusal instead.
     roots: u32 = 1,
     /// The next state box, promoted here by a frame that returned successfully
@@ -116,7 +116,7 @@ pub const Cell = struct {
 };
 
 /// A staged `Turn.become`: the next state box, held on the turn until the frame
-/// returns. On success it is promoted onto the actor's `Cell`; on a handler
+/// returns. On success it is promoted onto the actor's `Cell`. On a handler
 /// error it is discarded, so a failed turn leaves the actor unchanged.
 pub const PendingBecome = struct { id: u64, box: *StateBox };
 
@@ -149,8 +149,8 @@ pub const Snapshot = struct {
 /// Allocate a fresh `Boxed` block (`refs = 1`) owning a heap copy of
 /// `initial`, wiring the behavior's `handle`/`drop`/`clone` and persistent
 /// flavor. The one place a box is born from a value, shared by `spawn` and
-/// `become`; the copy-on-write path births its box through the wired
-/// `clone`. One allocation total — the merged header + state block. On
+/// `become`. The copy-on-write path births its box through the wired
+/// `clone`. One allocation total, the merged header + state block. On
 /// failure it owns nothing: `initial`'s resources are reclaimed before the
 /// error returns.
 pub fn makeBox(self: *Vat, comptime Behavior: type, initial: Behavior) Error!*StateBox {
@@ -262,8 +262,8 @@ pub fn makeHostedBox(self: *Vat, hosted: HostedActor) Error!*StateBox {
 
 /// Copy-on-write: if `cell`'s box is shared with a snapshot, deep-clone its
 /// state into a fresh box before the turn that is about to run can mutate it,
-/// so the snapshot's copy is never touched. A persistent box is skipped — it is
-/// never mutated in place — and an unshared box (`refs == 1`) costs nothing.
+/// so the snapshot's copy is never touched. A persistent box is skipped. It is
+/// never mutated in place, and an unshared box (`refs == 1`) costs nothing.
 /// Conservative by necessity: a read-only near-call to a shared mutable actor
 /// still clones, because mutable `self` hides reads from writes.
 pub fn ensureUnshared(self: *Vat, cell: *Cell) Error!void {
@@ -271,8 +271,8 @@ pub fn ensureUnshared(self: *Vat, cell: *Cell) Error!void {
     if (box.persistent or box.refs == 1) return;
     // A shared, non-persistent box can only exist because `snapshot`
     // admitted it, and `snapshot` refuses a clone-less mutable box
-    // (`NotSnapshottable`) — so `clone` is non-null here by invariant.
-    // Failing loud is load-bearing: returning instead would silently
+    // (`NotSnapshottable`), so `clone` is non-null here by invariant.
+    // Failing loud matters: returning instead would silently
     // mutate state a live snapshot shares.
     const clone_fn = box.clone orelse unreachable;
     // The wired `clone` builds the whole fresh `Boxed` block (state cloned
@@ -332,7 +332,7 @@ fn quiescent(self: *const Vat) bool {
 /// Capture the local actor heap: share every actor's `StateBox` (refcount up,
 /// no bytes copied, O(objects), Goblins's `snapshot-whactormap` shape) and
 /// Requires quiescence (`NotQuiescent`) and every
-/// actor to be cloneable or persistent (`NotSnapshottable`); on either failure
+/// actor to be cloneable or persistent (`NotSnapshottable`). On either failure
 /// nothing is left shared. The returned `Snapshot` is the owner's to `deinit`.
 pub fn snapshot(self: *Vat) Error!Snapshot {
     if (!quiescent(self)) return Error.NotQuiescent;
@@ -366,8 +366,8 @@ pub fn restore(self: *Vat, snap: *const Snapshot) Error!void {
     while (sit.next()) |entry| {
         // Intersect with the live table (ADR-0101): roots are authority and
         // are never rewound, so a row reclaimed since the snapshot is not
-        // resurrected — no surviving authority could reach it, and a rootless
-        // row would be exactly the leak reclamation removes — while a
+        // resurrected, no surviving authority could reach it, and a rootless
+        // row would be exactly the leak reclamation removes, while a
         // surviving row keeps its current count and takes the snapshot state.
         const current = self.actors.getPtr(entry.key_ptr.*) orelse continue;
         try rebuilt.put(self.allocator, entry.key_ptr.*, .{ .box = entry.value_ptr.*, .roots = current.roots });
@@ -380,7 +380,7 @@ pub fn restore(self: *Vat, snap: *const Snapshot) Error!void {
     var lit = previous.valueIterator();
     while (lit.next()) |cell| releaseBox(self.allocator, cell.box);
     previous.deinit(self.allocator);
-    // `next_actor` is deliberately *not* rewound. An actor id is what the
+    // `next_actor` is *not* rewound. An actor id is what the
     // export table maps a wire position to, and that table is not part of a
     // snapshot: rewinding it would rewind authority a partner already holds,
     // which is not local state. But rewinding only the counter is worse than

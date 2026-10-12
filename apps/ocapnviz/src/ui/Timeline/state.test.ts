@@ -17,7 +17,7 @@ const BASE_VIEW: TimelineView = {
 };
 
 Deno.test("clampView: windowStart never goes negative", () => {
-	// Time can't go below zero — pan-left always bottoms out at
+	// Time can't go below zero, pan-left always bottoms out at
 	// the origin, even when called with a negative windowStart.
 	const negStart: TimelineView = {
 		...BASE_VIEW,
@@ -55,7 +55,7 @@ Deno.test(
 	"zoomAround: a duration-only bound caps width at duration",
 	() => {
 		// Default maxWidth = duration, panMaxT = duration. Zoom-out
-		// is clamped because windowEnd can't exceed duration — Play /
+		// is clamped because windowEnd can't exceed duration, Play /
 		// Build's historical "can't zoom past 1×".
 		const zoomedOut = zoomAround(BASE_VIEW, 50, 0.01, 100);
 		assertEquals(zoomedOut.windowEnd - zoomedOut.windowStart, 100);
@@ -103,7 +103,7 @@ Deno.test(
 
 Deno.test("pan-left in Live mode bottoms out at windowStart=0", () => {
 	// Live: panMaxT=Infinity, but `windowStart >= 0` is the hard
-	// left floor — time never goes negative.
+	// left floor, time never goes negative.
 	const v100: TimelineView = {
 		...BASE_VIEW,
 		windowStart: 100,

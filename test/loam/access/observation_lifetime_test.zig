@@ -1,5 +1,5 @@
-//! Core observation authority: runtime lifetimes expire on the hosting marker;
-//! durable observers survive the same unclean restart and retain their quota.
+//! Core observation authority: runtime lifetimes expire on the hosting marker.
+//! Durable observers survive the same unclean restart and retain their quota.
 const std = @import("std");
 const h = @import("hosting_fixture.zig");
 const cases = @import("observation_cases.zig");

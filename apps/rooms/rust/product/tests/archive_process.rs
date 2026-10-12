@@ -1,4 +1,5 @@
 //! Exercise the executable's loader, CLI, custody, banner and signal barrier.
+#![cfg(test)]
 use std::{
 	io::{BufRead, BufReader},
 	path::PathBuf,

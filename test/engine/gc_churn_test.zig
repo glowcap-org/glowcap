@@ -13,7 +13,7 @@
 //! each `registerImport` standing for a far reference lifted from an inbound
 //! message, each `recordSend(gc_export, delta 1)` standing for the one unit a
 //! dropped handle releases. Only one import is ever live at a time, so a session
-//! that reclaims rows holds flat heap across the whole churn; one that strands
+//! that reclaims rows holds flat heap across the whole churn. One that strands
 //! them grows linearly. The per-handle-equals-one-unit accounting (ADR-0063) is
 //! what makes the matching delta exact.
 
@@ -53,7 +53,7 @@ test "finalizer-driven gc-export churn reclaims import rows and holds flat heap"
     const after = tracker.liveBytes();
 
     // Only one import is live at any moment, so a session that reclaims released
-    // rows grows by at most the table's steady backing — never one row per
+    // rows grows by at most the table's steady backing, never one row per
     // churned position. A linear leak would blow far past this.
     const grown = after - before;
     if (grown > 4096) {

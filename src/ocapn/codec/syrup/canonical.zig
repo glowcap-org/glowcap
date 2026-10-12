@@ -6,7 +6,7 @@
 //! functions name that signing domain and render it through `signing.zig`, the
 //! same record owner the wire encoder uses.
 //!
-//! Codecs never sign or verify; they transport the typed object plus signature
+//! Codecs never sign or verify. They transport the typed object plus signature
 //! bytes. The handoff and handshake drivers compute canonical bytes here and call
 //! `foundation.crypto.sign` / `verify` at the wrap-and-intercept boundary.
 
@@ -23,7 +23,7 @@ const Error = shared.Error;
 
 /// Canonical signed bytes for an `op:start-session` `acceptable-location`: the
 /// Syrup encoding of `<my-location $acceptable-location>` (Goblins `captp.rkt`).
-/// This is the exact byte domain `acceptable_location_sig` covers; both ends must
+/// This is the exact byte domain `acceptable_location_sig` covers. Both ends must
 /// produce identical bytes for verification to succeed. Caller owns the slice.
 pub fn canonicalLocationSignedBytes(
     allocator: std.mem.Allocator,
@@ -62,7 +62,7 @@ pub fn canonicalHandoffGiveSignedBytes(
 }
 
 /// Canonical signed bytes for a borrowed handoff give. The view remains
-/// borrowed throughout; only a lazy hint list, when present, is materialized as
+/// borrowed throughout. Only a lazy hint list, when present, is materialized as
 /// canonical-encoding scratch and freed before return. A Syrup-forwarded give
 /// carries its exact signed envelope, so that path reads no typed hints at all.
 pub fn canonicalHandoffGiveViewSignedBytes(
@@ -144,9 +144,9 @@ pub fn canonicalHandoffReceiveSignedBytes(
 }
 
 /// Canonical signed bytes for a borrowed handoff receive. The signed give is
-/// projected only for the duration of the encoder call; no owned receive is
+/// projected only for the duration of the encoder call. No owned receive is
 /// built. Syrup's split signature is joined in a fixed stack buffer. A Syrup
-/// receive also carries the give's exact signed envelope; when present, the
+/// receive also carries the give's exact signed envelope. When present, the
 /// encoder uses it verbatim and typed give hints/signature are not materialized.
 pub fn canonicalHandoffReceiveViewSignedBytes(
     allocator: std.mem.Allocator,

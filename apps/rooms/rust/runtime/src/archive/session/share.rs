@@ -113,7 +113,7 @@ impl<P: Platform> Work<P> {
 }
 impl<P: Platform> SessionArchive<P> {
 	/// One held local history capability. Shared managed content mediates it
-	/// through the viewer's History permission; it is never published raw.
+	/// through the viewer's History permission. It is never published raw.
 	pub fn local_reader(&self, host: &Host, scope: Filter) -> Result<Ref, Error> {
 		let work = Work::local(&self.0, Rc::new(Cell::new(true)));
 		let facet = Facet::new(scope, rooms_application::archive::Access::Read).map_err(Error::invalid_by)?;

@@ -1,9 +1,9 @@
 /**
- * The left catalog rail — Tools, the buffer's source, and the Legend.
+ * The left catalog rail, Tools, the buffer's source, and the Legend.
  *
- * AppView owns the handlers; this module owns the pane those handlers
+ * AppView owns the handlers. This module owns the pane those handlers
  * fill. Live names the middle section Connection because there is no
- * document to describe; Play and Build name it Document.
+ * document to describe, Play and Build name it Document.
  */
 
 import type { Engine } from "../engine/engine.ts";
@@ -83,7 +83,7 @@ export function LeftRail({
 				</div>
 			</Section>
 			{
-				/* Live has no document — it has a connection and a stream — so the
+				/* Live has no document, it has a connection and a stream, so the
           panel says what there is to say in each case, and its own title
           names which. `DocumentFields` carries the description in Play and
           Build, so there is no second copy of it here. */

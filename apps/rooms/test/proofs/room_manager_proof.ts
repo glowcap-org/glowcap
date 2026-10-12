@@ -20,8 +20,8 @@ import { spawnWeb } from "../support/web_front.ts";
 // separate claims, and only the second is worth having.
 //
 // Validated by breaking the code it watches. Discarding the caller's saved
-// authority in `enterRoom` — taking the ordinary entry's empty answer as the
-// whole truth — leaves the locator on screen and fails here on the press, which
+// authority in `enterRoom`, taking the ordinary entry's empty answer as the
+// whole truth, leaves the locator on screen and fails here on the press, which
 // is the defect this exists for. The check before the reload is the calibration:
 // it fails the same way if the join never minted a manager at all, so a failure
 // after the reload cannot be a proof that was aimed wrong.
@@ -80,7 +80,7 @@ try {
 
 	/** Press the act the manager capability is the authority for, and hold the
 	 * page to the room answering it. The answer is a toast the page raises only
-	 * once the room has spoken; a refusal writes into the card instead and
+	 * once the room has spoken. A refusal writes into the card instead and
 	 * raises nothing, which is why the wait is for the answer rather than for
 	 * the absence of a complaint. Clear whatever is already on screen first, so
 	 * what arrives is this press being answered and not the last one.

@@ -15,6 +15,11 @@ services:
     # page on every interface this machine has, including its LAN address.
     ports:
       - "127.0.0.1:8080:8080"
+    # For remote viewers and browser/session publication, advertise routes
+    # through this page's origin. Replace these examples with this site's URLs.
+    # environment:
+    #   GLOWCAP_ROOMS_TRACE_CONNECT: "wss://rooms.example/trace/captp"
+    #   GLOWCAP_ROOMS_TRACE_PUBLISH: "wss://rooms.example/publish"
     # Uncomment to also join the network that proxy or tunnel already runs on.
     # Keep glowcap-rooms-net in the list: the glowcap devcontainer's terminal peers
     # dial the room over it, and an override naming only the new network takes

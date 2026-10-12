@@ -14,6 +14,12 @@ the right check is easiest to review. Read only the context needed, then widen
 when a claim crosses a boundary. Use the
 [issue tracker](https://github.com/jimisaacs/glowcap/issues) for questions.
 
+AI-assisted contributions are welcome when a human submitter understands and
+takes responsibility for the change. Describe material AI assistance in the
+pull request, together with the checks you ran and any untested behavior.
+The restrictions on contributions to other projects are separate and live in
+[`PROVENANCE.md`](PROVENANCE.md#upstream-policies).
+
 ## Design boundaries
 
 These rules define what fits the project:
@@ -29,11 +35,10 @@ These rules define what fits the project:
 - Every wire-path allocation or copy is forbidden, intentional, or measured.
 - A fact has one owner. Prefer a generated mirror or check step over a
   hand-kept copy.
-- A source file holds one subject and stops at 650 lines. The files still
-  over that line are listed in `tools/check/source_check/file_length.zig`, the
-  list is closed to newcomers, and it is meant to reach zero. Splitting a file
-  to make room for your change is the ordinary way to work here, whoever wrote
-  the file, and taking a file off that list is welcome on its own.
+- A source file holds one subject and stops at 650 lines. The budget is
+  enforced by `zig build source-check` and currently holds with no exceptions.
+  Splitting a file to make room for your change is the ordinary way to work
+  here, whoever wrote the file.
 - Update docs that must match today's code in the same change as the code
   they describe. A claim that outlives the code is worse than no claim.
 
@@ -45,15 +50,15 @@ building against it.
 New authority models and I/O inside the synchronous core are out of scope.
 Encrypted channels between glowcap peers use iroh when discovery and NAT
 traversal matter, or `noise-tcp` on a direct route. Sealed TCP is a Noise
-channel, not TLS; plain `tcp` stays cleartext.
+channel, not TLS. Plain `tcp` stays cleartext.
 
 ## Dev environment
 
 The committed [devcontainer](.devcontainer/) is the supported ready-to-build
 environment. In the primary checkout, open the repository with **Dev
 Containers: Reopen in Container**. The host initializer creates the ignored
-checkout configuration and an isolated Docker egress network on first use;
-the container then verifies its toolchains automatically. Run:
+checkout configuration and an isolated Docker egress network on first use.
+The container then verifies its toolchains automatically. Run:
 
 ```sh
 zig build check
@@ -79,8 +84,8 @@ conformance/bootstrap-submodules.sh
 zig build test
 ```
 
-The in-tree gates also use Deno, Racket, Cargo, and small host tools. Their
-tested versions are listed in `.devcontainer/pins.sh`; the devcontainer remains
+The in-tree checks also use Deno, Racket, Cargo, and small host tools. Their
+tested versions are listed in `.devcontainer/pins.sh`. The devcontainer remains
 the ready-made path when you do not already have that toolchain.
 
 ## The checkout uses symlinks
@@ -128,10 +133,12 @@ zig build bench-codec                  # codec and dispatch measurements
 ```
 
 The complete product path is also available to contributors. `./glowcap`
-builds the staged installation incrementally, and `./glowcap install` uses
-the same verified installer as a platform archive. `zig build rooms-build`
-stages `zig-out/product`; `zig build rooms-deploy-prep` prepares that complete
-Linux product as a Docker image context.
+prepares a missing installation, and `./glowcap install` uses the same verified
+installer as a platform archive. `zig build rooms-build` stages
+`zig-out/product` with the selected build options. `zig build rooms-release`
+prepares it with ReleaseSafe and baseline CPU settings. On Linux,
+`./glowcap apps rooms deployment up` prepares the current source with that
+preset and builds its Docker image.
 
 ## Continuous integration
 
@@ -142,7 +149,7 @@ and [tagged releases](https://github.com/jimisaacs/glowcap/actions/workflows/rel
 Pull requests run `zig build test` and `zig build fmt-check` in a 15-minute
 Zig-only lane. Pushes to `main` and `dev` run the complete devcontainer check
 and the macOS Zig test suite. The release workflow runs on `v*` tags and manual
-dispatch; tags publish after the matching check, while manual runs upload
+dispatch. Tags publish after the matching check, while manual runs upload
 artifacts without publishing. CI installs the versions declared in
 [`.devcontainer/pins.sh`](.devcontainer/pins.sh).
 
@@ -150,7 +157,7 @@ artifacts without publishing. CI installs the versions declared in
 
 By contributing, you agree your contributions are licensed under
 [Apache-2.0](LICENSE-APACHE).
-Third-party files keep their own terms; see
+Third-party files keep their own terms. See
 [`LICENSE-THIRD-PARTY`](LICENSE-THIRD-PARTY).
 
 [PROVENANCE.md](PROVENANCE.md) explains how the repository is produced and

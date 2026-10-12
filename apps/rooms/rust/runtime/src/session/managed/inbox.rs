@@ -1,16 +1,15 @@
 //! One callback worker retains bounded input until current source admission.
 //! Its owner cancels and drains the worker before releasing the actor root.
 use glowcap::{Argument, Host, Ref, Result, loam};
-use rooms_application::{
-	content::session::workspace::{DiscoverySelection, InboxSelection},
-	room::inbox::queue,
-};
+use rooms_application::content::session::workspace::{DiscoverySelection, InboxSelection};
 use rooms_glowcap::client::{Deadline, Tasks, workspace::Workspace};
 use std::{
 	cell::{Cell, RefCell},
 	rc::Rc,
 };
 use tokio::sync::{mpsc, watch};
+mod custody;
+use custody::{Charge, demand};
 
 /// Shared identity of an installed callback. Child line actors recheck this
 /// exact source and callback, including retirement before workspace reconciliation.
@@ -81,9 +80,20 @@ impl InboxOrigin {
 			return Ok(false);
 		}
 		let workspace = Workspace::local(host.clone(), platform, self.source().clone());
+		let live = self
+			.0
+			.live
+			.upgrade()
+			.ok_or_else(|| loam::refusal("callback owner closed"))?;
+		let writer = live
+			.budget
+			.writer
+			.upgrade()
+			.ok_or_else(|| loam::refusal("callback owner closed"))?;
+		let owner = writer.root()?;
 		let result = match &self.0.selected {
-			Selection::Installed(selected) => workspace.check_inbox(selected, &self.0.installed).await,
-			Selection::Discovery(selected) => workspace.check_discovery(selected).await,
+			Selection::Installed(selected) => workspace.owner_check_inbox(&owner, selected, &self.0.installed).await,
+			Selection::Discovery(selected) => workspace.owner_check_discovery(&owner, selected).await,
 		};
 		match result {
 			Ok(()) => Ok(self.is_open()),
@@ -119,27 +129,34 @@ enum Admission<P> {
 }
 
 const QUEUED_PER_INBOX: usize = 16;
-const MAX_VALUES: usize = 4096;
-const MAX_DEPTH: usize = 32;
 const MAX_INBOXES: usize = 2 * rooms_application::content::session::workspace::MAX_DIRECTORIES
 	+ rooms_application::content::session::workspace::MAX_CONVERSATIONS;
 
 /// The session shares these limits across every callback, including waits in
 /// source admission. A peer cannot multiply the payload budget by room count.
 pub(super) struct Budget {
+	admission: RefCell<super::incoming::Admission>,
 	writer: std::rc::Weak<super::executor::Writer>,
 	inboxes: Cell<usize>,
-	messages: Cell<usize>,
-	bytes: Cell<usize>,
+	custody: Rc<custody::Budget>,
 }
 impl Budget {
 	pub(super) fn new(writer: std::rc::Weak<super::executor::Writer>) -> Self {
 		Self {
+			admission: RefCell::new(super::incoming::Admission::new(
+				rooms_application::admission::Settings::defaults(4096, 8),
+			)),
 			writer,
 			inboxes: Cell::new(0),
-			messages: Cell::new(0),
-			bytes: Cell::new(0),
+			custody: Rc::new(custody::Budget::default()),
 		}
+	}
+	pub(super) fn configure_admission(&self, settings: rooms_application::admission::Settings) -> Result<()> {
+		if self.inboxes.get() != 0 {
+			return Err(loam::refusal("incoming policy is already in use"));
+		}
+		*self.admission.borrow_mut() = super::incoming::Admission::new(settings);
+		Ok(())
 	}
 	pub(super) fn active(&self) -> usize {
 		self.inboxes.get()
@@ -148,31 +165,6 @@ impl Budget {
 struct Failure {
 	first: glowcap::Error,
 	count: usize,
-}
-struct Charge {
-	budget: Rc<Budget>,
-	bytes: usize,
-}
-impl Charge {
-	fn reserve(budget: &Rc<Budget>, bytes: usize) -> std::result::Result<Self, String> {
-		if budget.messages.get() == queue::MAX_MESSAGES
-			|| bytes > queue::MAX_MESSAGE_BYTES.saturating_sub(budget.bytes.get())
-		{
-			return Err("Session callback backlog is full".into());
-		}
-		budget.messages.set(budget.messages.get() + 1);
-		budget.bytes.set(budget.bytes.get() + bytes);
-		Ok(Self {
-			budget: budget.clone(),
-			bytes,
-		})
-	}
-}
-impl Drop for Charge {
-	fn drop(&mut self) {
-		self.budget.messages.set(self.budget.messages.get() - 1);
-		self.budget.bytes.set(self.budget.bytes.get() - self.bytes);
-	}
 }
 struct Pending {
 	verb: &'static str,
@@ -201,8 +193,8 @@ impl Drop for Live {
 }
 
 /// Retain this owner through workspace installation, receipt recovery and live
-/// subscription. Dropping it cancels queued admission and breaks pending calls;
-/// a retained remote reference then refuses without retaining new input.
+/// subscription. Dropping it cancels queued admission and breaks pending calls.
+/// A retained remote reference then refuses without retaining new input.
 pub struct Inbox<P: Tasks> {
 	task: Option<P::Task>,
 	reference: Ref,
@@ -334,6 +326,12 @@ pub(super) fn open_line<P: Tasks + Deadline + Clone + 'static>(
 	)
 }
 
+/// Where an inbox's origin comes from: a line inbox reuses its parent's, and
+/// every other kind builds one from the selection it was admitted with.
+enum OriginSource {
+	Existing(InboxOrigin),
+	Selected(Box<Selection>),
+}
 fn open_checked<P: Tasks + Deadline + Clone + 'static>(
 	host: &Host,
 	platform: P,
@@ -347,15 +345,14 @@ fn open_checked<P: Tasks + Deadline + Clone + 'static>(
 	) -> std::result::Result<Argument, String>
 	+ 'static,
 ) -> Result<Inbox<P>> {
-	let (workspace, selected, origin, kind, synchronized) = match admission {
+	let (workspace, origin, kind, synchronized) = match admission {
 		Admission::Discovery {
 			workspace,
 			selected,
 			synchronized,
 		} => (
 			workspace,
-			Some(Selection::Discovery(selected)),
-			None,
+			OriginSource::Selected(Box::new(Selection::Discovery(selected))),
 			Kind::Notification,
 			Some(synchronized),
 		),
@@ -365,9 +362,14 @@ fn open_checked<P: Tasks + Deadline + Clone + 'static>(
 			} else {
 				Kind::Notification
 			};
-			(workspace, Some(Selection::Installed(selected)), None, kind, None)
+			(
+				workspace,
+				OriginSource::Selected(Box::new(Selection::Installed(selected))),
+				kind,
+				None,
+			)
 		}
-		Admission::Child { workspace, origin } => (workspace, None, Some(origin), Kind::Line, None),
+		Admission::Child { workspace, origin } => (workspace, OriginSource::Existing(origin), Kind::Line, None),
 	};
 	if budget.inboxes.get() == MAX_INBOXES {
 		return Err(loam::refusal("Session callback owner capacity is exhausted"));
@@ -380,8 +382,11 @@ fn open_checked<P: Tasks + Deadline + Clone + 'static>(
 		refused: Cell::new(0),
 	});
 	let weak = Rc::downgrade(&live);
+	let (cleanup_sender, mut cleanups) = mpsc::channel::<Pending>(2);
 	let (sender, mut requests) = mpsc::channel::<Pending>(QUEUED_PER_INBOX);
 	let actor_host = host.clone();
+	let receiving_clock = platform.clone();
+	let mut remote = super::incoming::Sender::default();
 	let reference = host.spawn(move |verb, args| {
 		let verb = if matches!(kind, Kind::Line) {
 			use rooms_application::protocol_data as protocol;
@@ -414,14 +419,26 @@ fn open_checked<P: Tasks + Deadline + Clone + 'static>(
 		}
 		// Reserve both queue and aggregate custody before cloning arguments or
 		// creating a deferred answer. Refusal leaves the original call intact.
-		let slot = sender.try_reserve().map_err(|_| "Session inbox queue is unavailable")?;
+		let cleanup = verb == rooms_application::protocol_data::WITHDRAW && args.is_empty();
+		let selected = if cleanup { &cleanup_sender } else { &sender };
+		let slot = selected
+			.try_reserve()
+			.map_err(|_| "Session inbox queue is unavailable")?;
 		let bytes = demand(args)?;
-		let charge = Charge::reserve(&live.budget, bytes)?;
+		let charge = Charge::reserve(&live.budget.custody, bytes, cleanup)?;
 		let delivering = if matches!(kind, Kind::Direct) {
 			glowcap::current_session().map_err(|e| e.to_string())?
 		} else {
 			None
 		};
+		if matches!(kind, Kind::Direct | Kind::Line) {
+			let sender = glowcap::current_session().map_err(|e| e.to_string())?;
+			let key = remote.key(sender.as_ref())?;
+			live.budget
+				.admission
+				.borrow_mut()
+				.receive(key, verb, bytes, receiving_clock.monotonic_millis())?;
+		}
 		let args = args.to_vec();
 		let resolver = actor_host.defer_turn_if_answer().map_err(|e| e.to_string())?;
 		slot.send(Pending {
@@ -438,16 +455,17 @@ fn open_checked<P: Tasks + Deadline + Clone + 'static>(
 	let failure = Rc::new(RefCell::new(None));
 	let failures = failure.clone();
 	let receiving = live.clone();
-	let origin = origin.unwrap_or_else(|| {
-		InboxOrigin(Rc::new(Origin {
+	let origin = match origin {
+		OriginSource::Existing(origin) => origin,
+		OriginSource::Selected(selected) => InboxOrigin(Rc::new(Origin {
 			source: workspace.reference().clone(),
-			selected: selected.expect("membership selection"),
+			selected: *selected,
 			installed: reference.clone(),
 			live: Rc::downgrade(&live),
 			recording: RefCell::new(None),
 			next_route: Cell::new(1),
-		}))
-	});
+		})),
+	};
 	let retained_origin = origin.clone();
 	let callback_platform = platform.clone();
 	let task = platform.spawn(async move {
@@ -470,6 +488,7 @@ fn open_checked<P: Tasks + Deadline + Clone + 'static>(
 			let mut request = tokio::select! {
 				biased;
 				_ = stopping.changed() => break,
+				request = cleanups.recv() => match request { Some(request) => request, None => break },
 				request = requests.recv() => match request { Some(request) => request, None => break },
 			};
 			// No projection, target lookup or separate authority cache intervenes
@@ -485,7 +504,10 @@ fn open_checked<P: Tasks + Deadline + Clone + 'static>(
 								&origin.0.installed, request.verb, &request.args).await?;
 							super::recording::admit(&writer, callback_platform.clone(), &workspace, selected, &origin.0.installed).await
 						},
-						Selection::Discovery(selected) => workspace.check_discovery(selected).await.map(|()| None).map_err(|e| loam::refusal(e.to_string())),
+						Selection::Discovery(selected) => {
+							let writer = receiving.budget.writer.upgrade().ok_or_else(|| loam::refusal("callback owner closed"))?;
+							workspace.owner_check_discovery(&writer.root()?, selected).await.map(|()| None).map_err(|e| loam::refusal(e.to_string()))
+						},
 					}
 				} => result,
 			};
@@ -507,6 +529,10 @@ fn open_checked<P: Tasks + Deadline + Clone + 'static>(
 			}
 			resolve(&mut request, result, &failures);
 		}
+        cleanups.close();
+        while let Some(mut request) = cleanups.recv().await {
+            resolve(&mut request, Err("Session inbox owner has closed".into()), &failures);
+        }
 		requests.close();
 		while let Some(mut request) = requests.recv().await {
 			resolve(&mut request, Err("Session inbox owner has closed".into()), &failures);
@@ -545,53 +571,4 @@ fn resolve(request: &mut Pending, result: std::result::Result<Argument, String>,
 			*previous = Some(Failure { first: error, count: 1 });
 		}
 	}
-}
-
-/// One borrowed walk bounds nodes and depth before copying a callback across
-/// its asynchronous admission wait. Every payload is copied once; vector slots
-/// and owned strings are charged from the clone's lengths. Host guards retain
-/// existing capability identity. Fixed queue/task/actor state is independently
-/// bounded by MAX_INBOXES and QUEUED_PER_INBOX.
-fn demand(args: &[Argument]) -> std::result::Result<usize, String> {
-	fn fields(values: &[Argument], depth: usize, nodes: &mut usize) -> Option<usize> {
-		if depth > MAX_DEPTH || values.len() > MAX_VALUES.saturating_sub(*nodes) {
-			return None;
-		}
-		*nodes += values.len();
-		let mut bytes = values.len().checked_mul(size_of::<Argument>())?;
-		for value in values {
-			let owned = match value {
-				Argument::Bytes(value) => value.len(),
-				Argument::String(value)
-				| Argument::Symbol(value)
-				| Argument::Keyword(value)
-				| Argument::Error(value) => value.len(),
-				Argument::BigInteger { digits, .. } => digits.len(),
-				Argument::List(value) | Argument::Set(value) => fields(value, depth + 1, nodes)?,
-				Argument::Tagged { tag, value } => tag.len().checked_add(fields(value, depth + 1, nodes)?)?,
-				Argument::Struct(value) => {
-					if depth == MAX_DEPTH || value.len() > MAX_VALUES.saturating_sub(*nodes) {
-						return None;
-					}
-					let mut bytes = value.len().checked_mul(size_of::<(String, Argument)>())?;
-					for (name, child) in value {
-						bytes = bytes.checked_add(name.len())?.checked_add(
-							fields(std::slice::from_ref(child), depth + 1, nodes)?.checked_sub(size_of::<Argument>())?,
-						)?;
-					}
-					bytes
-				}
-				_ => 0,
-			};
-			bytes = bytes.checked_add(owned)?;
-			if bytes > queue::MAX_MESSAGE_BYTES {
-				return None;
-			}
-		}
-		Some(bytes)
-	}
-	fields(args, 0, &mut 0)
-		.and_then(|bytes| bytes.checked_add(size_of::<Pending>()))
-		.filter(|bytes| *bytes <= queue::MAX_MESSAGE_BYTES)
-		.ok_or_else(|| "Session callback input exceeds its count, depth or byte bound".into())
 }

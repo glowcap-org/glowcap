@@ -1,6 +1,6 @@
 /**
  * One edit transaction's brackets, and one typed-but-not-yet-handed-up
- * draft. Fields open on focus and close on blur; unmount without blur
+ * draft. Fields open on focus and close on blur. Unmount without blur
  * still has to close, or the engine swallows every later undo step.
  */
 
@@ -32,7 +32,7 @@ export type EditBracket = Pick<EditorBindings, "beginEdit" | "endEdit">;
  * undefined outside Build and a different object once the buffer is a
  * different engine, and both changes are reachable while a caret sits
  * in a field. So `sessionNow` is asked once, at `begin`, and the
- * answer is what `end` closes — the transaction belongs to the editor
+ * answer is what `end` closes. The transaction belongs to the editor
  * that opened it, and closing it against whatever the field is holding
  * a moment later either closes nothing (the leak this exists to stop)
  * or ends a transaction on an engine that never began one. Asked and
@@ -74,7 +74,7 @@ export function editBracket(sessionNow: () => EditBracket | undefined): {
  * One typed-but-not-yet-handed-up edit, tracking whether it is still
  * waiting.
  *
- * `editBracket` above is the same story about an undo step; this is
+ * `editBracket` above is the same story about an undo step. This is
  * the story about the edit itself. A field holds a draft while it is
  * being typed and hands it up when the reader is done, and "done" is
  * spelled as blur. Selecting another entity unmounts the field
@@ -132,7 +132,7 @@ export function pendingEdit(commit: () => void): {
  *  hands its draft up when that field goes away. */
 export function usePendingEdit(commit: () => void) {
 	// `commit` closes over this render's draft, so the pending edit
-	// reads it through a ref rather than being rebuilt around it — a
+	// reads it through a ref rather than being rebuilt around it, a
 	// rebuilt one would forget that an edit was waiting, and hand up a
 	// stale draft when it did fire.
 	const commitRef = useRef(commit);
@@ -151,7 +151,7 @@ export function usePendingEdit(commit: () => void) {
  *  under it changes. */
 export function useEditBracket(session: EditBracket | undefined) {
 	// One bracket for the field's whole life, reading the editor through
-	// a ref rather than being rebuilt around it — a rebuilt bracket would
+	// a ref rather than being rebuilt around it. A rebuilt bracket would
 	// forget that it was open. The ref is read at `begin` and the answer
 	// held, so a later render pointing it somewhere else cannot move an
 	// open transaction.

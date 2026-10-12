@@ -20,8 +20,8 @@ const host = "127.0.0.1";
 const frame_cap: usize = 1 << 16;
 
 // The record cap goblins-host.rkt publishes for the op:get leg: calling it
-// returns a string-keyed hash (an OCapN Struct). Fixed in the host script —
-// like the listener scenarios' actor swiss-num — so the echo readiness line
+// returns a string-keyed hash (an OCapN Struct). Fixed in the host script,
+// like the listener scenarios' actor swiss-num, so the echo readiness line
 // stays the first `swiss` line every interop client parses.
 const record_swiss = "glowcapRecordSwissnumABCDEF12345";
 /// The stateful cap the one-way-deliver leg drives (`goblins-host.rkt`'s
@@ -155,8 +155,8 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
     std.debug.print("goblins-interop: op:index pipelined against the echo answer; goblins resolved the projected element\n", .{});
 
     // 5. Pipeline an op:get (ADR-0050, glowcap as the asker), the same way:
-    //    fetch the record cap — calling it returns a string-keyed hash, the
-    //    OCapN Struct — and project the "name" field out of the call's answer.
+    //    fetch the record cap, calling it returns a string-keyed hash, the
+    //    OCapN Struct, and project the "name" field out of the call's answer.
     //    The op:get is sent *before* the call settles, so Goblins anchors its
     //    `hash-ref` vow on a still-pending answer; the engine's auto-installed
     //    listener carries the projected field back as a resolve event.
@@ -323,7 +323,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
 }
 
 /// Verify the Ed25519 signature Goblins put on its own `op:start-session` over
-/// `<my-location <ocapn-peer …>>` — the proof we parsed real Goblins bytes.
+/// `<my-location <ocapn-peer …>>`: the proof we parsed real Goblins bytes.
 fn verifyGoblinsStartSession(allocator: std.mem.Allocator, peer: *engine.Peer) !void {
     var saw = false;
     while (peer.pollEvent()) |event| {

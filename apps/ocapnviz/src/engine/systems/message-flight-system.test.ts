@@ -4,8 +4,8 @@ import { bezierAt, claimTargets, computeSessionBundles, drawnSessionCurve } from
 import { Engine } from "../engine.ts";
 import { TimelineDocument } from "../timeline.ts";
 
-// End-to-end check that the user's actual test scenario — 5
-// simultaneous messages on one session, same direction — produces
+// End-to-end check that the user's actual test scenario, 5
+// simultaneous messages on one session, same direction, produces
 // 5 visibly different positions on the spine at mid-flight. Uses
 // the full Engine so peer positions come from the real layout
 // system (KeyframeLayoutSystem honors `peer-joined.position` only
@@ -135,7 +135,7 @@ Deno.test("5 simultaneous A→B messages all converge at sender at sentT", () =>
 
 Deno.test("5 simultaneous A→B messages all converge at receiver at arrivalT", () => {
 	const engine = new Engine(buildFiveMessageDoc());
-	// Seek to just under arrivalT — at exactly 500 the delivered
+	// Seek to just under arrivalT, at exactly 500 the delivered
 	// events fire and the messages are removed from flight.
 	engine.seekTo(499);
 	for (const e of engine.queries.messagesInFlight) {
@@ -148,11 +148,11 @@ Deno.test("5 simultaneous A→B messages all converge at receiver at arrivalT", 
  *  one message each way.
  *
  *  The loose end takes an authored position through the session that owns
- *  it, so both peers and the placeholder are placed deliberately and a
+ *  it, so both peers and the placeholder are placed and a
  *  flight direction is a coordinate comparison rather than an eyeball.
  *
  *  The message OUT of the loose end names its sender the way a producer that
- *  reported `src` directly does — by the name it knows it under, which is
+ *  reported `src` directly does, by the name it knows it under, which is
  *  not the node id the stage drew the end at. That is the case a direction
  *  test asking only "is the sender `a`?" gets wrong, and it gets it wrong
  *  silently, by flying the dot out of the receiver. */
@@ -251,8 +251,8 @@ Deno.test("each message leaves its own end when one of them is loose", () => {
 
 Deno.test("a message on a claimed session flies along the drawn wire", () => {
 	// The dot and the edge must be one geometry. An edge whose far end is a
-	// claim is drawn as the prefix of the lane to the peer it names — arched as
-	// though it were going there, and stopping at the claim — so a dot on the
+	// claim is drawn as the prefix of the lane to the peer it names, arched as
+	// though it were going there, and stopping at the claim, so a dot on the
 	// curve between the raw endpoints would fly beside its own wire.
 	const doc = TimelineDocument.parse({
 		id: "claimed-flight",

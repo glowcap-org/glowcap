@@ -62,7 +62,7 @@ engineTest("undo takes a rename back, and the selection lets go", () => {
 engineTest("a peer an author added survives a step of history", () => {
 	// An added peer is declared among the document's entities and mentioned by
 	// no observation at all, so asking the observation stream whether the
-	// document still holds it answers no — and clears the reader's selection
+	// document still holds it answers no, and clears the reader's selection
 	// on the next Cmd-Z. The identity map is what answers this.
 	const e = new Engine(looseDoc());
 	const added = e.dispatch({

@@ -66,7 +66,7 @@ export function useRoomCapabilityActs(
 	// Whether each paste field is on screen. One authority for it, because the
 	// same answer decides two things that must agree: whether the field renders,
 	// and whether what it holds counts as an unsaved change. Read apart, a route
-	// that takes the capability some other way — minting one, recovering one —
+	// that takes the capability some other way (minting one, recovering one)
 	// leaves text behind a field that no longer exists, and the card then refuses
 	// to close over changes a reader cannot see, find, or edit.
 	const managerTakeShown = conv.managerToken == null && authoritySource !== "bridge";

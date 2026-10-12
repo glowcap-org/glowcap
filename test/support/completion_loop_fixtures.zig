@@ -65,10 +65,10 @@ pub const FakeEvent = enum { send_submitted, send_released, recv_armed };
 
 /// A scripted completion backend: each armed recv synchronously delivers the
 /// next chunk of `chunks` as a borrowed completion view (a clean EOF past the
-/// end), and every submitted send is *held* — the partner is a slow reader —
+/// end), and every submitted send is *held*, the partner is a slow reader,
 /// completing only when the loop has nothing else to do (`poll` with an empty
 /// ready queue). If the loop parks its read behind a held write, the journal
-/// shows the send release strictly before the next `recv_armed`; if parking
+/// shows the send release strictly before the next `recv_armed`. If parking
 /// were broken, the read would arm first and the journal order would flip.
 /// The backend also counts pool traffic (`handed` / `recycles`) so tests can
 /// assert every successful recv's buffer is recycled exactly once.
@@ -127,6 +127,12 @@ pub const FakeBackend = struct {
 
     pub fn loopListenTarget(port: u16) ListenTarget {
         return port;
+    }
+
+    /// A scripted listener binds at `openListener`; nothing pends here; a
+    /// wrapped adapter's pending setup reports through the adapter itself.
+    pub fn listenerPending(_: *FakeBackend, _: Fd) bool {
+        return false;
     }
 
     pub fn openListener(self: *@This(), port: u16) !Fd {

@@ -10,14 +10,14 @@
 //!
 //! Second, one `--fuzz` run searches exactly one target, whichever the runner
 //! picks. With four targets in the artifact that meant three of them were never
-//! touched and the run still said "no findings" — the shape of failure that is
+//! touched and the run still said "no findings", the shape of failure that is
 //! worse than a red build, because nobody looks at it again. So this finds every
 //! target itself and runs the fuzzer once per target, narrowing the build to
 //! that one with `-Dtest-filter`.
 //!
 //! A target counts as searched only if the fuzzer's own run counter advanced
 //! while it ran, checked per target rather than once for the whole sweep. The
-//! counter is the only honest signal: the coverage file is created, sized, and
+//! counter is the only reliable signal: the coverage file is created, sized, and
 //! written at fuzzer startup, before a single input is tried, so a check that
 //! merely notices the file appearing passes for a target that searched nothing.
 //! There is such a file in this repository's cache with a run count of zero.
@@ -46,7 +46,7 @@ const coverage_dir = "v";
 /// ZIG_LOCAL_CACHE_DIR when the environment names one (the devcontainer's
 /// named volume does), else the repo's `.zig-cache`. The child inherits this
 /// process's environment, so reading the same variable keeps the driver's
-/// counters under the directory the fuzzer actually used.
+/// counters under the directory the fuzzer used.
 fn localCacheDir(init: std.process.Init) []const u8 {
     return init.environ_map.get("ZIG_LOCAL_CACHE_DIR") orelse ".zig-cache";
 }

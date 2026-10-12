@@ -98,7 +98,7 @@ test "a relayed resolution carrying a capability is introduced by handoff, not b
     try std.testing.expect(settled.fulfill == .handoff);
     try std.testing.expect(settled.fulfill.handoff.* == .give);
 
-    // Storing it is not the claim that matters — reaching the recipient is.
+    // Storing it is not the claim that matters, reaching the recipient is.
     // Drain the fire the listener installed above and read the give back off
     // the wire, which is the only evidence a real partner would ever see.
     try std.testing.expectEqual(engine.StepOutcome.progress, try node.peer(recipient).?.step());
@@ -320,8 +320,8 @@ test "one home promise will not be introduced to unboundedly many third parties"
 
     // The recipient drives the count: it asks repeatedly and the application
     // answers each time with the same foreign promise. The home session is the
-    // one that would pay — a signature and a deposit per recipient when the
-    // promise settles — so the fan-out is refused here, at introduce time,
+    // one that would pay, a signature and a deposit per recipient when the
+    // promise settles, so the fan-out is refused here, at introduce time,
     // where the caller asking for it can still see the refusal.
     var introduced: usize = 0;
     while (introduced < Node.max_proxy_recipients) : (introduced += 1) {
@@ -446,8 +446,8 @@ test "a relayed resolution carrying a routing route emits the wire import positi
     // `Peer.applyRelayedResolution` is the one outbound path that bypasses
     // `send`'s lowering chokepoint, so it lowers the resolution itself before
     // storing it (ADR-0009/0069). A node-local routing route is meaningless
-    // to a partner and is not even a legal wire position — it sits in the
-    // explicit routed arm cannot be encoded — so what reaches the wire has to
+    // to a partner and is not even a legal wire position, it sits in the
+    // explicit routed arm cannot be encoded, so what reaches the wire has to
     // be the real import position the route stands for. This drives that
     // path with a route-carrying fulfillment and reads the emitted frame.
     const allocator = std.testing.allocator;
@@ -463,7 +463,7 @@ test "a relayed resolution carrying a routing route emits the wire import positi
     const relaying = &relaying_storage;
 
     // This session imports a capability, and the node enrolls it under a
-    // routing route — the id an application holds and could name.
+    // routing route, the id an application holds and could name.
     const wire_import: u64 = 7;
     try relaying.session_state.registerImport(.from(wire_import));
     const route = try node.enrollForeign(relaying_id, .{ .far = model.FarRef.object(wire_import) });

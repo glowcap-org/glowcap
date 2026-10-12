@@ -13,12 +13,12 @@ export async function runChange(
 	tab: Page,
 	second: Page,
 ): Promise<(where: string) => Promise<void>> {
-	// A file line is a line, so its message menu offers Edit — and because the
+	// A file line is a line, so its message menu offers Edit, and because the
 	// line carries files, Edit opens the composer on them: each file shows as a
 	// removable chip rather than only the caption in the field. Post a file, then
 	// swap it for a different one and send. The room refiles the line in place,
 	// and the second peer, which holds none of the bytes, redraws it from the new
-	// blob under the same line. Kept to text files on purpose: they stay out of
+	// blob under the same line. Kept to text files: they stay out of
 	// the image viewer order the picture tests below walk, so this proves the
 	// whole edit path without disturbing them.
 	{
@@ -93,8 +93,8 @@ export async function runChange(
 		await tab.fill("#line", "");
 
 		// Editing the line down to nothing takes it back, because a message with no
-		// files and no caption is not a message. That is a real thing to want — it
-		// is how the last file comes off — but it must not arrive as a surprise, so
+		// files and no caption is not a message. That is a real thing to want, it
+		// is how the last file comes off, but it must not arrive as a surprise, so
 		// the composer says what sending will do and the control stops calling
 		// itself Send. Taking the line back this way also proves a file line
 		// withdraws like any other, its file going with it, and leaves no file row
@@ -323,7 +323,7 @@ export async function runChange(
 	if (fileAction === null || !fileAction.icon || fileAction.visibleLabel !== "") {
 		fail(`the file download was not a named icon button: ${JSON.stringify(fileAction)}`);
 	}
-	// Copying a message is in its menu now, so the mark that opens the menu is the
+	// Copying a message is in its menu, so the mark that opens the menu is the
 	// icon button this contract is about: named, drawn as a glyph, and carrying no
 	// text of its own.
 	const menuMark = await second.evaluate(() => {

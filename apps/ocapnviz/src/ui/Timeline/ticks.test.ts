@@ -1,6 +1,6 @@
 /**
  * Tick cascade smoke tests. The cascade transitions through ms →
- * s → min → hr → day → mo → yr units; these tests pin down the
+ * s → min → hr → day → mo → yr units. These tests pin down the
  * unit-label boundaries so a future re-ordering of `STEPS` can't
  * silently swap a "1d" tick for "24h" (which would be visually
  * jumpy at the day/hour boundary).

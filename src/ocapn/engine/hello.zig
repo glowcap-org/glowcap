@@ -43,9 +43,9 @@ pub fn sendKeyedStartSession(
 /// time on every transport but onion, whose stored snapshot stays bare
 /// because completion cannot know a partner and a bare locator is the
 /// only onion form other parties may be handed (ADR-0108). The one
-/// session that may state a real onion preference — a partner known to
-/// be glowcap (ADR-0118) — therefore stamps here, at session time;
-/// everything else sends the completed snapshot exactly.
+/// session that may state a real onion preference, a partner known to
+/// be glowcap (ADR-0118), therefore stamps here, at session time.
+/// Everything else sends the completed snapshot exactly.
 pub fn sendKeyedStartSessionAdvertised(
     self: *Peer,
     advertised: model.PeerLocator,
@@ -63,7 +63,7 @@ pub fn sendKeyedStartSessionAdvertised(
 /// hints, so no entry point can sign an onion location the pinned Goblins
 /// cannot dial. The one exception is a partner already known to be
 /// glowcap, whose hello may keep the profile hints this peer stamped
-/// (ADR-0118); routing hints stay stripped even then.
+/// (ADR-0118). Routing hints stay stripped even then.
 pub fn sendKeyedStartSessionExact(
     self: *Peer,
     advertised: model.PeerLocator,
@@ -114,9 +114,9 @@ pub fn noteKnownGlowcapPartner(self: *Peer) void {
 }
 
 /// Answer a deferred onion hello (ADR-0118): read the inbound hello's
-/// stated preference, and when it differs from the baseline — proof the
+/// stated preference, and when it differs from the baseline, proof the
 /// initiator is glowcap, because the pinned Goblins onion netlayer signs
-/// only `#f`-hinted locations — record the knowledge before stamping our
+/// only `#f`-hinted locations, record the knowledge before stamping our
 /// own hello, so `advertisedLocator`'s onion arm states the configured
 /// preference. A bare inbound hello gets today's bare answer. Unreadable
 /// hints send nothing: validation refuses the same message immediately
@@ -154,7 +154,7 @@ fn validateExactAdvertisedProfile(
 ///
 /// Every hello passes through here, and it has to be *before* the caller
 /// signs, because the hints are inside the signed location record. That is
-/// the whole reason this is a shared verb rather than something each
+/// the reason this is a shared verb rather than something each
 /// assembler does: there are several of them, and a hello that forgets is
 /// read by its partner as "this peer wants the baseline", a downgrade
 /// nobody reports.
@@ -172,8 +172,8 @@ pub fn advertisedLocator(
 }
 
 /// Scratch for the hint entries a hello adds to its caller's locator.
-/// The returned locator borrows this storage until `sendCopying` clones it;
-/// callers initialize with `.{}` and call `deinit` afterward.
+/// The returned locator borrows this storage until `sendCopying` clones it.
+/// Callers initialize with `.{}` and call `deinit` afterward.
 pub const HelloHints = struct {
     inline_entries: [inline_hint_entries]model.HintEntry = undefined,
     allocated_entries: ?[]model.HintEntry = null,
@@ -195,10 +195,10 @@ pub const HelloHints = struct {
         TooManyHints,
         /// The caller supplied a hint this peer stamps itself.
         ReservedHintName,
-        /// Hints are a dictionary; signing duplicates produces a hello a
+        /// Hints are a dictionary. Signing duplicates produces a hello a
         /// conforming receiver must reject.
         /// The peer preference names an open wire id with no implementation
-        /// in this build; advertising it would promise a codec we cannot use.
+        /// in this build. Advertising it would promise a codec we cannot use.
         UnknownCodec,
     } || std.mem.Allocator.Error;
 
@@ -238,7 +238,7 @@ pub const HelloHints = struct {
                 if (std.mem.eql(u8, entry.name, reserved)) return Error.ReservedHintName;
             }
         }
-        // Onion's standardized locator is deliberately hintless: the
+        // Onion's standardized locator is hintless: the
         // Goblins dialer accepts only the `#f`-hints shape, so an onion
         // hello states the baseline (ADR-0108) unless the partner is
         // already known to be glowcap, when it states the configured
@@ -333,8 +333,8 @@ fn canonicalAdvertisedLocator(locator: model.PeerLocator, keep_profile_hints: bo
 
 /// Verify the partner's `op:start-session` location signature: real Ed25519
 /// over the profile-level canonical `<my-location …>` signing input, against
-/// the claimed session key. Syrup preserves exact received location bytes;
-/// codecs without that capture canonicalize the neutral locator into the same
+/// the claimed session key. Syrup preserves exact received location bytes.
+/// Codecs without that capture canonicalize the neutral locator into the same
 /// signing domain. Malformed material or a failed check returns
 /// `InvalidStartSessionSignature`.
 ///
@@ -419,7 +419,7 @@ const inline_hint_entries = 4;
 /// Settle this session's active profile from the two preferences, once the
 /// partner's hello has stated its own.
 ///
-/// The session records the claims; this decides with them, because the
+/// The session records the claims. This decides with them, because the
 /// decision is the engine's. Both peers hold the same two preferences and
 /// `negotiate` is symmetric, so they reach the same pair with no further
 /// round trip.

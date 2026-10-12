@@ -9,7 +9,7 @@
  * Two halves, and each was run against the defect it claims. Shrinking
  * the budget by dropping the right pad is caught by the width assertion.
  * Measuring a character at 5.4 px instead of 6, which is the defect that
- * put ink over the spans, is caught only by the advance assertion — the
+ * put ink over the spans, is caught only by the advance assertion, the
  * width assertion measures with whatever number the code believes, so it
  * proves the arithmetic and never the number. Nothing here draws, so the
  * number itself came from a browser measuring the loaded face.

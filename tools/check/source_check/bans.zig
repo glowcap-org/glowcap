@@ -1,7 +1,7 @@
 //! Data-driven ban engine for `source-check`: one table row per needle claim,
 //! one runner that resolves scopes, caches file reads, and appends violations.
 //! `tools/check/source_check.zig` imports this file and runs `all` once per
-//! gate invocation; checks that need more than substring presence stay in the
+//! gate invocation, checks that need more than substring presence stay in the
 //! module that owns their concern.
 
 const std = @import("std");
@@ -16,7 +16,7 @@ pub const collectFiles = scope.collectFiles;
 pub const Ban = struct {
     where: Where,
     kind: Kind,
-    /// OR-set: `forbid` fires per present needle; `require` passes when any
+    /// OR-set: `forbid` fires per present needle, `require` passes when any
     /// needle is present and names `needles[0]` when none is.
     needles: []const []const u8 = &.{},
     insensitive: bool = false,
@@ -208,6 +208,7 @@ const failure = @import("bans/failure.zig");
 const failure_retention = @import("bans/failure_retention.zig");
 const profiles = @import("bans/profiles.zig");
 const route_bundle = @import("bans/route_bundle.zig");
+const ts_double_cast = @import("bans/ts_double_cast.zig");
 const rooms = @import("bans/rooms.zig");
 
 const deno_dependency_reproducibility = [_]Ban{
@@ -249,6 +250,7 @@ const rust_sidecar_ffi_safety = [_]Ban{.{
 }};
 
 pub const all: []const Ban =
+    ts_double_cast.rows ++
     rooms.rows ++
     deno_dependency_reproducibility ++
     rust_sidecar_ffi_safety ++

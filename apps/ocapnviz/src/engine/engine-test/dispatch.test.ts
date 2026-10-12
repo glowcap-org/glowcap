@@ -45,7 +45,7 @@ engineTest(
 	"undo replaces the world entity; stale entity references go inert",
 	() => {
 		// Architectural invariant the Stage relies on: after undo, the
-		// peer's entity in the world is FRESH — its position reflects
+		// peer's entity in the world is FRESH, its position reflects
 		// the restored doc, not whatever the previous drag last set on
 		// the now-orphaned entity. Any Pixi sprite handler that
 		// captures a particular entity object in its closure goes
@@ -53,7 +53,7 @@ engineTest(
 		// pointerdown handler avoids this by reading from the rendered
 		// sprite (whose position is refreshed every frame) instead of
 		// the closure's entity. This test pins the engine half of that
-		// contract — a fresh-not-orphan entity per restored snapshot.
+		// contract, a fresh-not-orphan entity per restored snapshot.
 		const e = new Engine(emptyAuthoredDoc());
 		const peerId = e.dispatch({
 			kind: "add-peer",
@@ -135,7 +135,7 @@ engineTest("a fresh dispatch invalidates the redo stack", () => {
 	});
 	e.undo();
 	assert(e.canRedo);
-	// A new mutation after an undo should drop the redo branch — same
+	// A new mutation after an undo should drop the redo branch, same
 	// behavior as a text editor.
 	e.dispatch({
 		kind: "add-peer",
@@ -162,7 +162,7 @@ engineTest(
 		assert(e.canUndo);
 		assert(!e.canRedo);
 
-		// Reposition to the SAME position — should be a no-op: no
+		// Reposition to the SAME position, should be a no-op: no
 		// history push, no redo invalidation, the peer doesn't move.
 		e.dispatch({
 			kind: "reposition-peer",
@@ -173,7 +173,7 @@ engineTest(
 		assert(!e.canRedo);
 		assertEquals(findPeer(e.world, peerId)!.position, { x: 100, y: 50 });
 
-		// Update-peer with the SAME label — also a no-op.
+		// Update-peer with the SAME label, also a no-op.
 		e.dispatch({
 			kind: "update-peer",
 			peerId,
@@ -193,7 +193,7 @@ engineTest(
 			profile: "glowcap",
 			position: { x: 0, y: 0 },
 		});
-		// Open and close a transaction without dispatching anything —
+		// Open and close a transaction without dispatching anything,
 		// empty txn, no doc change → no history push.
 		e.beginTransaction("No-op");
 		e.endTransaction();
@@ -233,7 +233,7 @@ engineTest(
 		});
 		assertEquals(e.nextUndoLabel, "Move peer");
 		// After undo, the just-undone label is what `redo` would
-		// re-apply — labels follow the action's forward direction.
+		// re-apply, labels follow the action's forward direction.
 		e.undo();
 		assertEquals(e.nextRedoLabel, "Move peer");
 	},

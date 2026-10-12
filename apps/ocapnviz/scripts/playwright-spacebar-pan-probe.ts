@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-spacebar-pan-probe.ts — Verifies that holding space
+ * playwright-spacebar-pan-probe.ts: Verifies that holding space
  * while dragging a peer body pans the viewport (Adobe hand-tool
  * convention), and that NOT holding space lets the same drag
  * reposition the peer.
@@ -52,7 +52,7 @@ async function getFirstPeer(): Promise<Peer | null> {
 	return await page.evaluate(() => {
 		// The app exposes engine state via __ocv only in dev builds; if
 		// that's gone, fall back to scanning visible peer DOM markers.
-		// Peers are drawn into PixiJS canvas only — no DOM nodes — so
+		// Peers are drawn into PixiJS canvas only, no DOM nodes, so
 		// we have to read engine.world via the global hook, or guess
 		// via canvas center. The "open scenario" loads a fixture with
 		// at least one peer near world (0, 0), which maps to roughly
@@ -85,7 +85,7 @@ async function getCanvasCursor(): Promise<string> {
 // `canvas.toDataURL` on a WebGL canvas without
 // `preserveDrawingBuffer: true` returns a blank buffer (PixiJS
 // uses an asynchronous gl context), so we route through the OS
-// compositor instead — slow, but rock-solid signal.
+// compositor instead, slow, but rock-solid signal.
 async function canvasFingerprint(): Promise<string> {
 	const buf = await page.screenshot({
 		clip: { x: 200, y: 200, width: 800, height: 600 },
@@ -152,7 +152,7 @@ console.log(`Pan moved content:       ${panChanged ? "YES" : "NO"}`);
 const releasedCursor = await getCanvasCursor();
 console.log(`Cursor (released):       ${releasedCursor}`);
 
-// Now WITHOUT spacebar — drag should reposition the peer.
+// Now WITHOUT spacebar, drag should reposition the peer.
 const peer2 = await getFirstPeer();
 if (peer2) {
 	await page.mouse.move(peer2.x, peer2.y);

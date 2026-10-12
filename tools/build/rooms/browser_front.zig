@@ -54,6 +54,12 @@ pub fn register(ctx: Context) *std.Build.Step {
     const staging = @import("../release/stage.zig");
     const product = staging.add(b, ctx.target, ctx.version, "product", staging.product);
     product.step.dependOn(&prepare.step);
+    // The stage copies every Rooms helper and the iroh companion out of the
+    // install prefix. Each must be installed by this build: without these
+    // edges a leftover helper from an earlier build shipped beside a fresh
+    // companion, and the session refused the mismatched callable surface.
+    product.step.dependOn(ctx.archive_install);
+    product.step.dependOn(ctx.iroh_abi_step);
     const resources = staging.installResources(b, "product");
     resources.step.dependOn(&product.step);
     const rooms_build = b.step("rooms-build", "Install the complete glowcap product and stage its deployment tree: CLI, Rooms runtimes, browser assets and skills");
@@ -76,7 +82,7 @@ pub fn register(ctx: Context) *std.Build.Step {
         host_proof.step.dependOn(rooms_build);
         host_test.dependOn(&host_proof.step);
     }
-    // The deliberately exhausted 15-second product query budget needs its
+    // The exhausted 15-second product query budget needs its
     // own calibrated process deadline, separate from installation/deployment.
     const deadline_proof = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/glowcap_host.py" });
     deadline_proof.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "product" } }, .{ .make_absolute = true });
@@ -104,12 +110,6 @@ pub fn register(ctx: Context) *std.Build.Step {
     b.step("rooms-dev", "Serve Rooms with every operator capability minted and state under .local/.state/rooms; `-Dhot-reload=false` uses native generation serving, and `-Dtransport` works as on rooms-web (needs cargo + deno)")
         .dependOn(&rooms_dev.step);
 
-    const deploy_step = b.step("rooms-deploy-prep", "Prepare the complete Linux product as a Docker image build context (needs cargo + deno)");
-    if (ctx.target.result.os.tag != .linux or b.graph.host.result.os.tag != .linux) {
-        deploy_step.dependOn(&b.addFail("Docker requires a Linux product; run rooms-deploy-prep in the Linux devcontainer").step);
-    } else {
-        deploy_step.dependOn(rooms_build);
-    }
     return &prepare.step;
 }
 
@@ -136,6 +136,7 @@ fn addOptions(run: *std.Build.Step.Run, b: *std.Build, transport: Transport, lau
     run.addArg(b.fmt("--transport={s}", .{@tagName(transport)}));
     if (launch.mint_everything) {
         run.addArgs(&.{ "--admin-listeners", "--diagnostics", "--irc", "--operator", "--peering", "--trace" });
+        run.addArg(b.fmt("--session-state={s}", .{common.rootPath(b, ".local/.state/rooms-session")}));
     }
     run.addPassthruArgs();
 }

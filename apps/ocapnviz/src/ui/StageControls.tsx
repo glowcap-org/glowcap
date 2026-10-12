@@ -1,5 +1,5 @@
 /**
- * Stage camera controls — the scale, and the four ways to change it.
+ * Stage camera controls, the scale, and the four ways to change it.
  *
  * Bottom-right of the stage, which is where every tool that has a canvas and a
  * zoom puts them. The readout is a button rather than a label because the thing
@@ -10,17 +10,17 @@
  * start, and Fit.
  *
  * The scale is a FIELD, not a readout. It is the one number on screen a reader
- * might want to state exactly — "show me this at 200%" — and every other way of
+ * might want to state exactly, "show me this at 200%", and every other way of
  * offering that is a second control saying what this one already says. It is also
  * the app's ordinary numeric field, so it drags and takes a wheel like every other
- * number here; `ZoomField` below says why that matters more than it looks.
+ * number here, `ZoomField` below says why that matters more than it looks.
  *
  * Both buttons can go grey, because the scale has two ends (`render/stage-view.ts`
  * argues each). A button that cannot move should not look like it can.
  *
  * Home is the middle of the world at 1:1, and an icon rather than a number because
  * it is a place: a second percentage beside the scale field would read as a second
- * scale. It is not "back to where this document opens" — that is the document
+ * scale. It is not "back to where this document opens". That is the document
  * panel's business, since the document's opening view is a field a reader sets
  * there rather than something the camera keeps in step (`ui/DocumentFields.tsx`).
  */
@@ -42,7 +42,7 @@ import { RADIUS, SEGMENT_CELL, segmentCellClass, SIZE, SPACE } from "./tokens.ts
  * Keep the keyboard on the stage when one of these is clicked.
  *
  * A mouse click focuses the button it lands on, and the reader's next act here is
- * to go back to the canvas — the working loop is zoom, pan, zoom. Space over the
+ * to go back to the canvas, the working loop is zoom, pan, zoom. Space over the
  * stage is the pan, and pressing any key while a button holds focus is what turns
  * a plain `:focus` into `:focus-visible`, so the button lights up a ring for a
  * keystroke that was aimed at the picture. Refusing the default on pointerdown
@@ -50,8 +50,8 @@ import { RADIUS, SEGMENT_CELL, segmentCellClass, SIZE, SPACE } from "./tokens.ts
  *
  * Only the mouse is refused. Tabbing to these still focuses them and still draws
  * the ring, which is the one case the ring is for. The same wart is reachable on
- * any button in the app — click the topbar and press space — and the general
- * version of this belongs at whatever ends up owning `.ocv-btn`; the stage
+ * any button in the app, click the topbar and press space, and the general
+ * version of this belongs at whatever ends up owning `.ocv-btn`. The stage
  * controls carry it here because they are the ones a reader clicks between pans.
  *
  * No test holds this. The suite calls components as the plain functions they are
@@ -126,7 +126,7 @@ export function StageControls() {
 /**
  * The scale, as a value a reader can read, drag, wheel and type.
  *
- * It is a `ScrubInput` — the app's numeric field — rather than a second numeric
+ * It is a `ScrubInput`, the app's numeric field, rather than a second numeric
  * field written here. Every number in this app is scrubbed the same way: press and
  * drag to change it live, wheel over it for the same thing, click without dragging
  * to type an exact one, double-click to put it back. A control that looked like the
@@ -136,11 +136,11 @@ export function StageControls() {
  * Being a cell of a segmented row is the other half, and the two are separate
  * modifiers on one field family: `is-numeric` is what it does, `is-segment` is
  * where it sits. So it keeps the row's seam, height and focus mark, and takes the
- * row's own type rather than the numeric pill's mono — `style` overrides after the
+ * row's own type rather than the numeric pill's mono, `style` overrides after the
  * component's own, which is what that prop is for.
  *
  * The camera is the value. `readView` is read at the moment a gesture starts, so a
- * drag multiplies from the true scale; the camera's store only decides when to
+ * drag multiplies from the true scale. The camera's store only decides when to
  * re-render, and `formatStageZoom` is what both it and this show.
  *
  * Zoom is logarithmic, which is why nothing here says `linear`: a step of "twice as
@@ -156,7 +156,7 @@ function ZoomField() {
 			max={MAX_STAGE_SCALE}
 			format={formatStageZoom}
 			// What is shown is what is edited, and `parseStageZoom` takes the percent
-			// sign back — a reader who selects the value and retypes it usually types it.
+			// sign back. A reader who selects the value and retypes it usually types it.
 			formatInput={formatStageZoom}
 			parse={parseStageZoom}
 			defaultValue={DEFAULT_STAGE_VIEW.zoom}
@@ -182,7 +182,7 @@ const bar = {
 	// are controls, so they take them back.
 	pointerEvents: "auto",
 	// Rounded for the shadow's sake, because the cells round their own outer ends
-	// and a square shadow behind them would show at the corners. Deliberately NOT
+	// and a square shadow behind them would show at the corners. NOT
 	// clipped: `.ocv-btn` draws its focus mark as an outline OUTSIDE the box, so
 	// `overflow: hidden` here cropped the ring down to the one edge that fell
 	// inside the container, which read as a stray line between two buttons.
@@ -197,10 +197,10 @@ const bar = {
  *  is composing.
  *
  *  The type is the row's, not the numeric pill's. `ScrubInput` is mono at one notch
- *  down because it usually sits in a dense key/value row; here its neighbours are
+ *  down because it usually sits in a dense key/value row. Here its neighbours are
  *  `−` and `+` in the app's own face, and a mono cell among them reads as belonging
- *  to something else. Everything else about the box — height, inset, the seam, the
- *  focus mark — comes from `.ocv-input.is-segment`, which is why there is so little
+ *  to something else. Everything else about the box, height, inset, the seam, the
+ *  focus mark, comes from `.ocv-input.is-segment`, which is why there is so little
  *  here. */
 const zoomCell = {
 	width: 60,

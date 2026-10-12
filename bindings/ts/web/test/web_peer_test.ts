@@ -1,11 +1,11 @@
 import * as tcp from "@glowcap/tcp";
-// The ADR-0070 Milestone 1 proof, run by `zig build web-peer-test`: a browser-
+// The ADR-0070 proof, run by `zig build web-peer-test`: a browser-
 // shaped glowcap peer holds a real keyed OCapN session over WebSocket.
 //
 // Two processes so the two runtime adapters never share a module graph: the
 // child (`serve_ws_host.ts`) is a native dlopen host accepting WebSocket; this
-// process loads the runtime through `@glowcap/web` — the wasm module, the
-// linear-memory FFI adapter, the WebSocket channel — with no `Deno.dlopen`
+// process loads the runtime through `@glowcap/web` (the wasm module, the
+// linear-memory FFI adapter, the WebSocket channel) with no `Deno.dlopen`
 // anywhere in its path. The proof: the keyed handshake terminates inside the
 // wasm peer, a fetch and a call settle, and the host calls back into an object
 // the wasm peer itself hosts (the behavior trampoline crossing the wasm

@@ -17,7 +17,7 @@ pub const AnswerSettlement = struct {
 };
 
 /// The one operation a delayed outbound projection must fail if it cannot be
-/// published. An outbound answer is a question this peer asked; an inbound
+/// published. An outbound answer is a question this peer asked. An inbound
 /// answer is a question it owes the partner. Tells carry no target and retire
 /// without turning one unreachable argument into a session failure.
 pub const FailureTarget = union(enum) {

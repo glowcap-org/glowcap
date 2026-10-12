@@ -1,5 +1,5 @@
 //! A direct sender receives this delegated line actor. Effects reserve their
-//! capacity before dispatch; the shared Line remains the mutation authority.
+//! capacity before dispatch. The shared Line remains the mutation authority.
 use crate::Value;
 use glowcap::{Argument, Behavior, Ref};
 use rooms_application::{
@@ -13,7 +13,7 @@ use rooms_application::{
 
 /// A synchronous reservation lets the effect owner bound retained work before
 /// a mutation commits. Dropping it after refusal must release that reservation.
-/// Commit must accept the change without failing; asynchronous delivery and
+/// Commit must accept the change without failing. Asynchronous delivery and
 /// archival work remain owned by the resulting event, outside the actor turn.
 pub trait Changes {
 	type Reservation;

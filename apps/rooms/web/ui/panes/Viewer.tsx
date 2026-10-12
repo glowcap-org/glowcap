@@ -7,9 +7,9 @@
 // it, so bytes arriving while the viewer is open reach it.
 //
 // There is no card here. Settings is a panel because it is a form with fields
-// and a title; a picture is the content, and a frame around it would only take
+// and a title. A picture is the content, and a frame around it would only take
 // space from it. What the viewer adds is a bar with the file's name and the
-// two things there are to do — save it, or leave — over a legibility gradient
+// two things there are to do (save it, or leave) over a legibility gradient
 // rather than a surface, because the media behind it can be any colour. A
 // picture has two sizes, fitted and actual, and the stage scrolls the second
 // natively; `ViewerImage` says why there is no third.

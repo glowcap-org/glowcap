@@ -1,7 +1,7 @@
 //! Admission, completion, cancellation, and readiness-backed retirement for
-//! one relay dial. Cancellation never joins on the driver thread: the worker
-//! publishes a tombstone, and the existing request-id readiness edge owns the
-//! exact cleanup claim.
+//! one relay dial. Cancellation never joins on the driver thread. The worker
+//! publishes a tombstone, and the request-id readiness edge owns the
+//! cleanup claim.
 
 const std = @import("std");
 

@@ -3,6 +3,9 @@ use std::{fmt, rc::Rc};
 
 #[derive(Debug)]
 pub enum Notice {
+	Admission(String),
+	BrowserAdmission(String),
+	SharedSession(crate::session::Notice),
 	CompilingAssets,
 	AssetRefreshFailed(String),
 	AssetUnavailable(String),
@@ -23,6 +26,9 @@ pub enum Notice {
 impl fmt::Display for Notice {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
+			Self::Admission(policy) => write!(f, "HTTP admission: {policy}"),
+			Self::BrowserAdmission(policy) => write!(f, "browser session admission: {policy}"),
+			Self::SharedSession(notice) => write!(f, "shared session: {notice}"),
 			Self::CompilingAssets => f.write_str("compiling browser assets"),
 			Self::AssetRefreshFailed(cause) => write!(f, "refreshing assets failed: {cause}"),
 			Self::AssetUnavailable(cause) => write!(f, "asset unavailable: {cause}"),

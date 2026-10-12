@@ -183,7 +183,7 @@ fn hostFeedOneWithAllocator(
         // Partner verification is off here and on in the block above. Up there
         // the session is still negotiating, so the fuzzed bytes can reach the
         // hello and its signature check. Down here they arrive after the
-        // handshake, so the two verifications are unreachable from the input —
+        // handshake, so the two verifications are unreachable from the input,
         // and they were most of what each iteration spent its time on.
         var dialer = test_host.init(gpa, @as([32]u8, @splat(0x22)), .{ .limits = bounds.tight, .verify_partner = false });
         defer dialer.deinit();
@@ -197,7 +197,7 @@ fn hostFeedOneWithAllocator(
         dialer.vowOn(fetched, .{ .ctx = &captured, .func = promise_capture.CapturedRef.record }) catch return;
         host_pair.pumpToQuiescence(&.{pair}) catch return;
 
-        // Leave a call genuinely in flight: sent, not pumped. The vow is
+        // Leave a call in flight: sent, not pumped. The vow is
         // unsettled when the untrusted bytes arrive, so the settle path and the
         // refusal path meet in whatever order the fuzzer picks rather than the
         // tidy one. Its frame is also what `feedDamaged` breaks, and that
@@ -235,7 +235,7 @@ test "fuzz: arbitrary read boundaries never crash or leak a working host session
 
         // The fetch has to actually hand back the capability, otherwise the
         // call below never happens and no frame ever names the published
-        // object — which is the one frame that reaches the vat at all.
+        // object, which is the one frame that reaches the vat at all.
         try std.testing.expect(captured.ref != null);
         _ = try dialer.send(pair.a, captured.ref.?, .{ .verb = "hit", .args = &.{} });
         const outbound = try pair.a.takeOutbound();

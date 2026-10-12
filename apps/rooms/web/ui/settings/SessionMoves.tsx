@@ -2,7 +2,7 @@
 //
 // One question with two or three answers, and each answer is a line: what it
 // is, and the act that takes it. No answer explains itself here, because every
-// one of them explains itself in full a press later — the attach card leads
+// one of them explains itself in full a press later: the attach card leads
 // with what a session peer keeps, and the other two open the question that
 // says what they cost. Saying it twice is what made this well long.
 //
@@ -51,6 +51,7 @@ import {
 	sessionStopHosting,
 } from "../../../lib/text/session_settings.ts";
 import { Button } from "../Button.tsx";
+import { EntryAct, EntryActs } from "../EntryAct.tsx";
 import { Confirm } from "../Confirm.tsx";
 import { Field } from "../Field.tsx";
 import { identifierField } from "../field.ts";
@@ -135,72 +136,37 @@ export function SessionMoves(
 					)
 					: (
 						<>
-							<ul className="entries">
-								<li className="entry">
-									<div className="entry-head" data-one-line>
-										<span className="entry-name">{sessionMoveAnother}</span>
-										<div className="actions">
-											<Button
-												id="sessionAttachOpen"
-												type="button"
-												onClick={(event) =>
-													openModalFrom(event.currentTarget, () => setOpen(true))}
-											>
-												Attach…
-											</Button>
-										</div>
-									</div>
-								</li>
+							<EntryActs>
+								<EntryAct
+									name={sessionMoveAnother}
+									id="sessionAttachOpen"
+									act="Attach…"
+									variant="primary"
+									onClick={(event) => openModalFrom(event.currentTarget, () => setOpen(true))}
+								/>
 								{sessionKind === "local" && (
-									<li className="entry">
-										<div className="entry-head" data-one-line>
-											<span className="entry-name">{sessionMoveThis}</span>
-											<div className="actions">
-												<Button
-													id="sessionShareAsk"
-													type="button"
-													variant="quiet"
-													onClick={() => setAsking("share")}
-												>
-													Share…
-												</Button>
-											</div>
-										</div>
-									</li>
+									<EntryAct
+										name={sessionMoveThis}
+										id="sessionShareAsk"
+										act="Share…"
+										onClick={() => setAsking("share")}
+									/>
 								)}
 								{sessionKind === "attached" && (
-									<li className="entry">
-										<div className="entry-head" data-one-line>
-											<span className="entry-name">{sessionMoveThisBrowser}</span>
-											<div className="actions">
-												<Button
-													id="sessionLocalCopyAsk"
-													type="button"
-													variant="quiet"
-													onClick={() => setAsking("local-copy")}
-												>
-													{sessionContinueLocallyAsk}
-												</Button>
-											</div>
-										</div>
-									</li>
+									<EntryAct
+										name={sessionMoveThisBrowser}
+										id="sessionLocalCopyAsk"
+										act={sessionContinueLocallyAsk}
+										onClick={() => setAsking("local-copy")}
+									/>
 								)}
-								<li className="entry">
-									<div className="entry-head" data-one-line>
-										<span className="entry-name">{sessionStartOver}</span>
-										<div className="actions">
-											<Button
-												id="sessionLeaveAsk"
-												type="button"
-												variant="quiet"
-												onClick={() => setAsking("leave")}
-											>
-												{sessionReturnToSetupAsk}
-											</Button>
-										</div>
-									</div>
-								</li>
-							</ul>
+								<EntryAct
+									name={sessionStartOver}
+									id="sessionLeaveAsk"
+									act={sessionReturnToSetupAsk}
+									onClick={() => setAsking("leave")}
+								/>
+							</EntryActs>
 						</>
 					)}
 				{said !== "" && <Said kind="failure">{said}</Said>}

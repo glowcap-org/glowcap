@@ -136,7 +136,7 @@ Deno.test("a lane toggled off takes no room", () => {
 });
 
 Deno.test("the fitted panel height leaves the ruler its band", () => {
-	// What the panel is actually sized to: the rows, plus the ruler and the pad
+	// What the panel is sized to: the rows, plus the ruler and the pad
 	// that keeps the bottom row off the tick labels.
 	const ordered = entities(["a", "b"], ["s1"], []);
 	const expanded = new Set<Exclude<LaneKind, "ruler">>(["peers"]);
@@ -160,7 +160,7 @@ Deno.test("drag floor is collapsed-fit, below a live expansion", () => {
 	// Expand a category and the live intrinsic rises; the drag floor stays at
 	// every-category-collapsed. That gap is the range a hand can resize through.
 	// Folding the live intrinsic into the floor made an expanded panel refuse
-	// every downward drag — the defect this pins.
+	// every downward drag. The defect this pins.
 	const ordered = entities(["a", "b", "c"], ["s1", "s2"], ["m1"]);
 	const collapsed = scrubberCollapsedHeight(ALL_LANES, ordered);
 	const expanded = scrubberHeight(ALL_LANES, {

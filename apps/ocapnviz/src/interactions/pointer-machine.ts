@@ -1,5 +1,5 @@
 /**
- * Pointer state machine — implements § 5 of the interaction model.
+ * Pointer state machine, implements § 5 of the interaction model.
  *
  * Pure reducer: `(state, event) → { state, effects }`. The host
  * adapter (use-surface-pointer) attaches DOM listeners, feeds events
@@ -9,7 +9,7 @@
  * `PointerMachineState`. By the `setPointerCapture` invariant, at
  * most one host's foreground state is non-idle at any time.
  *
- * The reducer is total — every `(state.fsm, event)` pair has exactly
+ * The reducer is total, every `(state.fsm, event)` pair has exactly
  * one transition. Asserted by the F3 property test.
  */
 
@@ -101,7 +101,7 @@ function onPointerMove(
 			// it, it read as random. A pan lost its first step the same way.
 			//
 			// What this holds is that the effects a gesture produces do not depend on
-			// how the browser chose to batch it — one big move and two small ones
+			// how the browser chose to batch it. One big move and two small ones
 			// leave the same trail.
 			return {
 				state: {
@@ -231,7 +231,7 @@ function onSpaceDown(
 			return { state, effects: [] };
 		case "pressed": {
 			// Pause an in-flight press; pan begins on next pointer-move.
-			// No drag-pause yet — there was no drag in flight.
+			// No drag-pause yet. There was no drag in flight.
 			return {
 				state: {
 					fsm: {
@@ -285,13 +285,13 @@ function onSpaceUp(
 	event: Extract<PointerEvent_, { kind: "space-up" }>,
 ): { state: PointerMachineState; effects: Effect[] } {
 	if (state.fsm.kind !== "paused-pan") {
-		// Space released without an active pause — no-op.
+		// Space released without an active pause, no-op.
 		return { state, effects: [] };
 	}
 	const paused = state.fsm;
 	if (event.pointerHeld) {
-		// Resume the drag (Figma-convert). The drag origin "carries"
-		// — the current cursor position becomes the new origin so the
+		// Resume the drag (Figma-convert). The drag origin "carries",
+		// the current cursor position becomes the new origin so the
 		// marquee continues without geometric distortion.
 		return {
 			state: {
@@ -311,7 +311,7 @@ function onSpaceUp(
 			}],
 		};
 	}
-	// Button was already released — commit the drag as drag-end.
+	// Button was already released, commit the drag as drag-end.
 	return {
 		state: {
 			fsm: { kind: "idle" },
@@ -372,7 +372,7 @@ const PAN_IN_FLIGHT: ResolvedGesture = {
  * can be: what a gesture *is* was decided by `resolveGesture` at the
  * pointer-down, from facts that have since moved on. Releasing Space
  * during a pan leaves a pan running, while releasing it during a
- * marquee that Space interrupted puts the marquee back — the same
+ * marquee that Space interrupted puts the marquee back, the same
  * key event, two outcomes, told apart by what the press resolved to.
  * A reader that re-derives from the live key or pointer state cannot
  * tell those apart and will be wrong about one of them.
@@ -398,8 +398,8 @@ export function inFlightGesture(
  *
  * Only a drag does. That is what makes a gesture the reader finished out of the
  * surface's sight worth ending rather than cancelling: a surface hears about such
- * a finish three ways — a pointermove carrying `buttons: 0`, a lost pointer
- * capture, and a `finished` end from the window watch in `gesture-router.ts` —
+ * a finish three ways, a pointermove carrying `buttons: 0`, a lost pointer
+ * capture, and a `finished` end from the window watch in `gesture-router.ts`,
  * and cancelling them instead is what threw away a marquee's whole selection on a
  * fast drag, because a buttonless move reaches the window while the button is
  * coming up mid-motion, well before the surface's own pointerup arrives.

@@ -2,14 +2,14 @@
 //
 // The rule this enforces: a console line may accompany a reader-facing
 // surface, never replace it. A cleanup that fails, a lease that will not
-// release, a publisher that errors between status changes — none of those
-// warrant a toast, and all of them used to die in the console. They land
+// release, a publisher that errors between status changes, none of those
+// warrant a toast, and none should die in the console. They land
 // here instead, bounded, deduplicated against the newest entry, and drawn by
 // the operations page's diagnostics pane.
 
 import type { PageProjection } from "./core.ts";
 
-/** The ring keeps this many distinct troubles; the oldest fall off. */
+/** The ring keeps this many distinct troubles. The oldest fall off. */
 const TROUBLE_KEPT = 50;
 
 /** File one trouble. A repeat of the newest entry folds into its count, so a

@@ -24,6 +24,9 @@ unsafe_op_in_unsafe_fn = "deny"
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }
+# Every unsafe block names the handle, owner, and pointer source it relies on.
+# `clippy.toml` lets one comment above a statement cover the blocks inside it.
+undocumented_unsafe_blocks = "deny"
 
 [features]
 # The feature set mirrors glowcap's à-la-carte C ABI archives (ADR-0059): the

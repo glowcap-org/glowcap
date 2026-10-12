@@ -22,11 +22,10 @@ fn isHelpFlag(a: []const u8) bool {
 ///
 /// A lone `-` is the conventional stand-in for stdin, so it counts as a value.
 /// Everything else starting with a dash is a flag, including where a value was
-/// expected. `glowcap --identity --json init` used to read `--json` as the
-/// identity path: it wrote a key to a file literally called `--json`, left a
-/// `--json.lock` beside it, silently dropped the flag the user did write, and
-/// exited zero. A value that genuinely begins with a dash is still reachable
-/// through `--flag=value`, which cannot be misread.
+/// expected: reading `--json` as the identity path in
+/// `glowcap --identity --json init` would write a key to a file called `--json`
+/// and silently drop the flag the user wrote. A value that begins with a dash
+/// is still reachable through `--flag=value`, which cannot be misread.
 fn looksLikeFlag(a: []const u8) bool {
     return std.mem.startsWith(u8, a, "-") and !std.mem.eql(u8, a, "-");
 }
@@ -92,10 +91,10 @@ fn storeFlag(parsed: *Parsed, flag: Flag, value: ?[]const u8) !void {
 ///
 /// Two spellings of the same flag disagree about what the user wants, and we
 /// have no way to tell which one they meant. Keeping the last one silently
-/// picked a winner: `--identity old.key --identity new.key` read one key file
-/// and never mentioned the other. Persistent flags make this easy to hit by
+/// would pick a winner: `--identity old.key --identity new.key` reads one key file
+/// and never mentions the other. Persistent flags make this easy to hit by
 /// accident, because the same flag is accepted at the root and again at the
-/// subcommand. Repeating a plain on/off flag is still fine; it says the same
+/// subcommand. Repeating a plain on/off flag is still fine. It says the same
 /// thing twice.
 fn refuseRepeatedFlag(
     ctx: *Ctx,
@@ -165,8 +164,8 @@ fn consumeFlag(
                     return error.Usage;
                 }
                 if (looksLikeFlag(argv_in[i])) {
-                    // The advice names the long form on purpose: only `--flag=value`
-                    // parses. A short flag is matched as exactly two characters,
+                    // The advice names the long form because only `--flag=value`
+                    // parses. A short flag is matched as two characters,
                     // so `-i=value` would land the user on "unknown flag".
                     log.err(ctx.io, "-{c} needs a value, but the next argument is {s}; write --{s}=<value> if you meant it literally", .{ flag.short.?, argv_in[i], flag.long });
                     try help_mod.writeNodeHelpErr(ctx.io, path);
@@ -196,7 +195,7 @@ pub fn dispatch(root: *const Command, ctx: *Ctx, argv_in: []const []const u8) !u
     path_buf[0] = root;
     var path_len: usize = 1;
 
-    var parsed = Parsed{ .gpa = ctx.gpa };
+    var parsed = Parsed{ .gpa = ctx.gpa, .argv = argv_in };
     defer parsed.deinit();
 
     var pos: std.ArrayList([]const u8) = .empty;
@@ -291,13 +290,12 @@ pub fn dispatch(root: *const Command, ctx: *Ctx, argv_in: []const []const u8) !u
         max_pos = (max_pos orelse 0) + 1;
     }
     if (leaf.positionals.len == 0) max_pos = 0;
-    if (!variadic and parsed.positionals.len < need) {
-        log.err(ctx.io, "missing required argument", .{});
-        try help_mod.writeNodeHelpErr(ctx.io, path);
-        return exit_codes.usage;
-    }
-    if (variadic and need == 1 and parsed.positionals.len == 0) {
-        log.err(ctx.io, "missing required argument", .{});
+    // Name the first argument the line lacks: a string flag that takes the
+    // word meant as a positional (`--build all`) otherwise reads as a refusal
+    // with no subject.
+    if ((!variadic and parsed.positionals.len < need) or (variadic and need == 1 and parsed.positionals.len == 0)) {
+        const missing = leaf.positionals[@min(parsed.positionals.len, leaf.positionals.len - 1)];
+        log.err(ctx.io, "missing required argument <{s}>", .{missing.name});
         try help_mod.writeNodeHelpErr(ctx.io, path);
         return exit_codes.usage;
     }

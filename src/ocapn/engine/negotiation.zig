@@ -1,8 +1,8 @@
 //! Settling on a CapTP version, codec, and feature set that both peers can
-//! actually do.
+//! do.
 //!
 //! It is not a wire back-and-forth. `op:start-session` carries the baseline
-//! message shape; glowcap does not add fields to OCapN's messages. A peer's
+//! message shape. glowcap does not add fields to OCapN's messages. A peer's
 //! preference rides in locator hints, so this is a pure symmetric function of
 //! the two peers' offers and both ends compute the same answer from the same
 //! two inputs.
@@ -11,7 +11,7 @@
 //! states in its locator hints (`model.transport.hint_captp_version`,
 //! `hint_codec`, and `hint_features`) and
 //! `session.Session.partner_preference` records. `settle` below is the whole
-//! path from two of those to a session's active profile;
+//! path from two of those to a session's active profile.
 //! `engine.Peer.settleNegotiatedProfile` calls it when the partner's hello
 //! lands, and `engine.pairing` reaches the same answer in one process.
 //!
@@ -123,7 +123,7 @@ pub const Negotiated = struct {
 /// Symmetric: `negotiate(a, b)` and `negotiate(b, a)` agree on both the chosen
 /// version, chosen codec, and feature set, so both sides of a handshake reach
 /// the same answer without an extra round-trip. Selection minimizes
-/// `local_idx + remote_idx` over each intersection; ties break on version and
+/// `local_idx + remote_idx` over each intersection. Ties break on version and
 /// codec declaration order.
 pub fn negotiate(local: Offer, remote: Offer) ?Negotiated {
     const captp_version = chooseCaptpVersion(local.captp_versions, remote.captp_versions) orelse return null;

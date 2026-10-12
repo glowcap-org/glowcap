@@ -1,5 +1,5 @@
 //! Private bridge intent is tied to exact source and continuing room custody.
-//! Credentials live at a separate owner; this record contains only their nonce.
+//! Credentials live at a separate owner. This record contains only their nonce.
 use super::{custody, workspace};
 use crate::{
 	bridge::{Answers, Form, Id},
@@ -120,14 +120,14 @@ impl Witness {
 }
 
 /// Explicitly releasing private origin custody forgets its witness atomically.
-/// Selection changes alone preserve original custody for deliberate recovery.
+/// Selection changes alone preserve original custody for explicit recovery.
 pub fn retire<R: custody::References, C>(record: &mut workspace::Record<R, C>) {
-	let (kept, retired): (alloc::vec::Vec<_>, alloc::vec::Vec<_>) =
-		core::mem::take(&mut record.bridges).0.into_iter().partition(|witness| {
-			record.custody.session_access(witness.source).is_some()
-				&& witness.access.is_none_or(|access| record.custody.get(access).is_some())
-		});
-	record.bridges = crate::fields::List::new(kept).expect("bounded bridge witnesses");
+	let mut bridges = core::mem::take(&mut record.bridges);
+	let retired = bridges.partition_out(|witness| {
+		record.custody.session_access(witness.source).is_some()
+			&& witness.access.is_none_or(|access| record.custody.get(access).is_some())
+	});
+	record.bridges = bridges;
 	for witness in retired {
 		let source = custody::Coordinate {
 			role: custody::Role::SessionAccess,
@@ -141,11 +141,9 @@ pub fn retire<R: custody::References, C>(record: &mut workspace::Record<R, C>) {
 /// Forget only the selected room's private provenance and release custody no
 /// longer used by another bridge or outgoing line. Receipts remain recoverable.
 pub fn forget<R: custody::References, C>(record: &mut workspace::Record<R, C>, room: &str) {
-	let (kept, forgotten): (alloc::vec::Vec<_>, alloc::vec::Vec<_>) = core::mem::take(&mut record.bridges)
-		.0
-		.into_iter()
-		.partition(|witness| witness.room.text().as_str() != Some(room));
-	record.bridges = crate::fields::List::new(kept).expect("bounded witnesses");
+	let forgotten = record
+		.bridges
+		.partition_out(|witness| witness.room.text().as_str() != Some(room));
 	let keys: alloc::vec::Vec<_> = forgotten
 		.into_iter()
 		.flat_map(|witness| {

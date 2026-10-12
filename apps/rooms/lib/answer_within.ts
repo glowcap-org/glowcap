@@ -1,4 +1,4 @@
-// Bounded promise waits shared by native clients and the browser viewer.
+// Bounded promise waits shared by runtime clients and the browser viewer.
 
 /** A partner accepted a request and did not answer it in time. */
 export class Unanswered extends Error {

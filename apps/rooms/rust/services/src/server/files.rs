@@ -22,7 +22,7 @@ use std::{
 
 /// One connection retains one reader identity per file. Reclaiming retired
 /// identities before insertion bounds this inventory by the store's peak live
-/// file count; closing the connection drops all its local roots.
+/// file count. Closing the connection drops all its local roots.
 #[derive(Default)]
 pub(super) struct Capabilities {
 	held: RefCell<BTreeMap<u64, (Blob, Ref)>>,
@@ -36,7 +36,9 @@ impl Capabilities {
 		mint: impl FnOnce() -> Result<Ref, glowcap::Error>,
 	) -> Result<Ref, glowcap::Error> {
 		let mut held = self.held.borrow_mut();
-		let id = store.blob_id(blob).expect("the server's own file store");
+		let Some(id) = store.blob_id(blob) else {
+			return Err(glowcap::loam::refusal("file belongs to another file store"));
+		};
 		if let Some((_, reference)) = held.get(&id) {
 			return Ok(reference.clone());
 		}
@@ -122,6 +124,9 @@ mod tests;
 fn read(shared: &Shared, blob: &Blob, verb: &str, args: &[Argument]) -> Result<Argument, String> {
 	let values: Vec<Value<'_>> = args.iter().map(Value).collect();
 	let mut state = shared.borrow_mut();
+	let (connection, _) = super::rooms::caller(&mut state)?;
+	state.ingress(connection)?;
+	state.admit_work(connection, rooms_application::admission::Class::Transfer, 1)?;
 	let now = state.now();
 	let outcome = state
 		.rooms
@@ -136,7 +141,7 @@ fn read(shared: &Shared, blob: &Blob, verb: &str, args: &[Argument]) -> Result<A
 	}
 }
 
-/// Wait for the bytes a read asked for, polled by the loop's task; the
+/// Wait for the bytes a read asked for, polled by the loop's task. The
 /// ticket registers its waker with the store and cancels on drop.
 async fn wait(shared: Shared, ticket: ReadTicket) -> Result<Argument, String> {
 	poll_fn(|cx| {
@@ -169,12 +174,36 @@ pub(super) fn facet(
 	move |verb, args| {
 		let (membership, session) = seat::admitted(&membership, "room files facet", verb, args)?;
 		let mut state = shared.borrow_mut();
+		let connection = state.admit(session.borrowed());
+		let posting = matches!(
+			verb,
+			POST_FILES
+				| rooms_application::open_graph::ROOM_POST_FILES_VERB
+				| rooms_application::room::receipt::POST_FILES
+				| rooms_application::room::correlation::POST_FILES
+		);
+		if !posting {
+			state.ingress(connection)?;
+		}
 		let text = |at: usize| args.get(at).and_then(Argument::as_str);
 		match verb {
 			POST_FILES
 			| rooms_application::open_graph::ROOM_POST_FILES_VERB
-			| rooms_application::room::receipt::POST_FILES => {
+			| rooms_application::room::receipt::POST_FILES
+			| rooms_application::room::correlation::POST_FILES => {
 				let retained = verb == rooms_application::room::receipt::POST_FILES;
+				let correlation = if verb == rooms_application::room::correlation::POST_FILES {
+					Some((
+						state
+							.connection_of(&session)
+							.ok_or("post needs a live calling connection")?,
+						text(2)
+							.filter(|value| rooms_application::room::correlation::valid(value))
+							.ok_or("post needs its bounded operation identity")?,
+					))
+				} else {
+					None
+				};
 				super::receipts::post(
 					&mut state,
 					&room,
@@ -183,8 +212,9 @@ pub(super) fn facet(
 					args,
 					retained,
 					|state, delivery| {
+						state.ingress(connection)?;
 						let previews = verb != POST_FILES;
-						let expected = if retained {
+						let expected = if retained || correlation.is_some() {
 							3
 						} else if previews {
 							2
@@ -192,10 +222,8 @@ pub(super) fn facet(
 							1
 						};
 						let caption = text(0).filter(|_| args.len() == expected).ok_or_else(|| {
-							format!(
-								"{}: postFiles needs a caption and the selected delivery fields",
-								FailureCode::BadAttachment.wire()
-							)
+							FailureCode::BadAttachment
+								.line("postFiles needs a caption and the selected delivery fields")
 						})?;
 						let previews = if previews && !(retained && matches!(args[1], Argument::Boolean(false))) {
 							rooms_application::open_graph::Selection::decode(
@@ -207,12 +235,17 @@ pub(super) fn facet(
 							Default::default()
 						};
 						let key = Rc::new(Cell::new(None));
+						state
+							.rooms
+							.require_participant(&room, membership)
+							.map_err(seat::refusal)?;
+						state.admit_message(connection, caption.len())?;
 						let actor = session
 							.spawn_owned(lines::line(shared.clone(), key.clone()))
 							.map_err(|e| e.to_string())?;
 						let now = state.now();
 						let line = history::mutate(state, |rooms| {
-							rooms.post_files_delivered(
+							let (line, mut mutation) = rooms.post_files_delivered(
 								&room,
 								membership,
 								caption,
@@ -220,10 +253,14 @@ pub(super) fn facet(
 								State::wall_clock(),
 								now,
 								delivery,
-							)
+							)?;
+							if let Some((caller, operation)) = correlation {
+								rooms.correlate(&room, membership, caller, operation, &mut mutation);
+							}
+							Ok((line, mutation))
 						})?;
 						key.set(Some(line));
-						Ok(lines::posted_reply(state, line, actor))
+						lines::posted_reply(state, line, actor)
 					},
 				)
 			}
@@ -232,6 +269,11 @@ pub(super) fn facet(
 					rooms_application::server::rooms::wire::attachment(args.len(), |at| args.get(at).map(Value))
 						.map_err(seat::refusal)?;
 				let now = state.now();
+				state
+					.rooms
+					.require_participant(&room, membership)
+					.map_err(seat::refusal)?;
+				state.admit_work(connection, rooms_application::admission::Class::Upload, 1)?;
 				let key = state
 					.rooms
 					.attach(&room, membership, description, now)
@@ -242,7 +284,7 @@ pub(super) fn facet(
 						.spawn_owned(upload(shared.clone(), key))
 						.map_err(|e| e.to_string())?;
 					if verb == rooms_application::room::receipt::ATTACH {
-						let blob = state.rooms.upload_blob(key).expect("just admitted upload");
+						let blob = state.rooms.upload_blob(key).ok_or("the admitted upload has no blob")?;
 						let blob = Minter::new(&state, &session).blob(&blob).map_err(|e| e.to_string())?;
 						Ok(Argument::List(vec![upload.into(), blob]))
 					} else {
@@ -265,6 +307,13 @@ pub(super) fn upload(shared: Shared, key: UploadKey) -> impl FnMut(&str, &[Argum
 	move |verb, args| {
 		let values: Vec<Value<'_>> = args.iter().map(Value).collect();
 		let mut state = shared.borrow_mut();
+		let (connection, _) = super::rooms::caller(&mut state)?;
+		if verb == rooms_application::protocol_data::DISCARD {
+			state.admit_work(connection, rooms_application::admission::Class::Cleanup, 1)?;
+		} else {
+			state.ingress(connection)?;
+			state.admit_work(connection, rooms_application::admission::Class::Transfer, 1)?;
+		}
 		let now = state.now();
 		state
 			.rooms

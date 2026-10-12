@@ -2,20 +2,19 @@
  * These tests pin the one question the keyboard authority answers:
  * what does this press mean right now, given what is already held.
  *
- * The defect they exist to close is a fact with two
- * representations. "Is Space acting as the hand?" used to be
- * decided twice: latched at the press by one hook, and re-derived
- * from the pointer's position by the shortcut table on every event.
- * The two answers only agreed while nothing moved. Dragging the
- * pointer off the canvas mid-pan made the table answer differently
- * from the latch, and the transport toggle fired underneath a pan
- * that was still happening, stopping a live recording.
+ * The defect they exist to close is a fact with two representations. "Is Space
+ * acting as the hand?" must be decided once, not twice: latched at the press by
+ * one hook, and re-derived from the pointer's position by the shortcut table on
+ * every event. The two answers only agree while nothing moves. Dragging the
+ * pointer off the canvas mid-pan would make the table answer differently from
+ * the latch, and the transport toggle would fire underneath a pan that is still
+ * happening, stopping a live recording.
  *
  * So the tests below lean on the case where a claim's own reason
  * stops being true while the key is still down. A design that
- * re-derives fails them; a design that latches passes them.
+ * re-derives fails them. A design that latches passes them.
  *
- * What they deliberately do not cover is what a gesture *became*
+ * What they do not cover is what a gesture *became*
  * once a press was made under a claim. That belongs to the pointer
  * FSM, which is the only layer that knows, and asking this one
  * would put a second answer where there should be one.
@@ -98,7 +97,7 @@ Deno.test("a claim outlives the fact that granted it", () => {
 
 Deno.test("a repeat continues a claim but never starts one", () => {
 	// A gesture begins on the rising edge. An auto-repeat arriving
-	// with nothing held is not that edge, so it claims nothing — and
+	// with nothing held is not that edge, so it claims nothing, and
 	// the shortcut table refuses repeats too, so nothing runs either.
 	const r = press(NO_HELD_GESTURES, key(" ", { repeat: true }), OVER_STAGE);
 	assertEquals(r.press, { kind: "command", consumed: false });
@@ -224,7 +223,7 @@ Deno.test("a claim ends at its key's release and says nothing more", () => {
 
 Deno.test("the modifier set is answered by the table, not restated beside it", () => {
 	// The cursor asks about three modifiers and this table watches two, and the
-	// one it does not watch used to read `false` from a literal at the call
+	// one it does not watch must not read `false` from a literal at the call
 	// site. Adding the missing row would then have changed nothing: the table
 	// would say Cmd is watched and the cursor would go on being told it is not.
 	//

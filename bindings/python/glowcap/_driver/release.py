@@ -29,7 +29,7 @@ class _DriverReleaseOwner:
 
     A refusal transfers this owner and the live wrapper's completion callback
     to the process retry queue. The queue retains both until a later ordinary
-    safe boundary consumes the native lease; GC is only the fallback entry.
+    safe boundary consumes the native lease. GC is only the fallback entry.
     """
 
     def __init__(self, wrapper, handle: int, context=None) -> None:

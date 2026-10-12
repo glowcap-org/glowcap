@@ -2,7 +2,7 @@
 //!
 //! The facade validates opaque handles, projects construction and teardown,
 //! and exposes the generic transport-provider table. Readiness, cancellation,
-//! and connection/listener lifecycle belong to `runtime/`; relay carrier,
+//! and connection/listener lifecycle belong to `runtime/`. Relay carrier,
 //! WebSocket, routing, and TLS policy belong to `net.relay`.
 
 pub const std_options = @import("c_abi_shared").library_options;

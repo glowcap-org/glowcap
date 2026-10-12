@@ -1,5 +1,5 @@
 // The scripted IRC wire used by native bridge process scenarios. It owns exact
-// writes and the server half of one SASL PLAIN registration; production IRC
+// writes and the server half of one SASL PLAIN registration. Production IRC
 // policy remains in the Rust bridge.
 
 import { type IrcMessage, readIrcLines } from "../../irc/protocol.ts";

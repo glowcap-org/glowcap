@@ -51,7 +51,7 @@ pub const Enliven = struct {
     }
 
     /// Transfer the completed capability retain. Destroy the operation after
-    /// taking; pending and failed operations leave their state unchanged.
+    /// taking. Pending and failed operations leave their state unchanged.
     pub fn take(self: *Enliven) !capability.Ref {
         const ready = switch (self.state) {
             .ready => |ready| ready,

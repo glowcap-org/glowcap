@@ -15,6 +15,8 @@ impl Netlayer {
 		require_archive()?;
 		let c = config.to_c();
 		let mut raw: *mut ffi::GlowcapOnionNetlayer = core::ptr::null_mut();
+		// SAFETY: `c` is a local `GlowcapOnionConfig` borrowed for the call, and the callee copies its text; `raw` is
+		// an out-parameter the callee fills with the new netlayer handle.
 		check_onion(unsafe { ffi::glowcap_onion_netlayer_new(&c, &mut raw) })?;
 		Ok(Netlayer {
 			raw,
@@ -24,7 +26,12 @@ impl Netlayer {
 
 	#[cfg(feature = "async")]
 	pub(super) fn transport_provider(&self) -> Result<crate::driver_loop::ProviderPackage<'_>> {
+		// SAFETY: `GlowcapTransportProvider` is a plain C struct of integers, null pointers, and `Option` function
+		// pointers; all-zero is a valid value, and the callee fills it before it is read.
 		let mut package: crate::sys::GlowcapTransportProvider = unsafe { core::mem::zeroed() };
+		// SAFETY: `self.raw` is this `Netlayer`'s handle from `glowcap_onion_netlayer_new`, released only by `close` or
+		// its `Drop`; `package` is an out-parameter the callee fills, and the returned `ProviderPackage<'_>` borrows
+		// this netlayer.
 		check_onion(unsafe { ffi::glowcap_onion_transport_provider(self.raw, &mut package) })?;
 		Ok(crate::driver_loop::ProviderPackage {
 			package,
@@ -34,7 +41,7 @@ impl Netlayer {
 
 	/// Ask Tor for an onion service and bind its local end.
 	///
-	/// Requires a control endpoint in the [`Config`]; without one this fails
+	/// Requires a control endpoint in the [`Config`]. Without one this fails
 	/// rather than reporting a service nothing could reach. Blocking: the control
 	/// conversation is several round trips to the daemon.
 	pub fn listen(&self) -> Result<Listener<'_>> {
@@ -43,6 +50,10 @@ impl Netlayer {
 		let mut key = [0u8; ffi::ONION_SERVICE_KEY_CAP];
 		let mut key_len: usize = 0;
 		let mut raw: *mut ffi::GlowcapOnionListener = core::ptr::null_mut();
+		// SAFETY: `self.raw` is this `Netlayer`'s handle from `glowcap_onion_netlayer_new`, released only by `close` or
+		// its `Drop`; `id` and `key` are local arrays whose pointers and lengths stay live for the call and which the
+		// callee fills, reporting the bytes written through `id_len` and `key_len`; `raw` is an out-parameter the
+		// callee fills; the null error buffer with length zero asks for no error text.
 		check_onion(unsafe {
 			ffi::glowcap_onion_listen(
 				self.raw,
@@ -78,6 +89,9 @@ impl Netlayer {
 	/// a Tor circuit takes seconds.
 	pub fn connect(&self, service_id: &str, codec: Codec, max_frame_bytes: usize) -> Result<Connection<'_>> {
 		let mut raw: *mut ffi::GlowcapOnionConn = core::ptr::null_mut();
+		// SAFETY: `self.raw` is this `Netlayer`'s handle from `glowcap_onion_netlayer_new`, released only by `close` or
+		// its `Drop`; `service_id` is a borrowed `str` whose pointer and length stay live for the call; `raw` is an
+		// out-parameter the callee fills; the null error buffer with length zero asks for no error text.
 		check_onion(unsafe {
 			ffi::glowcap_onion_connect(
 				self.raw,
@@ -105,6 +119,9 @@ impl Netlayer {
 	pub fn close(mut self) -> Result<()> {
 		let listener_failure = self.take_listener_close_failure();
 		let raw = core::mem::replace(&mut self.raw, core::ptr::null_mut());
+		// SAFETY: `raw` is the netlayer handle just taken out of `self.raw`, which now holds null so `Drop` will not
+		// release it again; this is its single release, and every listener has retired because each borrows the
+		// netlayer.
 		let release = check_onion(unsafe {
 			ffi::glowcap_onion_netlayer_release(raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
 		});
@@ -121,6 +138,9 @@ impl Netlayer {
 impl Drop for Netlayer {
 	fn drop(&mut self) {
 		if !self.raw.is_null() {
+			// SAFETY: `self.raw` is this `Netlayer`'s handle from `glowcap_onion_netlayer_new`, released only by
+			// `close` or its `Drop`; the null check above skips a handle `close` already released, so this is its
+			// single release.
 			if let Err(error) = check_onion(unsafe {
 				ffi::glowcap_onion_netlayer_release(self.raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
 			}) {
@@ -160,6 +180,9 @@ impl Listener<'_> {
 	/// service nothing about who dialed it.
 	pub fn accept(&self, codec: Codec, max_frame_bytes: usize) -> Result<Connection<'_>> {
 		let mut raw: *mut ffi::GlowcapOnionConn = core::ptr::null_mut();
+		// SAFETY: `self.raw` is this `Listener`'s handle from `Netlayer::listen`, released only by `release` (its
+		// `close` or `Drop`); its `'a` borrow keeps the netlayer alive; `raw` is an out-parameter the callee fills; the
+		// null error buffer with length zero asks for no error text.
 		check_onion(unsafe {
 			ffi::glowcap_onion_accept(
 				self.raw,
@@ -186,6 +209,9 @@ impl Listener<'_> {
 	/// drops.
 	pub fn readiness_fd(&self) -> Result<i32> {
 		let mut fd: i32 = -1;
+		// SAFETY: `self.raw` is this `Listener`'s handle from `Netlayer::listen`, released only by `release` (its
+		// `close` or `Drop`); its `'a` borrow keeps the netlayer alive; `fd` is an out-parameter the callee writes; the
+		// listener keeps owning the descriptor.
 		check_onion(unsafe { ffi::glowcap_onion_listener_readiness_fd(self.raw, &mut fd) })?;
 		Ok(fd)
 	}
@@ -197,6 +223,9 @@ impl Listener<'_> {
 	/// forever, without closing the listener from another thread.
 	pub fn wait(&self, timeout_ms: i32) -> Result<bool> {
 		let mut ready: core::ffi::c_uint = 0;
+		// SAFETY: `self.raw` is this `Listener`'s handle from `Netlayer::listen`, released only by `release` (its
+		// `close` or `Drop`); its `'a` borrow keeps the netlayer alive; `ready` is an out-parameter the callee writes;
+		// the null error buffer with length zero asks for no error text.
 		check_onion(unsafe {
 			ffi::glowcap_onion_listener_wait(
 				self.raw,
@@ -215,6 +244,8 @@ impl Listener<'_> {
 			return Ok(());
 		}
 		let raw = core::mem::replace(&mut self.raw, core::ptr::null_mut());
+		// SAFETY: `raw` is the listener handle just taken out of `self.raw`, which now holds null so a second `release`
+		// skips it; this is its single release.
 		check_onion(unsafe {
 			ffi::glowcap_onion_listener_release(raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
 		})
@@ -226,8 +257,8 @@ impl Listener<'_> {
 	}
 }
 
-// SAFETY: a `Listener` owns a self-contained payload — its own control session,
-// bound local endpoint, and a copy of the netlayer's allocator — and shares no
+// SAFETY: a `Listener` owns a self-contained payload, its own control session,
+// bound local endpoint, and a copy of the netlayer's allocator, and shares no
 // per-handle mutable state with the netlayer or sibling handles, so moving it to
 // the accepting thread and calling `accept` there touches only its own state. What
 // it shares with the netlayer is thread-safe: the allocator and the
@@ -250,11 +281,13 @@ impl Connection<'_> {
 	/// Seal this connection and interrupt blocking frame operations. Drop then
 	/// releases its storage after callers have joined their operation threads.
 	pub fn shutdown(&self) -> Result<()> {
+		// SAFETY: `self.raw` is this `Connection`'s handle from `connect` or `accept`, released only by its `Drop`; its
+		// `'a` borrow keeps the backend alive.
 		check_onion(unsafe { ffi::glowcap_onion_conn_shutdown(self.raw) })
 	}
 
 	/// Close explicitly, reporting a shutdown failure to the caller. Native
-	/// storage is released as this value is consumed; a release-only refusal is
+	/// storage is released as this value is consumed. A release-only refusal is
 	/// retained by the process diagnostic fallback because `Drop` has no caller.
 	pub fn close(self) -> Result<()> {
 		self.shutdown()
@@ -263,11 +296,21 @@ impl Connection<'_> {
 	/// Block for one whole frame. [`ErrorKind::Closed`](crate::ErrorKind::Closed)
 	/// reports a clean EOF.
 	pub fn read_frame(&mut self) -> Result<Vec<u8>> {
+		// SAFETY: `GlowcapManagedFrame` is a plain C struct of integers, null pointers, and an `Option` function
+		// pointer; all-zero is a valid value, and the callee fills it before it is read.
 		let mut frame: crate::sys::GlowcapManagedFrame = unsafe { core::mem::zeroed() };
+		// SAFETY: `self.raw` is this `Connection`'s handle from `connect` or `accept`, released only by its `Drop`; its
+		// `'a` borrow keeps the backend alive; `frame` is an out-parameter the callee fills; the null error buffer with
+		// length zero asks for no error text.
 		check_onion(unsafe {
 			ffi::glowcap_onion_conn_read_frame(self.raw, &mut frame, core::ptr::null_mut(), 0, core::ptr::null_mut())
 		})?;
+		// SAFETY: on success `read_frame` filled `frame.bytes` and `frame.len` with a view the frame owns until
+		// `glowcap_managed_frame_release` runs on the next line, and `owned_from_view` copies it first; it handles a
+		// null pointer or zero length.
 		let out = unsafe { crate::owned_from_view(frame.bytes, frame.len) };
+		// SAFETY: `frame` was filled by the successful `read_frame` call above and is released exactly once, after the
+		// copy.
 		unsafe { crate::sys::glowcap_managed_frame_release(&mut frame) };
 		Ok(out)
 	}
@@ -276,6 +319,9 @@ impl Connection<'_> {
 	/// rather than blocks. Same contract as [`Listener::readiness_fd`].
 	pub fn readiness_fd(&self) -> Result<i32> {
 		let mut fd: i32 = -1;
+		// SAFETY: `self.raw` is this `Connection`'s handle from `connect` or `accept`, released only by its `Drop`; its
+		// `'a` borrow keeps the backend alive; `fd` is an out-parameter the callee writes; the connection keeps owning
+		// the descriptor.
 		check_onion(unsafe { ffi::glowcap_onion_conn_readiness_fd(self.raw, &mut fd) })?;
 		Ok(fd)
 	}
@@ -287,19 +333,25 @@ impl Connection<'_> {
 			len: bytes.len(),
 			shape: crate::sys::FRAME_SHAPE_BYTE,
 		};
+		// SAFETY: `self.raw` is this `Connection`'s handle from `connect` or `accept`, released only by its `Drop`; its
+		// `'a` borrow keeps the backend alive; `f` is a local `GlowcapFrame` whose `bytes` and `len` come from the
+		// borrowed `bytes` slice, live for the call, and the callee reads it only during the call; the null error
+		// buffer with length zero asks for no error text.
 		check_onion(unsafe {
 			ffi::glowcap_onion_conn_write_frame(self.raw, &f, core::ptr::null_mut(), 0, core::ptr::null_mut())
 		})
 	}
 }
 
-// SAFETY: as `Listener` above — a `Connection` owns its own stream plus a copy of
+// SAFETY: as `Listener` above: a `Connection` owns its own stream plus a copy of
 // the netlayer's allocator, and the state it shares is thread-safe under the
 // concurrent blocking calls a borrowed handle makes off-thread.
 unsafe impl Send for Connection<'_> {}
 
 impl Drop for Connection<'_> {
 	fn drop(&mut self) {
+		// SAFETY: `self.raw` is this `Connection`'s handle from `connect` or `accept`, released only by its `Drop`; its
+		// `'a` borrow keeps the backend alive, so the release runs once after every borrow of it ends.
 		if let Err(error) = check_onion(unsafe {
 			ffi::glowcap_onion_conn_release(self.raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
 		}) {

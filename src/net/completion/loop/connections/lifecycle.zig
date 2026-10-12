@@ -57,7 +57,7 @@ pub fn Machine(
             const now = clock.nowMonotonicMs();
             if (now < due) return;
             // Something was due, or the cache was stale-early. Either way the
-            // next nearest has to be found again — and this walk is already
+            // next nearest has to be found again, and this walk is already
             // visiting every slot and already computing each deadline, so it
             // finds it here. Leaving the cache null costs a second full walk on
             // the next poll, over the slots this one just read.
@@ -81,15 +81,15 @@ pub fn Machine(
             // was set null above and `setWaiting`'s fold is a no-op on a null
             // one. It is safe because no hook can run during this walk. A
             // reaped connection is over the mark or draining, which means a
-            // send was submitted, which means an op is in flight — so
+            // send was submitted, which means an op is in flight, so
             // `closeConn`'s inline-teardown arm is unreachable from here and
             // `on_close` and `free_conn_ctx` never fire. A future change that
             // lets one fire has to revisit this line.
             self.earliest_due_ms = next_earliest;
         }
 
-        /// Push a slot onto `head`. The caller guarantees it is on no list;
-        /// pushing an already-listed slot would build a cycle.
+        /// Push a slot onto `head`. The caller guarantees it is on no list.
+        /// Pushing an already-listed slot would build a cycle.
         pub fn linkOnto(self: *Self, head: *usize, slot: usize) void {
             const c = &self.conns[slot];
             c.prev_link = @intCast(self.conns.len);
@@ -214,7 +214,7 @@ pub fn Machine(
 
         /// Submit the listener cancellation/close when backend capacity admits
         /// it. Unlike a newly accepted descriptor, the listener can have an
-        /// accept operation pending; `closeFd` alone is not contracted to retire
+        /// accept operation pending. `closeFd` alone is not contracted to retire
         /// that operation. Retain the descriptor and retry instead of letting
         /// `closeAndDrain` return while the backend still owns an accept.
         pub fn retryListenerClose(self: *Self) !void {
@@ -247,17 +247,17 @@ pub fn Machine(
             }
         }
 
-        /// Reclaim a slot, reporting whether it actually happened.
+        /// Reclaim a slot, reporting whether it happened.
         ///
         /// The return value is what keeps `closed_count` to one writer per
         /// reclaim. A teardown that arrives while the slot is being adopted is
-        /// deferred, not performed, and `finishConnected` performs it later —
+        /// deferred, not performed, and `finishConnected` performs it later,
         /// so a caller that counts unconditionally counts the same connection
         /// twice, once where it asked and once where it happened. That is not
         /// bookkeeping: `closed_count` is what `run(.{ .after_closed = n })`
         /// stops on, so an over-count returns the loop with connections still
         /// open. The counters beside this one (`waiting_count`,
-        /// `over_mark_count`) each have exactly one writer; this gives
+        /// `over_mark_count`) each have exactly one writer. This gives
         /// `closed_count` the same.
         pub fn teardown(self: *Self, slot: usize) bool {
             const c = &self.conns[slot];
@@ -309,8 +309,8 @@ pub fn Machine(
             // the high-water mark, and the fan-in sources it throttled have no
             // other resume trigger: every terminal path returns before
             // `onSend`'s tail runs (ADR-0082). Without a resume, a closing
-            // sink strands its victims parked for the loop's lifetime — they
-            // are exempt from the park reaper precisely because they are
+            // sink strands its victims parked for the loop's lifetime, they
+            // are exempt from the park reaper because they are
             // victims, not slow readers.
             //
             // Recorded, not performed. Resuming here would re-enter the loop

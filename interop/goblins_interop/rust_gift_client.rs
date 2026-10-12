@@ -1,11 +1,11 @@
 //! Live three-party handoff with the Rust binding as the GIFTER (the
 //! introducer), proving glowcap can mint a `desc:handoff-give` that live Goblins
-//! redeems and a `deposit-gift` that live Goblins accepts — the exporter half of
+//! redeems and a `deposit-gift` that live Goblins accepts, the exporter half of
 //! ADR-0009 against a real cross-implementation peer, the mirror of
 //! `rust-goblins-handoff` (where glowcap is the recipient).
 //!
 //! Topology (all TCP loopback):
-//!   Bob    (Goblins exporter)  hosts a greeter behind a swiss; long-lived.
+//!   Bob    (Goblins exporter)  hosts a greeter behind a swiss, long-lived.
 //!   Gifter (glowcap)           lifts Bob's greeter from a vendor reply, then
 //!                              returns it twice in one nested Passable value.
 //!   Carol  (Goblins recipient) dials the glowcap introducer, asks for the
@@ -18,7 +18,7 @@
 //! serves both sides, so both signatures match their deposits. Carol's
 //! `GIFT NESTED OK` line proves Goblins redeemed both and reached Bob directly.
 //!
-//! Needs `racket` plus the `goblins` collection on PATH; run via
+//! Needs `racket` plus the `goblins` collection on PATH. Run via
 //! `zig build rust-goblins-gift`.
 
 use std::sync::{Arc, Mutex};
@@ -34,7 +34,7 @@ mod helpers;
 type Fail = helpers::Fail;
 
 const HOST: &str = "127.0.0.1";
-/// Bob (the Goblins exporter) listens on PORT; Carol binds her own peer on
+/// Bob (the Goblins exporter) listens on PORT, Carol binds her own peer on
 /// PORT+1. glowcap (the gifter) takes an ephemeral port, the recipient learns it
 /// at spawn time. `--port=N` (from `zig build rust-goblins-gift -Dport=N`) moves
 /// the pair when 22124 is taken.

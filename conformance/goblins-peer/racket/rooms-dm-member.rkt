@@ -1,5 +1,5 @@
 #lang racket/base
-;; rooms-dm-member.rkt — a Spritely Goblins vat sitting in a glowcap rooms chat,
+;; rooms-dm-member.rkt: a Spritely Goblins vat sitting in a glowcap rooms chat,
 ;; reachable by direct message and able to start one.
 ;;
 ;; This is the scripted half of the Goblins direct-message member;

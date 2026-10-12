@@ -14,7 +14,7 @@ import { typingMore, typingOne, typingTwo } from "../../../lib/text/page.ts";
  *
  * The flag is level, not edge: `true` goes once and a final `false` always goes,
  * so a stuck indicator cannot linger on the other members' screens. Leaving the
- * conversation runs this effect's cleanup and sends that last `false`; there is
+ * conversation runs this effect's cleanup and sends that last `false`. There is
  * no separate "stop typing on switch" call to forget.
  *
  * `draft` is a dependency even though nothing here reads it, and that is the
@@ -58,7 +58,7 @@ export const KEYBOARD_SETTLE_MS = 300;
 
 /** One file chip in the composer: its kind, its name and size, and the × that
  * takes it back out. One shape for both a newly-picked file and a file kept from
- * a line being refiled — they differ only in what removing means, which is the
+ * a line being refiled. They differ only in what removing means, which is the
  * caller's `onRemove`. */
 export function FileChip(
 	{ image, name, size, onRemove }: { image: boolean; name: string; size: number; onRemove: () => void },

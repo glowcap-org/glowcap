@@ -5,7 +5,7 @@
  * and the word an unnamed end wears are written down. These tests are what
  * keeps it the only place: the renderer is checked for a second spelling of a
  * size it should be reading, and the whole source tree is checked for a second
- * spelling of the word. The arithmetic itself is checked where it is used —
+ * spelling of the word. The arithmetic itself is checked where it is used,
  * `keyframe-layout-test/separation.test.ts` for the box a node reserves,
  * `draw-helpers-test/chips.test.ts` for the stagger that keeps two chips apart.
  *
@@ -72,8 +72,8 @@ async function rendererSource(): Promise<string> {
 Deno.test("the renderer sets every stage label from the shared metrics", async () => {
 	// The drift this whole module exists to stop: the renderer spelling a font
 	// size or a pill padding itself, while the layout goes on reserving room
-	// for the size it used to be. Both stay green — one draws bigger labels and
-	// the other separates the old boxes, and the labels overlap on screen.
+	// for a stale size. Both stay green. One draws bigger labels and
+	// the other separates the smaller boxes, and the labels overlap on screen.
 	const source = await rendererSource();
 	assertEquals(
 		source.match(/fontSize:\s*\d/g),

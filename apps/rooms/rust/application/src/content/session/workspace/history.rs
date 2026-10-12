@@ -1,5 +1,5 @@
 //! Archive identity survives a direct route reopening, but never a replacement
-//! peer registration. It describes history; it restores no capability custody.
+//! peer registration. It describes history. It restores no capability custody.
 use super::{Conversation, Id, InboxSelection};
 use sha2::{Digest, Sha256};
 
@@ -17,19 +17,26 @@ pub fn direct(directory: &str, registration: &str) -> Result<Id, &'static str> {
 		hash.update(value.as_bytes());
 	}
 	let id = crate::fields::lower_hex(&hash.finalize());
-	Ok(Id::new(id.into()).expect("fixed bounded history identity"))
+	Id::new(id.into()).ok_or("Invalid direct history identity")
 }
 fn selected(id: &Id, directory: &Id, introduction: Option<&super::Introduction>) -> Id {
 	match introduction {
-		Some(introduction) => direct(
-			directory.text().as_str().expect("scalar directory identity"),
-			introduction
-				.registration
-				.text()
-				.as_str()
-				.expect("scalar registration identity"),
-		)
-		.expect("validated introduction"),
+		Some(introduction) =>
+		{
+			#[expect(
+				clippy::expect_used,
+				reason = "an introduction's directory and registration ids are admitted as lowercase hex, so they are scalar text and `direct` accepts them"
+			)]
+			direct(
+				directory.text().as_str().expect("scalar directory identity"),
+				introduction
+					.registration
+					.text()
+					.as_str()
+					.expect("scalar registration identity"),
+			)
+			.expect("validated introduction")
+		}
 		// A directly handed occurrence has no directory registration witness.
 		// Its own canonical identity is the only history namespace it owns.
 		None => id.clone(),

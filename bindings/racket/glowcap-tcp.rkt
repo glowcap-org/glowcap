@@ -1,5 +1,5 @@
 #lang racket/base
-;; glowcap/tcp — the blocking TCP transport for the glowcap Racket binding.
+;; glowcap/tcp: the blocking TCP transport for the glowcap Racket binding.
 ;;
 ;; Mirrors the à-la-carte archive split (ADR-0059): this module is
 ;; libglowcap_net_transport_tcp's binding, the explicit netlayer/listener/connection
@@ -7,7 +7,7 @@
 ;; (`private/ffi-tcp.rkt`) opens ONLY that archive, so requiring this module
 ;; never links a transport you do not use. It builds on the core value and
 ;; error machinery in `glowcap.rkt` through the shared transport seam
-;; (`private/seam.rkt`) — they share the frame layout but no symbol — so a TCP
+;; (`private/seam.rkt`). They share the frame layout but no symbol, so a TCP
 ;; consumer composes the two:
 ;;
 ;;   (require "glowcap.rkt")
@@ -228,7 +228,7 @@
      (define rc (glowcap_tcp_conn_write_frame h (make-GlowcapFrame buf (bytes-length frame) FRAME-SHAPE-BYTE)))
      ;; The frame cstruct is retained as the call's argument, but it carries
      ;; only `buf`'s raw address; the sink keeps the pinned payload live for
-     ;; the whole blocking write.
+     ;; the blocking write.
      (void/reference-sink buf)
      (check/tcp rc))))
 

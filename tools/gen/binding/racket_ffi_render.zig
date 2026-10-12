@@ -15,10 +15,10 @@ pub const Special = struct {
 };
 
 /// The raw `_fun` spelling of one parameter type. Out cells and every
-/// non-struct pointer spell `_pointer`; a single struct pointer spells its
+/// non-struct pointer spell `_pointer`. A single struct pointer spells its
 /// `_GlowcapX-pointer` cstruct type, while a borrowed struct *array* stays
 /// `_pointer` (the caller hands a raw block, which a tagged cstruct pointer
-/// type would refuse); scalars spell `_size` / `_uintN`.
+/// type would refuse), scalars spell `_size` / `_uintN`.
 fn rktParamType(comptime T: type, comptime specials: []const Special) []const u8 {
     inline for (specials) |s| {
         if (T == s.T) return s.spelling;
@@ -67,8 +67,8 @@ fn rktReturnType(comptime T: type) []const u8 {
     };
 }
 
-/// The wrapper out-cell (ctype, init) of a slot parameter — a one-pointer to
-/// a scalar, pointer, or opaque Host reference — or null when the parameter is
+/// The wrapper out-cell (ctype, init) of a slot parameter, a one-pointer to
+/// a scalar, pointer, or opaque Host reference, or null when the parameter is
 /// a caller-provided buffer, handle, or struct view rather than a cell the
 /// wrapper allocates.
 pub const Cell = struct {
@@ -154,7 +154,7 @@ fn rowClass(comptime M: type, comptime row: anytype, comptime hand_wrapped: []co
 /// The comptime `(_fun …)` spelling of one row's raw signature. Every
 /// blocking row keeps its `#:blocking?` mark: the annotation deactivates the
 /// calling thread for the duration of the callout, so the collector never
-/// stops the world waiting on a parked call — which matters even (especially)
+/// stops the world waiting on a parked call, which matters even (especially)
 /// when the caller is a plain OS thread holding a thirty-second dial.
 pub fn funSig(comptime M: type, comptime row: anytype, comptime specials: []const Special) []const u8 {
     @setEvalBranchQuota(1_000_000);
@@ -178,10 +178,10 @@ pub const EagerConfig = struct {
     definer: []const u8,
     note: []const u8,
     /// Rows whose ergonomic wrapper stays hand-written: the starred raw is
-    /// emitted and provided; no mechanical wrapper joins it.
+    /// emitted and provided. No mechanical wrapper joins it.
     hand_wrapped: []const []const u8 = &.{},
     /// The generated header the `call/outs` wrappers' argument names come
-    /// from; only needed when the archive has multi-out rows.
+    /// from. Only needed when the archive has multi-out rows.
     header_path: ?[]const u8 = null,
     specials: []const Special = &.{},
     extra_require: ?[]const u8 = null,
@@ -287,7 +287,7 @@ pub fn renderEager(gpa: std.mem.Allocator, comptime cfg: EagerConfig) ![]u8 {
 }
 
 /// One `call/outs` wrapper: the public name takes the non-cell arguments
-/// (named from the header) and returns `(values rc out…)` — or, for a void
+/// (named from the header) and returns `(values rc out…)`, or, for a void
 /// raw, just `(values out…)` with a constant 0 status inside.
 pub fn renderMultiWrapper(
     gpa: std.mem.Allocator,

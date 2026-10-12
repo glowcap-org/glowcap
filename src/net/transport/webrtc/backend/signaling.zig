@@ -10,7 +10,7 @@ const crypto = foundation.crypto;
 const Peer = sidecar.Peer;
 
 /// One bounded SDP/ICE frame. Candidate pumping borrows one such transient
-/// stack buffer per pump call, never per connection; admission uses the same
+/// stack buffer per pump call, never per connection. Admission uses the same
 /// bound for the endpoint-owned transfer pool.
 pub const signaling_frame_bytes: usize = sidecar.max_signal_bytes;
 const max_signal_payloads = 256;
@@ -61,6 +61,8 @@ pub const DialResolver = struct {
     }
 };
 
+/// Signaling implementors are unknown at this declaration, so the send verbs
+/// keep `anyerror` return sets.
 pub const SignalingAuthority = struct {
     ctx: *anyopaque,
     sendOffer: *const fn (ctx: *anyopaque, fd: i32, designator: []const u8, sdp: []const u8) anyerror!void,
@@ -147,7 +149,7 @@ pub fn Machine(comptime Self: type, comptime Fd: type, comptime Connections: typ
 
         /// Start an offerer bring-up: create the peer, produce its offer, and hand
         /// it to the signaling authority under the reserved fd. The connect
-        /// completion fires when the channel opens; the answer and far candidates
+        /// completion fires when the channel opens. The answer and far candidates
         /// arrive through `provideAnswer` / `provideRemoteCandidate`.
         pub fn startDial(self: *Self, user_data: u64, target: ConnectTarget) !Fd {
             const fd = try reserveFdLocked(
@@ -234,7 +236,7 @@ pub fn Machine(comptime Self: type, comptime Fd: type, comptime Connections: typ
         }
 
         /// Wake a parked `poll` so an owner-thread stop flag can be observed without
-        /// timeout polling. Carries no authority and records no work; the next
+        /// timeout polling. Carries no authority and records no work. The next
         /// harvest drains the nudge and then finds the normal state the caller
         /// already changed.
         pub fn wake(self: *Self) net.wake_channel.Failure!void {
@@ -420,7 +422,7 @@ pub fn Machine(comptime Self: type, comptime Fd: type, comptime Connections: typ
                             row.peer.addRemoteCandidate(ice) catch |err| {
                                 // A candidate refusal while the exchange is still
                                 // negotiating is terminal: no later readiness edge
-                                // can complete this dial honestly.
+                                // can complete this dial.
                                 failDial(self, c.fd, err);
                             };
                         } else if (self.adopting.getPtr(c.fd)) |row| {

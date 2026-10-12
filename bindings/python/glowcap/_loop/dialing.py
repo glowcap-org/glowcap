@@ -57,8 +57,8 @@ class _DialingMixin(DriverLoopMixinBase):
     def _rearm_progress_timer(self) -> None:
         """Project glowcap's nearest pending-work deadline onto asyncio.
 
-        The native driver owns which operation is due and all timeout policy;
-        this binding owns only the scheduler timer that calls the next step.
+        The native driver owns which operation is due and all timeout policy.
+        This binding owns only the scheduler timer that calls the next step.
         """
         if self._progress_timer is not None:
             self._progress_timer.cancel()

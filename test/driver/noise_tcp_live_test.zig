@@ -2,8 +2,8 @@
 //! (ADR-0107): a keyed listener on the owning face accepts
 //! a sealed session, a client dials the listener's key designator, the
 //! Noise_XK handshake completes inside the ordinary handshake pump, and both
-//! legs report `authenticated_transport` with no embedder testimony anywhere
-//! — the channel itself is the realizer. A fetch and a call round-trip
+//! legs report `authenticated_transport` with no embedder testimony anywhere.
+//! The channel itself is the realizer. A fetch and a call round-trip
 //! through the sealed records prove CapTP is untouched above the channel.
 //!
 //! The negative half is the tier boundary: the borrowing `BlockingSession`

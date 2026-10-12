@@ -1,9 +1,10 @@
 // Being reachable by direct message: one inbox per peer, offered to the room.
 //
-// The inbox is a *Host publication* rather than published on one session because the peer
-// reaches it by redeeming an introduction, which dials this host, and a Host publication
-// is what answers on the connection that dial opens. `Session.publishedRef` then
-// names the position the directory's own connection granted it.
+// The inbox is a Host publication and not published on one session, because the
+// peer reaches it by redeeming an introduction, which dials this host, and a
+// Host publication is what answers on the connection that dial opens.
+// `Session.publishedRef` then names the position the directory's connection
+// granted it.
 //
 // Removing a Host alias never retargets an issued capability: the old actor
 // remains exact while anything still roots it, then its hosted behavior is
@@ -17,15 +18,15 @@ import { MAX_DM_INBOXES, nickRefusal } from "./limits.ts";
 import { isRegistrationId } from "./directory_publications.ts";
 import type { Directory } from "./room/client.ts";
 
-/** Mints and offers direct-message inboxes for exact live registrations. */
+/** Creates and offers direct-message inboxes for live registrations. */
 export interface InboxOfferer {
-	/** Mint an inbox for `peer`'s registration ID if there is none, and offer it to the
-	 * directory. Always re-offers across a directory reconnect. */
+	/** Create an inbox for `peer`'s registration ID if there is none, and offer it
+	 * to the directory. Always re-offers across a directory reconnect. */
 	offer(peer: string, registrationId: string, opening: string): void;
-	/** Forget the inbox minted for `registrationId`, so a later `offer` mints a fresh one.
-	 * Call it when the registration leaves: the next holder of that name is someone else
-	 * and must not inherit their inbox. The old issued capability keeps its exact
-	 * revoked/disconnected behavior; it is never retargeted. */
+	/** Forget the inbox created for `registrationId`, so a later `offer` creates a
+	 * fresh one. Call it when the registration leaves: the next holder of that name
+	 * is someone else and must not inherit their inbox. The old issued capability
+	 * keeps its revoked or disconnected behavior and is never retargeted. */
 	forget(registrationId: string): void;
 	/** Retire every alias owned by this offerer. Resolves after unpublication has
 	 * run outside any delivering Host turn. */
@@ -34,7 +35,7 @@ export interface InboxOfferer {
 
 /** Host-scoped owner of every live inbox alias published through it. Directory
  * offerers are children of this owner, so the configured ceiling is one
- * structural ledger rather than a per-caller convention. */
+ * structural ledger and not a per-caller convention. */
 export interface InboxPublisher {
 	offerer(opts: InboxOffererOptions): InboxOfferer;
 }
@@ -58,7 +59,7 @@ interface PublisherState {
 
 const publishers = new WeakMap<Host, PublisherState>();
 
-/** Return the one inbox publication owner for `host`.
+/** Return the inbox publication owner for `host`.
  *
  * Host identity, not caller discipline, makes the ledger singular: every call
  * with the same Host returns the same owner. Create each directory's offerer
@@ -72,14 +73,14 @@ export function inboxPublisher(host: Host, limit = MAX_DM_INBOXES): InboxPublish
 		}
 		return held.publisher;
 	}
-	// Every live or provisional alias, and whether `publish` has taken
-	// it. Retirement removes a published name only after scheduling native
-	// unpublication ahead of any replacement publication.
+	// Every live or provisional alias, and whether `publish` has taken it.
+	// Retirement removes a published name only after scheduling unpublication
+	// ahead of any replacement publication.
 	const names = new Map<string, boolean>();
 	const retiringNames = new Set<string>();
 	const publisher: InboxPublisher = {
 		offerer(opts: InboxOffererOptions): InboxOfferer {
-			// The name minted for each registration in this directory. The same
+			// The name created for each registration in this directory. The same
 			// nickname under a later registration ID gets another alias, and both
 			// spend this Host's ledger.
 			const minted = new Map<string, string>();
@@ -95,7 +96,7 @@ export function inboxPublisher(host: Host, limit = MAX_DM_INBOXES): InboxPublish
 					return null;
 				}
 				// Free logical capacity now. The retirement microtask was queued before
-				// any replacement publication, so the native alias leaves first.
+				// any replacement publication, so the alias leaves first.
 				names.delete(name);
 				retiringNames.add(name);
 				const pending = new Promise<void>((resolve) =>
@@ -104,7 +105,7 @@ export function inboxPublisher(host: Host, limit = MAX_DM_INBOXES): InboxPublish
 							host.unpublish(name);
 							retiringNames.delete(name);
 						} catch (error) {
-							// The native alias is still live, so restore the ledger rather than
+							// The alias is still live, so restore the ledger instead of
 							// pretending its slot was reclaimed.
 							retiringNames.delete(name);
 							names.set(name, true);
@@ -138,7 +139,7 @@ export function inboxPublisher(host: Host, limit = MAX_DM_INBOXES): InboxPublish
 							return;
 						}
 						// Claim before yielding so two requests cannot race into two
-						// aliases. The ledger, rather than probability, owns uniqueness.
+						// aliases. The ledger, not probability, owns uniqueness.
 						do swiss = mintSwiss(peer); while (names.has(swiss) || retiringNames.has(swiss));
 						minted.set(key, swiss);
 						names.set(swiss, false);
@@ -190,7 +191,7 @@ export function inboxPublisher(host: Host, limit = MAX_DM_INBOXES): InboxPublish
 	return publisher;
 }
 
-/** An unguessable name for one peer's inbox: a guessable one would let anyone
+/** An unguessable name for one peer's inbox. A guessable one would let anyone
  * fetch it by name on a connection they opened themselves. */
 function mintSwiss(peer: string): string {
 	const bytes = new Uint8Array(32);

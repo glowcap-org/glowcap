@@ -1,5 +1,5 @@
 //! Intent selects exact typed custody fields. Validation and local retirement
-//! share this borrowed walk; effect receipts own their independent occurrences.
+//! share this borrowed walk. Effect receipts own their independent occurrences.
 use super::{Conversation, Directory, Intent, Invitation, InvitationAuthority, PostedLine};
 use crate::content::session::custody::{Coordinate, Custody, FieldKey, References, Role};
 
@@ -84,11 +84,11 @@ impl Intent {
 	/// Acquisition owns retirement of removed selections, independently of its
 	/// bounded ingress page. The caller must hold ManageCustody and ReplaceWorkspace.
 	/// One fixed-capacity scalar index of the candidate's occurrences replaces a
-	/// full candidate walk per old field. Decoded row/line bounds cap its length;
-	/// count * size_of::<Coordinate>() owns the scratch bytes. It borrows no
+	/// full candidate walk per old field. Decoded row/line bounds cap its length.
+	/// Count * size_of::<Coordinate>() owns the scratch bytes. It borrows no
 	/// payload and dies in this callback, while old intent backing moves intact.
-	/// Aliases selected by the candidate and unselected independent imports stay;
-	/// receipts own separate occurrences and are never consulted or released here.
+	/// Aliases selected by the candidate and unselected independent imports stay.
+	/// Receipts own separate occurrences and are never consulted or released here.
 	pub fn replace_configuration_retiring<R: References>(
 		&mut self,
 		next: Self,
@@ -119,7 +119,7 @@ impl Intent {
 		Ok(())
 	}
 	/// Enumerate every custody selection in this intent. Coordinates describe
-	/// already held fields; the walk neither grants nor restores authority.
+	/// already held fields. The walk neither grants nor restores authority.
 	pub fn coordinates(&self) -> impl Iterator<Item = Coordinate> + '_ {
 		self.directories
 			.as_slice()

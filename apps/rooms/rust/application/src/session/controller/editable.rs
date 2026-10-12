@@ -1,5 +1,5 @@
 //! Bounded edit targets from admitted session events. Rendered history does not
-//! confer edit rights; the session checks its held line authority on invocation.
+//! confer edit rights. The session checks its held line authority on invocation.
 use crate::{room::message::ChangeKind, session::event::Event};
 use alloc::{collections::VecDeque, string::String};
 

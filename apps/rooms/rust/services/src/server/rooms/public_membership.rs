@@ -45,6 +45,7 @@ pub(in crate::server) fn subscribe_publication(
 		// The source retains its actual entrance and settles the original answer
 		// through the bounded server work queue. No second directory selection is
 		// made after a wait, and the source still authorizes subscription itself.
+		state.admit_join(connection, publication)?;
 		let host = state.host.clone();
 		let subscription = args[1..].to_vec();
 		return super::super::answer::later(&state, creation::SUBSCRIBE_PUBLICATION, async move {

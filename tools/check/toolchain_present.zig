@@ -23,7 +23,7 @@
 //! names neither the container nor the layer. So a capability is declared as
 //! the command that reports it and the text that report must contain, and the
 //! gate runs the probe. Declaring the probe argv is what keeps a host-tool call
-//! behind this artifact reviewed rather than silent; `.devcontainer/image/
+//! behind this artifact reviewed rather than silent, `.devcontainer/image/
 //! verify-toolchains.sh` remains the complete container contract, and this is
 //! the subset `check` itself cannot run without.
 

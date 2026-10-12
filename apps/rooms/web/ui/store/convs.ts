@@ -1,6 +1,6 @@
 // Conversations this tab holds: rooms, direct lines, and the keys that name them.
 //
-// A room's identity is its directory and its name; a direct line's is the
+// A room's identity is its directory and its name. A direct line's is the
 // introduction that opened it. The page reaches these through `store.ts`.
 
 import type { Conv, ConvBase, DirectoryConv, DirId, DirView, DmConv, DmLine, RoomConv, SessionConv } from "../types.ts";
@@ -14,7 +14,7 @@ import { roomAuthorityToken as authorityToken } from "../application.ts";
 // ── Conversations ─────────────────────────────────────────────────────────
 /** A room's key is its directory and its name together, because a room name only
  * means anything inside the directory that granted it. Two clients naming one
- * room on one directory mean one room; the same name on another directory is
+ * room on one directory mean one room. The same name on another directory is
  * somewhere else entirely.
  *
  * A direct line's key is minted per introduction and never derived from a name,
@@ -25,7 +25,7 @@ import { roomAuthorityToken as authorityToken } from "../application.ts";
  * The two halves are joined by a NUL, and it is written as an escape and never
  * as a raw byte. A locator may hold any character a URI may and a room name may
  * hold a space, so a separator drawn from that alphabet lets one pair spell
- * another pair's key; the typing timers join their two halves the same way and
+ * another pair's key. The typing timers join their two halves the same way and
  * for the same reason. A raw NUL in the source would make the file binary, and
  * every text tool then skips it without saying so. */
 export function roomKey(dir: DirId, name: string): string {
@@ -36,7 +36,7 @@ export function publishedRoomKey(dir: DirId, publicationId: string): string {
 	return "room-publication:" + dir + "\u0000" + publicationId;
 }
 
-/** One view per held directory. Recreated when shown; never a workspace row. */
+/** One view per held directory. Recreated when shown. Never a workspace row. */
 function directoryKey(dir: DirId): string {
 	return "directory:" + dir;
 }
@@ -53,10 +53,10 @@ export function nextStandingKey(convs: ReadonlyMap<string, Conv>): string | unde
 
 // Introductions this tab has opened are counted on the page projection. A
 // direct conversation is keyed on the introduction rather than on the member's
-// nick, which is the whole of the fix for a thread that used to change hands:
-// the nick is a claim the room grants and reclaims, so keying a conversation
-// on it meant that when the claim moved, the next message in a thread — same
-// title, same history — was redeemed to whoever held the name now.
+// nick. The nick is a claim the room grants and reclaims, so keying a
+// conversation on it would let a thread (same title, same history) change hands:
+// when the claim moved, the next message would be redeemed to whoever held the
+// name.
 
 export function getConv(
 	projection: PageProjection,
@@ -69,7 +69,7 @@ export function getConv(
 /** The listed room this tab already holds for `dir` and `name`.
  *
  * A caller with a conversation key names that row. Without one, a name-key and a
- * publication-key are two spellings of the same listed room; preferring the
+ * publication-key are two spellings of the same listed room. Preferring the
  * publication identity keeps a bridge from becoming a second join. Private rooms
  * are not found by label: two of them may share one, and only the key tells
  * them apart. */
@@ -93,7 +93,7 @@ export function existingRoom(
 }
 
 /** The conversation whose durable id is `persistId`, or null. Session commands
- * and snapshots name conversations this way; this tab's map is keyed on `key`. */
+ * and snapshots name conversations this way. This tab's map is keyed on `key`. */
 export function convByPersistId(
 	projection: PageProjection,
 	persistId: string,
@@ -142,8 +142,8 @@ export function anyDirSettled(
 /** Replace the fields both kinds of conversation share, keeping the kind's own.
  *
  * The generic is what keeps a room's patch off a direct line, which is the whole
- * reason `Conv` is a union: spreading it directly loses the discriminant, and the
- * four call sites below each used to cast that enforcement away. */
+ * reason `Conv` is a union: spreading it directly loses the discriminant, and a
+ * cast at each call site would give that enforcement away. */
 export function patch<C extends Conv>(conv: C, fields: Partial<ConvBase>): C {
 	return Object.assign({}, conv, fields);
 }
@@ -153,10 +153,10 @@ export function patch<C extends Conv>(conv: C, fields: Partial<ConvBase>): C {
  * Whether a room is held is what its policy says, so it is settled here rather
  * than by whoever wrote the room. The two were set together when the room was
  * first seen and only the policy moved afterwards, which left every surface
- * reading `held` — the rail's mark, the topbar, the card, the log, the
- * composer's addressee — drawing the standing the room arrived with. Two
- * writers already move the policy and only one of them would have remembered;
- * every writer comes through here. */
+ * reading `held` (the rail's mark, the topbar, the card, the log, the
+ * composer's addressee) drawing the standing the room arrived with. Two
+ * writers already move the policy and only one of them would have remembered.
+ * Every writer comes through here. */
 export function put(projection: PageProjection, conv: Conv): void {
 	const settled = conv.type === "room" && conv.held !== (roomPreset(conv.policy) === "private")
 		? { ...conv, held: !conv.held }
@@ -198,34 +198,25 @@ function directPersistId(dir: DirId, peerRegistrationId: string): string {
 	return `direct:${dir}:${peerRegistrationId}`;
 }
 
-function makeConv(projection: PageProjection, type: "room", dir: DirId, id: string, identity?: RoomIdentity): RoomConv;
-function makeConv(projection: PageProjection, type: "dm", dir: DirId, id: string, identity: DirectIdentity): DmConv;
-function makeConv(
-	projection: PageProjection,
-	type: "room" | "dm",
-	dir: DirId,
-	id: string,
-	identity?: RoomIdentity | DirectIdentity,
-): Conv {
-	const roomIdentity = type === "room" ? identity as RoomIdentity | undefined : undefined;
-	const directIdentity = type === "dm" ? identity as DirectIdentity : null;
-	const key = type === "room"
-		? roomIdentity?.key ??
-			(roomIdentity?.publicationId == null ? roomKey(dir, id) : publishedRoomKey(dir, roomIdentity.publicationId))
-		: "dm:" + projection.nextIntroduction();
-	const base = {
-		id,
-		key,
-		dir,
-		persistId: identity?.persistId ??
-			(type === "dm" ? directPersistId(dir, directIdentity!.peerRegistrationId) : crypto.randomUUID()),
-	};
-	// Build only the fields the kind owns, so the union stays honest: a room gets
-	// its membership and a direct line gets its standing.
-	const conv: Conv = type === "room"
-		? {
-			...base,
-			type,
+function makeConv(projection: PageProjection, input: NewRoomConv): RoomConv;
+function makeConv(projection: PageProjection, input: NewDmConv): DmConv;
+function makeConv(projection: PageProjection, input: NewConv): Conv {
+	const { dir, id } = input;
+	if (input.type === "room") {
+		const roomIdentity = input.identity;
+		const key = roomIdentity?.key ??
+			(roomIdentity?.publicationId == null
+				? roomKey(dir, id)
+				: publishedRoomKey(dir, roomIdentity.publicationId));
+		const persistId = roomIdentity?.persistId ?? crypto.randomUUID();
+		// Build only the fields the kind owns, so the union stays accurate: a room
+		// gets its membership and a direct line gets its standing.
+		const conv: RoomConv = {
+			id,
+			key,
+			dir,
+			persistId,
+			type: "room",
 			membership: roomIdentity?.membership ?? "joining",
 			membershipIssue: "",
 			earlierHistory: "unasked",
@@ -243,21 +234,36 @@ function makeConv(
 			...(roomIdentity != null && Object.hasOwn(roomIdentity, "bridgeIntent")
 				? { bridgeIntent: roomIdentity.bridgeIntent }
 				: {}),
-		}
-		: {
-			...base,
-			type,
-			peerRegistrationId: directIdentity!.peerRegistrationId,
-			line: "introducing",
 		};
+		put(projection, conv);
+		return conv;
+	}
+	const directIdentity = input.identity;
+	const key = "dm:" + projection.nextIntroduction();
+	const persistId = directIdentity.persistId ?? directPersistId(dir, directIdentity.peerRegistrationId);
+	const conv: DmConv = {
+		id,
+		key,
+		dir,
+		persistId,
+		type: "dm",
+		peerRegistrationId: directIdentity.peerRegistrationId,
+		line: "introducing",
+	};
 	put(projection, conv);
 	return conv;
 }
 
+/** What a new conversation row is built from. The kind carries the identity
+ * the kind owns, so the builder narrows the union instead of asserting. */
+type NewRoomConv = { type: "room"; dir: DirId; id: string; identity?: RoomIdentity };
+type NewDmConv = { type: "dm"; dir: DirId; id: string; identity: DirectIdentity };
+type NewConv = NewRoomConv | NewDmConv;
+
 /** The row a room identity already names in this tab, whichever key it wears.
  * A row's key is minted when the room is first seen and never changes, so a
  * publication id resolved later must find the row a link-era join filed under
- * its name. The checkpoint's persistId outranks everything; a publication id
+ * its name. The checkpoint's persistId outranks everything. A publication id
  * then adopts the same-named row that claims no other publication. A row
  * claiming a different publication is a different room, never adopted. */
 function adoptableRoomConv(
@@ -349,13 +355,13 @@ export function ensureRoom(projection: PageProjection, dir: DirId, name: string,
 		}
 		return existing;
 	}
-	return makeConv(projection, "room", dir, name, identity);
+	return makeConv(projection, { type: "room", dir, id: name, identity });
 }
 
 /** The conversation for a held directory, made if this tab has none.
  *
  * It is this tab's view of the directory, not a room and not a checkpoint row.
- * Showing it again reuses the same key; leaving the directory forgets it. */
+ * Showing it again reuses the same key. Leaving the directory forgets it. */
 export function ensureDirectory(projection: PageProjection, dir: DirId): DirectoryConv {
 	const key = directoryKey(dir);
 	const existing = getConv(projection, key);
@@ -382,9 +388,9 @@ export function joinedRooms(projection: PageProjection, dir?: DirId): RoomConv[]
  * Holding one is a live session and a name registered on it, so a directory with
  * no rooms and no direct lines is not nothing: it is a connection the reader is
  * paying for and a name somebody else cannot take, with no row anywhere saying
- * so. That state is easy to reach — leave the last room on a server — and used
- * to be invisible, which also made every *other* row wear a directory caption to
- * tell it apart from rooms on a directory that was not on screen at all.
+ * so. Leaving the last room on a server reaches that state. Listing it here
+ * also spares every other row a directory caption to tell it apart from rooms
+ * on a directory that is not on screen.
  *
  * Never this page's own. It has no rooms before the first join either, and a row
  * saying so at the moment the join card is asking for one is noise. */
@@ -409,9 +415,9 @@ export function convsOn(projection: PageProjection, dir: DirId): Conv[] {
  *
  * A conversation whose member has gone is not open. The room frees a nick when
  * its holder leaves and will grant it to the next person who asks, and this side
- * has no way to tell one holder from the next — so a fresh introduction opens a
+ * has no way to tell one holder from the next. So a fresh introduction opens a
  * fresh conversation rather than continuing one that would now reach someone
- * else. Two conversations may therefore carry the same name, which is honest:
+ * else. Two conversations may therefore carry the same name, which is correct:
  * they are with two different people. */
 export function liveDmWith(
 	projection: PageProjection,
@@ -430,7 +436,7 @@ export function liveDmWith(
 	}
 	return null;
 }
-/** The conversation with `peer`, made if this tab has none — or `null` when
+/** The conversation with `peer`, made if this tab has none, or `null` when
  * `peer` is this tab. A line to yourself is not a conversation, so the mint
  * refuses rather than leaving every caller to remember. */
 export function ensureDm(
@@ -441,12 +447,12 @@ export function ensureDm(
 ): DmConv | null {
 	if (isSelf(projection, dir, peer)) return null;
 	return liveDmWith(projection, dir, peer, peerRegistrationId) ??
-		makeConv(projection, "dm", dir, peer, { peerRegistrationId });
+		makeConv(projection, { type: "dm", dir, id: peer, identity: { peerRegistrationId } });
 }
 
 /** Rebuild one direct-conversation record without claiming its old live
- * introduction survived. A fresh send requires the same registration ID;
- * a later holder of the displayed nickname receives a new conversation. */
+ * introduction survived. A fresh send requires the same registration ID.
+ * A later holder of the displayed nickname receives a new conversation. */
 export function restoreDm(
 	projection: PageProjection,
 	dir: DirId,
@@ -456,14 +462,14 @@ export function restoreDm(
 	closed: boolean,
 ): DmConv | null {
 	if (isSelf(projection, dir, peer)) return null;
-	const conv = makeConv(projection, "dm", dir, peer, { persistId, peerRegistrationId });
+	const conv = makeConv(projection, { type: "dm", dir, id: peer, identity: { persistId, peerRegistrationId } });
 	if (!closed) return conv;
 	const closedConv = { ...conv, line: "closed" as const };
 	put(projection, closedConv);
 	return closedConv;
 }
 
-/** Close every open conversation with `peer` — the member has left, so the name
+/** Close every open conversation with `peer`: the member has left, so the name
  * is back in the room's hands. Returns the keys closed, for the caller to drop
  * whatever it was holding for them. */
 export function closeDmsWith(
@@ -494,9 +500,9 @@ export function closeDmsWith(
  * Its lines go the way every other line goes, through the release seam, and
  * they go before the row does: the seam finds the session by asking this store
  * which directory the conversation was on, so a conversation deleted first is
- * one whose lines can no longer be given back. Both callers used to hand their
- * history over themselves, immediately before calling this. That worked and
- * was one caller away from not working, which is the same shape as any
+ * one whose lines can no longer be given back. A caller that handed its
+ * history over itself before calling this would work until one caller forgot,
+ * which is the same shape as any
  * invariant kept by everybody remembering rather than by the seam that owns
  * it. */
 export function forgetConv(projection: PageProjection, key: string): void {
@@ -505,7 +511,7 @@ export function forgetConv(projection: PageProjection, key: string): void {
 	const convs = new Map(state.convs);
 	convs.delete(key);
 	// The draft goes with it. What was half-written to a room is addressed to
-	// that room, so it cannot outlive it — and its attachments are open file
+	// that room, so it cannot outlive it, and its attachments are open file
 	// handles this tab would otherwise hold for a conversation that is gone.
 	const drafts = new Map(state.drafts);
 	drafts.delete(key);

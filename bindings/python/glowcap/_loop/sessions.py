@@ -60,7 +60,7 @@ class _SessionsMixin(DriverLoopMixinBase):
         """The public :class:`glowcap.Host` wrapper adopted over this loop's
         native host (ADR-0112): application verbs, publish trampolines, and
         ``RemotePromise`` settles all work on it, while the loop stays the one
-        action drain and the one release authority. Built on first call; call
+        action drain and the one release authority. Built on first call. Call
         it on the driving thread."""
         if self._wrapper is None:
             from .._host import Host

@@ -1,7 +1,7 @@
 //! One bridged channel's membership on the shared feed, independent of any
 //! one connection: joined while the room has readers or accepted outbound
 //! work, and told apart from the channel's other traffic by the feed's own
-//! nick. A reconnect installs a fresh generation; the join a stale
+//! nick. A reconnect installs a fresh generation. The join a stale
 //! generation confirms is ignored.
 use super::protocol::{Message, encode, fold, nick_from_prefix};
 use alloc::{
@@ -14,9 +14,9 @@ use alloc::{
 pub enum Action {
 	/// A line for the feed's serialized writer.
 	Send(Vec<u8>),
-	/// Arm the join timer for this generation; `join_timed_out` fires it.
+	/// Arm the join timer for this generation. `join_timed_out` fires it.
 	ArmJoinTimer(u64),
-	/// The channel failed on this connection; the bridge shows the reason.
+	/// The channel failed on this connection. The bridge shows the reason.
 	Fail(String),
 }
 
@@ -90,7 +90,7 @@ impl Relay {
 		self.joining = false;
 		self.reconcile()
 	}
-	/// Only the connection retires; the readers stay counted for the next.
+	/// Only the connection retires. The readers stay counted for the next.
 	pub fn disconnected(&mut self) {
 		self.generation += 1;
 		self.connected = false;
@@ -108,7 +108,7 @@ impl Relay {
 			self.channel
 		))]
 	}
-	/// A write for `generation` failed; the feed connection is over.
+	/// A write for `generation` failed. The feed connection is over.
 	pub fn send_failed(&mut self, generation: u64) {
 		self.retire(generation);
 	}

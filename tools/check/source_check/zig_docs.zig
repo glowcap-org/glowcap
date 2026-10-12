@@ -3,12 +3,12 @@
 //! A `///` or `//!` comment that names a method is making a claim about the
 //! code beside it, and that claim rots silently: the compiler never reads a
 //! comment, so a renamed or deleted method leaves prose pointing at nothing
-//! and the build stays green. Two defects of exactly this shape shipped here —
+//! and the build stays green. Two defects of exactly this shape shipped here,
 //! a module header describing a `FrameStream.drive` that never existed, and a
 //! `Peer.sendWithdrawGift` doc naming a `Node.sendWithdraw` that never existed.
 //! Both would have failed this check the day they were written.
 //!
-//! The rule is deliberately narrow, so it fires on real drift and not on
+//! The rule is narrow, so it fires on real drift and not on
 //! ordinary prose: a backticked path whose last two segments read
 //! `Type.method`, with `Type` capitalized and `method` lower camelCase, must
 //! have `method` declared as a function somewhere under `src/`. The leading
@@ -20,7 +20,7 @@
 //! proves anything about `src/`.
 //!
 //! `checkMemoryLedgerSymbolClaims` points the same machinery at the one prose
-//! surface that carries symbol names as its load-bearing content: the memory
+//! surface that carries symbol names as its essential content: the memory
 //! rule's ledger, where each entry names the declaration that owns a cost
 //! instead of restating its derivation. It accepts a wider shape there, any
 //! final segment in lower camelCase, because the ledger writes `model.cloneMessage`
@@ -163,8 +163,8 @@ fn checkSpan(
     // A dotted path whose every segment is a plain identifier. The last two
     // segments are the claim: `Type.method`, however many module names sit in
     // front of it. Reading only the last two is what covers the spelling this
-    // tree actually writes — `engine.Peer.sendKeyedStartSession` far more often
-    // than the bare `Peer.sendKeyedStartSession` — and a rename that swept its
+    // tree writes: `engine.Peer.sendKeyedStartSession` far more often
+    // than the bare `Peer.sendKeyedStartSession`, and a rename that swept its
     // two-segment referrers while leaving the qualified ones behind is the
     // exact drift this check exists to catch.
     for (span) |c| if (!isIdentChar(c) and c != '.') return;
@@ -292,7 +292,7 @@ pub fn checkMemoryLedgerSymbolClaims(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    for ([_][]const u8{ ".agents/skills/memory-ledger/SKILL.md", ".agents/skills/memory-ledger/references/loam.md", ".agents/skills/memory-ledger/references/rooms.md" }) |path| {
+    for ([_][]const u8{ ".agents/skills/memory-ledger/SKILL.md", ".agents/skills/memory-ledger/references/host.md", ".agents/skills/memory-ledger/references/loam.md", ".agents/skills/memory-ledger/references/rooms.md" }) |path| {
         try checkMemoryLedgerFile(io, gpa, root, violations, path);
     }
 }
@@ -341,7 +341,7 @@ fn checkMemoryLedgerFile(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir, v
 /// A backticked identifier whose final segment is lower camelCase with an
 /// interior capital (`ownedFrameFromView`, `model.cloneMessage`,
 /// `Node.stageDial`) reads as a function this tree declares. Only the
-/// last segment is tested, so the owner may be a module or a type or absent;
+/// last segment is tested, so the owner may be a module or a type or absent,
 /// `checkSpan` above covers the `Type.method` shape more strictly and this
 /// covers the rest. Snake_case segments are fields, constants, and wire names
 /// rather than call targets, and a capitalized final segment is a type, so both

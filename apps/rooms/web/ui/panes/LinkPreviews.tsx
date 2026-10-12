@@ -1,3 +1,4 @@
+import { useProgress } from "../presentation.ts";
 import { useEffect, useState } from "react";
 import {
 	linkPreviewLoading,
@@ -38,7 +39,7 @@ function PreviewImage({ image }: { image: OpenGraphMetadata["images"][number] })
 
 /** One fetch attempt lives outside the card presentation. Keeping this child
  * mounted across offered -> fetching avoids cancelling the effect because of
- * its own state transition; removing or settling the card unmounts it and
+ * its own state transition. Removing or settling the card unmounts it and
  * cancels only the exact attempt it started. */
 function PreviewEffect({ conversation, preview }: { conversation: string; preview: DraftPreview }) {
 	const browser = useRoomsBrowser();
@@ -78,6 +79,11 @@ function PreviewEffect({ conversation, preview }: { conversation: string; previe
 }
 
 function PreviewCard({ conversation, preview }: { conversation: string; preview: DraftPreview }) {
+	const waiting = useProgress(
+		preview.state === "offered" || preview.state === "fetching",
+		undefined,
+		`${preview.id}:${preview.attempt}`,
+	);
 	const browser = useRoomsBrowser();
 
 	if (preview.state === "removed") return null;
@@ -133,6 +139,7 @@ function PreviewCard({ conversation, preview }: { conversation: string; preview:
 			</article>
 		);
 	}
+	if (!waiting) return effect;
 	return (
 		<article className="link-preview-card loading" aria-live="polite">
 			{effect}

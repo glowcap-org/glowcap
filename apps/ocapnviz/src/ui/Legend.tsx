@@ -19,7 +19,7 @@ import { c, FONT, PANEL, RADIUS, SIZE, SPACE, WEIGHT } from "./tokens.ts";
 
 // Layout class lives in styles.css (`.ocv-legend-grid`) so it can
 // use container queries to switch from 1-column to 2-column when
-// the pane is wide enough — keeps Legend in lockstep with the
+// the pane is wide enough, keeps Legend in lockstep with the
 // Layers panel above it.
 
 const group = {
@@ -31,7 +31,7 @@ const group = {
 
 // A caption, not an eyebrow: "Profile · node color" is a sentence
 // about an encoding rather than the name of a block, and it is too long
-// to survive uppercase tracking in a pane this narrow — every second
+// to survive uppercase tracking in a pane this narrow, every second
 // one wrapped to two lines, which costs more than the treatment buys.
 // So it stays sentence case and separates from the rows it labels by
 // weight and color instead of by size.
@@ -94,13 +94,13 @@ function hex(color: number): string {
 	return `#${color.toString(16).padStart(6, "0")}`;
 }
 
-/** Legend body — slotted into a `<Section title="Legend">`.
+/** Legend body, slotted into a `<Section title="Legend">`.
  *
  * Each group is one mapping, titled `property · visual channel` and holding
  * one row per value that property takes. The order is fixed across the set:
  * the thing being encoded first, the channel encoding it second. A title that
  * leads with the channel has nowhere left to name the property, and the
- * property then migrates into the rows and grows into prose — which is how a
+ * property then migrates into the rows and grows into prose, which is how a
  * legend entry becomes a sentence.
  *
  * Color lives in the swatches so the chrome stays neutral.

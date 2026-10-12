@@ -110,7 +110,7 @@ Deno.test("computeSessionBundles: pair key is endpoint-order-insensitive", () =>
 		[{ id: "a", x: 0, y: 0 }, { id: "b", x: 100, y: 0 }],
 		[
 			{ id: "s-1", a: "a", b: "b" },
-			// Endpoints reversed — must land in the same bundle.
+			// Endpoints reversed, must land in the same bundle.
 			{ id: "s-2", a: "b", b: "a" },
 		],
 	);
@@ -284,7 +284,7 @@ Deno.test("computeMessageTimeBundles: same arrivalT but different sentT → sing
 Deno.test("computeMessageTimeBundles: opposite-direction messages stay singletons", () => {
 	// Same session, same timing, but opposite directions: mirror
 	// arcs would land them at the same curve parameter, so they're
-	// intentionally NOT bundled.
+	// NOT bundled.
 	const fwd: TimelineEvent = {
 		id: "auth-m-fwd",
 		t: 0,
@@ -320,7 +320,7 @@ Deno.test("computeMessageTimeBundles: messages on different sessions stay indepe
 });
 
 Deno.test("computeMessageTimeBundles: index within bundle is stable by id sort", () => {
-	// Three truly-simultaneous messages on same session.
+	// Three simultaneous messages on same session.
 	const bundles = computeMessageTimeBundles([
 		msg("m-z", "s-1", 0, 1000),
 		msg("m-a", "s-1", 0, 1000),

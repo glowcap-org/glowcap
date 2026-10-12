@@ -61,7 +61,10 @@ export async function reattachThroughSettings(page: Page, capability: string, wh
 		return marked.__attachMark;
 	});
 	await page.click("#sessionAttachGo");
-	await page.waitForSelector("#sessionAttachGo:not([data-busy])", { timeout: 60_000 })
+	// The field, not the button, says the attempt has settled: the field is
+	// disabled exactly while the attempt runs, and the button stays disabled
+	// after a success too, because a used capability empties the field.
+	await page.waitForSelector("#sharedSessionCapability:not([disabled])", { timeout: 60_000 })
 		.catch(async () => fail(`${what} left the attach form working: ${await attachRefusal(page)}`));
 	const refusal = await attachRefusal(page);
 	if (refusal !== "") fail(`${what} was refused the capability it is already holding: ${refusal}`);

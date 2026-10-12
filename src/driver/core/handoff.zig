@@ -4,11 +4,11 @@
 //! `dialFailed` / `provideGiftId`), and the give verbs (`acceptGive`,
 //! `acceptInlineGive`, and `setExporterLocation`).
 //!
-//! One of `host.zig`'s responsibilities, kept beside it rather than in it.
-//! The `Host` still owns the state and presents each verb as its own through
-//! decl aliases. The serve hooks that *claim* an inbound withdraw resolve and
-//! auto-redeem an arriving give stay in `host.zig`: they compose several
-//! concerns per event, and this file owns only the handoff half they call.
+//! One of `host.zig`'s responsibilities, kept in its own file. The `Host` owns
+//! the state and presents each verb as its own through decl aliases. The serve
+//! hooks that *claim* an inbound withdraw resolve and auto-redeem an arriving
+//! give stay in `host.zig`: they compose several concerns per event, and this
+//! file owns only the handoff half they call.
 
 const std = @import("std");
 
@@ -78,9 +78,8 @@ fn resolveGifterSession(ctx: ?*anyopaque, gifter_side: [32]u8, session_name: []c
 }
 
 /// Register the Host's publication and handoff callbacks on its node. The
-/// callbacks are file-private on purpose — they are this seam's business —
-/// and `sessions.zig` calls this at mint rather than reaching for them.
-/// `pub` for the Host-core siblings, not for embedders. Host-core internal.
+/// callbacks are file-private, and `sessions.zig` calls this at mint. `pub` for
+/// the Host-core siblings, not for embedders. Host-core internal.
 pub fn wireNodeServices(self: *Host) void {
     self.node.setLocalObjectProjection(.{
         .ctx = self,
@@ -103,9 +102,9 @@ pub fn pendingDial(self: *const Host, ticket: engine.Node.PendingId, route_index
     return self.node.pendingDial(ticket, route_index);
 }
 
-/// Complete work after a Host verb commits its Node transition. Pressure
-/// leaves the dirty/action queues as continuation state; it must not make the
-/// caller retry an operation whose authority already moved.
+/// Complete work after a Host verb commits its Node transition. Pressure leaves
+/// the dirty/action queues as continuation state. It must not make the caller
+/// retry an operation whose authority already moved.
 fn finishCommittedEffect(self: *Host) void {
     host_pump.finishVerb(self) catch |err| switch (err) {
         error.OutOfMemory, error.OutboundBackpressure => {},
@@ -113,11 +112,11 @@ fn finishCommittedEffect(self: *Host) void {
     };
 }
 
-/// Report a `dial` action's success: `session` is an `openPendingDial`
-/// against that ticket and route's pending locator, driven to an open session.
-/// The node adopts it for every give waiting on the logical ticket. The bounded Host pump
-/// advances resulting work before return; pressure stays queued for the next
-/// action drain. A stale or non-running attempt is a no-op.
+/// Report a `dial` action's success: `session` is an `openPendingDial` against
+/// that ticket and route's pending locator, driven to an open session. The node
+/// adopts it for every give waiting on the logical ticket. The bounded Host
+/// pump advances resulting work before return. Pressure stays queued for the
+/// next action drain. A stale or non-running attempt is a no-op.
 pub fn exporterDialed(self: *Host, ticket: engine.Node.PendingId, route_index: usize, session: *HostSession) !bool {
     try self.refuseReentry();
     try self.checkSession(session);
@@ -166,8 +165,9 @@ pub fn completeSelectedExporter(
 }
 
 /// Report a `dial` action's failure. A failed path may leave the ticket live
-/// and queue another dial; parked select-or-dial operations therefore settle
-/// only when Node reports exhaustion. A stale or non-running attempt is a no-op.
+/// and queue another dial. Parked select-or-dial operations therefore settle
+/// only when Node reports exhaustion. A stale or non-running attempt is a
+/// no-op.
 pub fn dialFailed(self: *Host, ticket: engine.Node.PendingId, route_index: usize, reason: []const u8) !void {
     try self.refuseReentry();
     const outcome = try self.node.dialFailed(ticket, route_index, reason);
@@ -203,10 +203,10 @@ pub fn giftIdFailed(self: *Host, ticket: u64) !void {
 }
 
 /// Redeem a signed give that must settle the partner-owned wire `answer`.
-/// Embedders use this when their protocol has already installed that answer;
-/// an application-delivered inline give uses `acceptInlineGive` instead.
-/// Running this as a Host verb moves a queued exporter dial onto the action
-/// queue. Top-level: refused from inside a callback.
+/// Embedders use this when their protocol has already installed that answer. An
+/// application-delivered inline give uses `acceptInlineGive` instead. Running
+/// this as a Host verb moves a queued exporter dial onto the action queue.
+/// Top-level: refused from inside a callback.
 pub fn acceptGive(self: *Host, session: *HostSession, answer: u64, give: []const u8, exporter_locator: []const u8) !void {
     try self.refuseReentry();
     try self.admitApplicationOperation();
@@ -223,9 +223,9 @@ pub fn acceptGive(self: *Host, session: *HostSession, answer: u64, give: []const
 /// wire answer position, so a plain delivered give never invents authority in
 /// the partner-owned answer namespace.
 ///
-/// This is the top-level twin of the automatic inline-Passable lift. Running
-/// it as a Host verb moves a queued exporter dial onto the embedder's action
-/// queue; a bare `Node.acceptInlineGive` would strand that effect. `give` is
+/// This is the top-level twin of the automatic inline-Passable lift. Running it
+/// as a Host verb moves a queued exporter dial onto the embedder's action
+/// queue. A bare `Node.acceptInlineGive` would strand that effect. `give` is
 /// borrowed for the call. Top-level: refused from inside a callback.
 pub fn acceptInlineGive(self: *Host, session: *HostSession, give: model.HandoffGive) !capability.Ref {
     try self.refuseReentry();
@@ -239,9 +239,9 @@ pub fn acceptInlineGive(self: *Host, session: *HostSession, give: model.HandoffG
 }
 
 /// Record the exporter locator to embed in gives whose exporter is `session`
-/// (see `engine.Node.setExporterLocation`); `null` clears the override back
-/// to the session record. The node encodes the locator to canonical Syrup
-/// record bytes — a URI string is unrepresentable here.
+/// (see `engine.Node.setExporterLocation`). `null` clears the override back to
+/// the session record. The node encodes the locator to canonical Syrup record
+/// bytes, so a URI string cannot be passed here.
 pub fn setExporterLocation(self: *Host, session: *HostSession, location: ?model.PeerLocator) !void {
     self.assertOwner();
     try self.admitApplicationOperation();

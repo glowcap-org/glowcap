@@ -3,15 +3,15 @@
 the sibling of the Rust/Racket ``iroh_redeem_posture`` clients.
 
 A give whose exporter location names the exporter by **node id alone** (no
-``direct-addresses``) cannot be dialed ``DIRECT`` — the recipient must resolve the
+``direct-addresses``) cannot be dialed ``DIRECT``: the recipient must resolve the
 id. Which discovery posture it resolves under is the recipient node's
 ``redeem_reachability`` knob: ``DISCOVERY`` (n0 relays + DNS/pkarr) by default,
-lowerable for a deployment policy. This gate sets that knob to ``LOCAL_DISCOVERY``
-— an in-process address book, no network — and proves the hint-less redeem dials
+lowerable for a deployment policy. This gate sets that knob to ``LOCAL_DISCOVERY``,
+an in-process address book, no network, and proves the hint-less redeem dials
 by id through it and withdraws the gift.
 
 It is a *discriminating* proof: with the default ``DISCOVERY``, the hint-less
-redeem would reach for n0's public relays + DNS and fail with no internet; the
+redeem would reach for n0's public relays + DNS and fail with no internet. The
 redeem succeeds here only because ``_dial_exporter`` honors the configured
 posture. Deterministic and flake-free, three ``LOCAL_DISCOVERY`` endpoints in one
 process sharing one address book.
@@ -26,8 +26,8 @@ Topology:
             dials the gifter, asks for the greeter, redeems the hint-less give by
             resolving the exporter's id through the book, and calls it.
 
-Needs ``python3`` plus the iroh ABI companion library (``zig build iroh-abi``);
-run via ``zig build python-iroh-redeem-posture``.
+Needs ``python3`` plus the iroh ABI companion library (``zig build iroh-abi``).
+Run via ``zig build python-iroh-redeem-posture``.
 """
 
 from __future__ import annotations
@@ -88,7 +88,7 @@ async def run() -> None:
     gifter_id = gifter.node_id
     to_exporter = await gifter_runtime.connect(locator(exporter_id))
     greeter_ref = await to_exporter.fetch("greeter")
-    # Record the exporter's location by **node id alone** — no direct-addresses.
+    # Record the exporter's location by **node id alone**: no direct-addresses.
     # This is what forces the recipient down the configured-posture redeem path
     # instead of a Direct dial.
     to_exporter.set_exporter_locator(Locator("iroh", exporter_id, {}))
@@ -130,7 +130,7 @@ async def run() -> None:
 
     # Teardown. The Deno and Racket siblings close their dialing connections,
     # then their runtimes, then their servers, and let each accepted session end
-    # on the resulting EOF. This leg deliberately closes those accepted sessions
+    # on the resulting EOF. This leg closes those accepted sessions
     # by hand as well, the way an application that owns them may. Their
     # peers are already gone by then, so each close writes a farewell nobody can
     # read: that is the one thing this leg proves beyond the redeem itself, that

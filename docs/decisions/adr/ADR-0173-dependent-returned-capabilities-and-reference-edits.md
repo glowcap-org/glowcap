@@ -17,8 +17,8 @@ amended_by: [ADR-0182, ADR-0205]
 ADR-0172 lets an application hand over the exact authority in a stored strong
 edge. That is correct for a direct handoff, but it is too broad when a container
 may reveal a related resource only under the container's current grant. The
-stored target must also keep its own restrictions. Replacing content bytes
-could preserve edges, but applications could not update or remove a declared
+stored target must also keep its own restrictions. Replacing content bytes can
+preserve edges, but applications cannot otherwise update or remove a declared
 reference field in the same transaction.
 
 ## Decision
@@ -70,8 +70,8 @@ for a runtime dependent facet.
 
 A dependent call allocates a second bounded access operation while it is
 pending. A live facet adds one Vat actor and two Host capability retains. The
-facet and its target retire through the existing reply and actor boundaries;
-failed local owning replies leave no dependent facet behind. Actor retirement
+facet and its target retire through the existing reply and actor boundaries.
+Failed local owning replies leave no dependent facet behind. Actor retirement
 drains destructor-created sibling retirements before clearing the queue, and
 Vat teardown treats root releases as terminal once it owns the complete actor
 table.

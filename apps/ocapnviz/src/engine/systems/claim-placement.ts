@@ -41,7 +41,7 @@ import type { Vec2 } from "../world.ts";
  * Several claims about one peer need no arrangement, up to a point: each rides
  * its own session's edge, so claims arriving from different peers separate
  * without anything counting them. Claims riding parallel sessions between the
- * SAME pair describe one segment and land on one point; `claim-placement-test/`
+ * SAME pair describe one segment and land on one point, `claim-placement-test/`
  * pins that boundary rather than working around it.
  *
  * Exported because the placement tests read it: where a claim sits is asserted
@@ -60,7 +60,7 @@ export type ClaimSegment = { from: string; toward: string };
  *
  * On the curve, not on the chord between them. Sessions sharing a pair fan
  * out into arcs, and a claim rides that fan (`bundleIndices`), so a claim
- * placed on the straight line sat off its own arc — and the edge drawn to it
+ * placed on the straight line sat off its own arc, and the edge drawn to it
  * then curved somewhere else again, because a different endpoint is a
  * different chord. Placing it here and drawing the same curve's prefix makes
  * the two agree by construction: the truncated arc ENDS where the claim is.
@@ -89,17 +89,17 @@ function claimLeanTo(
  * standalone placement when either fails:
  *
  *   - this era draws the claim and the peer it names, which is what
- *     `onStage` has already settled — an era that does not draw the peer has
+ *     `onStage` has already settled, an era that does not draw the peer has
  *     nothing to aim at;
  *   - the far end of its session has a place in this era to lean FROM,
  *     because a segment needs two ends.
  *
  * Whether the claim names anybody at all is not asked here. `engine/claims.ts`
  * settles that once for the whole document, including the two ends that
- * resolve to nobody — an ambiguous name, and a name its own session already
- * reaches — so the renderer draws exactly the ends this places.
+ * resolve to nobody, an ambiguous name, and a name its own session already
+ * reaches, so the renderer draws exactly the ends this places.
  *
- * An authored pin is deliberately not one of them. Where the author put the
+ * An authored pin is not one of them. Where the author put the
  * dot and what the session is solved against are separate questions, and
  * answering the second with the first would mean a nudge of a claim moved the
  * peers: the session's link would come off the peer and back onto the claim,
@@ -142,7 +142,7 @@ export function planClaimPlacements(
  * from the far end toward the peer it names.
  *
  * After the solver rather than as a force, because the claim is not a body the
- * solve balances — a pull strong enough to look like this one is a pull strong
+ * solve balances. A pull strong enough to look like this one is a pull strong
  * enough to distort what it is attached to.
  */
 export function placeClaims(

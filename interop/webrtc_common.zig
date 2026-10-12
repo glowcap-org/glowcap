@@ -8,7 +8,7 @@
 //! keyed handshake: `offer(sdp)` returns the exporter's SDP answer, `candidate`
 //! applies one trickled ICE candidate, and `poll` returns the exporter's next
 //! locally gathered candidate (or ""). Channel establishment is driven through
-//! the resident readiness fd; no native driver uses the old parked open wait.
+//! the resident readiness fd, so no native driver parks on an open wait.
 
 const std = @import("std");
 const glowcap = @import("glowcap");

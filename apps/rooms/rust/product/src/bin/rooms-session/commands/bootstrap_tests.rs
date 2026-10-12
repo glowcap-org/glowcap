@@ -1,5 +1,5 @@
 //! HTTP bootstrap contracts, including a gateway login larger than the locator
-//! limit. Peers deliberately keep sockets open to prove refusal is immediate.
+//! limit. Peers keep sockets open to prove refusal is immediate.
 use super::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 

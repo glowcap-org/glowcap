@@ -1,14 +1,14 @@
 /// <reference path="../../virtual-glowcap-web.d.ts" />
 
 /**
- * Live capability consumer — CapTP peer, reconnect, and the inbox that
+ * Live capability consumer, CapTP peer, reconnect, and the inbox that
  * feeds `feed.ts`. The viewer writes only the capability protocol:
  * it enlivens the announced trace capability, hosts an inbox, and asks
  * to subscribe. It never writes a trace record or gains authority over
  * the observed room.
  *
  * The bounded record payload is the same JSON string the producer/schema
- * path already uses. There is one parser and one converter; CapTP is
+ * path already uses. There is one parser and one converter, CapTP is
  * only the capability transport around that authority.
  */
 
@@ -52,7 +52,7 @@ let browserRuntimePromise: Promise<BrowserRuntime> | null = null;
  * as the `cap` query parameter (the rooms endpoint's admission contract). The
  * sturdyref's swissnum IS that capability, so the viewer presents what it
  * already holds and the operator pastes nothing extra. Module state because
- * the runtime — and so its `wsUrl` mapping — is created once for the page,
+ * the runtime, and so its `wsUrl` mapping, is created once for the page,
  * while each dial's capability comes from the sturdyref being dialed. */
 let vizSocketCap = "";
 
@@ -69,7 +69,7 @@ async function browserRuntime(): Promise<BrowserRuntime> {
 			__OCV_GLOWCAP_WEB_LOADER?: () => Promise<GlowcapWebModule>;
 		}).__OCV_GLOWCAP_WEB_LOADER;
 		const web = override === undefined ? await import("virtual:glowcap-web") : await override();
-		// `init` is identity-sensitive by design. Keep this one options object
+		// `init` is identity-sensitive. Keep this one options object
 		// for the page, so remounting Live mode does not attempt a second runtime.
 		return await web.init({
 			wasm: fetch(wasmUrl()),
@@ -88,7 +88,7 @@ async function browserRuntime(): Promise<BrowserRuntime> {
 }
 
 /** The production browser peer. The socket is created by `@glowcap/runtime` from
- * the sturdyref's parsed locator; this function never interprets or forwards
+ * the sturdyref's parsed locator. This function never interprets or forwards
  * CapTP bytes. */
 export const browserPeerFactory: LivePeerFactory = async (
 	sturdyref,
@@ -181,15 +181,15 @@ export class LiveFeed {
 	 * replaced feed writes `false` over its successor's `true`. */
 	#onConnectionChange: ((connected: boolean) => void) | null = null;
 	/** Highest live-tail producer `seq` applied. A reconnect's snapshot still
-	 * passes through at old sequence numbers so it can reconcile current state;
-	 * ordinary live records at or below this are dropped. Scoped to the
+	 * passes through at old sequence numbers so it can reconcile current state.
+	 * Ordinary live records at or below this are dropped. Scoped to the
 	 * producer `#epoch`: a restarted producer restarts its seq, so
 	 * the window resets with the epoch (the converter separately
 	 * retires the dead epoch's topology). */
 	#lastSeq = Number.NEGATIVE_INFINITY;
 	#epoch: number | undefined = undefined;
-	/** True after `disconnect()` — a deliberate close never
-	 * reconnects; a dropped connection does, with capped backoff. */
+	/** True after `disconnect()`. A deliberate close never
+	 * reconnects. A dropped connection does, with capped backoff. */
 	#closedByUser = false;
 	#reconnectTimer: number | null = null;
 	#reconnectDelayMs = RECONNECT_MIN_MS;
@@ -295,7 +295,7 @@ export class LiveFeed {
 		}
 	}
 
-	/** The live peer ended. A clean close is the connection change alone; a
+	/** The live peer ended. A clean close is the connection change alone. A
 	 * fault is reported once with the reconnect as its recovery, so the
 	 * person watching Live learns why the stage went quiet. */
 	#peerClosed(generation: number, cause?: unknown): void {

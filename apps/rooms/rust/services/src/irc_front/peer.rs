@@ -183,7 +183,7 @@ pub async fn run(
 	result
 }
 
-/// Each listener backs off on its own; the clients already in keep running
+/// Each listener backs off on its own. The clients already in keep running
 /// while a refused accept waits.
 fn refused(report: &Report, retry: &mut serving::Retry, listener: &'static str, error: &impl std::fmt::Display) {
 	report(Notice::AcceptRefused {

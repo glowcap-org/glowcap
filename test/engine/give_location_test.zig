@@ -83,8 +83,8 @@ test "routing hints a receiver needs survive the onion profile strip" {
 test "a profile-only non-onion give keeps the exporter's hello verbatim" {
     // On every transport but onion the exporter's hello is hinted toward
     // everyone alike, and the pinned Goblins keys withdrawal lookups by the
-    // full node value — `zig build goblins-gift-hints` observes the verbatim
-    // match live — so the give must not shed a byte.
+    // full node value, `zig build goblins-gift-hints` observes the verbatim
+    // match live, so the give must not shed a byte.
     const allocator = std.testing.allocator;
     const hints = [_]model.HintEntry{
         .{ .name = "direct-addresses", .value = .{ .string = "192.0.2.7:9045" } },

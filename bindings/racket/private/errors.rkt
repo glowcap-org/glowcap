@@ -21,10 +21,10 @@
 ;; Read a thread-local last-error slot into a Racket string, or #f when empty.
 ;; `raw` is an archive's two-arg C reader `(buffer cap) -> bytes-written`: query
 ;; the length first with a NULL buffer, then copy into a right-sized buffer and
-;; clamp to what the second call actually wrote (the slot is zero-filled, so an
+;; clamp to what the second call wrote (the slot is zero-filled, so an
 ;; unclamped slice could trail NULs). Every archive family reads its own slot
-;; through this — ocapn here, the three transports and the actor runtime through
-;; the seam — so the two-pass discipline lives in one place.
+;; through this (ocapn here, the three transports and the actor runtime through
+;; the seam), so the two-pass discipline lives in one place.
 (define (read-last-error raw)
   (define len (raw #f 0))
   (cond
@@ -41,7 +41,7 @@
 (define (last-error) (read-last-error glowcap_last_error))
 
 ;; A glowcap failure carries the flat GLOWCAP_ERR_* `code` that names the
-;; failure family, plus — when the failure was a refused inbound frame — an
+;; failure family. A refused inbound frame adds an
 ;; `abort-info` naming the member (built by `abort-info<-c` below); `abort` is
 ;; #f everywhere else.
 (struct exn:fail:glowcap exn:fail

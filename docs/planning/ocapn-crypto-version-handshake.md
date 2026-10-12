@@ -31,10 +31,10 @@ features. An updated Goblins peer can complete the standard CapTP 1.0 session.
 Two glowcap peers can read the same opening record and settle
 `glowcap-next` with their existing offers.
 
-This keeps the current connection shape. There is no compatibility probe, no
-replacement connection, no baseline retry, and no added round trip. The Host
-does not need to recognize two opening grammars. Older four-field source
-revisions are outside the post-cutover interoperability target.
+The connection shape is unchanged: no compatibility probe, replacement
+connection, baseline retry, or added round trip. The Host recognizes one
+opening grammar. Older four-field source revisions are outside the
+post-cutover interoperability target.
 
 ## Current upstream state
 
@@ -50,46 +50,35 @@ The merged text does not yet state one complete contract. The sender rule says
 the identifiers use it. The normative text must use one token and define the
 operations that token selects before glowcap can implement it.
 
-The Goblins projects have recorded the downstream work:
-
-- [Racket Goblins issue 108](https://codeberg.org/spritely/racket-goblins/issues/108)
-  tracks the new opening record and raw key and signature values.
-- [Guile Goblins issue 988](https://codeberg.org/spritely/goblins/issues/988)
-  tracks the same change.
-
-As of September 13, 2026, both issues are open and unassigned, with no public
-implementation pull request or matching work branch. Racket Goblins `master`
-still uses the four-field record, as does the OCapN suite revision pinned by
-glowcap. This describes only the public repositories. It makes no claim about
-work that has not been published.
-
-[`docs/upstream-watch.md`](../upstream-watch.md) owns the continuing status.
-This plan owns what glowcap does after the external contract is ready.
+Racket Goblins ([issue 108](https://codeberg.org/spritely/racket-goblins/issues/108))
+and Guile Goblins ([issue 988](https://codeberg.org/spritely/goblins/issues/988))
+track the same change. [`docs/upstream-watch.md`](../upstream-watch.md) owns
+their status. This plan owns what glowcap does after the external contract is
+ready.
 
 ## What crypto-version means
 
-`crypto-version` declares the cryptographic suite used by the session. It is
-not a preference list and does not negotiate the CapTP profile. Each side sends
-one supported value. A receiver accepts the exact value defined by the adopted
-specification or aborts the handshake.
+`crypto-version` declares the cryptographic suite used by the session. Each
+side sends one supported value, and a receiver accepts the value defined by the
+adopted specification or aborts the handshake. It is not a preference list and
+does not negotiate the CapTP profile.
 
 The suite must define these facts together:
 
-- the per-session public-key algorithm and wire representation;
-- the location and handoff signature algorithm and wire representation;
-- the public identifier derivation;
-- the session identifier derivation.
+- the per-session public-key algorithm and wire representation
+- the location and handoff signature algorithm and wire representation
+- the public identifier derivation
+- the session identifier derivation
 
-The protocol sections for the hello and handoff records separately define the
-value each signature covers and its canonical encoding. Keep that signing
-domain under the existing protocol and codec owners rather than making an
-algorithm selector redefine a message.
+The hello and handoff record sections define the value each signature covers
+and its canonical encoding. That signing domain stays with the existing
+protocol and codec owners, and the algorithm selector does not redefine a
+message.
 
 The candidate change uses Ed25519, a raw 32-byte public key, a raw 64-byte
-signature, and SHA-256-based public and session identifiers. glowcap must not
-decide locally whether the final token is `Ed25519`, `Ed25519_SHA256`, or
-another name. The adopted upstream revision must connect one token to the
-complete set of operations.
+signature, and SHA-256-based public and session identifiers. The adopted
+upstream revision decides whether the token is `Ed25519`, `Ed25519_SHA256`, or
+another name, and must connect it to the complete set of operations.
 
 In glowcap, the suite is a session fact independent of `CaptpVersion`,
 `CodecId`, transport security, and durable peer identity. Session state owns
@@ -97,11 +86,11 @@ the accepted suite. Codecs parse and render its wire values. The existing
 cryptographic module performs the selected operations. Transports remain
 unaware of CapTP cryptography.
 
-Only one standard suite needs to ship for this transition. The model should
-retain an unknown inbound token long enough to report a crypto-version mismatch
-instead of misclassifying a well-formed hello as malformed. Do not add a public
-algorithm choice or imply that two suites can negotiate until OCapN specifies
-that behavior, including how handoff certificates identify their suite.
+One standard suite ships in this transition. The model retains an unknown
+inbound token long enough to report a crypto-version mismatch instead of
+misclassifying a well-formed hello as malformed. No public algorithm choice
+exists, and two suites do not negotiate until OCapN specifies that behavior,
+including how handoff certificates identify their suite.
 
 ## Contracts that remain in place
 
@@ -120,10 +109,10 @@ that behavior, including how handoff certificates identify their suite.
 - Signed handoff material remains verifiable across sessions without changing
   the signed value after it was created.
 
-The transition must not add a provisional session state, profile discovery
-round trip, automatic retry, or old-to-new signed-value translation. Those
-mechanisms solve a temporary mismatch between prerelease revisions. Waiting
-and making one shared cutover removes the mismatch instead.
+The transition adds no provisional session state, profile discovery round
+trip, automatic retry, or old-to-new signed-value translation. Those would only
+bridge a temporary mismatch between prerelease revisions, and one shared
+cutover removes the mismatch.
 
 ## Readiness requirements
 
@@ -155,8 +144,8 @@ interop that glowcap does not run.
 Read the adopted specification, implementation guide, suite fixtures, and both
 Goblins changes before editing the glowcap model. Extract one table containing
 the token, field order, key width, signature width, signed bytes, and identifier
-derivations. That table is review input for the implementation, not a second
-source of truth after the code and fixtures land.
+derivations. The table is review input only, and the code and fixtures own the
+facts once they land.
 
 This step is complete when the exact source revisions are recorded and each
 pinned external source describes the same opening record.
@@ -205,10 +194,9 @@ CapTP, codec, and feature offer in the signed locator hints. After both hellos
 arrive, run the existing symmetric settle operation and store its result on the
 session.
 
-Do not introduce a pre-hello selector or make hello field count depend on
-`glowcap-next`. The standard session and the native session use the same
-five-field grammar. The onion knowledge rule continues to govern when profile
-hints may appear in a locator. It does not govern hello syntax.
+The standard session and the native session use the same five-field grammar,
+with no pre-hello selector. The onion knowledge rule continues to govern when
+profile hints may appear in a locator, and does not govern hello syntax.
 
 ADR-0103 remains the profile-negotiation decision. Amend its description of
 the shared baseline hello rather than superseding the negotiation design.
@@ -224,8 +212,8 @@ Update the signature in `desc:sig-envelope` and the receiver key in
 one codec owner. Verification obtains its key and suite from the live session
 that the handoff certificate identifies, following the final upstream rules.
 
-Do not translate a signed inner record between old and new representations.
-There is one post-cutover representation. Unsigned outer framing may still be
+A signed inner record has one post-cutover representation and is never
+translated between old and new forms. Unsigned outer framing may still be
 projected by the codec carrying the message.
 
 This step is complete when the gifter, receiver, and exporter roles work in all
@@ -235,14 +223,14 @@ exact exported object.
 ## 6. Keep Host and product behavior unchanged
 
 Thread the suite through the existing session shell and trace information.
-Keep it fixed by the supported standard rather than adding a caller option to
-every binding. Expose a precise mismatch or malformed-handshake result through
-the existing error surfaces.
+The supported standard fixes it, so bindings gain no caller option. A precise
+mismatch or malformed-handshake result surfaces through the existing error
+paths.
 
-Do not add probe lifecycle, replacement ownership, retry policy, or transport
-metadata. No application should assemble the crypto token or raw handshake
-fields. Zig, the C ABI, Rust, TypeScript, Python, and Racket should continue to
-choose `interop` or `native` using their existing profile vocabulary.
+No probe lifecycle, replacement ownership, retry policy, or transport metadata
+is added. Applications never assemble the crypto token or raw handshake fields.
+Zig, the C ABI, Rust, TypeScript, Python, and Racket keep choosing `interop` or
+`native` with their existing profile vocabulary.
 
 This step is complete when the byte-fed Host, blocking adapter, and completion
 loop all open the same five-field handshake and retain independent settled
@@ -295,10 +283,10 @@ Update [`docs/shipped.md`](../shipped.md),
 [`docs/upstream-watch.md`](../upstream-watch.md) in the implementation change.
 Keep the evidence boundaries clear:
 
-- the updated Goblins checks prove live standard CapTP 1.0 interoperability;
-- the updated OCapN suite proves behavior against its pinned external cases;
-- glowcap-to-glowcap checks prove `glowcap-next` negotiation and behavior;
-- no check proves interoperability with an implementation it did not run.
+- the updated Goblins checks prove live standard CapTP 1.0 interoperability
+- the updated OCapN suite proves behavior against its pinned external cases
+- glowcap-to-glowcap checks prove `glowcap-next` negotiation and behavior
+- no check proves interoperability with an implementation it did not run
 
 Any upstream communication based on this work must be written and sent by the
 maintainer under [`PROVENANCE.md`](../../PROVENANCE.md). This internal plan is
@@ -319,20 +307,18 @@ zig build check
 zig build check-external
 ```
 
-Run the live Goblins commands from step 7 separately so each result remains
-visible. Do not weaken a check to accommodate an old external revision. The
-transition begins only after the readiness requirements are met.
+Run the live Goblins commands from step 7 separately so each result stays
+visible. Never weaken a check to accommodate an old external revision.
 
 Delete this file in the final implementation change after all of these facts
 are true:
 
-1. every supported session uses the shared five-field opening record;
-2. the crypto suite has one model owner and one adopted token;
-3. the updated suite and live Goblins peer pass without an adapter;
-4. standard CapTP 1.0 and `glowcap-next` still coexist on one Host;
-5. handoffs preserve their signatures and reach the exact exported object;
-6. the decisions and public documentation describe the shipped contract;
+1. every supported session uses the shared five-field opening record
+2. the crypto suite has one model owner and one adopted token
+3. the updated suite and live Goblins peer pass without an adapter
+4. standard CapTP 1.0 and `glowcap-next` still coexist on one Host
+5. handoffs preserve their signatures and reach the exact exported object
+6. the decisions and public documentation describe the shipped contract
 7. all applicable final checks pass.
 
-Once those owners exist, this plan contains no lasting authority. Remove it
-rather than marking its steps complete.
+Remove the plan rather than marking its steps complete.

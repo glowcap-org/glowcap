@@ -1,7 +1,7 @@
 // Self-unregistering service worker.
 //
-// We do not ship a service worker. This file exists only to clean up stale
-// SW registrations left over from prior apps that ran on this dev origin
+// This app ships no service worker. This file exists only to clean up stale
+// SW registrations from other apps that ran on this dev origin
 // (commonly http://127.0.0.1:5173). Without it, the browser keeps polling
 // `/sw.js` for an "update" forever, and Vite's @deno/vite-plugin tries to
 // resolve the URL as a Deno module and emits a long WASM-internal stack

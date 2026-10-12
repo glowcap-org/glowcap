@@ -120,6 +120,39 @@ test "Args slice backing reports len and projects each element" {
     try std.testing.expectEqualStrings("x", (try a.at(1)).symbol);
 }
 
+fn expectCheckpoints(args: view.Args) !void {
+    var it = args.iterator();
+    var saved: [3]view.Args.Checkpoint = undefined;
+    for (&saved, 0..) |*checkpoint, index| {
+        checkpoint.* = it.checkpoint();
+        const element = (try it.next()).?;
+        try std.testing.expectEqual(@as(i64, @intCast(index + 1)), element.integer);
+    }
+    try std.testing.expectError(error.MalformedView, args.atCheckpoint(it.checkpoint()));
+    try std.testing.expect((try it.next()) == null);
+    // Revisit in reverse order: the checkpoint is a saved cursor, not a
+    // request to replay a prefix from the start of the sequence.
+    for (0..saved.len) |offset| {
+        const index = saved.len - 1 - offset;
+        try std.testing.expectEqual(@as(i64, @intCast(index + 1)), (try args.atCheckpoint(saved[index])).integer);
+    }
+    try std.testing.expectError(error.MalformedView, args.atCheckpoint(@fromBackingInt(@intCast(std.math.maxInt(u64)))));
+}
+
+test "iterator checkpoints revisit slice and both codec backings and refuse the end" {
+    const elements = [_]model.Argument{ .{ .integer = 1 }, .{ .integer = 2 }, .{ .integer = 3 } };
+    try expectCheckpoints(view.Args.fromOwnedSlice(&elements));
+    for ([_]model.CodecId{ .syrup, .capnp }) |encoding| {
+        var frame = try codec.dispatch.encodeMessageForProfile(encoding, std.testing.allocator, .v1_0, .{ .deliver = .{
+            .target = .{ .far = model.FarRef.object(7) },
+            .args = &elements,
+        } });
+        defer frame.deinit();
+        const body = try codec.dispatch.decodeBodyForProfile(encoding, .v1_0, frame.view());
+        try expectCheckpoints(body.deliver.args);
+    }
+}
+
 test "view.PeerLocator.toOwned clones transport and designator" {
     const loc = view.PeerLocator{
         .transport = "tcp",

@@ -19,7 +19,7 @@ const steady_list_bytes = vat_mod.steady_list_bytes;
 const steady_spare_arena_bytes = vat_mod.steady_spare_arena_bytes;
 
 /// One causal source of queued turns. `.local` is the pure-local/application
-/// source; a composed Host mints one additional id per session Port. The Vat
+/// source. A composed Host mints one additional id per session Port. The Vat
 /// owns ids so two adapters cannot accidentally share accounting.
 pub const IngressId = enum(u32) {
     local = 0,
@@ -27,8 +27,8 @@ pub const IngressId = enum(u32) {
 };
 
 /// Atomic admission limits for each ingress. `max_pending_bytes` charges the
-/// exact requested payload bytes of the owned message clone plus its queue row;
-/// allocator metadata and bounded chunk slack are held separately by footprint
+/// exact requested payload bytes of the owned message clone plus its queue row.
+/// Allocator metadata and bounded chunk slack are held separately by footprint
 /// tests. A single message must also fit `max_chunk_bytes`, so no exceptional
 /// oversized chunk bypasses incremental reclamation.
 pub const QueueLimits = struct {
@@ -74,7 +74,7 @@ pub const IngressState = struct {
     pending_bytes: u32 = 0,
     active_turns: u32 = 0,
     /// Intrusive runnable ring, doubly linked so a budgeted drive can unlink
-    /// one exact ingress in O(1) instead of walking from the head; with one
+    /// one exact ingress in O(1) instead of walking from the head. With one
     /// shared Vat per Host the ring is every session with pending local work.
     runnable_next: ?*IngressState = null,
     runnable_prev: ?*IngressState = null,
@@ -223,7 +223,7 @@ fn finishQueueTurn(self: *Vat, chunk: *QueueChunk) void {
     if (chunk.head == chunk.len and chunk.active_turns == 0) releaseQueueChunk(self, chunk);
 }
 
-/// Mint a non-local ingress row. Each Host Port owns one such id; a pure-local
+/// Mint a non-local ingress row. Each Host Port owns one such id. A pure-local
 /// caller may use several to isolate admission and scheduling.
 pub fn openIngress(self: *Vat) Error!IngressId {
     try self.admitMutation();
@@ -270,7 +270,7 @@ pub fn discardFreshIngress(self: *Vat, ingress: IngressId) void {
 /// Tear down a session ingress that can no longer run. It is removed from
 /// admission and fair scheduling before listeners fire, so a break handler
 /// cannot enqueue fresh work onto the closing Port. Every queued local vow
-/// settles broken; unobserved turns are discarded with their chunk.
+/// settles broken. Unobserved turns are discarded with their chunk.
 pub fn cancelIngress(self: *Vat, ingress: IngressId, reason: []const u8) IngressCancellationError!void {
     try self.admitMutation();
     if (ingress == .local) return error.IngressBusy;
@@ -317,8 +317,8 @@ fn cancelQueued(self: *Vat, state: *IngressState, reason: []const u8) void {
     freeChunks(self, cancelled, reason);
 }
 
-/// Local eventual send (`<-`). A local target queues a turn for `drive`;
-/// a far target is refused because only a session `Port` knows which peer
+/// Local eventual send (`<-`). A local target queues a turn for `drive`.
+/// A far target is refused because only a session `Port` knows which peer
 /// should receive the `op:deliver`. Returns a `Vow` for the result. The
 /// message's verb and args are borrowed only for the duration of this call:
 /// the local arm clones them into one ingress queue chunk.
@@ -364,7 +364,7 @@ pub fn tellFromIngress(self: *Vat, ingress: IngressId, target: Ref, msg: Message
 }
 
 /// The one local-enqueue spine `send` and `tell` share. Admission computes
-/// the whole logical ownership charge before cloning; every mutation after
+/// the whole logical ownership charge before cloning. Every mutation after
 /// a successful clone is infallible, so refusal never partially enqueues.
 pub fn enqueueLocal(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Message, answered: bool) Error!u64 {
     return enqueue(self, ingress, port, id, .{ .message = msg }, answered);
@@ -472,8 +472,8 @@ fn enqueue(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Delivery,
 /// Clone `msg` into its vat-owned queue chunk: the one named boundary copy
 /// of the local eventual-send path, symmetric with the far path's clone
 /// inside `peer.sendCopying`. A queued message must outlive the sender's
-/// turn — the drive that runs it begins by resetting the very turn arena
-/// the documented handler pattern builds outgoing args in — so the queue
+/// turn, the drive that runs it begins by resetting the very turn arena
+/// the documented handler pattern builds outgoing args in, so the queue
 /// owns its bytes. Its chunk is reclaimed immediately after that chunk's
 /// last turn, independent of every other ingress.
 fn cloneForQueue(self: *Vat, chunk: *QueueChunk, msg: Delivery) Error!Delivery {
@@ -504,8 +504,8 @@ pub const DriveProgress = enum {
 
 /// Run queued local eventual-sends to quiescence, settling each vow with
 /// the handler's value (or a break on error) and firing its listener. Turns
-/// queued by a turn run in the same drive. FIFO holds within one ingress;
-/// runnable ingresses rotate one turn at a time.
+/// queued by a turn run in the same drive. FIFO holds within one ingress.
+/// Runnable ingresses rotate one turn at a time.
 pub fn drive(self: *Vat) Error!void {
     _ = try driveBudgeted(self, std.math.maxInt(usize));
 }
@@ -513,7 +513,7 @@ pub fn drive(self: *Vat) Error!void {
 /// Like `drive`, but runs at most `max_turns` queued local turns, then
 /// yields `.more_pending` with every ingress queue intact (a later call
 /// resumes at the fair ring head). A vat whose handlers re-send to
-/// themselves without bound makes `drive` never return; on a loop host
+/// themselves without bound makes `drive` never return. On a loop host
 /// that would starve every other connection the loop serves. `driveBudgeted`
 /// gives the loop host a bound to act on: it drives each inbound batch to
 /// `.drained` and treats `.more_pending` as a runaway amplification, closing

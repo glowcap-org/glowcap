@@ -20,7 +20,7 @@
 //!
 //! `Access` supplies:
 //!
-//!   * `closeUserData(id) u64`, the internal user data a close submits under;
+//!   * `closeUserData(id) u64`, the internal user data a close submits under.
 //!   * `onClosing(backend, inner, c, how) void`, run once as the row enters
 //!     `closing`, before its state changes and before any seat is refused;
 //!   * `prepareClose(backend, inner, c) !void` and `closeRefused(backend,
@@ -32,7 +32,7 @@
 //!     once every seat is refused;
 //!   * `owesClose`, `oweClose`, and `clearOwedClose`, the close-submission
 //!     debt;
-//!   * `lendActive(c) bool`, whether the row still lends bytes to the loop;
+//!   * `lendActive(c) bool`, whether the row still lends bytes to the loop.
 //!   * `borrowFailure(backend, c) Borrowed`, `prepareFinish(backend, c,
 //!     inner_failed) bool`, `closeCause(c) ?anyerror`, and
 //!     `hasBorrowedFailure(backend, c) bool`, the failure a close result
@@ -66,7 +66,7 @@ pub fn Lifecycle(
         const ConnId = Types.ConnId;
 
         /// Release a synthetic handle the loop no longer waits on. Every
-        /// external seat has settled, so nothing is published here; the inner
+        /// external seat has settled, so nothing is published here. The inner
         /// descriptor is driven to closed and the row retires once no inner
         /// operation or lent buffer remains.
         pub fn closeRow(backend: *Backend, inner: *Inner, c: *Conn) void {
@@ -91,7 +91,7 @@ pub fn Lifecycle(
         }
 
         /// Submit a close the loop will wait on. Every external seat owes a
-        /// record and the close owes one more; all are reserved before any
+        /// record and the close owes one more. All are reserved before any
         /// state changes, so the publications below cannot fail.
         pub fn submitCloseRow(backend: *Backend, inner: *Inner, c: *Conn, user_data: u64) !void {
             if (c.external_close_ud != null) return error.AlreadyClosing;

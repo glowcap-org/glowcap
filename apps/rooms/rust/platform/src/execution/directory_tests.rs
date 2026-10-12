@@ -1,4 +1,4 @@
-//! Directory clients consume real capabilities; fixture actors control reply
+//! Directory clients consume real capabilities. Fixture actors control reply
 //! ordering and shape without implementing production directory persistence.
 use super::HostPlatform;
 use glowcap::{Argument, ConnectOptions, Host, ListenerIdentity, PendingWork, Runtime, RuntimeConfig, tcp};

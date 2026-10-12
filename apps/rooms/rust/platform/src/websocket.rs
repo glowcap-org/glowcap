@@ -63,7 +63,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> WsBytes<S> {
 
 	/// Transfer this WebSocket into a byte-stream channel with an explicit
 	/// protocol-retirement owner. The read and write halves stop application
-	/// I/O; the retained closer sends or answers Close, waits for its peer, and
+	/// I/O. The retained closer sends or answers Close, waits for its peer, and
 	/// only then retires the underlying stream.
 	pub fn into_channel(self) -> glowcap::Channel
 	where

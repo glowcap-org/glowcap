@@ -1,5 +1,5 @@
 #lang racket/base
-;; rooms-member.rkt — one Spritely Goblins vat joining a glowcap rooms chat,
+;; rooms-member.rkt: one Spritely Goblins vat joining a glowcap rooms chat,
 ;; saying one thing, and leaving.
 ;;
 ;; This is the scripted half of the Goblins rooms member; `rooms-chat.rkt` is

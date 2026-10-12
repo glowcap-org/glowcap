@@ -163,7 +163,7 @@ pub fn connect(
 /// `out_service_id_len` its length, which is always
 /// `GLOWCAP_ONION_SERVICE_ID_LEN`. `out_service_key` receives the key that
 /// restores this exact service, or nothing when the service was restored rather
-/// than minted; a caller that wants a durable onion address stores those bytes and
+/// than minted. A caller that wants a durable onion address stores those bytes and
 /// passes them back as `GlowcapOnionConfig.service_key`.
 ///
 /// Every out-parameter is optional. Requires a configured control endpoint.
@@ -384,7 +384,7 @@ pub fn listenerWait(
 /// This is the readiness half of the surface, the same posture the iroh and WebRTC
 /// archives take. Park on this descriptor with whatever your loop uses and call
 /// `glowcap_onion_accept` once it is readable. Readiness means an accept can make
-/// progress; it is not a nonblocking guarantee, because another accept consumer or
+/// progress. It is not a nonblocking guarantee, because another accept consumer or
 /// a close can consume that state first. Serialize accept consumers when a loop
 /// must not park. An onion service's forward target is an ordinary local socket,
 /// which is why this can be a real descriptor rather than a synthesized readiness
@@ -410,7 +410,7 @@ pub fn listenerReadinessFd(
 /// Same contract as `glowcap_onion_listener_readiness_fd`: poll it, and call
 /// `glowcap_onion_conn_read_frame` only when it is readable. A whole frame may
 /// still need more than one readable turn, in which case the read parks for the
-/// remainder — the descriptor makes the common case free, not every case.
+/// remainder: the descriptor makes the common case free, not every case.
 ///
 /// The descriptor is owned by the connection. Do not close it, and do not use it
 /// after `glowcap_onion_conn_release`.
@@ -427,7 +427,7 @@ pub fn connReadinessFd(conn: ?*GlowcapOnionConn, out_fd: ?*i32) i32 {
 /// into `out_frame`. `_CLOSED` on graceful EOF, `_MALFORMED` / `_FRAME_TOO_LARGE`
 /// for a bad frame.
 ///
-/// Prefer polling `glowcap_onion_conn_readiness_fd` first; this blocks when nothing
+/// Prefer polling `glowcap_onion_conn_readiness_fd` first. This blocks when nothing
 /// has arrived.
 fn onionConnReadFrame(conn: ?*GlowcapOnionConn, out_frame: ?*GlowcapManagedFrame) i32 {
     const payload = connFromOpaque(conn) orelse return GLOWCAP_ERR_NULL_POINTER;

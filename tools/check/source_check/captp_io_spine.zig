@@ -1,7 +1,7 @@
 //! The CapTP I/O spine checks: one Bridge, one Loop, one dial contract.
 //!
 //! The require-groups and structural walks that hold the completion-loop
-//! product spine to its settled shape — Backend/Locator dial contracts, the
+//! product spine to its settled shape, Backend/Locator dial contracts, the
 //! Bridge as the one loop-to-Host seam, per-binding pump convergence needles,
 //! and the transport-constant presence rows. The forbid half of
 //! the same apex lives in `bans.zig` (`captp_io_spine_table`). Wired by the
@@ -16,7 +16,7 @@ const expectFileContains = util.expectFileContains;
 const readSourceSubject = util.readSourceSubject;
 
 /// Apex for one CapTP I/O spine. The forbid rows live in
-/// `source_check/bans.zig` (`captp_io_spine_table`); this keeps the
+/// `source_check/bans.zig` (`captp_io_spine_table`). This keeps the
 /// require-groups and walks: the Backend/Locator dial contracts, the
 /// binding spines, and the structural scans.
 pub fn check(
@@ -405,11 +405,11 @@ pub fn check(
         };
         defer gpa.free(contents);
         if (std.mem.indexOf(u8, contents, entry.required) == null) {
-            try appendViolation(gpa, violations, "{s}: missing `{s}` — Zig callers must use the TCP locator constructor matching the representation they hold", .{ entry.path, entry.required });
+            try appendViolation(gpa, violations, "{s}: missing `{s}` — Zig callers must use a complete advertised locator or the transport's locator constructor", .{ entry.path, entry.required });
         }
         for (entry.banned) |needle| {
             if (std.mem.indexOf(u8, contents, needle) != null) {
-                try appendViolation(gpa, violations, "{s}: forbidden `{s}` — use tcp.locator or tcp.locatorFromAddress", .{ entry.path, needle });
+                try appendViolation(gpa, violations, "{s}: forbidden `{s}` — preserve the advertised locator or use the transport's locator constructor", .{ entry.path, needle });
             }
         }
     }

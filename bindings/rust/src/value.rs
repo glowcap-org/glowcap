@@ -5,8 +5,8 @@ use crate::{Error, Result, sys};
 
 /// An opaque capability identity in one Host. It is never a wire position and
 /// its shape does not reveal whether the target is local, remote, or routed
-/// through a handoff. `PartialEq` compares that immutable identity only;
-/// occurrence-local release state does not change Target equality. The raw id
+/// through a handoff. `PartialEq` compares that immutable identity only.
+/// Occurrence-local release state does not change Target equality. The raw id
 /// and C layout stay private to the binding.
 #[derive(Debug, Clone)]
 pub struct Ref {
@@ -63,7 +63,7 @@ impl Ref {
 }
 
 // The C marshaling layer: used only by the async host tier, so it compiles
-// only with it — dead-code linting stays live instead of blanket-allowed.
+// only with it: dead-code linting stays live instead of blanket-allowed.
 #[cfg(feature = "async")]
 impl Ref {
 	pub(crate) fn to_sys(&self) -> Result<sys::GlowcapReference> {
@@ -94,7 +94,7 @@ pub enum Argument {
 	Bytes(Vec<u8>),
 	String(String),
 	Symbol(String),
-	/// A fulfilled OCapN Error value. This is data, not a Rust `Err`; a broken
+	/// A fulfilled OCapN Error value. This is data, not a Rust `Err`. A broken
 	/// remote reply is reported separately by the promise/session API.
 	Error(String),
 	Void,
@@ -108,20 +108,20 @@ pub enum Argument {
 	Keyword(String),
 	/// An arbitrary-precision OCapN Integer outside `i64` (ADR-0049): the sign
 	/// plus the canonical decimal magnitude (ASCII digits, no leading zero).
-	/// Parse `digits` into your own bignum type; glowcap transports and
+	/// Parse `digits` into your own bignum type. glowcap transports and
 	/// compares the value, it does not compute with it.
 	BigInteger {
 		negative: bool,
 		digits: String,
 	},
 	/// An OCapN Struct: unordered, uniquely named String fields. The vector
-	/// preserves received order for inspection; OCapN equality ignores it.
+	/// preserves received order for inspection. OCapN equality ignores it.
 	Struct(Vec<(String, Argument)>),
 }
 
 impl Argument {
-	/// The integer, if this is an [`Argument::Integer`] (an `i64`-range value;
-	/// a larger OCapN integer arrives as [`Argument::BigInteger`]).
+	/// The integer, if this is an [`Argument::Integer`] (an `i64`-range value.
+	/// A larger OCapN integer arrives as [`Argument::BigInteger`]).
 	pub fn as_i64(&self) -> Option<i64> {
 		match self {
 			Argument::Integer(v) => Some(*v),
@@ -268,6 +268,9 @@ impl SendArena {
 	}
 
 	pub(crate) fn one(&mut self, a: &Argument) -> Result<sys::GlowcapArgument> {
+		// SAFETY: `GlowcapArgument` is a plain C struct of integers, a float, null-able pointers, and a
+		// `GlowcapReference` holding one integer; all-zero is a valid value (null views, zero lengths), and the arms
+		// below set the kind and the fields it uses before the value is returned.
 		let mut c: sys::GlowcapArgument = unsafe { core::mem::zeroed() };
 		match a {
 			Argument::Integer(v) => {
@@ -320,6 +323,8 @@ impl SendArena {
 				c.kind = sys::ARG_STRUCT;
 				let mut flat = Vec::with_capacity(entries.len() * 2);
 				for (key, value) in entries {
+					// SAFETY: as the `GlowcapArgument` zeroed in `one` above; `set_bytes` fills the String kind and
+					// byte view on the next line before the value is read.
 					let mut key_arg: sys::GlowcapArgument = unsafe { core::mem::zeroed() };
 					set_bytes(&mut key_arg, sys::ARG_STRING, key.as_bytes());
 					flat.push(key_arg);
@@ -336,8 +341,8 @@ impl SendArena {
 }
 
 // A Rust slice's pointer is non-null even at length zero (`NonNull`'s dangling
-// stand-in), so a zero-length byte view — a methodless positional verb, an
-// empty payload — marshals as the non-NULL `ptr + 0` the host requires, with
+// stand-in), so a zero-length byte view, a methodless positional verb, an
+// empty payload, marshals as the non-NULL `ptr + 0` the host requires, with
 // no special case here.
 #[cfg(feature = "async")]
 fn set_bytes(c: &mut sys::GlowcapArgument, kind: u32, b: &[u8]) {
@@ -412,6 +417,10 @@ unsafe fn struct_from_sys(ptr: *const sys::GlowcapArgument, len: usize) -> Resul
 				"glowcap ABI returned a non-String Struct key".into(),
 			));
 		}
+		// SAFETY: `ptr.add(i + 1)` is in range because `len` is even and `i` is even and below `len`, so `i + 1 < len`,
+		// inside the entries the caller declares valid at `ptr`; the key and value arguments carry the borrowed views
+		// that same contract declares live for the call, which `text_from_sys` and `arg_from_sys` read only during it
+		// and return as owned values.
 		entries.push(unsafe { (text_from_sys(key), arg_from_sys(&*ptr.add(i + 1))?) });
 	}
 	Ok(entries)
@@ -426,7 +435,7 @@ unsafe fn bytes_from_sys(c: &sys::GlowcapArgument) -> Vec<u8> {
 /// Lift a borrowed text view into one owned `String` with one copy. Going
 /// through `bytes_from_sys` first paid a second allocation and copy per text
 /// leaf, because `from_utf8_lossy` borrows valid UTF-8 and `into_owned` then
-/// clones it; the C ABI already validated the text, so the borrowed arm is
+/// clones it. The C ABI already validated the text, so the borrowed arm is
 /// the one that runs.
 ///
 /// # Safety

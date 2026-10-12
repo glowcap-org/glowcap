@@ -1,6 +1,6 @@
 //! The downstream consumer's whole program: import glowcap and the two
 //! optional transport modules, touch the surface the README's Quick Start and
-//! the Start page's tabs touch, and exit. It never opens a socket — the claim
+//! the Start page's tabs touch, and exit. It never opens a socket, the claim
 //! under test is that the package resolves and the library compiles and links
 //! for someone who fetched it, not that loopback works (the suite covers that).
 

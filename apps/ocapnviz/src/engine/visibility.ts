@@ -1,5 +1,5 @@
 /**
- * Visibility helpers — pure functions over `TimelineDocument`'s
+ * Visibility helpers, pure functions over `TimelineDocument`'s
  * `rowHidden` / `rowLabelHidden` / `rowBodyHidden` / `categoryVisMode`
  * / `allVisMode` fields. Extracted from `engine.ts` so the cascade
  * logic lives in one cohesive module instead of being threaded
@@ -7,10 +7,10 @@
  *
  * The Engine class re-exposes these via thin wrappers
  * (`setRowVisMode` etc.) that add the post-mutation `#notify()`
- * call — same public surface as before. UI code that needs to read
+ * call, same public surface as before. UI code that needs to read
  * (Stage, Timeline, Sidebar) should call `engine.effectiveRowVisMode`
  * or `engine.rowVisMode` and never reach for the doc fields
- * directly; the next phase's cascade-bug fix replaces only the
+ * directly. The next phase's cascade-bug fix replaces only the
  * `effectiveRowVisMode` definition below, with no API churn.
  */
 
@@ -21,7 +21,7 @@ export type VisCategory = "peers" | "sessions" | "messages";
 
 type RowHiddenLike = TimelineDocument["rowHidden"];
 
-/** Drop `id` from `field[category]`; collapse the array (and the
+/** Drop `id` from `field[category]`. Collapse the array (and the
  * field itself) back to `undefined` when nothing remains, so docs
  * without any hides round-trip clean. */
 function withoutId(
@@ -41,7 +41,7 @@ function withoutId(
 	return anyEntry ? next : undefined;
 }
 
-/** Add `id` to `field[category]` (idempotent — no-op when already
+/** Add `id` to `field[category]` (idempotent, no-op when already
  * present). Returns the same kind of pruned shape as `withoutId`. */
 function withId(
 	field: RowHiddenLike,
@@ -56,7 +56,7 @@ function withId(
 }
 
 /** Apply a per-entity visibility mode in-place on `doc`. The three
- * doc arrays are mutually exclusive — clear from all three first,
+ * doc arrays are mutually exclusive, clear from all three first,
  * then write into the bucket for the target mode. `"visible"` is
  * the absence-from-all case. */
 export function setRowVisModeOnDoc(
@@ -115,7 +115,7 @@ export function setAllVisModeOnDoc(
 	return true;
 }
 
-/** Per-entity stored mode — what the user set on the entity
+/** Per-entity stored mode, what the user set on the entity
  * eyeball. NOT composed with category / all. */
 export function rowVisModeOnDoc(
 	doc: TimelineDocument,
@@ -128,7 +128,7 @@ export function rowVisModeOnDoc(
 	return "visible";
 }
 
-/** Stored category flag — what the user set on the category
+/** Stored category flag, what the user set on the category
  * eyeball. NOT a roll-up of entity flags. */
 export function categoryVisModeOnDoc(
 	doc: TimelineDocument,
@@ -144,7 +144,7 @@ export function allVisModeOnDoc(doc: TimelineDocument): VisMode {
 
 /** Next slot in the per-entity / category / all-rows visibility
  * cycle. All three eyeball cycles share this vocabulary:
- * `visible → label → body → both → visible`. No "mixed" state —
+ * `visible → label → body → both → visible`. No "mixed" state,
  * each level stores its own flag and doesn't survey the levels
  * below. UI callers that drive the eyeball click pipe through here. */
 export function nextVisCycleStep(current: VisMode): VisMode {
@@ -162,7 +162,7 @@ export function nextVisCycleStep(current: VisMode): VisMode {
 
 /** Decompose a `VisMode` into the two independent axis bits it
  *  represents: whether the label is hidden, and whether the body is
- *  hidden. `"visible"` is `{ false, false }`; `"both"` is `{ true,
+ *  hidden. `"visible"` is `{ false, false }`, `"both"` is `{ true,
  *  true }`. Used by `effectiveRowVisMode` to compose levels by
  *  OR-ing axes rather than picking a winner. */
 function bitsFor(
@@ -194,7 +194,7 @@ function modeFor(
 /** Effective per-entity visibility for rendering. Composes the three
  *  levels (`all → category → entity`) by OR-ing each axis: a label is
  *  hidden if ANY level hides it, body likewise. Matches the
- *  Photoshop / Figma / DAW convention — parents can ADD hides,
+ *  Photoshop / Figma / DAW convention, parents can ADD hides,
  *  children can ADD more hides, no level can ever UNHIDE what
  *  another level hid. This is what makes per-level toggles feel like
  *  layer-style visibility controls instead of override switches.
@@ -202,7 +202,7 @@ function modeFor(
  *  Per-axis OR-of-levels also means a category set to `"label"` plus
  *  an entity set to `"body"` compose to `"both"` rather than letting
  *  the entity override and forfeit the label-hide. The pre-fix code
- *  was winner-take-all (first non-`visible` level won); that
+ *  was winner-take-all (first non-`visible` level won). That
  *  conflated three independent axis decisions into one. */
 export function effectiveRowVisMode(
 	doc: TimelineDocument,

@@ -6,10 +6,7 @@ use rooms_application::session::operations::{Listener, wire};
 fn connection_coordinate() -> Coordinate {
 	Coordinate {
 		role: custody::Role::IrcConnection,
-		key: FieldKey::new(
-			NonZeroU64::new(1).expect("result slot"),
-			NonZeroU64::new(1).expect("result generation"),
-		),
+		key: FieldKey::new(NonZeroU64::MIN, NonZeroU64::MIN),
 	}
 }
 pub(super) fn connection(value: &Argument) -> Result<Settlement> {

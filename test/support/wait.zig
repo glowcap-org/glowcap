@@ -1,4 +1,4 @@
-//! Shared deadline-guarded waits for multi-thread driver tests (bridge today; loop waits later).
+//! Shared deadline-guarded waits for multi-thread driver tests (bridge today, loop waits later).
 //!
 //! An undeadlined `while (!flag.load) sleep(2ms)` is a silent hang: a wedged
 //! accept or a malformed give leaves the suite parked with no location and
@@ -10,7 +10,7 @@ const std = @import("std");
 
 pub const Error = error{WaitTimedOut};
 
-/// Generous default for multi-thread driver tests: slow CI stays quiet; a
+/// Generous default for multi-thread driver tests: slow CI stays quiet. A
 /// real hang fails within low tens of seconds with a located error.
 pub const default_deadline_ms: u64 = 15_000;
 

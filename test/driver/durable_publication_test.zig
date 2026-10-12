@@ -1,12 +1,12 @@
 //! Durable publication and Host-level select-or-dial enlivenment over real
 //! loopback sockets (ADR-0098 steps 3–4): `Server.publishDurable` mints an
-//! unpredictable sturdyref and returns it complete; `Session.enliven` resolves
-//! the sturdyref's peer to the live dialed session it names — or dials it —
-//! so the caller never selects a session; and `removeDurable` makes the old
+//! unpredictable sturdyref and returns it complete. `Session.enliven` resolves
+//! the sturdyref's peer to the live dialed session it names, or dials it,
+//! so the caller never selects a session, and `removeDurable` makes the old
 //! sturdyref miss while issued capabilities keep answering.
 //!
 //! One thread drives one host, so each server publishes, serves, and removes
-//! on its own fiber; the client watches atomics and owns only its own host.
+//! on its own fiber. The client watches atomics and owns only its own host.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -60,7 +60,7 @@ test "durable publication uses the host's selected acceptable location" {
 }
 
 /// One server fiber: publish the durable service, hand the sturdyref URI to
-/// the test, serve accepted sessions, and honor a removal request — every
+/// the test, serve accepted sessions, and honor a removal request, every
 /// host verb on this one thread.
 fn ServeDurable(comptime Behavior: type) type {
     return struct {
@@ -157,7 +157,7 @@ test "durable publication: select-or-dial enlivens over the selected and the fre
     try std.testing.expectEqualStrings("first service", first_reply.fulfilled.string);
 
     // The second sturdyref names a peer this host has never dialed: the same
-    // verb dials it, proves the peer, and enlivens — the dial arm of
+    // verb dials it, proves the peer, and enlivens, the dial arm of
     // select-or-dial.
     const second_cap = try client.enlivenUri(second_uri.?);
     const second_reply = try client.call(second_cap, "poke", &.{}, arena);
@@ -165,7 +165,7 @@ test "durable publication: select-or-dial enlivens over the selected and the fre
     try std.testing.expectEqualStrings("second service", second_reply.fulfilled.string);
 
     // Removal: a fresh client's lookup misses from now on, while everything
-    // already issued keeps answering — the capability, and this client's own
+    // already issued keeps answering, the capability, and this client's own
     // session-cached enlivenment, which is issued authority, not discovery.
     remove_requested.store(true, .release);
     while (!removed.load(.acquire)) {

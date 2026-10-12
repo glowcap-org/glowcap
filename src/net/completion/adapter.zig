@@ -5,7 +5,7 @@
 //! same whatever the transport: which inner operations it currently has
 //! submitted, and where its inner descriptor stands in its own close. This
 //! leaf owns those two facts. The relay and onion adapters compose
-//! it; none restates it.
+//! it. None restates it.
 
 const std = @import("std");
 
@@ -22,7 +22,7 @@ pub const InnerClose = enum { open, in_flight, failed, closed };
 ///
 /// `Op` is the adapter's internal operation enum and `tracked` names the
 /// members a leg arms at most once at a time. A close is not tracked here
-/// because its progress carries more than one bit; `InnerClose` owns it. One
+/// because its progress carries more than one bit. `InnerClose` owns it. One
 /// byte per tracked member keeps each adapter's leg at the footprint its
 /// budget test pins.
 pub fn PendingOps(comptime Op: type, comptime tracked: []const Op) type {

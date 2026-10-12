@@ -3,9 +3,9 @@ import { type EasingFn, smoothstep } from "../easing.ts";
 import { bezierAt, type FrameGeometry, temporalArcAmount } from "../session-geometry.ts";
 
 /**
- * MessageFlightSystem — position messages-in-flight along their
+ * MessageFlightSystem, position messages-in-flight along their
  * session edge as an eased lerp from sender to receiver. Pure
- * function of `t`; scrubbing forward and back hits identical
+ * function of `t`. Scrubbing forward and back hits identical
  * positions.
  *
  * Two layers of geometry compose to keep dense traffic legible:
@@ -16,15 +16,15 @@ import { bezierAt, type FrameGeometry, temporalArcAmount } from "../session-geom
  *      built once per stage pass from `drawnSessionCurve`.
  *   2. Messages whose flight intervals overlap on the SAME session
  *      get **different progress curves** instead of the same
- *      linear ramp — the same mirror-image arcs that session
+ *      linear ramp, the same mirror-image arcs that session
  *      bundles use in space, applied to the time dimension. At
  *      any moment in flight, time-bundle siblings sit at different
  *      positions *along* the session spine. Endpoints converge at
  *      the peers (`sin(πk)` taper, same as spatial bundles).
  *
- * Bundle math lives in `session-geometry`; this system only
+ * Bundle math lives in `session-geometry`. This system only
  * applies it. Messages are positioned **exactly on the session
- * spine** — no extra perpendicular splay. Differentiation comes
+ * spine**, no extra perpendicular splay. Differentiation comes
  * from when along the spine, not where off of it.
  *
  * Peer positions are handled by `KeyframeLayoutSystem`.
@@ -45,7 +45,7 @@ export class MessageFlightSystem {
 		this.config = config;
 	}
 
-	/** `geometry` is the frame's one claim/bundle resolution — the same maps
+	/** `geometry` is the frame's one claim/bundle resolution. The same maps
 	 *  the renderer draws edges from. A dot follows the wire its session is
 	 *  drawn as, so it cannot rebuild those tables on its own. */
 	update(world: GameWorld, simT: number, geometry: FrameGeometry): void {
@@ -68,7 +68,7 @@ export class MessageFlightSystem {
 			// `sin(πk)` taper as the spatial bundle: convergence at the
 			// peers, max spread at the chord midpoint.
 			const kArced = kEased + arc * Math.sin(Math.PI * kEased);
-			// Clamp defensively — `MAX_TEMPORAL_ARC = 0.35` keeps us
+			// Clamp defensively, `MAX_TEMPORAL_ARC = 0.35` keeps us
 			// well inside [0, 1], but bounds-checking costs nothing.
 			const kClamped = kArced < 0 ? 0 : kArced > 1 ? 1 : kArced;
 			// The session curve always parametrizes a→b, so a message going the
@@ -88,7 +88,7 @@ export class MessageFlightSystem {
 			const kCurve = towardA ? 1 - kClamped : kClamped;
 			const spine = bezierAt(curve, kCurve);
 
-			// In-place mutation — same rationale as KeyframeLayoutSystem:
+			// In-place mutation, same rationale as KeyframeLayoutSystem:
 			// position is owned by the entity, readers sample it
 			// synchronously in the same frame, and the new {x, y}
 			// allocation per message per tick was visible GC pressure

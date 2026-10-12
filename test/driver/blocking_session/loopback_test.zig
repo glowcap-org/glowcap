@@ -1,7 +1,7 @@
 //! Driver loopback: the application surface, both halves, over a real
-//! 127.0.0.1 socket with the keyed, verified handshake on both ends — the
+//! 127.0.0.1 socket with the keyed, verified handshake on both ends, the
 //! same exchange a live Goblins peer requires. Connect and accept own their
-//! peers and buffers; fetch, call, pipelining, URIs, typed aborts, local
+//! peers and buffers. Fetch, call, pipelining, URIs, typed aborts, local
 //! spawns, and ADR-0074's grant-on-first-marshal each ride one test.
 
 const std = @import("std");
@@ -29,7 +29,7 @@ const HostedGreeter = harness.HostedGreeter;
 
 /// The taskboard shapes the pipelining test drives: a board whose `create`
 /// mints a fresh task capability, and a task that answers `assign`/`complete`/
-/// `status`. The same shape `bench/langs/host.zig` serves; here it proves the
+/// `status`. The same shape `bench/langs/host.zig` serves. Here it proves the
 /// questioner-side pipelining path end to end.
 const Task = struct {
     done: bool = false,
@@ -67,7 +67,7 @@ fn serveBoardOnce(server: *driver.Server) anyerror!void {
 /// Drive the taskboard unit with promise pipelining: send `create`, then send
 /// `assign`/`complete`/`status` addressed at the *unresolved* `create` answer,
 /// and only then settle the final `status`. The four delivers flush together on
-/// that settle — none waits for `create` to come back — so the host queues the
+/// that settle, none waits for `create` to come back, so the host queues the
 /// three pipelined calls on its pending answer and drains them onto the freshly
 /// spawned task when `create` resolves (ADR-0007's serving half). A correct
 /// `status` of `done` proves the questioner half end to end: a dependent chain
@@ -133,8 +133,8 @@ fn hostOnce(listener: *tcp.Listener, allocator: std.mem.Allocator) anyerror!void
 
     _ = try cv.publish("greeter", Greeter, .{});
 
-    // A spawned position comes from the session's one export allocator — the
-    // counter that also mints bootstrap and resolver exports — so it can never
+    // A spawned position comes from the session's one export allocator, the
+    // counter that also mints bootstrap and resolver exports, so it can never
     // alias a position the session hands out for anything else.
     const spawned = try cv.spawn(Greeter, .{});
     try std.testing.expectEqual(spawned.position + 1, try peer.exportNextObject());
@@ -161,8 +161,8 @@ fn onGreeting(ctx: ?*anyopaque, resolution: actors.Resolution) void {
 
 /// Dial via `driver.connectVia`, fetch the published greeter, call it, and
 /// assert the reply round-trips. Closing on return lets the host observe EOF.
-/// The client reads through a 64-byte buffer — far smaller than any handshake
-/// frame — so every inbound frame on this side assembles in the connection's
+/// The client reads through a 64-byte buffer, far smaller than any handshake
+/// frame, so every inbound frame on this side assembles in the connection's
 /// bounded spill, proving the small-buffer read path over a real socket.
 fn callOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
     var peer = engine.Peer.initNegotiating(allocator);
@@ -537,9 +537,9 @@ const TwoSpawner = struct {
         _ = args;
         if (!std.mem.eql(u8, verb, "make")) return error.NoSuchMethod;
         const granted = try ht.spawn(HostedGreeter, .{});
-        // The reserved one is deliberately minted at the wire tier: the test
-        // needs its export position as bare data, which the opaque surface —
-        // correctly — cannot say.
+        // The reserved one is minted at the wire tier: the test
+        // needs its export position as bare data, which the opaque surface,
+        // correctly, cannot say.
         const reserved = try driver.spawnAt(ht.turn, Greeter, .{});
         const items = try ht.turn.arena.alloc(driver.Value, 2);
         items[0] = .{ .capability = granted };
@@ -583,7 +583,7 @@ fn probeReservedOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Alloc
     const greeted = try session.call(granted, "greet", &.{}, arena);
     try std.testing.expect(greeted == .fulfilled);
 
-    // The reserved position — learned out-of-band, as a number — is not a
+    // The reserved position, learned out-of-band, as a number, is not a
     // capability. Forging one takes two deliberate wire-tier escapes
     // (`peer().importObject` bookkeeping plus a raw core lift); the host still
     // refuses the deliver like a nonexistent export and tears the session
@@ -619,7 +619,7 @@ test "driver loopback: a spawned capability is unreachable until first marshaled
 }
 
 test "Identity.ephemeral signs the unreachable-client designator" {
-    // Same bytes Host / connectVia(.ephemeral) advertise — the placeholder
+    // Same bytes Host / connectVia(.ephemeral) advertise, the placeholder
     // must not drift by entry path.
     const identity: driver.Identity = .ephemeral;
     try std.testing.expectEqualStrings(

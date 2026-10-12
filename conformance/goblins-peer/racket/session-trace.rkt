@@ -1,5 +1,5 @@
 #lang racket/base
-;; session-trace.rkt — the CapTP facts a netlayer can see at the wire, reported
+;; session-trace.rkt: the CapTP facts a netlayer can see at the wire, reported
 ;; to a session-trace sink.
 ;;
 ;; Goblins hands a netlayer the pair of procedures one connection's CapTP reads
@@ -11,8 +11,8 @@
 ;;
 ;; Every netlayer in this directory reports the same facts, so the wrapper lives
 ;; here rather than once per transport. What differs between transports is what
-;; the netlayer itself knows about the connection — its transport symbol, the
-;; designator it is reached by, and what the far end proved — and those arrive as
+;; the netlayer itself knows about the connection, its transport symbol, the
+;; designator it is reached by, and what the far end proved, and those arrive as
 ;; arguments.
 
 (require goblins/ocapn/structs-urls
@@ -22,7 +22,7 @@
          provenance-unauthenticated
          provenance-authenticated-transport)
 
-;; The two verdicts a netlayer in this directory can honestly reach about the
+;; The two verdicts a netlayer in this directory can accurately reach about the
 ;; partner's durable name. They are the timeline schema's own words (glowcap's
 ;; hosts publish the same ones from `partnerDurableProvenance`), so a viewer
 ;; folds a session watched from both ends into one edge with one verdict.
@@ -56,9 +56,9 @@
 ;; Wrap one connection's message procs so `sink` hears the session open and
 ;; close. Answers the wrapped `(values read-message write-message)`.
 ;;
-;;   `transport`       — the locator transport symbol this connection rides.
-;;   `our-designator`  — what a partner reaching this end names it by.
-;;   `provenance`      — what the netlayer proved about the far end, asked with
+;;   `transport`: the locator transport symbol this connection rides.
+;;   `our-designator`: what a partner reaching this end names it by.
+;;   `provenance`: what the netlayer proved about the far end, asked with
 ;;                       the designator the partner's hello claims. A netlayer
 ;;                       that dialed an endpoint id can answer
 ;;                       `authenticated-transport` when the claim names the

@@ -70,15 +70,15 @@ export function useStageBuildGestures({
 			// (Sprites are already pointer-silent under a pan affordance;
 			// this guard is the belt.)
 			if (spaceHeld || tool === "hand") return;
-			// In a two-click tool, only clicks on a stage NODE advance the flow —
+			// In a two-click tool, only clicks on a stage NODE advance the flow,
 			// a peer, or an end nothing has attributed, which Send Message can
 			// name. A click on a message or a session is ignored rather than
 			// treated as a flow-break: a message-in-flight resting at its sender at
 			// t=0 occludes the peer underneath, so clicking "the peer" can actually
 			// hit the message, and cancelling there would leave the user with a
 			// stale armed first pick and no way to reach the second. Empty canvas
-			// is not ignored under Open Session — `handleOpenSessionToNewEnd` runs
-			// the session out to a new end standing where the click landed — and it
+			// is not ignored under Open Session, `handleOpenSessionToNewEnd` runs
+			// the session out to a new end standing where the click landed, and it
 			// still clears the selection under every other tool. Escape cancels the
 			// flow, switching tools cancels it, and re-clicking the armed node
 			// cancels inside `advanceTwoClick`.
@@ -175,7 +175,7 @@ export function useStageBuildGestures({
 	/** Second click of Open Session landing on empty canvas: run the session
 	 *  out to an end nothing has attributed, standing where the click landed.
 	 *  Only offered while a peer is armed, because a session needs somewhere
-	 *  to run FROM; with nothing armed an empty click still clears. */
+	 *  to run FROM. With nothing armed an empty click still clears. */
 	const handleOpenSessionToNewEnd = useCallback(
 		(worldX: number, worldY: number) => {
 			const from = firstPickNodeId;

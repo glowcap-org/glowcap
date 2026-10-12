@@ -1,6 +1,6 @@
 //! Borrowed CapTP message variants and their owned projection transaction.
 //!
-//! Value and sequence views stay in `view.zig`; this leaf owns the message
+//! Value and sequence views stay in `view.zig`. This leaf owns the message
 //! sum, the arm-for-arm model assertion, and the failure-atomic materialization
 //! of one complete body.
 

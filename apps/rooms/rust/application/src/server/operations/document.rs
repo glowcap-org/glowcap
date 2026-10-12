@@ -7,7 +7,7 @@
 //! server's protected state directory and never enters snapshots.
 use super::listeners::{MAX_OPTION_VALUE, Transport};
 use crate::server::irc::model::{
-	BridgeAuthority, BridgeIntent, ENTROPY_BYTES, NetworkChoice, channel_key, entropy_hex, network_key,
+	BridgeAuthority, BridgeEntropy, BridgeIntent, ENTROPY_BYTES, NetworkChoice, channel_key, entropy_hex, network_key,
 };
 use alloc::{
 	collections::{BTreeMap, BTreeSet},
@@ -158,7 +158,7 @@ impl Document {
 		}
 		let mut networks = BTreeSet::new();
 		for network in &self.irc_networks {
-			network.validate().map_err(Error::Invalid)?;
+			network.validate().map_err(String::from).map_err(Error::Invalid)?;
 			if !networks.insert(network.key()) {
 				return Err(unique());
 			}
@@ -166,7 +166,7 @@ impl Document {
 		let mut channels = BTreeSet::new();
 		let mut publications = BTreeSet::new();
 		for bridge in &self.irc_bridges {
-			bridge.validate().map_err(Error::Invalid)?;
+			bridge.validate().map_err(String::from).map_err(Error::Invalid)?;
 			if !networks.contains(&network_key(&bridge.network)) {
 				return Err(Error::Invalid(alloc::format!(
 					"the {}/{} bridge names a network the document does not keep",
@@ -181,7 +181,7 @@ impl Document {
 		let mut owned = BTreeSet::new();
 		let mut entropy = BTreeSet::new();
 		for authority in &self.irc_bridge_authorities {
-			authority.validate().map_err(Error::Invalid)?;
+			authority.validate().map_err(String::from).map_err(Error::Invalid)?;
 			if !publications.contains(&authority.publication_id) || !owned.insert(authority.publication_id.clone()) {
 				return Err(unique());
 			}
@@ -233,14 +233,10 @@ impl Document {
 	}
 	/// Keep one bridge under its publication id, with fresh authority
 	/// entropy drawn by `draw`. A bridge already kept under the same id is
-	/// left as it is; one kept under another id is replaced whole, its old
+	/// left as it is. One kept under another id is replaced whole, its old
 	/// authority going with it.
-	pub fn remember_irc_bridge(
-		&mut self,
-		intent: BridgeIntent,
-		mut draw: impl FnMut() -> [u8; ENTROPY_BYTES],
-	) -> Result<bool, Error> {
-		intent.validate().map_err(Error::Invalid)?;
+	pub fn remember_irc_bridge(&mut self, intent: BridgeIntent, entropy: BridgeEntropy) -> Result<bool, Error> {
+		intent.validate().map_err(String::from).map_err(Error::Invalid)?;
 		let key = intent.key();
 		if self.irc_bridges.iter().any(|held| held == &intent) {
 			return Ok(false);
@@ -253,8 +249,8 @@ impl Document {
 		next.irc_bridges.retain(|held| held.key() != key);
 		next.irc_bridge_authorities.push(BridgeAuthority {
 			publication_id: intent.publication_id.clone(),
-			room_entropy: entropy_hex(&draw()),
-			steward_entropy: entropy_hex(&draw()),
+			room_entropy: entropy_hex(&entropy.room),
+			steward_entropy: entropy_hex(&entropy.steward),
 			generation: 0,
 			issued: false,
 		});
@@ -304,7 +300,7 @@ impl Document {
 		&mut self,
 		publication_id: &str,
 		steward_entropy: &str,
-		draw: impl FnOnce() -> [u8; ENTROPY_BYTES],
+		fresh: [u8; ENTROPY_BYTES],
 	) -> Result<BridgeAuthority, Error> {
 		let row = self
 			.irc_bridge_authorities
@@ -315,7 +311,7 @@ impl Document {
 		if row.generation >= MAX_GENERATION {
 			return Err(Error::Invalid("IRC bridge moderator generation is exhausted".into()));
 		}
-		row.steward_entropy = entropy_hex(&draw());
+		row.steward_entropy = entropy_hex(&fresh);
 		row.generation += 1;
 		row.issued = false;
 		Ok(row.clone())
@@ -416,15 +412,29 @@ mod tests {
 			publication_id: "p1".into(),
 			operator_permission: true,
 		};
-		assert!(document.remember_irc_bridge(intent.clone(), &mut draw).unwrap());
-		assert!(!document.remember_irc_bridge(intent.clone(), &mut draw).unwrap());
+		fn entropy(draw: &mut impl FnMut() -> [u8; ENTROPY_BYTES]) -> BridgeEntropy {
+			BridgeEntropy {
+				room: draw(),
+				steward: draw(),
+			}
+		}
+		assert!(
+			document
+				.remember_irc_bridge(intent.clone(), entropy(&mut draw))
+				.unwrap()
+		);
+		assert!(
+			!document
+				.remember_irc_bridge(intent.clone(), entropy(&mut draw))
+				.unwrap()
+		);
 		let first = document.irc_bridge_authority("p1").unwrap().clone();
 		assert!(!first.issued);
 		let replaced = BridgeIntent {
 			publication_id: "p2".into(),
 			..intent.clone()
 		};
-		assert!(document.remember_irc_bridge(replaced, &mut draw).unwrap());
+		assert!(document.remember_irc_bridge(replaced, entropy(&mut draw)).unwrap());
 		assert!(document.irc_bridge_authority("p1").is_none());
 		assert_eq!(document.irc_bridges.len(), 1);
 		let text = document.encode().unwrap();
@@ -433,14 +443,14 @@ mod tests {
 		let issued = document.issue_irc_bridge_steward("p2").unwrap();
 		assert!(issued.issued && issued.generation == 1);
 		assert_eq!(document.issue_irc_bridge_steward("p2").unwrap().generation, 1);
-		assert!(document.revoke_irc_bridge_steward("p2", "wrong", &mut draw).is_err());
+		assert!(document.revoke_irc_bridge_steward("p2", "wrong", draw()).is_err());
 		let revoked = document
-			.revoke_irc_bridge_steward("p2", &issued.steward_entropy, &mut draw)
+			.revoke_irc_bridge_steward("p2", &issued.steward_entropy, draw())
 			.unwrap();
 		assert!(!revoked.issued && revoked.generation == 2 && revoked.steward_entropy != issued.steward_entropy);
 		assert!(document.forget_irc_bridge("libera", "#ROOM"));
 		assert!(document.irc_bridge_authorities.is_empty());
-		document.remember_irc_bridge(intent, &mut draw).unwrap();
+		document.remember_irc_bridge(intent, entropy(&mut draw)).unwrap();
 		assert!(document.forget_irc_network("libera"));
 		assert!(document.irc_bridges.is_empty() && document.irc_bridge_authorities.is_empty());
 	}

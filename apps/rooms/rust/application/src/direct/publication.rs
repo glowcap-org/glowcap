@@ -101,7 +101,7 @@ impl Inbox {
 		self.0.phase.get() == Phase::Published
 	}
 	/// A factory may retire its owner. Check this exact slot again before the
-	/// native alias effect; a released reservation cannot authorize publication.
+	/// native alias effect. A released reservation cannot authorize publication.
 	pub fn publishable(&self) -> bool {
 		self.0.phase.get() == Phase::Provisional && self.0.scope.active.get()
 	}
@@ -273,7 +273,7 @@ impl Ledger {
 		}
 		Ok(())
 	}
-	/// Only closed scopes and already-retiring aliases are visited; ordinary
+	/// Only closed scopes and already-retiring aliases are visited. Ordinary
 	/// offers do not scan every live registration in a shared IRC Host.
 	pub fn retirements(&mut self) -> Vec<Inbox> {
 		loop {

@@ -4,7 +4,7 @@
 ;; The binding-internal surface `glowcap-tcp.rkt`, `glowcap-inproc.rkt`, and
 ;; `glowcap-iroh.rkt` reach the shared core machinery through, mirroring the
 ;; à-la-carte archive split (ADR-0059). It re-provides the `seam` submodule of
-;; `glowcap.rkt` — the typed-error raisers (`check`, `check-with`,
+;; `glowcap.rkt`: the typed-error raisers (`check`, `check-with`,
 ;; `raise-glowcap`), the pin/copy helpers (`pin-immobile`, `bytes<-c`),
 ;; `codec-id`, the session-construction seam (`async-transport`,
 ;; `establish-dialed-locator-session`,

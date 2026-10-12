@@ -1,8 +1,8 @@
 /**
- * React hook adapter for the wheel pipeline — implements § 8.2 of the
+ * React hook adapter for the wheel pipeline, implements § 8.2 of the
  * interaction model.
  *
- * Wheel is a SIBLING pipeline to the pointer FSM — same Effect
+ * Wheel is a SIBLING pipeline to the pointer FSM, same Effect
  * families (pan-step, zoom-step), no pointer state. Replaces the
  * pixi-viewport wheel-plugin on Stage and the inline `applyWheel`
  * handlers on Scrubber / Overview.

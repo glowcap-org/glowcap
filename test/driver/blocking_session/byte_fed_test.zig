@@ -1,6 +1,6 @@
 //! The byte-fed drive (ADR-0072) and its compose verbs: a `driver.Served`
-//! owns no socket — the caller feeds inbound frames and drains outbound,
-//! owning the loop — and serves identically to the socket path, including
+//! owns no socket. The caller feeds inbound frames and drains outbound,
+//! owning the loop, and serves identically to the socket path, including
 //! `beginSendNamed`/`beginTellNamed` chains and their break stages.
 
 const std = @import("std");
@@ -122,7 +122,7 @@ test "byte-fed Served opens a keyed session from scratch and serves (ADR-0072)" 
     defer client.deinit(&client_vat);
 
     // Shuttle the handshake frames between the two byte-fed vats until both
-    // sessions open — the full connection lifecycle, driven by the caller.
+    // sessions open, the full connection lifecycle, driven by the caller.
     var i: usize = 0;
     while (i < 16 and !(p_server.sessionIsOpen() and p_client.sessionIsOpen())) : (i += 1) {
         try shuttleFed(&client, &client_vat, &server, &server_vat);
@@ -161,7 +161,7 @@ test "byte-fed compose: beginSendNamed chains fetch then send, and the fetch bre
     var client = driver.Served.over(allocator, &pair.p1);
     defer client.deinit(&client_vat);
 
-    // Happy path: one begin, then pump — no shadow continuation in the caller.
+    // Happy path: one begin, then pump, no shadow continuation in the caller.
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     var capture = driver.SettleCapture{ .arena = arena.allocator() };

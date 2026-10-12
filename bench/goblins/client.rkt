@@ -2,9 +2,9 @@
 ;; Bench client: racket client.rkt <backend> <suite> <host> <port> <mode> <n> [conns].
 ;; Connects to a running bench server and runs ONE measurement, printing an NDJSON
 ;; result line:
-;;   latency     — N units, each a synchronous round-trip; p50/p99/p999/mean (ms)
-;;   throughput  — N units back-to-back; requests/second (sequential, fair to both)
-;;   connections — open `conns` sessions, fetch the root on each; total + per-conn
+;;   latency: N units, each a synchronous round-trip; p50/p99/p999/mean (ms)
+;;   throughput: N units back-to-back; requests/second (sequential, fair to both)
+;;   connections: open `conns` sessions, fetch the root on each; total + per-conn
 ;;                 setup ms, then hold them open ~1s for the orchestrator's RSS
 ;;                 sample
 ;; A "unit" is the app's client thunk, which may make several round-trips (e.g. a
@@ -95,8 +95,8 @@
 ;; Warm the accept/connect/fetch path with a few throwaway connections that are
 ;; held open through *both* the orchestrator's baseline and loaded RSS samples, so
 ;; their cost cancels in the delta while the server's accept path is JIT-compiled
-;; before the measured batch. This is symmetric — both substrates open the same
-;; throwaways — and avoids relying on connection close, which the Goblins slim
+;; before the measured batch. This is symmetric, both substrates open the same
+;; throwaways, and avoids relying on connection close, which the Goblins slim
 ;; netlayer cannot do cleanly.
 (define CONN-WARMUP (min CONNS 5))
 

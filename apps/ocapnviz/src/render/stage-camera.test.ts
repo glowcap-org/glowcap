@@ -1,7 +1,7 @@
 /**
  * The channel between the camera and the controls that drive it.
  *
- * Two things here are load-bearing and neither is obvious from reading the
+ * Two things here matter and neither is obvious from reading the
  * class. A wheel gesture publishes the scale on every frame, so the store has to
  * stay quiet unless something a reader can SEE has changed, or the app
  * re-renders sixty times a second while nothing about it looks different. And
@@ -77,7 +77,7 @@ Deno.test("reaching the floor wakes the readout even at one reading", () => {
 
 Deno.test("the settled view is published once per rest, not per frame", () => {
 	// The document panel's Opens-at button compares against this to know whether
-	// there is anything to record, so it has to be in the snapshot — and it is only
+	// there is anything to record, so it has to be in the snapshot, and it is only
 	// affordable there because the stage waits for the camera to stop first. A raw
 	// per-frame view would wake the panel sixty times a second through a pan.
 	const camera = new StageCamera();

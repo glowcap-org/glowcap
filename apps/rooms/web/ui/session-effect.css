@@ -1,6 +1,6 @@
 /* Durable work waiting on the reader: one calm status line in the application,
-   and the focused card it opens. The bar carries only the fact and the door;
-   explanation and consequential choices belong in the card.
+   and the focused card it opens. The bar carries only the fact and the door.
+   Explanation and consequential choices belong in the card.
 
    It stands above the conversation, in the column the workarea is, and the
    workarea needs no rule for it: it is another item in that column and the

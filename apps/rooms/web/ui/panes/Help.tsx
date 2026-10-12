@@ -21,6 +21,7 @@ import { type TabFace, Tabs } from "../Tabs.tsx";
 import type { HelpTab } from "../store/core.ts";
 import {
 	helpAbout,
+	helpAboutCredit,
 	helpAboutLead,
 	helpCapability,
 	helpCapabilitySaid,
@@ -169,6 +170,9 @@ export const Help = memo(function Help(
 										</div>
 									))}
 								</dl>
+								<p className="hint">
+									<Linked parts={helpAboutCredit} />
+								</p>
 							</div>
 						)
 						: pane === "writing"

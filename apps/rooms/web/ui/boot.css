@@ -58,11 +58,11 @@
 }
 /* The product's own mark rather than a spinner, and the mark being made
    rather than sitting there: the stem grows up, the cap blooms from the
-   brim, then the lantern lights; it holds, fades, and plays again. A
+   brim, then the lantern lights. It holds, fades, and plays again. A
    loop, because nothing here knows how far along the wait is and a bar
    that filled would be making that up. The play is the shader mark's own
    (ui/mark_gpu_live.ts), drawn into the box below once the bundle is
-   running; until then the box is empty, and the mark growing up out of
+   running. Until then the box is empty, and the mark growing up out of
    the ground is how the code's arrival reads. ui/boot.ts asks the mark
    when one play has assembled before it hands over. */
 .boot-mark-stack {
@@ -80,8 +80,8 @@
 }
 /* The mushroom's own box. Its canvas hangs around this by the mark's plume
    box, so the light has somewhere to go. The session chooser draws the same
-   lockup at this same size — the number's twin is the `size` its `Icon` takes
-   in ui/panes/SessionSetup.tsx — so the mark does not jump when the screen fades
+   lockup at this same size, the number's twin is the `size` its `Icon` takes
+   in ui/panes/SessionSetup.tsx, so the mark does not jump when the screen fades
    into it. */
 .boot-mark {
 	position: relative;
@@ -90,7 +90,7 @@
 	height: 56px;
 	overflow: visible;
 }
-/* The boot screen's name is the logotype lockup from mark.css; this rule
+/* The boot screen's name is the logotype lockup from mark.css. This rule
    adds only what the boot layout owns. */
 .boot-name {
 	margin: 0;
@@ -102,7 +102,7 @@
 	/* The aside under it has this, and on a phone both of them wrap. */
 	text-wrap: pretty;
 }
-/* Something to read while the note above says what is actually happening. It
+/* Something to read while the note above says what is happening. It
    is quieter than the note and holds a line's height whether or not it is
    saying anything, so the lockup above it does not shift when one arrives. */
 .boot-aside {

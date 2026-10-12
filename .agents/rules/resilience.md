@@ -26,9 +26,9 @@ complete.
   same first cause before the failure returns across a public close barrier.
 - Application rate limits, authorization, and deadlines belong above glowcap.
 
-Concern not listed? Give it to the layer that owns the decision — the
-[architecture rule](architecture.md)'s Layer Ownership list is the map — never
-to the layer where the symptom appeared.
+A concern not listed goes to the layer that owns the decision (the
+[architecture rule](architecture.md)'s Layer Ownership list is the map), not the
+layer where the symptom appeared.
 
 ## Anti-Patterns
 
@@ -36,7 +36,7 @@ to the layer where the symptom appeared.
 - caching borrowed wire bytes in session state;
 - returning a generic "internal" error for a known malformed frame shape;
 - letting adapters invent protocol semantics;
-- reusing a peer after fatal wire refusal without an explicit recovery contract.
+- reusing a peer after fatal wire refusal without an explicit recovery contract;
 - swallowing a cleanup or detached-task failure because the immediate caller
   is gone;
 - returning an error while the object it condemned is still ambiguously live;

@@ -1,6 +1,6 @@
 //! Faulting grant sources exercise the same authority rules as the ledger.
 //! Regression guards were checked by removing reply-version validation and
-//! pending-demand reset separately; each reached its intended assertion.
+//! pending-demand reset separately. Each reached its intended assertion.
 const structural_policy = @import("grant_fixture.zig").structural_policy;
 const std = @import("std");
 const f = @import("grant_fixture.zig");

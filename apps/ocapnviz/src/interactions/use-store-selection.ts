@@ -1,9 +1,9 @@
 /**
- * React host for the selection store — interaction-model § 6.
+ * React host for the selection store, interaction-model § 6.
  *
  * `selection-store.ts` owns the reducer. This hook owns the App's one
  * store instance and the surface bridges that turn stage / timeline
- * gestures into store actions. `anchor` is the Inspector-follow slot;
+ * gestures into store actions. `anchor` is the Inspector-follow slot,
  * `selection` is the entity-key set the marquee and bulk ops write
  * through.
  */
@@ -53,7 +53,7 @@ export function useStoreSelection(): StoreSelectionHost {
 		},
 		[],
 	);
-	// The timeline's counterpart — same interpreter, timeline
+	// The timeline's counterpart, same interpreter, timeline
 	// empty-space semantics (clears the time range, keeps the
 	// anchor).
 	const handleTimelineEditSelection = useCallback(
@@ -63,8 +63,8 @@ export function useStoreSelection(): StoreSelectionHost {
 		},
 		[],
 	);
-	// Escape clears EVERY selection slot — anchor, multi-selection,
-	// and time range — so the user sees one coherent "clear" verb.
+	// Escape clears EVERY selection slot, anchor, multi-selection,
+	// and time range, so the user sees one coherent "clear" verb.
 	const handleClearStoreSelection = useCallback(
 		() => dispatchSelection({ kind: "clear-all" }),
 		[],
@@ -80,7 +80,7 @@ export function useStoreSelection(): StoreSelectionHost {
 		(entities: ReadonlySet<EntityRefKey>) => dispatchSelection({ kind: "set-selection", entities }),
 		[],
 	);
-	// Single `rename-entity` dispatch — see `selection-store.ts`
+	// Single `rename-entity` dispatch, see `selection-store.ts`
 	// for the anchor-stomp regression that motivates a dedicated
 	// action over delete-then-add via `set-selection`.
 	const handleEntityRenamed = useCallback(

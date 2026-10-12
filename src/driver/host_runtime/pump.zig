@@ -58,7 +58,7 @@ pub fn markSessionUnattended(self: *HostRuntime, session: *driver_core.HostSessi
 /// here on. Bytes that arrived first replay in order: the link's parked
 /// chunks feed now, and a paused handshake tail resumes through the next
 /// step's sweep.
-/// Idempotent on a session already delivering; a foreign or unknown
+/// Idempotent on a session already delivering. A foreign or unknown
 /// handle refuses, exactly as release does, because silently ignoring
 /// one leaves the real session's inbound held with nothing to say why.
 pub fn attendSession(self: *HostRuntime, session: *driver_core.HostSession) !void {
@@ -106,10 +106,10 @@ pub fn attendSession(self: *HostRuntime, session: *driver_core.HostSession) !voi
 
 /// Resume any session whose `feed_tail` holds paused frames: the core
 /// stops consuming at the frame that opens a session, so frames that
-/// coalesced behind the handshake hello wait in the tail — and no poll
+/// coalesced behind the handshake hello wait in the tail, and no poll
 /// will ever report them, because they already left the kernel. Every
 /// binding's serve loop resumes retained input before parking for exactly
-/// this reason; this is the owning face's spelling of that contract. A
+/// this reason. This is the owning face's spelling of that contract. A
 /// refusal closes that wire like any dispatch refusal.
 ///
 /// The pause exists so the embedder can finish post-open setup (publish,
@@ -156,7 +156,7 @@ fn openPending(self: *const HostRuntime, session: *const driver_core.HostSession
 
 /// The blocking pump: drain actions, check `probe.done()`, wait for any
 /// live wire's readable progress under what remains of `budget`, read and
-/// feed, repeat. `Error.WaitTimedOut` on deadline; `Error.ConnectionClosed`
+/// feed, repeat. `Error.WaitTimedOut` on deadline. `Error.ConnectionClosed`
 /// when the probe's own session closes first.
 pub fn pumpUntilProbe(self: *HostRuntime, probe: anytype, budget: Budget) !void {
     const deadline_ms: ?i64 = switch (budget) {
@@ -196,10 +196,10 @@ const FeedOutcome = union(enum) { fed: usize, closed };
 
 /// One readable wire's read-feed-react cycle, the one reaction every pump
 /// spelling shares so their closure semantics cannot diverge. EOF and
-/// transport faults close the wire here (vows break; the release stays
+/// transport faults close the wire here (vows break, the release stays
 /// with the owner). A dispatch refusal already closed the offending wire
-/// inside the read-and-feed arm; it propagates only when the misbehaving
-/// session is `own` — a sibling's protocol violation is that session's
+/// inside the read-and-feed arm. It propagates only when the misbehaving
+/// session is `own`, because a sibling's protocol violation is that session's
 /// closure, not a reason to abort an innocent caller's wait. A null `own`
 /// (a pre-wire resident dial wait) treats every wire as a sibling.
 pub fn feedReadable(self: *HostRuntime, wire: *Wire, own: ?*driver_core.HostSession) !FeedOutcome {
@@ -237,7 +237,7 @@ fn wireClosed(self: *HostRuntime, probe: anytype) bool {
 
 /// The off-turn settle mailbox (ADR-0102 stage 4), minted on the owning
 /// thread the first time it is asked for. Hand the returned pointer (and
-/// resolver ids) to worker threads; their `post` calls wake this host's
+/// resolver ids) to worker threads. Their `post` calls wake this host's
 /// readiness wait and the settles apply here, on the owning thread. The
 /// mailbox lives until the host's own teardown.
 pub fn settleMailbox(self: *HostRuntime) !*settle_mailbox.SettleMailbox {

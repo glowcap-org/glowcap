@@ -1,7 +1,7 @@
 //! `keyed-relay` and `noise-relay` over `Inner`, the platform's own policy,
 //! as the transport policy `net.completion_resident.Resident` takes.
 //!
-//! Both relay symbols ride the same rendezvous socket; `noise-relay` is
+//! Both relay symbols ride the same rendezvous socket. `noise-relay` is
 //! sealed by the byte-fed Host on both halves (ADR-0107). A relay listener is
 //! the backend's one registration, so its designator is the registered key,
 //! which must be the identity of the Host it serves, and its locator names
@@ -31,7 +31,7 @@ pub fn ResidentPolicy(comptime Backend: type, comptime Inner: type) type {
         }
 
         /// The listener registers the listening Host's key. Empty asks for
-        /// that key; anything else must be it.
+        /// that key. Anything else must be it.
         pub fn listenTarget(backend: *const Backend, transport: []const u8, listen: netlayer.ListenConfig) !Backend.ListenTarget {
             if (!isRelay(transport)) return .{ .platform = try Inner.listenTarget(&backend.platform, transport, listen) };
             if (backend.registration.config == null) return error.RelayRegistrationNotConfigured;
@@ -55,7 +55,7 @@ pub fn ResidentPolicy(comptime Backend: type, comptime Inner: type) type {
             const relay = backend.relay orelse return error.NoRendezvousConfigured;
             const hints = [_]model.HintEntry{.{
                 .name = route.rendezvous_relay_hint,
-                .value = .{ .string = relay.bytes },
+                .value = .{ .string = relay.routes.relay_url_text },
             }};
             return model.clonePeerLocator(allocator, .{
                 .transport = transport,

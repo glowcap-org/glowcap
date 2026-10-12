@@ -11,7 +11,7 @@
 ;;
 ;; The vat is the LOCAL half only: cells, the queued-turn loop (`drive`), local
 ;; vows and their listeners, `bcom`, and the time-travel history. Everything
-;; wire-shaped — hosting exports, far sends, far vows, three-party redemption —
+;; wire-shaped (hosting exports, far sends, far vows, three-party redemption)
 ;; lives in the byte-fed host archive (libglowcap_host) behind
 ;; `private/session.rkt`. A session installs a `far-ops` record into its
 ;; vat, so `<-` to a far reference and `on` over a far vow stay
@@ -66,12 +66,12 @@
 ;; `session-caretaker` installs; `session-revoke!` clears the flag and drops the row.
 (struct vat (cells next queue listeners exports tt far revocables) #:transparent)
 
-;; A behavior's tail-forward of its answer to another reference — the binding's
+;; A behavior's tail-forward of its answer to another reference: the binding's
 ;; `Turn.forward` (ADR-0064). A behavior returns `(forward target method args)`
 ;; instead of a value, and the vat resolves the caller's answer from
 ;; `(<- target method . args)`: a local target near-calls (composing if it
 ;; forwards again), a far target eventual-sends and defers until the reply
-;; settles. It is the whole mechanism behind a caretaker/attenuator — each is an
+;; settles. It is the whole mechanism behind a caretaker/attenuator. Each is an
 ;; ordinary spawned actor whose behavior forwards (or raises to refuse), so the
 ;; proxy is a plain near capability called locally or over the wire alike.
 (struct forward (target method args) #:transparent)
@@ -110,7 +110,7 @@
       [else value])))
 
 ;; The connection-installed far half. `send` is
-;; `(ref method-symbol args answer?) -> vow-or-void` — the wire `<-`/`<-np`;
+;; `(ref method-symbol args answer?) -> vow-or-void`: the wire `<-`/`<-np`;
 ;; `on` is `(a-vow listener) -> void`, registering the one-shot `(value
 ;; broken?)` listener on a far vow (firing immediately from the vow's settled
 ;; state when the resolution already arrived); `break` is `(message) -> void`,
@@ -126,11 +126,11 @@
       (error who "this vat has no connection — far sends need a connection's vat")))
 
 ;; Time-travel state for a vat opted into snapshotting. `mirror` is an immutable
-;; id→behavior map kept in step with the live `cells` — each spawn and each
+;; id→behavior map kept in step with the live `cells`. Each spawn and each
 ;; `bcom` writes the new behavior into it in O(log n). `history` is the stack of
 ;; mirror versions, one per state-changing turn. Because behaviors are immutable
 ;; and the maps share structure, a snapshot is just the current mirror (O(1)) and
-;; retaining every turn costs only the changed path — the same shape Goblins's
+;; retaining every turn costs only the changed path. That is the same shape Goblins's
 ;; `snapshot-whactormap` has. This is the standing cost of the feature being on;
 ;; it captures behaviors only, so it buys revisability only for actors whose
 ;; state lives in their behavior (functional `bcom`), not in a private box.
@@ -160,19 +160,19 @@
     (set-box! (time-travel-mirror tt) snapshot)
     (set-box! (time-travel-history tt) (cons snapshot (unbox (time-travel-history tt))))))
 
-;; (vat-snapshot v) — the current revisable state of every actor as an immutable
+;; (vat-snapshot v) returns the current revisable state of every actor as an immutable
 ;; id→behavior map, captured in O(1). Errors on a vat that did not opt in.
 (define (vat-snapshot v)
   (define tt (vat-tt v))
   (unless tt (error 'vat-snapshot "vat is not in time-travel mode — make it with #:time-travel? #t"))
   (unbox (time-travel-mirror tt)))
 
-;; (vat-restore! v snap) — rewind every actor present in `snap` to the behavior
+;; (vat-restore! v snap) rewinds every actor present in `snap` to the behavior
 ;; it held there and reset the mirror to it. Actors spawned after `snap` keep
 ;; their live cell but are absent from the restored mirror, so a later snapshot
 ;; reflects the rewound set. Errors on a vat that did not opt in. A hosted
 ;; actor's trampoline reads the CURRENT cell on every call, so a restore
-;; retargets wire delivers the moment it returns — nothing is captured.
+;; retargets wire delivers the moment it returns. Nothing is captured.
 (define (vat-restore! v snap)
   (define tt (vat-tt v))
   (unless tt (error 'vat-restore! "vat is not in time-travel mode — make it with #:time-travel? #t"))
@@ -218,7 +218,7 @@
 ;; ── $ : the synchronous near-call ─────────────────────────────────────────────
 ;; `($ ref 'method arg …)` runs `ref`'s behavior now and returns its value.
 ;; Legal only for a local actor in the current vat; a far ref must use `<-`,
-;; exactly as Goblins forbids `$` to a far ref. A `bcom` the behavior returns
+;; as Goblins forbids `$` to a far ref. A `bcom` the behavior returns
 ;; swaps the cell and yields the `bcom` result.
 (define ($ ref method . args)
   (cond
@@ -228,9 +228,9 @@
 
 ;; Resolve a near-call result: a value returns directly; a `forward` (a
 ;; caretaker/attenuator) near-calls its local target and chases the chain, so a
-;; caretaker over an attenuator composes — bounded by the hop cap, so a proxy
+;; caretaker over an attenuator composes. The hop cap bounds it, so a proxy
 ;; cycle raises instead of spinning. A forward to a far target is illegal under
-;; `$`, exactly as `$` to a far ref is — the eventual `<-` path defers it
+;; `$`, as `$` to a far ref is. The eventual `<-` path defers it
 ;; instead.
 (define (near-resolve value)
   (define result
@@ -245,7 +245,7 @@
 
 ;; Run one turn of a local actor: invoke its behavior, and if it returned a
 ;; `bcom`, install the new behavior and yield the bcom's result. This is the one
-;; place a behavior runs — the local `$`/`drive` paths and the hosted-actor
+;; place a behavior runs: the local `$`/`drive` paths and the hosted-actor
 ;; trampoline (`private/trampoline.rkt`) all call it, so `bcom` and
 ;; time-travel behave identically whoever called the actor.
 (define (run-turn ref method args)
@@ -306,7 +306,7 @@
 ;; mirrors Goblins's `on`. The fulfilled handler is optional and positional; with
 ;; `#:promise? #t` `on` returns a new vow that settles with the handler's result,
 ;; so you can chain. A local vow fires during `drive`; a far vow fires when the
-;; host serves the partner's resolution — or immediately, from the vow's settled
+;; host serves the partner's resolution, or immediately from the vow's settled
 ;; state, when the resolution already arrived before the listener.
 (define (on a-vow [on-fulfilled #f]
             #:catch [on-broken #f] #:finally [on-finally #f] #:promise? [promise? #f])
@@ -316,7 +316,7 @@
                                   (local-vow v id))))
   ;; A listener is `(value broken?)`: `broken?` is #f on fulfill (value is the
   ;; payload) and #t on break (value is the message). It runs the right handler,
-  ;; the finally, and — when chaining — settles the returned vow.
+  ;; the finally, and (when chaining) settles the returned vow.
   (define (listener value broken?)
     (define outcome
       (with-handlers ([converts-to-broken? (lambda (e) (cons 'broken (exn->message e)))])
@@ -338,8 +338,8 @@
 
 ;; The predicate for the `with-handlers` clauses that turn a raised value into a
 ;; broken vow. It catches an actor's arbitrary `raise`d value (Goblins semantics)
-;; and every `exn:fail`, but lets `exn:break?` propagate: a `break-thread` — the
-;; standard Racket cancellation and timeout mechanism — aimed at a thread pumping
+;; and every `exn:fail`, but lets `exn:break?` propagate: a `break-thread` (the
+;; standard Racket cancellation and timeout mechanism) aimed at a thread pumping
 ;; a blocking `session-send`/`session-await`/`session-fetch` loop must terminate that thread,
 ;; not be absorbed into a broken vow and swallowed. Every convert-to-broken handler
 ;; uses this rather than a bare `(lambda (_) #t)` so the loops stay interruptible.
@@ -407,8 +407,8 @@
 ;; ── bind-export! : the export → local-actor record ────────────────────────────
 ;; Binding-internal. `(bind-export! v actor export-id)` records that
 ;; `export-id` names `actor` in this vat, so a near reference at that position
-;; resolves to its own actor in process (`vat-resolve-target`). The wire half —
-;; allocating the position and hosting the behavior for partner delivers — is
+;; resolves to its own actor in process (`vat-resolve-target`). The wire half
+;; (allocating the position and hosting the behavior for partner delivers) is
 ;; the session's (`session-spawn` / `session-publish` bind through here after
 ;; registering with the host).
 (define (bind-export! v actor export-id)
@@ -417,7 +417,7 @@
 
 ;; Map a Host reference to a vat target, routing an export this vat
 ;; hosts to its local `actor-ref` so a self-spawned capability resolves
-;; in-process rather than going out on the wire to its own export — the same
+;; in-process rather than going out on the wire to its own export. It is the same
 ;; self-routing the sibling bindings perform through their hosted tables
 ;; (Rust's `SessionShared::hosted_cell` chase, Python's trampoline
 ;; `resolve_local`). A reference this vat does not host comes back unchanged.

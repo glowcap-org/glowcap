@@ -1,7 +1,7 @@
 """Internal ctypes loader for ``libglowcap_net_transport_relay``.
 
 The relay archive owns one provider runtime for both keyed-relay and
-noise-relay. The generic driver consumes its provider package; this module
+noise-relay. The generic driver consumes its provider package. This module
 does not expose or recreate multiplexed execution.
 """
 
@@ -19,7 +19,7 @@ from ._sigs_gen import relay_sigs
 
 
 class _RelayConfig(ctypes.Structure):
-    """Mirrors ``GlowcapRelayConfig``; construction borrows every buffer."""
+    """Mirrors ``GlowcapRelayConfig``. Construction borrows every buffer."""
 
     _fields_ = [
         ("abi_version", ctypes.c_uint32),
@@ -31,6 +31,8 @@ class _RelayConfig(ctypes.Structure):
         ("trust", ctypes.c_uint32),
         ("trust_pem", ctypes.c_void_p),
         ("trust_pem_len", ctypes.c_size_t),
+        ("relay_alias_url", ctypes.c_void_p),
+        ("relay_alias_url_len", ctypes.c_size_t),
     ]
 
 

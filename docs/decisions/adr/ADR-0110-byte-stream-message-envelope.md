@@ -3,7 +3,7 @@ id: ADR-0110
 status: accepted
 date: 2026-08-06
 tags: [codec, runtime, net, framing, resilience, interop]
-decision: "A byte-stream netlayer carries each bare codec frame inside one canonical Syrup byte string: decimal byte length, colon, then the frame bytes. Intrinsically message-framed transports and whole-frame APIs keep bare frames. The outer length owns the stream boundary; the negotiated codec must accept the complete body as exactly one frame."
+decision: "A byte-stream netlayer carries each bare codec frame inside one canonical Syrup byte string: decimal byte length, colon, then the frame bytes. Intrinsically message-framed transports and whole-frame APIs keep bare frames. The outer length owns the stream boundary. The negotiated codec must accept the complete body as exactly one frame."
 supersedes: [ADR-0029]
 superseded_by: []
 amends: [ADR-0030, ADR-0072, ADR-0089, ADR-0090]
@@ -15,15 +15,13 @@ amended_by: []
 ## Context
 
 OCapN messages need a boundary independent of their negotiated inner codec.
-Current Goblins byte-stream netlayers encode each complete message to bytes,
-then write those bytes as a Syrup ByteArray. On the wire this is a canonical
-decimal byte length, `:`, and that many body bytes. There is no netstring comma.
+Goblins byte-stream netlayers encode each complete message to bytes, then write
+those bytes as a Syrup ByteArray: a canonical decimal byte length, `:`, and that
+many body bytes, with no netstring comma. Concatenated bare Syrup or Cap'n
+Proto frames, with the inner codec finding each boundary, would not match the
+production Goblins transport.
 
-glowcap instead concatenated bare Syrup or Cap'n Proto frames and asked the
-inner codec to find each boundary. That was internally self-consistent, but it
-did not match the production Goblins transport.
-
-The distinction belongs to the transport shape. TCP, in-process pipes, iroh
+The envelope belongs to the transport shape. TCP, in-process pipes, iroh
 QUIC streams, onion streams, and similar adapters need the outer envelope.
 WebRTC DataChannel messages and other transports that already preserve message
 boundaries hand a complete bare frame to the whole-frame API.
@@ -34,37 +32,37 @@ Every byte-stream adapter reads and writes one outer Syrup ByteArray per CapTP
 message. The declared body length is checked against the session frame cap
 before the body is allowed to accumulate. Empty, non-decimal, overflowing, and
 non-canonical lengths are refused. EOF after any prefix or body byte is a
-truncated frame; EOF between envelopes is a clean close.
+truncated frame. EOF between envelopes is a clean close.
 
 The outer length is the stream-boundary authority. Once its body is complete,
 the codec must validate the entire body as exactly one frame. A peer-less
 `FrameStream` knows the codec but not the negotiated CapTP profile, so its
-`framePrefix` returns only the structural boundary and accepts the union of
-that codec's profile grammars. It never projects a semantic body: for example,
-Cap'n Proto listen mode 1 has different meanings in V1.0 and next. The session
-later decodes those same bytes under its negotiated profile. An incomplete
-inner value, trailing second value, malformed value, or wrong frame shape is a
-malformed frame. This preserves the codec validation from ADR-0029 without
-making codec recursion the transport delimiter or inventing profile authority
-in the transport.
+`framePrefix` returns only the structural boundary and accepts the union of that
+codec's profile grammars. It never projects a semantic body: for example, Cap'n
+Proto listen mode 1 has different meanings in V1.0 and next. The session later
+decodes those same bytes under its negotiated profile. An incomplete inner
+value, trailing second value, malformed value, or wrong frame shape is a
+malformed frame. This keeps the codec validation from ADR-0029 without making
+codec recursion the transport delimiter or inventing profile authority in the
+transport.
 
 Outbound adapters render the short length prefix on the stack and write the
 prefix and borrowed frame body separately. Queue-backed completion loops reserve
-space once, then append both slices. No intermediate envelope allocation or
-body copy is added.
+space once, then append both slices. No intermediate envelope allocation or body
+copy occurs.
 
 Whole-frame entry points remain bare. `Host.feed`, the C whole-frame API, and
 intrinsically message-framed transports receive one codec frame with its shape.
 Byte-stream entry points own outer-envelope tails across reads and unwrap before
-calling the same whole-frame path. Outbound whole-frame drains also remain bare;
-the byte-stream pump that writes them adds the envelope.
+calling the same whole-frame path. Outbound whole-frame drains also remain bare.
+The byte-stream pump that writes them adds the envelope.
 
 ## Consequences
 
 - Every byte-stream product front emits the same bytes as Goblins.
-- Inner codecs no longer decide transport boundaries, but still reject a body
-  that is not exactly one valid frame.
-- Peer-less framing returns no semantic body; profile-aware session decoding is
+- Inner codecs do not decide transport boundaries, and still reject a body that
+  is not exactly one valid frame.
+- Peer-less framing returns no semantic body. Profile-aware session decoding is
   the only authority on profile-dependent message meaning.
 - A negotiated codec can change without changing the byte-stream envelope.
 - Frame caps cover the declared body. Steady read buffers remain smaller than
@@ -84,11 +82,11 @@ the byte-stream pump that writes them adds the envelope.
 ## Alternatives considered
 
 **Keep concatenated bare codec frames.** Rejected because production Goblins
-now uses the outer message envelope.
+uses the outer message envelope.
 
 **Add the envelope to every transport.** Rejected because a transport that
-already preserves messages has no stream-boundary problem to solve.
+preserves messages has no stream-boundary problem.
 
-**Trust the outer length without decoding the whole body.** Rejected because
-the envelope establishes only a byte boundary. The negotiated codec still owns
-message grammar and frame shape.
+**Trust the outer length without decoding the whole body.** Rejected because the
+envelope establishes only a byte boundary, and the negotiated codec owns message
+grammar and frame shape.

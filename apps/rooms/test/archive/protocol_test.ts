@@ -1,6 +1,6 @@
 // The Rooms member-owned archive contract (ADR-0129), exercised without a
 // database or network. The behavior is the wire edge, so these calls prove the
-// same validation and passable rows a tab export or standalone peer serves;
+// same validation and passable rows a tab export or standalone peer serves.
 // MemoryArchiveBackend proves the storage/revision contract behind both.
 
 import type { Argument, Behavior } from "@glowcap/runtime";

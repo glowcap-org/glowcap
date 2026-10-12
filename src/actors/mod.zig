@@ -1,13 +1,13 @@
-//! glowcap's actor layer — Goblins-shaped objects on top of the engine, and the
+//! glowcap's actor layer, Goblins-shaped objects on top of the engine, and the
 //! seam where the actor architecture meets OCapN.
 //!
 //! A `Vat` is a turn loop over actors. You `spawn` local actors, near-call them
 //! (`$`, `Vat.near`, synchronous, same-vat only), or eventual-send (`<-`) through
 //! either a pure-local `Vat.send` or a session `Port.send`, each returning a
 //! `Vow`. A `Ref` is local *or* far, and a `Port` routes `send` uniformly: a
-//! local target queues a Vat turn; a far target leaves as an `op:deliver` over
+//! local target queues a Vat turn. A far target leaves as an `op:deliver` over
 //! that Port's peer. Ports own wire exports and far-vow answer names while the
-//! Vat owns actors and scheduling. Both remain sync and no-I/O; the application
+//! Vat owns actors and scheduling. Both remain sync and no-I/O. The application
 //! drives the socket.
 
 const vat = @import("vat/mod.zig");
@@ -36,14 +36,14 @@ pub const steady_spare_arena_bytes = vat.steady_spare_arena_bytes;
 pub const steady_settle_arena_bytes = vat.steady_settle_arena_bytes;
 pub const steady_list_bytes = vat.steady_list_bytes;
 /// A point-in-time capture of every snapshottable actor's state
-/// (`Vat.snapshot`), restored with `Vat.restore` — re-exported so a consumer
+/// (`Vat.snapshot`), restored with `Vat.restore`, re-exported so a consumer
 /// can name the value it holds between the two calls (ADR-0060).
 pub const Snapshot = vat.Snapshot;
 pub const Error = vat.Error;
 pub const IngressCancellationError = vat.IngressCancellationError;
 
-/// Object-capability forwarding proxies — a revocable caretaker and a verb
-/// allow-list attenuator — over any local or far reference.
+/// Object-capability forwarding proxies, a revocable caretaker and a verb
+/// allow-list attenuator, over any local or far reference.
 pub const ocap = ocap_mod;
 pub const caretaker = ocap_mod.caretaker;
 pub const attenuate = ocap_mod.attenuate;

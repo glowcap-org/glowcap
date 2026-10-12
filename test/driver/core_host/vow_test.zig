@@ -130,7 +130,7 @@ test "core host: listener vows retire on settle and public vows remain sendable 
     );
     try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
 
-    // One listener per vow, and a settled id is simply gone.
+    // One listener per vow, and a settled id is gone.
     const observed = try client.send(pair.a, widget_ref, .{ .verb = "poke", .args = &.{} });
     var first = CapturedString{};
     var second = CapturedString{};
@@ -399,7 +399,7 @@ test "core host: an unlistened settle rides the action queue owned, valid until 
     _ = try shuttleAll(&.{opened.pair}); // the resolve settles the vow
 
     // Drain by hand: the popped completion's deep-cloned value stays valid
-    // across this whole iteration — the next `nextAction` call frees it —
+    // across this whole iteration, the next `nextAction` call frees it,
     // while the public target row remains retained until release.
     var settle_count: usize = 0;
     while (try client.nextAction()) |action| {

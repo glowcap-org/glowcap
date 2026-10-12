@@ -2,15 +2,15 @@
 //!
 //! Locks the wire-path cost of *recording* an outbound `op:resolve`: the
 //! resolution is **moved** into the inbound answer's store, never copied. A
-//! resolve we send carries no resolution copy at all — `recordSend` consumes the
+//! resolve we send carries no resolution copy at all, `recordSend` consumes the
 //! caller's owned resolution (`applySentResolve` into the Session answer store)
 //! and the queued outbound carrier holds only its fixed answer-name/row-stamp
 //! metadata, so `Peer.step` reads the resolution back from the store to encode.
-//! The single durable payload owner is the store; there is no second resolution
+//! The single durable payload owner is the store. There is no second resolution
 //! owner to copy for.
 //!
 //! Why a move is safe where a borrow would not be: the store owns the resolution
-//! from record to GC, and the encoder reads it through `peekResolution` at emit —
+//! from record to GC, and the encoder reads it through `peekResolution` at emit,
 //! so an inbound `op:gc-answers` that drops the row between record and emit
 //! (`Peer.step` interleaves inbound dispatch between them) leaves nothing to
 //! encode rather than a dangling pointer. The fixed carrier remains charged

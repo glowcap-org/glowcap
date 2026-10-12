@@ -3,7 +3,7 @@ id: ADR-0136
 status: accepted
 date: 2026-08-26
 tags: [rooms, persistence, attachments, capabilities, history]
-decision: "A Rooms archive line retains bounded attachment metadata and an archive-minted content digest when its archive also holds the bytes. Writers stream files through `putFiles`; scoped readers request one file capability through `attachment`; workspace and session checkpoints remain byte-free."
+decision: "A Rooms archive line retains bounded attachment metadata and an archive-minted content digest when its archive also holds the bytes. Writers stream files through `putFiles`. Scoped readers request one file capability through `attachment`. Workspace and session checkpoints remain byte-free."
 supersedes: []
 superseded_by: []
 amends: [ADR-0129, ADR-0131, ADR-0132, ADR-0135]
@@ -16,7 +16,7 @@ amended_by: [ADR-0140]
 
 The member archive retained a file line's caption but erased the fact that the
 line carried files. After refresh, the same message silently became text-only.
-That was not a blob-retention policy; it was loss of reconstructible message
+That was not a blob-retention policy. It was loss of reconstructible message
 state. Putting bytes into the checkpoint or line tuple would instead confuse
 plain durable state with live capability authority and make every history read
 pay the cost of every retained file.
@@ -41,7 +41,7 @@ unavailable.
 Browser IndexedDB and the standalone file archive store the same canonical line
 record and enforce a 512 MiB aggregate blob ceiling. IndexedDB commits its line,
 blob rows, replacement cleanup, and byte count in one transaction. File storage
-writes content-addressed blobs before appending the line that names them; a
+writes content-addressed blobs before appending the line that names them. A
 crash can therefore leave only an unreferenced file, which startup removes.
 The shared record index reports the exact replacement or eviction in each
 commit, so retained-byte admission accounts for the state after that transition.
@@ -49,8 +49,8 @@ Withdrawal and eviction remove their unreferenced bytes, and a failed physical
 cleanup remains pending for the next archive mutation or startup pruning.
 
 Native and Deno storage stream bounded chunks. The browser materializes one
-bounded file because Web Crypto and IndexedDB accept complete browser values;
-that allocation stays inside the browser storage adapter. Blob bytes never
+bounded file because Web Crypto and IndexedDB accept complete browser values.
+That allocation stays inside the browser storage adapter. Blob bytes never
 enter workspace or durable-session checkpoint JSON.
 
 ## Consequences

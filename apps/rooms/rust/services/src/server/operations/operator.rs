@@ -1,7 +1,7 @@
 //! The Rooms operator capability: the inventories under one revision, the
 //! search that cuts them, the acts each row offers, the stewardship verbs,
 //! and the watch that tells a holder when anything moved. The policy in
-//! `rooms_application::server::operations::operator` decides; this reads the
+//! `rooms_application::server::operations::operator` decides. This reads the
 //! live state into it and performs what it names.
 mod acts;
 mod batch;
@@ -180,20 +180,15 @@ pub(super) fn behavior(shared: Shared) -> impl FnMut(&str, &[Argument]) -> Resul
 				let publication = irc::authority::named(&shared.borrow(), &name);
 				if let Some(publication) = publication {
 					let token = irc::authority::token(&publication).ok_or_else(|| {
-						format!(
-							"{}: this IRC room has no issued moderator capability",
-							FailureCode::NotSteward.wire()
-						)
+						FailureCode::NotSteward.line("this IRC room has no issued moderator capability")
 					})?;
 					return irc::authority::change(&shared, publication, Some(token), true);
 				}
 				let state = shared.borrow();
 				let name = named_room(&state, &name)?;
 				if !state.authority.has_steward(&name) {
-					return Err(format!(
-						"{}: Room \"{name}\" has no issued moderator capability.",
-						FailureCode::NotSteward.wire()
-					));
+					return Err(FailureCode::NotSteward
+						.line(format_args!("Room \"{name}\" has no issued moderator capability.")));
 				}
 				let token = state
 					.links
@@ -225,10 +220,7 @@ pub(super) fn behavior(shared: Shared) -> impl FnMut(&str, &[Argument]) -> Resul
 /// server made durable, matched without regard to case.
 fn named_room(state: &State, asked: &str) -> Result<String, String> {
 	if asked.is_empty() || asked.chars().count() > MAX_DURABLE_ROOM {
-		return Err(format!(
-			"{}: A moderator capability needs a durable room name.",
-			FailureCode::NoSuchRoom.wire()
-		));
+		return Err(FailureCode::NoSuchRoom.line("A moderator capability needs a durable room name."));
 	}
 	if let Some(live) = rooms_application::server::operations::faces::live_room(&state.rooms, asked) {
 		return Ok(live.durable_name.to_owned());
@@ -238,12 +230,7 @@ fn named_room(state: &State, asked: &str) -> Result<String, String> {
 		.linked_rooms()
 		.find(|name| name.eq_ignore_ascii_case(asked))
 		.map(String::from)
-		.ok_or_else(|| {
-			format!(
-				"{}: This server owns no room named \"{asked}\".",
-				FailureCode::NoSuchRoom.wire()
-			)
-		})
+		.ok_or_else(|| FailureCode::NoSuchRoom.line(format_args!("This server owns no room named \"{asked}\".")))
 }
 
 fn stewardship_row(state: &State, name: &str, caller: &Session) -> Result<Argument, String> {

@@ -1,6 +1,6 @@
 //! Process-loss proof for managed issuance, control, content, and reference edits.
-//! The Python supervisor SIGKILLs this process at an acknowledged boundary;
-//! verification starts a new Host and Store and fetches only durable names.
+//! The Python supervisor SIGKILLs this process at an acknowledged boundary.
+//! Verification starts a new Host and Store and fetches only durable names.
 //! Validated against omitted source receipt persistence, stale event linkage,
 //! and ignored revocation. This exercises synchronous LMDB process loss, not
 //! power loss or cross-vat restoration.
@@ -217,7 +217,7 @@ const Server = struct {
     fn entropy(context: ?*anyopaque, bytes: *publication.Entropy) !void {
         const self: *Server = @ptrCast(@alignCast(context.?));
         // Distinct process restarts need distinct proposed names. Receipt replay
-        // must return the previously committed name, never this fresh entropy.
+        // must return the committed name, never this fresh entropy.
         std.Io.random(self.io, bytes);
         self.last_entropy = bytes.*;
     }
@@ -247,7 +247,7 @@ const Server = struct {
 };
 
 /// Trusted inspection follows the same immutable name index as discovery. Only
-/// wire calls below establish restored capability authority; IDs never do.
+/// wire calls below establish restored capability authority. IDs never do.
 fn endpoint(server: *Server, secret: publication.Entropy) !records.EndpointRecord {
     const store = server.caps.store;
     const result = server.db.lookup(.{

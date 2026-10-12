@@ -1,4 +1,4 @@
-//! CapTP lab geometry (pure). Interactive/graphic design — no I/O.
+//! CapTP lab geometry (pure). Interactive/graphic design with no I/O.
 //!
 //! The REPL is one vertical column (transcript → completion → prompt). The
 //! CapTP rail matches that column's full height so the prompt never spans
@@ -10,7 +10,7 @@ pub const Mode = enum {
     split,
     /// Narrow: CapTP count strip above full-width REPL column.
     stacked,
-    /// Tiny: status+prompt only; transcript squeezed; rail/strip omitted.
+    /// Tiny: status+prompt only. Transcript squeezed. Rail/strip omitted.
     compact,
 };
 
@@ -37,7 +37,7 @@ pub const rail_max_w: u16 = 36;
 pub const prompt_comfort_h: u16 = 4;
 pub const prompt_min_h: u16 = 3;
 
-/// Compute a robust layout for any winsize. Never panics; clamps to fit.
+/// Compute a robust layout for any winsize. Never panics. Clamps to fit.
 /// `guide` reserves the stage strip for the optional CapTP walkthrough.
 pub fn compute(cols: u16, rows: u16, menu_open: bool, menu_n: usize, guide: bool) Geom {
     const c = @max(cols, @as(u16, 1));

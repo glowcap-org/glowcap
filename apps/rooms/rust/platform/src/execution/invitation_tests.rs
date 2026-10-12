@@ -30,6 +30,9 @@ impl rooms_glowcap::client::Entropy for Platform {
 	}
 }
 impl rooms_glowcap::client::Deadline for Platform {
+	fn monotonic_millis(&self) -> u64 {
+		0
+	}
 	async fn within<T>(&self, milliseconds: u64, work: impl Future<Output = T>) -> Option<T> {
 		if self.timeout.replace(false) {
 			return None;

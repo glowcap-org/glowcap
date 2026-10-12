@@ -1,11 +1,11 @@
-//! The annotated symbol inventory of `libglowcap_host` — the crossing
+//! The annotated symbol inventory of `libglowcap_host`, the crossing
 //! semantics a language FFI table cannot reflect from the C signature alone.
 //!
 //! Every `glowcap_host_*` export has one row here, in the header's canonical
 //! order. The binding generators under `tools/gen/binding/` reflect each
 //! symbol's real parameter and return types from this module's re-exports and
 //! merge the two facts only a human can supply: which buffer parameters the
-//! callee *writes* (`out_params` — the wasm boundary copies back only true
+//! callee *writes* (`out_params`: the wasm boundary copies back only true
 //! outputs), and the rare parameter that crosses as an opaque pointer even
 //! though its type reflects as a writable slot (`pointer_params`). A binding
 //! that reaches a verb through a different spelling opts its table out per
@@ -19,7 +19,7 @@ pub const Symbol = shared.symbols.Symbol;
 pub const OmittedFamily = shared.symbols.OmittedFamily;
 const omit = shared.symbols.omit_reason;
 
-/// No whole family is omitted from the TypeScript table on this archive; the
+/// No whole family is omitted from the TypeScript table on this archive. The
 /// per-symbol omissions below carry their reasons on the row.
 pub const omitted_families = [_]OmittedFamily{};
 
@@ -185,7 +185,7 @@ pub const symbols = [_]Symbol{
         .section = "Live trace: the host reports session opens, message verbs, and closes\nthrough one callback (null clears), or into a ring the embedder drains.",
     },
     // The drained trace seam exists for an embedder that cannot hand the
-    // library an arbitrary C function pointer — the browser, whose wasm module
+    // library an arbitrary C function pointer: the browser, whose wasm module
     // admits only its fixed hosted-object callbacks. Rust, Python, and Racket
     // each install the trace callback, which is lossless and needs no ring, so
     // they take the queue's omission rather than a second way to say the same

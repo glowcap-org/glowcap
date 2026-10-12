@@ -1,5 +1,5 @@
 //! Read-only intent projections for runtime realization. These borrow the
-//! committed graph; adapters do not serialize and reparse checkpoint documents.
+//! committed graph. Adapters do not serialize and reparse checkpoint documents.
 use super::{
 	Checkpoint,
 	fields::{Bearer, Field, Id, Text},

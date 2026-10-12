@@ -1,6 +1,7 @@
 // Held management keeps its exact custody: issuance and close settle returned
 // handles once, and what a viewer knows about an access survives the control
 // losing sight of it. Rust browser proofs separately exercise actual authority.
+/// <reference lib="dom" />
 import { assert, assertEquals } from "../assert.ts";
 import { keptPowers, knownLabel, ManagedAccess, NO_MANAGEMENT } from "../../web/ui/session/managed/access.ts";
 import type { HeldControl } from "../../web/ui/session/managed/access.ts";
@@ -10,6 +11,61 @@ import type {
 	RoomsManagedWorkspace,
 } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
 import { deferred } from "../support/managed_viewer.ts";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import type { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
+import type { RoomsBrowserController } from "../../web/ui/controller/browser.ts";
+import { managedAccessText as text } from "../../lib/text/managed_access.ts";
+
+Object.defineProperty(globalThis, "matchMedia", {
+	configurable: true,
+	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
+});
+const { SessionGrantEditModal } = await import("../../web/ui/settings/SessionGrantEdit.tsx");
+const { ManagedSessionProvider } = await import("../../web/ui/session/managed/context.tsx");
+const { RoomsBrowserProvider } = await import("../../web/ui/controller/browser.ts");
+const { ModalProvider } = await import("../../web/ui/modal.ts");
+const { CommitmentProvider } = await import("../../web/ui/commitment.tsx");
+
+for (const kind of ["label", "policy", "pause", "resume", "revoke"] as const) {
+	for (const phase of ["conflict", "uncertain"] as const) {
+		Deno.test(`a revoked control keeps ${phase} recovery for its original ${kind} edit`, () => {
+			const intent = kind === "label"
+				? { kind, label: "My draft" }
+				: kind === "policy"
+				? { kind, permissions: [] }
+				: { kind };
+			const control = {
+				id: "ended",
+				grant: null,
+				powers: { ...NO_MANAGEMENT, available: false },
+				committed: { label: "Previously known", permissions: [] },
+				pending: { intent, base: "1", phase, reason: "original diagnostic", request: {} },
+			} as unknown as HeldControl;
+			const html = renderToStaticMarkup(createElement(
+				RoomsBrowserProvider,
+				{ value: {} as RoomsBrowserController },
+				createElement(
+					ModalProvider,
+					null,
+					createElement(
+						CommitmentProvider,
+						null,
+						createElement(
+							ManagedSessionProvider,
+							{ value: { management: {} } as ManagedRoomsSession },
+							createElement(SessionGrantEditModal, { control, open: true, onClose() {} }),
+						),
+					),
+				),
+			));
+			assert(html.includes("original diagnostic"), "revocation hid the original refusal");
+			const label = phase === "conflict" ? text.discard : text.recoverEdit;
+			const button = html.match(new RegExp(`<button([^>]*)>${label}</button>`));
+			assert(button != null && !button[1].includes("disabled"), "revocation stranded the retained request");
+		});
+	}
+}
 
 Deno.test("managed issuance coalesces submission and close drains returned custody exactly once", async () => {
 	const result = deferred<unknown>();

@@ -17,7 +17,13 @@ pub const transport = [_]Flag{
     value("onion-control", "Running Tor control endpoint"),
     value("onion-forward", "Absolute Unix forwarding socket; requires --port=0"),
 };
-const directory = transport ++ [_]Flag{
+pub const admission = [_]Flag{
+    value("admission-scale", "Scale default work allowances (1..100; default 1)"),
+    value("admission-rates", "Absolute class=burst/per-minute overrides, separated by commas"),
+    value("admission-rows", "Retained accounting rows (1..65536)"),
+    value("admission-aggregate-scale", "Aggregate allowance multiplier (1..100)"),
+};
+const directory = transport ++ admission ++ [_]Flag{
     state,
     .{ .long = "history", .help = "Retain listed-room history" },
     value("storage", "History directory or PostgreSQL URL (database is optional)"),
@@ -29,8 +35,20 @@ const directory = transport ++ [_]Flag{
     .{ .long = "irc", .help = "Mint IRC administration capability" },
     .{ .long = "trace", .help = "Mint trace capability and start its loopback endpoint" },
     value("trace-port", "Trace port (default 9300; 0 chooses an ephemeral port)"),
+    value("trace-connect", "Advertised trace CapTP WebSocket URL through a proxy"),
+    value("trace-publish", "Advertised trace producer WebSocket URL through a proxy"),
 };
 const serve = directory ++ [_]Flag{
+    value("http-admission-scale", "Scale HTTP work allowances (1..100)"),
+    value("http-admission-rates", "HTTP class=burst/per-minute overrides"),
+    value("http-admission-rows", "HTTP accounting row cap (1..65536)"),
+    value("http-admission-aggregate-scale", "HTTP deployment allowance multiplier (1..100)"),
+    value("http-admission-per-address", "Apply an additional actual socket source budget (true or false)"),
+    value("browser-admission-scale", "Scale browser-local session work allowances (1..100)"),
+    value("browser-admission-rates", "Browser-local class=burst/per-minute overrides"),
+    value("browser-admission-rows", "Browser-local accounting row cap (1..65536)"),
+    value("browser-admission-aggregate-scale", "Browser-local session allowance multiplier (1..100)"),
+    value("session-state", "Also serve a shared workspace from this directory and print its use and management links"),
     value("http-bind", "HTTP listener address (default 127.0.0.1; public exposure is explicit)"),
     value("http-port", "HTTP listener port (default 8080)"),
     value("assets", "Override the installed prepared browser generation; never compiles source"),
@@ -70,6 +88,7 @@ pub const commands = [_]types.Command{
     .{ .name = "status", .short_help = "Check the running directory and browser assets", .flags = &status, .run = run("rooms-web", .status) },
     .{ .name = "locator", .short_help = "Print the running directory locator", .flags = &status, .run = run("rooms-web", .locator) },
     .{ .name = "revision", .short_help = "Print the served browser revision", .flags = &status, .run = run("rooms-web", .revision) },
+    .{ .name = "trace", .short_help = "Follow the live protocol trace, including replay", .flags = &.{ state, status[0], .{ .long = "json", .help = "Print complete records as JSON lines" }, .{ .long = "print-link", .help = "Print the full capability and exit" } }, .positionals = &.{.{ .name = "capability", .help = "Trace sturdyref; otherwise discover from local HTTP and private --state", .required = false }}, .run = run("rooms-web", .trace) },
     .{ .name = "session", .short_help = "Join, converse, and keep listening through a durable session", .children = &@import("session.zig").commands },
     .{ .name = "team", .short_help = "Coordinate a roster through the same durable session lifecycle", .children = &@import("session_commands.zig").team_commands },
     .{ .name = "directory", .short_help = "Operate a standalone Rooms directory", .children = &.{

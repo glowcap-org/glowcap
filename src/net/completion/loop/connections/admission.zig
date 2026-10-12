@@ -3,7 +3,7 @@
 //! Locator resolution, slot admission, accept/connect completion, keepalive,
 //! and application-context construction form one transaction. A connection
 //! reaches the receive/send owner only after its stable slot and context are
-//! published; every refusal rolls back through the slot lifecycle.
+//! published. Every refusal rolls back through the slot lifecycle.
 
 const model = @import("model");
 const contract = @import("../../contract.zig");
@@ -43,7 +43,7 @@ pub fn Machine(
         /// Admit a dial through the capacity reserved in
         /// `Options.reserved_dial_conns`. Use only for a bounded control-plane
         /// relationship whose recovery must survive ordinary connection
-        /// pressure; a zero reservation refuses it.
+        /// pressure. A zero reservation refuses it.
         pub fn dialLocatorReserved(
             self: *Self,
             locator: model.PeerLocator,
@@ -61,7 +61,7 @@ pub fn Machine(
         /// (including a refused connect) is observed.
         ///
         /// Private: resolve happens in `dialLocator`. The Backend owns dial
-        /// *start* (`startDial`); the Loop only allocates the slot and peer,
+        /// *start* (`startDial`). The Loop only allocates the slot and peer,
         /// then accounts the in-flight connect op.
         fn dial(self: *Self, target: ConnectTarget, admission: DialAdmission) !usize {
             if (self.shutting_down or self.tearing_down) return error.ShuttingDown;
@@ -102,14 +102,14 @@ pub fn Machine(
                 return;
             }
             // Keep one accept armed so the next connection is not missed. The
-            // re-arm runs first deliberately; if it fails (loop-global, kills
+            // re-arm runs first; if it fails (loop-global, kills
             // `run`), the accepted fd must still be closed, not leaked.
             errdefer if (accepted) |fd| self.backend.closeFd(fd);
             try ensureAccepting(self);
             // Re-arming preserves readiness if the owner elects to drive the
             // loop again, but it does not erase the completed operation's
             // failure. There is no connection peer to carry an accept error,
-            // so the loop owner is its only honest diagnostic surface.
+            // so the loop owner is its only diagnostic surface.
             const fd = accepted orelse return failure_projection.primary(comp, error.AcceptFailed);
 
             const slot = Lifecycle.freeSlot(self, .ordinary) orelse {
@@ -157,7 +157,7 @@ pub fn Machine(
             if (self.make_conn_ctx) |make| {
                 // Staged, not published straight into the slot. The hook may
                 // condemn this connection (a bridge drains host actions here),
-                // and a close that cannot queue tears the slot down inline —
+                // and a close that cannot queue tears the slot down inline,
                 // so by the time `make` returns, `c` can already be free and
                 // on the free list. Writing a live context into a free slot
                 // leaks it, because the next accept overwrites the field.

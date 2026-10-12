@@ -1,16 +1,16 @@
 /**
- * Gesture resolver — implements § 4 of the interaction model.
+ * Gesture resolver, implements § 4 of the interaction model.
  *
  * Pure. Deterministic. Total (every `GestureContext` resolves to
  * exactly one `ResolvedGesture`). This is THE place where the
- * precedence ladder is encoded; no surface adapter or component
+ * precedence ladder is encoded. No surface adapter or component
  * may resolve gestures inline.
  *
  * Called at TWO moments per gesture (§ 4.2):
- *   - At pointer-down — determines the in-flight verb.
- *   - At pointer-up if no drag occurred — re-resolves the click
- *     verb with the up-time modifier set (D — modifier-at-up
- *     wins for click; modifier-at-drag-start wins for drag).
+ *   - At pointer-down, determines the in-flight verb.
+ *   - At pointer-up if no drag occurred, re-resolves the click
+ *     verb with the up-time modifier set (D, modifier-at-up
+ *     wins for click. Modifier-at-drag-start wins for drag).
  */
 
 import {
@@ -40,7 +40,7 @@ export function resolveGesture(ctx: GestureContext): ResolvedGesture {
 	) {
 		return { tier: "default", verb: { kind: "pan-view" } };
 	}
-	// 3. Tool override (tier 3) — Add Peer / Open Session / Send
+	// 3. Tool override (tier 3), Add Peer / Open Session / Send
 	//    Message intercept their target surfaces. Tool overrides
 	//    DO NOT apply when any modifier is held (R4); modifier-
 	//    augmented clicks always carry global meanings (P3).
@@ -51,7 +51,7 @@ export function resolveGesture(ctx: GestureContext): ResolvedGesture {
 		// ignoring it. Falling through here would hand the node its ordinary
 		// select-or-drag meaning, so the tool would quietly do something else
 		// instead of saying it cannot do this. Surfaces the tool has no opinion
-		// about — empty stage, edges, the timeline — fall through as before.
+		// about, empty stage, edges, the timeline, fall through as before.
 		if (
 			isStageNode(ctx.hit.surface) &&
 			acceptsSurface(ctx.activeTool, ctx.hit.surface) === "refuses"
@@ -74,7 +74,7 @@ export function resolveGesture(ctx: GestureContext): ResolvedGesture {
 export function navigationOverride(
 	ctx: Pick<GestureContext, "spaceHeld" | "activeTool">,
 ): Extract<ResolvedGesture, { tier: "space-pan" | "hand-tool" }> | null {
-	// 1. Space wins — Adobe convention, P1.
+	// 1. Space wins, Adobe convention, P1.
 	if (ctx.spaceHeld) {
 		return { tier: "space-pan", verb: { kind: "pan-surface" } };
 	}
@@ -119,15 +119,15 @@ export function asNodeRef(
  * turns it into a pick or a refusal, the cursor draws it, the hover ring
  * obeys it, and the click path acts on it.
  *
- * That drift is what this replaces. The rule used to live in the resolver
- * for the cursor and the ring, and separately in the click path, which is
- * how a node could read not-allowed and still be armed by clicking it — the
- * picture and the act disagreeing about one question.
+ * One rule serves both. Two copies, one in the resolver for the cursor and the
+ * ring and one in the click path, would drift, and a node could read
+ * not-allowed and still be armed by clicking it, the picture and the act
+ * disagreeing about one question.
  *
- *   - `takes` — the tool picks this node.
- *   - `refuses` — the tool works on nodes and will not take this one. It
+ *   - `takes`, the tool picks this node.
+ *   - `refuses`, the tool works on nodes and will not take this one. It
  *     says so under the pointer and does nothing at all on click.
- *   - `ignores` — the tool has no opinion, so the node keeps its ordinary
+ *   - `ignores`, the tool has no opinion, so the node keeps its ordinary
  *     meaning and can still be selected and dragged.
  */
 export function toolAcceptsNode(
@@ -140,7 +140,7 @@ export function toolAcceptsNode(
 		// sessions must not share an end.
 		case "open-session":
 			return kind === "peer" ? "takes" : "refuses";
-		// Either kind. A message can name an end nothing has attributed — that
+		// Either kind. A message can name an end nothing has attributed, that
 		// is what the wire looks like before anything proves who answered.
 		case "send-message":
 			return "takes";
@@ -176,8 +176,8 @@ function nodeIdOfHit(hit: Hit): string | null {
  * The verb a tool intercepts this surface with, or null when it has none.
  *
  * Over a stage node the answer is `toolAcceptsNode`'s, turned into a verb:
- * `takes` picks the node, and `refuses` and `ignores` alike hand nothing back
- * — the caller tells those two apart by asking the same question again, and a
+ * `takes` picks the node, and `refuses` and `ignores` alike hand nothing back,
+ * the caller tells those two apart by asking the same question again, and a
  * pick is the only thing this returns. Deriving it is the whole point of that
  * table: encoding the same rows here by hand is how a tool came to take a kind
  * of node in one place and not in the other, and the click then neither picked
@@ -191,7 +191,7 @@ function toolOverride(ctx: GestureContext): ToolCreateVerb | null {
 	if (tool === "add-peer") {
 		if (ctx.hit.surface !== "stage-empty") return null;
 		// `t` is "now" from the engine, supplied by the host adapter via a
-		// separate effect routing — the verb itself doesn't carry it. (Adapter
+		// separate effect routing. The verb itself doesn't carry it. (Adapter
 		// consults clock.t when the tool-create effect lands.) We encode t=0 as a
 		// sentinel; the adapter MUST override.
 		return { kind: "create-peer-at", t: 0 };
@@ -239,7 +239,7 @@ export function surfaceDefault(hit: Hit): DefaultVerb {
 			return { kind: "resize-time-window", edge: hit.edge };
 		case "timeline-ruler":
 			return { kind: "scrub" };
-		// The Scrubber's press on an empty lane sweeps a selection marquee —
+		// The Scrubber's press on an empty lane sweeps a selection marquee,
 		// the same gesture the empty stage starts, committed through the same
 		// `SelectMode` grammar. The verb says so, so a modifier held over the
 		// lane previews the selection edit the release will make.

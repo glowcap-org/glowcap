@@ -142,7 +142,7 @@
 
 ;; Attach one finalizer unit to every capability occurrence in a value the
 ;; native Host has just projected. Container identity stays unchanged; equal
-;; ids in separate leaves intentionally receive separate death rites because
+;; ids in separate leaves receive separate death rites because
 ;; the native projection minted one Host retain per occurrence.
 (define (track-argument! c value)
   (cond

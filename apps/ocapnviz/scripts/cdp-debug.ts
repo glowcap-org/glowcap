@@ -1,8 +1,8 @@
 #!/usr/bin/env -S deno run --allow-net
 /**
- * cdp-debug.ts — connect to a chromium CDP session and dump
+ * cdp-debug.ts: connect to a chromium CDP session and dump
  * console messages + uncaught errors. Used by visual-verify.sh
- * when the screenshot looks blank — points at the JS exception
+ * when the screenshot looks blank, points at the JS exception
  * that crashed the page.
  *
  * Usage:

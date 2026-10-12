@@ -8,9 +8,9 @@ import { primaryObservations } from "../temporal/recording-access.ts";
 
 /**
  * The integration test for live mode: prove that the
- * `mode.ts` pattern — append converted events into the
+ * `mode.ts` pattern, append converted events into the
  * recording layer via `primaryObservations(doc)`, then tick the
- * engine — actually produces the world state the renderer expects.
+ * engine, produces the world state the renderer expects.
  *
  * Bypasses the CapTP delivery layer (covered by
  * `feed-test/dialing.test.ts`). Conversion is covered by the
@@ -157,7 +157,7 @@ liveTest(
 		// A browser tab joins a room: the session opens before the app
 		// knows the nick, so the peer arrives named by its locator and
 		// the nick lands afterwards as `ocapn.session-meta`. The stage
-		// must follow it without a seek — the live path never resets
+		// must follow it without a seek. The live path never resets
 		// the world.
 		const doc = newLiveDoc();
 		const engine = new Engine(doc);
@@ -263,7 +263,7 @@ liveTest(
 		engine.tick(0);
 
 		const convert = makeBaseEventConverter();
-		// Push an event "stamped now" — proves the wall-clock-paced live
+		// Push an event "stamped now", proves the wall-clock-paced live
 		// pattern works.
 		const events = convert({
 			v: 1,
@@ -295,7 +295,7 @@ liveTest(
 
 // makeLiveAppender: the pure helper used by `startLiveMode` to
 // stamp incoming events onto the live clock and append them to the
-// monitor's doc. Tested without opening a real peer — the
+// monitor's doc. Tested without opening a real peer, the
 // appender doesn't care where events come from.
 
 Deno.test("makeLiveAppender shifts a message's whole time base", () => {
@@ -340,7 +340,7 @@ Deno.test("makeLiveAppender preserves producer inter-event spacing", () => {
 	// The precision contract: producer timestamps arrive at
 	// nanosecond resolution, and the ONE latched offset keeps their
 	// spacing on stage. Re-stamping each event to "now" would
-	// quantize every arrival to the tick boundary — sub-frame
+	// quantize every arrival to the tick boundary, sub-frame
 	// spacing (here 0.25 ms and 0.01 ms) collapsing onto one t was
 	// the "our floats aren't precise enough" symptom.
 	const liveDoc = newLiveDoc();
@@ -399,7 +399,7 @@ Deno.test("makeLiveAppender collapses a backlog burst to now, then resumes caden
 	assertEquals(ts[4]! - ts[3]!, 0.125);
 });
 
-// claimRecording: the whole accumulated doc IS the recording — the
+// claimRecording: the whole accumulated doc IS the recording, the
 // engine connects at the Record press, so its t=0 is the press.
 
 Deno.test("claimRecording: fresh id, content-derived duration", () => {
@@ -447,7 +447,7 @@ Deno.test("claimRecording: the claim owns its observations", () => {
 	// appender is still pushing into, so a feed that keeps arriving after Stop
 	// goes on writing into what the reader is scrubbing. The one caller
 	// unmounts the capture in the same commit, which makes it safe today and
-	// is a coupling nothing states — this holds the sever instead.
+	// is a coupling nothing states. This holds the sever instead.
 	//
 	// Validated against the defect: restoring the shallow
 	// `{ ...liveDoc, id, duration }` return fails this and nothing else.

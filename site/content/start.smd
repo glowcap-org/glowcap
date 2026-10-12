@@ -42,7 +42,7 @@ transport module that brings a native dependency with it. Native Zig iroh
 uses a third module of the same kind:
 
 ```zig
-// iroh: links the Rust sidecar, so the build needs cargo on PATH.
+// iroh: links a Rust library, so the build needs cargo on PATH.
 exe.root_module.addImport("iroh", glowcap.module("glowcap_iroh"));
 // noise-relay and keyed-relay: builds Mbed TLS from source.
 exe.root_module.addImport("native_relay", glowcap.module("glowcap_native_relay"));
@@ -312,9 +312,8 @@ The two timeouts passed to `connect` make sure no network wait runs forever.
 `.ephemeral` is the session identity: a throwaway keypair made for this one
 connection. The arena owns the memory for replies, and freeing it frees them.
 
-For a complete program, chapter 01 on the [Examples]($link.page('examples'))
-page walks through this same fetch-and-call over loopback TCP. Rooms, on the
-same page, is a full application over iroh.
+Chapter 01 on the [Examples]($link.page('examples')) page is this same
+fetch-and-call as a complete program.
 
 # Listen
 
@@ -578,13 +577,12 @@ a Host session, takes the actions the Host produces, and writes out the
 resulting frames. Every capability is a `GlowcapReference`, an opaque handle
 that belongs to the Host rather than to any one session. The ABI uses opaque
 handles, fixed-width return codes, `ptr + len` views, and explicit release.
-Every native binding wraps this ABI.
 [Consuming glowcap from C](https://github.com/jimisaacs/glowcap/blob/main/docs/consuming-from-c.md)
 covers building, ownership, and a first program.
 
 # In Rust, TypeScript, Python, or Racket
 
-Each binding wraps the same C ABI with an idiomatic API. Start with the
+Each binding wraps the C ABI in its language's own idiom. Start with the
 [bindings overview]($link.page('bindings')), then choose:
 [Rust]($link.page('bindings/rust')),
 [TypeScript]($link.page('bindings/ts')),

@@ -1,7 +1,7 @@
 //! Borrowed codec-neutral Passable projection over Syrup bytes.
 //!
 //! Argument, reference, collection, and resolution views share one bounded
-//! walker. Signed handoff envelopes live in `values/handoff.zig`; vtable
+//! walker. Signed handoff envelopes live in `values/handoff.zig`. Vtable
 //! backings re-walk only their already-validated borrowed regions.
 
 const std = @import("std");
@@ -33,10 +33,10 @@ const ReferenceView = union(enum) {
 // ── Codec-neutral view projection ────────────────────────────────────────────
 //
 // `decodeBody` projects the borrowed codec-neutral `model.view.Body` over the
-// frame's bytes — the single message shape the engine dispatches on. The
+// frame's bytes, the single message shape the engine dispatches on. The
 // unbounded sequences (`Args`, `PositionList`) are reached through inline
 // vtable backings whose `Ctx.bytes` borrow the list region; `at` re-walks the
-// Syrup bytes lazily. Argument projection is full fidelity — every arm the
+// Syrup bytes lazily. Argument projection is full fidelity, every arm the
 // encoder emits decodes back. The backings re-walk a region that already
 // framed successfully, so they pass `syntax.no_limit`.
 
@@ -159,7 +159,7 @@ fn readNeutralArgument(bytes: []const u8, cursor: *usize, depth: usize, limit: u
 
 /// Decode one Syrup `<label …>` record after seeing `'<'`. Reads the label once,
 /// then dispatches by label length (hot known tags share a bucket) before a
-/// single equality check — no multi-probe `startsWith` cascade over the same
+/// single equality check, no multi-probe `startsWith` cascade over the same
 /// bytes for handoff / reference / ordinary records.
 fn readNeutralRecord(bytes: []const u8, cursor: *usize, depth: usize, limit: usize) Error!model.view.Argument {
     const record_start = cursor.*;
@@ -217,9 +217,9 @@ fn readNeutralRecord(bytes: []const u8, cursor: *usize, depth: usize, limit: usi
         else => {},
     }
 
-    // A record label glowcap does not model is a foreign record — a
+    // A record label glowcap does not model is a foreign record, a
     // Goblins exception such as `<exn:fail:mystery>` riding a break
-    // payload — projected as Tagged: the label is the tag, the fields
+    // payload, projected as Tagged: the label is the tag, the fields
     // the value, exactly the shape `engine.events.breakReasonFromPayload`
     // reads a reason from. Decode-side leniency only (glowcap's own
     // Tagged spells `<user-record …>` on encode); whether a tagged
@@ -248,7 +248,7 @@ fn sliceRecordFieldsNeutral(bytes: []const u8, cursor: *usize, depth: usize, lim
 /// full-fidelity walker, advancing `cursor` past the closing delimiter. The
 /// list and set slicers share this one walk and differ only in their
 /// delimiters. `depth` is the nesting level entered (bounded by
-/// `syntax.max_decode_nesting`); width is bounded by `syntax.max_collection_elements`.
+/// `syntax.max_decode_nesting`). Width is bounded by `syntax.max_collection_elements`.
 fn sliceSequenceNeutral(
     bytes: []const u8,
     cursor: *usize,
@@ -278,11 +278,11 @@ pub fn sliceArgumentListNeutral(bytes: []const u8, cursor: *usize, depth: usize,
 
 /// Slice a `# … $` set body, advancing `cursor` past the closing `$`. Unlike an
 /// argument list, a set is unordered and its elements are unique, so the wire
-/// form is canonical only in strictly-ascending encoded-element order — the same
+/// form is canonical only in strictly-ascending encoded-element order, the same
 /// rule `sliceStructNeutral` enforces on keys, and the encode-side partner of
 /// `writeCanonicalSet`, which sorts elements by their encoding. Syrup encodings
 /// are self-delimiting and therefore prefix-free, so a non-ascending element is a
-/// non-canonical spelling and an equal element is a duplicate; both are refused
+/// non-canonical spelling and an equal element is a duplicate. Both are refused
 /// `MalformedFrame` here rather than admitted as a second spelling of one set.
 fn sliceSetNeutral(bytes: []const u8, cursor: *usize, depth: usize, limit: usize) Error!syntax.Sliced {
     try syntax.readByte(bytes, cursor, '#');
@@ -313,8 +313,8 @@ fn sliceSetNeutral(bytes: []const u8, cursor: *usize, depth: usize, limit: usize
 /// the key read demands the `"` marker. Canonical Syrup orders dictionary
 /// entries by the fully-encoded key, lowest octets first (the upstream
 /// draft-specification's Sorting Algorithm), and every encoder this decoder
-/// faces — the upstream Racket encoder Goblins and the fixture corpus use, the
-/// conformance suite's Python encoder, and this codec's own `writeStruct` —
+/// faces, the upstream Racket encoder Goblins and the fixture corpus use, the
+/// conformance suite's Python encoder, and this codec's own `writeStruct`,
 /// emits that order. So each key's encoded span need only compare against the
 /// previous one: a non-ascending key is a non-canonical wire spelling of the
 /// message, refused like a non-canonical length digit, and a duplicate key
@@ -406,16 +406,16 @@ pub fn readNeutralResolution(bytes: []const u8, cursor: *usize, limit: usize) Er
 /// Decode a payload/target-position descriptor into a reference in the
 /// **receiver's** perspective (ADR-0010 perspective flip, matching Goblins's
 /// `incoming-post-unmarshall!`). The flip is a fixed wire-tag
-/// relabel — no table lookup, so the codec still owns no authority:
+/// relabel, no table lookup, so the codec still owns no authority:
 ///
-/// - `<desc:export N>` — the sender names *our* export — lifts to `.near`.
-/// - `<desc:import-object N>` / `<desc:import-promise N>` — the sender names one
-///   of *its* exports for us to import — lift to `.far`, preserving the
+/// - `<desc:export N>`, the sender names *our* export, lifts to `.near`.
+/// - `<desc:import-object N>` / `<desc:import-promise N>`, the sender names one
+///   of *its* exports for us to import, lift to `.far`, preserving the
 ///   object/promise kind.
 /// - `<desc:answer N>` lifts to `.promise`.
 ///
 /// The encoder is the mirror: it writes `near` as `desc:import-object` and `far`
-/// as `desc:export`, so a reference sent and echoed back swaps arms — that swap *is* the
+/// as `desc:export`, so a reference sent and echoed back swaps arms, that swap *is* the
 /// perspective change, not a round-trip bug.
 pub fn readReference(bytes: []const u8, cursor: *usize, limit: usize) Error!ReferenceView {
     try syntax.readByte(bytes, cursor, '<');

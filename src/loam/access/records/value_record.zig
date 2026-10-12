@@ -10,7 +10,7 @@ pub const ValueRecord = struct {
     pub const max_depth = 64;
 
     /// Scalar topology allowance for accepted values. Byte leaves include key
-    /// and tag bytes; capability IDs are emitted by this codec, not the caller.
+    /// and tag bytes. Capability IDs are emitted by this codec, not the caller.
     /// Measure shared writer fragments rather than duplicating Syrup widths.
     pub fn encodedSizeBound(comptime Value: type, values: usize, entries: usize, bytes: usize, capabilities: usize) !usize {
         var header: usize = 0;
@@ -37,7 +37,7 @@ pub const ValueRecord = struct {
     }
 
     /// Context maps pre-retained capability leaves to their exact durable IDs.
-    /// Both rendering passes are pure; capture occurs before entering the codec.
+    /// Both rendering passes are pure. Capture occurs before entering the codec.
     pub fn encode(allocator: std.mem.Allocator, value: anytype, context: anytype) ![]u8 {
         const length = try syrup.render.measureRecord(write, .{ value, context, @as(usize, 0) });
         if (length > max_bytes) return error.RecordTooLarge;
@@ -90,7 +90,7 @@ pub const ValueRecord = struct {
         try s.endRecord(sink);
     }
 
-    /// Returned byte leaves borrow bytes; the caller retains the receipt lease.
+    /// Returned byte leaves borrow bytes. The caller retains the receipt lease.
     /// Context restores only IDs retained by that receipt's strong edges.
     pub fn decode(comptime To: type, allocator: std.mem.Allocator, bytes: []const u8, context: anytype) !To {
         if (bytes.len > max_bytes) return error.RecordTooLarge;
@@ -101,7 +101,7 @@ pub const ValueRecord = struct {
         return result;
     }
 
-    fn read(comptime To: type, allocator: std.mem.Allocator, bytes: []const u8, cursor: *usize, context: anytype, depth: usize) anyerror!To {
+    fn read(comptime To: type, allocator: std.mem.Allocator, bytes: []const u8, cursor: *usize, context: anytype, depth: usize) !To {
         if (depth > max_depth) return error.ValueTooDeep;
         try s.readByte(bytes, cursor, '<');
         const tag = try s.readSymbol(bytes, cursor);
@@ -158,7 +158,7 @@ pub const ValueRecord = struct {
         return result;
     }
 
-    /// Frees container allocations. Byte leaves borrow the receipt; restored
+    /// Frees container allocations. Byte leaves borrow the receipt. Restored
     /// capabilities remain owned by the context that restored them.
     pub fn free(allocator: std.mem.Allocator, value: anytype) void {
         switch (value) {

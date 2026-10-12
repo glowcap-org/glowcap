@@ -1,8 +1,8 @@
 // A menu that opens off a control, and the two rules a reader expects of one.
 //
-// The behaviour is the same wherever a menu appears — it closes when you press
+// The behaviour is the same wherever a menu appears (it closes when you press
 // somewhere else or press Escape, it is walked with the arrows, and the first
-// row has the keyboard when it opens — and it is the part that is easy to get
+// row has the keyboard when it opens) and it is the part that is easy to get
 // subtly wrong twice. What differs between menus is where they sit and what is
 // in them, so that stays with each of them.
 //
@@ -18,7 +18,7 @@ import { Icon, type IconName } from "./icons.tsx";
 /** Open state and the wiring that closes it, for one menu.
  *
  * `holder` goes on the element that contains both the control and the menu, so
- * a press inside it — including on the control itself — is not "somewhere
+ * a press inside it, including on the control itself, is not "somewhere
  * else". `trigger` goes on the control, so Escape hands the keyboard back to
  * what a reader opened it with rather than dropping it at the top of the page.
  * `layer` goes to `MenuLayer`, which is where the menu itself ends up: it is
@@ -68,7 +68,7 @@ export function useMenu(): {
  * to promise never to clip. That is backwards: it makes a card's overflow depend
  * on what somebody put inside it. `popover` promotes an element to the browser's
  * top layer, above every ancestor's clipping and above an open dialog, and it
- * does so without moving the element in the document — so a press inside the
+ * does so without moving the element in the document. So a press inside the
  * menu is still a press inside the holder, and closing on a press elsewhere
  * needs no second answer about where the menu went.
  *
@@ -86,7 +86,7 @@ export function useMenu(): {
  *
  * `popover` rather than `position: fixed` alone, measured rather than assumed.
  * A fixed box already escapes an ancestor's `overflow: hidden`, so on a plain
- * card the two are indistinguishable — the first harness written for this
+ * card the two are indistinguishable: the first harness written for this
  * reported success for both and was therefore reporting nothing. What separates
  * them is an ancestor that creates a containing block: give one a `transform`
  * and the fixed box is clipped by it and lands at the wrong coordinates, while
@@ -207,10 +207,10 @@ export function MenuList({ className, children }: { className: string; children:
 }
 
 /** One row. `first` takes the keyboard as the menu opens, so the arrows have
- * somewhere to start; exactly one row in a menu should ask for it.
+ * somewhere to start. Exactly one row in a menu should ask for it.
  *
  * As the menu opens, and never again. A ref callback runs on every render, and
- * a menu holding a field re-renders on every keystroke — so focusing from one
+ * a menu holding a field re-renders on every keystroke. So focusing from one
  * took the keyboard back off the reader mid-word, once per character. */
 export function MenuRow(
 	{ icon, className, first, marked, disabled, onPick, children }: {

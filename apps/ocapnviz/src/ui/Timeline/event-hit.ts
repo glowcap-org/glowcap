@@ -1,5 +1,5 @@
 /**
- * Point-in-lane pick — which entity a click on the scrubber plot
+ * Point-in-lane pick, which entity a click on the scrubber plot
  * selects, and which retime gesture (`DragPlan`) it enables, so the
  * pointerdown handler can dispatch select + drag in one pass.
  *
@@ -32,7 +32,7 @@ import { EDGE_HANDLE_PX, type HitEntity, type ScrubberHit } from "./hit-test.ts"
 import { buildEventHitIndex, type EventHitIndex, type MomentHit } from "./event-hit-index.ts";
 
 /** The moment glyph nearest `px` within the edge-handle band, on the
- * given lane. `entityId` narrows to one entity's row; null means the
+ * given lane. `entityId` narrows to one entity's row. Null means the
  * whole lane. The lane picks its own owner rule out of
  * `MOMENT_OWNER`, so no caller can pair a lane with another lane's
  * rule. The hit t is the painted t (`momentEffective`), so clicking
@@ -73,9 +73,9 @@ const EMPTY_MOMENTS: readonly MomentHit[] = [];
  * lockstep with paint even when categories expand into headers +
  * per-entity rows of mixed heights. Returns null for the ruler
  * row, the gutter, beyond the last row, or on a category-header
- * row (which has no event content — clicks on header rows toggle
+ * row (which has no event content, clicks on header rows toggle
  * expansion via `hitTestGutter`). `entityId` narrows event lookup
- * to a single entity on per-entity rows; collapsed rows leave it
+ * to a single entity on per-entity rows. Collapsed rows leave it
  * null and the lane-level search applies. */
 type LaneContext = {
 	lane: "peers" | "sessions" | "messages";
@@ -112,7 +112,7 @@ function laneContextAtY(
 			return { lane: row.category, entityId: null };
 		}
 		if (row.kind === "category-header") {
-			// Header has no event content — clicks here are gutter
+			// Header has no event content, clicks here are gutter
 			// chevron toggles, handled separately.
 			return null;
 		}
@@ -126,14 +126,12 @@ function laneContextAtY(
 /** Pure hit-test against the doc events. Exposed so unit tests
  *  can exercise the geometry without spinning up a Pixi scene.
  *
- *  `rows` is the same row layout the renderer uses (from
- *  `iterateRows`); the lane + optional per-entity narrowing comes
- *  from whichever row the pointer y lands in. This keeps the
- *  click geometry in lockstep with paint when categories expand
- *  into headers + per-entity rows of mixed heights — previously
- *  the hit-test assumed every lane was exactly one
- *  `laneHeight + LANE_GAP` tall, which diverged from the paint as
- *  soon as a category expanded. */
+ *  `rows` is the same row layout the renderer uses (from `iterateRows`). The
+ *  lane + optional per-entity narrowing comes from whichever row the pointer y
+ *  lands in. This keeps the click geometry in lockstep with paint when
+ *  categories expand into headers + per-entity rows of mixed heights. A
+ *  hit-test that assumed every lane was exactly one `laneHeight + LANE_GAP`
+ *  tall would diverge from the paint as soon as a category expanded. */
 export function hitTestEvents(
 	px: number,
 	py: number,
@@ -145,15 +143,16 @@ export function hitTestEvents(
 	// `doc` is the source of truth the renderer reads via
 	// `peerEffective` / `sessionEffective` / `messageEffective`. Span
 	// hit-shapes resolve through the same helpers so a click on the
-	// visible pill always succeeds — regardless of whether
+	// visible pill always succeeds, regardless of whether
 	// observations and `entity.timing` have drifted (e.g. after an
 	// authoring write that only mirrored one side). Observations are
 	// still consulted to resolve the drag target's `eventId`.
 	doc: TimelineDocument,
 	/**
 	 * How far the row stack is scrolled under the host, so `py` can stay in the
-	 * host's own coordinates. Callers used to add this to `py` themselves, which
-	 * handed one number to two bounds that wanted different spaces; the row walk
+	 * host's own coordinates. Callers do not add this to `py` themselves,
+	 * because that would hand one number to two bounds that want different
+	 * spaces. The row walk
 	 * needs the scrolled position and the ruler band does not.
 	 *
 	 * Defaults to zero, which is the unscrolled case a test constructs.
@@ -163,11 +162,11 @@ export function hitTestEvents(
 ): ScrubberHit | null {
 	const ctx = laneContextAtY(py, scrollY, height, rows);
 	if (!ctx) return null;
-	// Reject clicks in the gutter (lane labels live there — no
+	// Reject clicks in the gutter (lane labels live there, no
 	// t-content) and beyond the right pad (off-canvas). The left /
 	// right PAD bands are visually empty but stay reachable so the
 	// ±EDGE_HANDLE_PX tolerance around clamped pill edges still
-	// succeeds — `pxAtClamped` below maps any clamped edge onto plotLeft,
+	// succeeds, `pxAtClamped` below maps any clamped edge onto plotLeft,
 	// so a click 6 px LEFT of t=0's clamped pill edge (i.e. inside
 	// the left pad) lands on the edge instead of falling into a
 	// dead zone the user can't see. Subsequent hit-testing is in
@@ -185,13 +184,13 @@ export function hitTestEvents(
 	// shape succeeds.
 	const plotLeft = plotStartXOf(view);
 	const plotWidth = plotWidthOf(width, view);
-	// Two t→px helpers coexist here, on purpose, and their names
+	// Two t→px helpers coexist here, and their names
 	// encode the policy split so call sites can't confuse them.
 	// `pxAtClamped` is a POINT clamp (left only) used by the edge-
 	// priority pass and the glyph hit-test, which compare a single
 	// px to a single point; left-clamping makes an off-screen-left
 	// entity's edge grabbable at the visible plot edge. `tToPxRaw`
-	// is unclamped and feeds `spanScreenRect` — which needs the raw
+	// is unclamped and feeds `spanScreenRect`, which needs the raw
 	// x0/x1 to compute its own `leftClamped`/`rightClamped` flags
 	// before applying the both-side rect clamp.
 	const pxAtClamped = (tt: number) => {
@@ -206,7 +205,7 @@ export function hitTestEvents(
 	 *  added on each side so a click just past the visible pill still
 	 *  reads as a body hit beside the edge affordance.
 	 *  Open-ended spans (`endT` non-finite) clamp their right edge to the
-	 *  plot's right boundary — `spanScreenRect` handles that internally. */
+	 *  plot's right boundary, `spanScreenRect` handles that internally. */
 	const bodyRect = (startT: number, endT: number): SpanRect | null => {
 		const rect = spanScreenRect({
 			startT,
@@ -226,14 +225,14 @@ export function hitTestEvents(
 		// the same `def.timing` the renderer paints, so the clickable
 		// region always matches what the user sees. Observations are
 		// consulted only to resolve the anchor `eventId` for the drag
-		// target — finding the peer-joined / peer-left event by peerId.
+		// target, finding the peer-joined / peer-left event by peerId.
 		//
 		// Priority: edges > body. Mirrors the session lane: a dedicated
 		// edge-priority pass picks the closest endpoint across all peer
 		// spans within EDGE_HANDLE_PX, so a click on a peer's edge wins
 		// over a click on a different peer's body at the same x. Open-
 		// ended peers still expose a left-edge handle (the right edge
-		// is absent — endPx is null and skipped). This symmetry was the
+		// is absent, endPx is null and skipped). This symmetry was the
 		// structural fix behind bug #3a: the prior single-loop "best
 		// body then check edges" branch couldn't reach a peer whose
 		// body didn't contain the click even when its edge did.
@@ -266,7 +265,7 @@ export function hitTestEvents(
 			const entity: HitEntity = { kind: "peer", id: bestEdge.peerId };
 			const effNow = peerEffective(doc, bestEdge.peerId);
 			if (!target) {
-				// No observation event to name — the span is `entity.timing`
+				// No observation event to name. The span is `entity.timing`
 				// alone (freshly authored). The gesture is the same resize;
 				// it dispatches entity-addressed.
 				return {
@@ -280,12 +279,12 @@ export function hitTestEvents(
 				};
 			}
 			// `originalT` anchors the drag math (newT = originalT + dt) to
-			// the visible edge — read from the effective resolver, the SOT
+			// the visible edge, read from the effective resolver, the SOT
 			// for the painted edge. Falling back to `target.t` (the anchor
 			// observation event) breaks when Inspector edits to
 			// entity.timing have moved the painted edge but left the
 			// observation event's t stale: the first dt is applied to the
-			// stale t, snapping the edge backward to where it used to be.
+			// stale t, snapping the edge backward to its earlier position.
 			const eff = peerEffective(doc, bestEdge.peerId);
 			return {
 				entity,
@@ -365,7 +364,7 @@ export function hitTestEvents(
 		// Edge px comes from `sessionEffective` (same source as the
 		// painted pill). Anchor event resolves through observations so
 		// the drag target's `eventId` is well-defined.
-		// Same id set is walked twice below (edges, then body) — hoisted.
+		// Same id set is walked twice below (edges, then body), hoisted.
 		const sessionCount = entityId === null ? index.sessionIds.length : doc.entities?.sessions?.[entityId] ? 1 : 0;
 		let bestEdge:
 			| { sessionId: string; dPx: number; rightEdge: boolean }
@@ -556,7 +555,7 @@ export function hitTestEvents(
 				kind: "message-edge",
 				eventId: sentEv.id,
 				// Anchor on the painted endpoints (messageEffective), not the
-				// observation event's sent/arrival t — Inspector edits to
+				// observation event's sent/arrival t, Inspector edits to
 				// entity timing move the painted shape but leave the
 				// observation stale, which would snap the edge backward on
 				// first dt.

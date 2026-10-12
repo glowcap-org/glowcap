@@ -1,8 +1,8 @@
 //! Generic multiplexed-provider projection of the owned iroh endpoint.
 //!
 //! This leaf adapts the sidecar's one readiness loop to the driver's provider
-//! table. Shared native state owns connection identity and listener operations;
-//! endpoint and teardown authority
+//! table. Shared native state owns connection identity and listener operations.
+//! Endpoint and teardown authority
 //! remain in `ownership.zig`.
 
 const std = @import("std");
@@ -36,7 +36,7 @@ comptime {
 }
 
 /// Fill `out_provider` with this netlayer's complete provider package. Its one
-/// multiplexed entry joins generic dial/listen dispatch as `iroh`; registration
+/// multiplexed entry joins generic dial/listen dispatch as `iroh`. Registration
 /// retains the netlayer through the package lease.
 pub export fn glowcap_iroh_transport_provider(
     netlayer: ?*GlowcapIrohNetlayer,
@@ -167,7 +167,7 @@ fn multiplexedDrainReady(
 /// the sidecar's own text for the fault when it supplied one (which relay
 /// refused, which address stayed silent, the QUIC close reason). The
 /// structured `GlowcapProviderFailure` keeps the static error name, because
-/// the driver retains those bytes without copying; the slot copies, so the
+/// the driver retains those bytes without copying. The slot copies, so the
 /// text may live on the caller's stack.
 fn dialErrToCode(err: anyerror, detail: []const u8) i32 {
     if (detail.len != 0)

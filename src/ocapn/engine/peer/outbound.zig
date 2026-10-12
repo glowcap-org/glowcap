@@ -1,6 +1,6 @@
 //! Peer-local outbound queue admission, accounting, and ownership transfer.
 //!
-//! Semantic recording and encoding stay in `engine/outbound.zig`; this module
+//! Semantic recording and encoding stay in `engine/outbound.zig`. This module
 //! owns the transaction that retains those carriers on one Peer. Every payload
 //! is measured once, carries its charge through staging, and transfers between
 //! Node staging, pending storage, Session answer storage, and encoded frames
@@ -31,7 +31,7 @@ pub const PendingReservation = struct { charge: usize };
 pub const InlinePassableStagingReservation = struct { charge: usize };
 
 /// One authority transaction that may stage several outbound carriers.
-/// Admission is checked for the producer as a whole; every returned seat stays
+/// Admission is checked for the producer as a whole. Every returned seat stays
 /// independently cancelable until its caller commits the matching carrier.
 pub const PendingBatch = struct {
     peer: *Peer,
@@ -59,7 +59,7 @@ pub const PendingBatch = struct {
 };
 
 /// Measure one staged carrier once at admission. Store-backed carriers are
-/// POD; owned messages account for their retained model bytes.
+/// POD. Owned messages account for their retained model bytes.
 pub fn pendingOutboundCharge(item: semantic.Outbound) !usize {
     return budget.pendingCharge(item);
 }
@@ -214,10 +214,13 @@ fn stagedRowIndex(self: *Peer, batch: BatchId) ?usize {
 /// the carrier needed no row, so the reservation is simply removed.
 pub fn fillStagedRow(self: *Peer, batch: BatchId, appended: usize) void {
     std.debug.assert(appended <= 1);
+    // `reserveStagedRow` staged this batch's row when the batch was staged, and
+    // the row leaves only through this fill or the batch's retirement.
     const index = stagedRowIndex(self, batch) orelse unreachable;
     const staged = self.pending_send.pending()[index].item.staged;
     if (staged.release_queued) claimQueuedRelease(self, staged.answer.?);
     if (appended == 0) return self.pending_send.removePending(index);
+    // `appended == 1`: the send pushed exactly the carrier popped here.
     const filled = self.pending_send.popBack() orelse unreachable;
     const rows = self.pending_send.pending();
     rows[index] = .{
@@ -257,7 +260,7 @@ pub fn stagedRowProvisional(self: *Peer, batch: BatchId) bool {
 
 /// Withdraw a queued `op:listen` that never reached the wire, undoing what
 /// recording it did. The Node's promise proxy queued it inside a turn that
-/// failed; nothing steps a Peer while its turn runs, so it is still here.
+/// failed. Nothing steps a Peer while its turn runs, so it is still here.
 pub fn withdrawQueuedListen(self: *Peer, listener: model.ExportPosition) void {
     for (self.pending_send.pending(), 0..) |row, index| switch (row.item) {
         .message => |message| if (message == .listen and message.listen.listener == .near and
@@ -329,7 +332,7 @@ pub fn outboundSaturated(self: *const Peer) bool {
 
 /// Encoded frames waiting for a transport drain, excluding semantic carriers
 /// retained by the session or node. Completion-loop backpressure counts these
-/// bytes with its own front/back queues; Host admission uses
+/// bytes with its own front/back queues. Host admission uses
 /// `queuedOutboundBytes`.
 pub fn encodedOutboundBytes(self: *const Peer) usize {
     return self.outbound.weight();

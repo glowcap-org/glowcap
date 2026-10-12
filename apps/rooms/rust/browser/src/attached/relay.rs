@@ -1,5 +1,5 @@
 //! Sustained relay reachability for the page's existing Host. Idle seats and
-//! handshakes stay bounded; established peers transfer to the Host owner.
+//! handshakes stay bounded. Established peers transfer to the Host owner.
 use super::{Result, retain};
 use crate::platform::Platform;
 use glowcap::{Host, Locator, PendingWork, Session, browser::relay::Registration};

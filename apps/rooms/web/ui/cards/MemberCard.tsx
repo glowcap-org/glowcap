@@ -7,7 +7,7 @@
 // directory's card for the directory, so the three divide the page's nouns
 // between them and none has to guess at another's subject.
 //
-// The card is deliberately the same shape whoever it describes, including the
+// The card is the same shape whoever it describes, including the
 // reader. Opening your own from the rail's foot and someone else's from a
 // roster should not feel like two features, and the one fact that does differ,
 // that a name is granted per directory and you may hold several, is a fact
@@ -299,7 +299,7 @@ function MemberDialog(
 					{
 						/* What the reader can do about this person, in a well of its own so
 									    an act never sits among the facts it acts on. The reader's own
-									    card offers the identity they hold; anybody else's offers the
+									    card offers the identity they hold. Anybody else's offers the
 									    line the roster's own button offers, said in words here because
 									    a card has room for the sentence a glyph cannot carry. */
 					}

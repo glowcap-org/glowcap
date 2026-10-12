@@ -1,4 +1,4 @@
-//! Canonical CapTP scenario drivers — the observable-trace oracle.
+//! Canonical CapTP scenario drivers and the observable-trace oracle.
 //!
 //! Each `run*` function drives a `engine.Peer` through one fixed protocol
 //! scenario (a Stage-0 abort, a driven deliver/resolve, a handshake-then-
@@ -6,10 +6,10 @@
 //! bytes. Those byte traces are the conformance evidence: the Zig oracle tests
 //! (`test/oracle`) compare them for identical observable behavior. The drivers
 //! live in their own `oracle` module, off the public `glowcap` namespace: the
-//! tests import it directly, and no binding consumes it — the bindings prove
+//! tests import it directly, and no binding consumes it. The bindings prove
 //! the C ABI by dogfood, not by oracle traces.
 //!
-//! The drivers are sync and codec-parameterized; they own no I/O and add no
+//! The drivers are sync and codec-parameterized. They own no I/O and add no
 //! protocol semantics the engine lacks.
 
 const std = @import("std");
@@ -87,7 +87,7 @@ pub fn runDrivenAbort(allocator: std.mem.Allocator) ![]u8 {
 /// (ADR-0010 V1.0 resolver-callback translation under the hood): p1 asks p2's
 /// bootstrap a question, p2 resolves it, and the resolution surfaces back at p1
 /// as a semantic `Resolve`. Broadens conformance past the abort axis onto the
-/// deliver / answer / resolve state machine. Runs on `codec`; the trace is
+/// deliver / answer / resolve state machine. Runs on `codec`. The trace is
 /// codec-agnostic by construction, so a parity test asserts it is identical on
 /// Syrup and Cap'n Proto.
 pub fn runDrivenDeliverResolve(allocator: std.mem.Allocator, codec: model.CodecId) ![]u8 {
@@ -145,7 +145,7 @@ pub fn runDrivenDeliverResolve(allocator: std.mem.Allocator, codec: model.CodecI
 }
 
 /// Deliver → listen on the answer → resolve → listener-fire. Scenario authority
-/// for answer-side `op:listen` (ADR-0007); codec-parameterized like
+/// for answer-side `op:listen` (ADR-0007). Codec-parameterized like
 /// `runDrivenDeliverResolve`.
 pub fn runDrivenListenResolve(allocator: std.mem.Allocator, codec: model.CodecId) ![]u8 {
     var pair = try engine.pairing.pairedWithCodec(allocator, codec);
@@ -225,7 +225,7 @@ pub fn runDrivenListenResolve(allocator: std.mem.Allocator, codec: model.CodecId
 /// proof for ADR-0006's responder half: serving an inbound `'fetch` lives in the
 /// engine, not the test harness. The settlement rides back as a V1.0
 /// resolver-callback and surfaces at the initiator as a `fulfilled` outcome.
-/// Runs on `codec`; the trace is codec-agnostic by construction, so a parity
+/// Runs on `codec`. The trace is codec-agnostic by construction, so a parity
 /// test asserts it is identical on Syrup and Cap'n Proto.
 pub fn runHandshakeThenBootstrapFetch(allocator: std.mem.Allocator, codec: model.CodecId) ![]u8 {
     var pair = try engine.pairing.pairedWithCodec(allocator, codec);
@@ -302,8 +302,8 @@ pub fn runHandshakeThenBootstrapFetch(allocator: std.mem.Allocator, codec: model
 /// Deliver → `op:get` / `op:index` / `op:untag` against the pending answers →
 /// the responder resolves each source and the engine resolves the projected
 /// answers in the same turn (ADR-0050). Scenario authority for the projection
-/// trio as whole-conversation behavior, not just per-frame fixtures;
-/// codec-parameterized like `runDrivenDeliverResolve`.
+/// trio as whole-conversation behavior, not just per-frame fixtures.
+/// Codec-parameterized like `runDrivenDeliverResolve`.
 pub fn runDrivenProjections(allocator: std.mem.Allocator, codec: model.CodecId) ![]u8 {
     var pair = try engine.pairing.pairedNegotiated(allocator, .{
         .captp_version = .next,
@@ -426,7 +426,7 @@ pub const InboundMode = enum { borrowed, owned };
 /// Drive one inbound frame through `mode` and trace the observable dispatcher
 /// output (rejection error, surfaced events, outbound frame count + byte length,
 /// session state). Both modes funnel through the same `dispatch_inbound`/abort
-/// machinery, so a parity test asserts byte-identical traces, the load-bearing
+/// machinery, so a parity test asserts byte-identical traces, which is the
 /// proof that the borrowed and owned entry points run one state machine, not
 /// two. The frame is a malformed one, so the trace also exercises the
 /// abort-projection path (`engine.abort_projection`) across both modes.

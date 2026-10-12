@@ -1,8 +1,8 @@
 /**
- * In-flight message sprites — create, update, and the radius a hit
+ * In-flight message sprites, create, update, and the radius a hit
  * test must use so it measures the dot this module painted.
  *
- * `renderFrame` owns which messages are live and their z-order; this
+ * `renderFrame` owns which messages are live and their z-order. This
  * module owns the Pixi objects.
  */
 
@@ -70,7 +70,7 @@ export function syncMessageSprite(
 		// Halo as a non-interactive sibling (added first → behind).
 		// Per-primitive hit-test on the body Graphics then makes the
 		// dot itself the clickable footprint without an explicit
-		// hitArea — body shape is the hit shape automatically.
+		// hitArea, body shape is the hit shape automatically.
 		const haloGfx = new Graphics();
 		haloGfx.eventMode = "none";
 		container.addChild(haloGfx);
@@ -95,7 +95,7 @@ export function syncMessageSprite(
 		);
 		messageLayer.addChild(container);
 
-		// Label as a sibling on `labelLayer` — same pattern as peers
+		// Label as a sibling on `labelLayer`, same pattern as peers
 		// / sessions so counter-scale + z-index logic stays uniform
 		// and labels always paint above body graphics.
 		const label = new Container();
@@ -150,7 +150,7 @@ export function syncMessageSprite(
 		// Split for the reason a peer's is: the camera reaches the ring and not the
 		// dot. `MESSAGE_RADIUS` is world units and nothing the dot draws reads the
 		// scale, so one flag for both re-stroked every message in flight on every
-		// frame of a zoom — and messages are the things that are moving.
+		// frame of a zoom, and messages are the things that are moving.
 		const haloDirty = marked(tier, hovered, sprite.lastHalo, sprite.lastHovered) &&
 			(sprite.lastHalo !== tier ||
 				sprite.lastHovered !== hovered ||
@@ -160,7 +160,7 @@ export function syncMessageSprite(
 			sprite.lastHalo = tier;
 			sprite.lastHovered = hovered;
 			sprite.lastScale = scale;
-			// Halo lives in the non-interactive sibling — hit-test only
+			// Halo lives in the non-interactive sibling, hit-test only
 			// sees the dot. Body draws on top of the halo (drawn after,
 			// higher child index). Anchor adds an inner ring inside the
 			// halo (see `HaloTier`) so the message the Inspector

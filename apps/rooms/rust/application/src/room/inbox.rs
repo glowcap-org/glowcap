@@ -1,5 +1,5 @@
 //! Room membership callbacks above CapTP. Only admitted attachments retain
-//! capabilities; the binding retains custody of every original argument.
+//! capabilities. The binding retains custody of every original argument.
 use super::{
 	ArgumentView,
 	attachment::{self, Attachment, AttachmentArgument},
@@ -51,10 +51,10 @@ pub fn valid_nick(nick: &str) -> bool {
 }
 
 /// Why Rooms will not answer to `nick`, or `None` when it will. A room grants
-/// a name, the directory registers one, and a member offers an inbox to one;
-/// all three hand out the same thing, so one answer serves all three. The
+/// a name, the directory registers one, and a member offers an inbox to one.
+/// All three hand out the same thing, so one answer serves all three. The
 /// room speaks under "room", drawn as its own voice, and the rest of the
-/// room-wide vocabulary addresses everyone at once; a member wearing one could
+/// room-wide vocabulary addresses everyone at once. A member wearing one could
 /// never be addressed apart from the room.
 pub fn nick_refusal(nick: &str) -> Option<alloc::string::String> {
 	use alloc::format;
@@ -200,7 +200,7 @@ pub fn read<'a, A: AttachmentArgument>(verb: &str, args: &'a [A]) -> Result<Noti
 		_ => {
 			let from = text(0).filter(|s| *s == ROOM || valid_nick(s)).ok_or(Refusal::Line)?;
 			let text = text(1).filter(|s| s.len() <= MAX_LINE_BYTES).ok_or(Refusal::Line)?;
-			let metadata = metadata::read(args);
+			let mut metadata = metadata::read(args);
 			if text.is_empty()
 				&& let Some(Metadata::Facts(facts)) = &metadata
 				&& let Some(listed) = facts.listed
@@ -212,7 +212,18 @@ pub fn read<'a, A: AttachmentArgument>(verb: &str, args: &'a [A]) -> Result<Noti
 			}
 			let marker = LineMarker::read(args);
 			let (attachments, extension) = attachment::read_prefix_with_end(args, if marker.is_some() { 4 } else { 2 });
-			let previews = crate::open_graph::Selection::read_suffix(text, args, extension);
+			let mut previews = crate::open_graph::Selection::read_suffix(text, args, extension);
+			// Correlation is a bounded suffix after previews, outside file parsing.
+			if args.len() == extension + 4
+				&& args.get(extension + 2).and_then(ArgumentView::text) == Some(super::correlation::TAG)
+				&& let Some(operation) = args
+					.get(extension + 3)
+					.and_then(ArgumentView::text)
+					.filter(|value| super::correlation::valid(value))
+			{
+				metadata = Some(Metadata::Operation(operation));
+				previews = crate::open_graph::Selection::read_suffix(text, &args[..extension + 2], extension);
+			}
 			Ok(Notice::Line(Message {
 				from,
 				text,

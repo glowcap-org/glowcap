@@ -4,9 +4,9 @@
 //! key, or durable peer identity), and the one teardown funnel every release,
 //! condemnation, and failed open goes through.
 //!
-//! One of `host.zig`'s responsibilities, kept beside it rather than in it.
-//! The `Host` still owns the state — the session map, the side indexes, the
-//! seed counter — and still presents `openDialedLocator`,
+//! One of `host.zig`'s responsibilities.
+//! The `Host` owns the state (the session map, the side indexes, the
+//! seed counter) and presents `openDialedLocator`,
 //! `openAcceptedAdvertised`, `releaseSession`, and their siblings as its own
 //! verbs through decl aliases, so a caller reads one `Host` surface.
 
@@ -45,12 +45,12 @@ const DialSource = union(enum) { mint: void, over: *engine.Peer };
 /// register the outbound with the crossed-hellos table, register the session
 /// on the node, and sign and encode `op:start-session` with this session's key,
 /// carrying this node's selected acceptable location. The hello
-/// is encoded before this returns; the embedder drains it with `takeOutbound`
+/// is encoded before this returns. The embedder drains it with `takeOutbound`
 /// (a flush action is queued) and drives the handshake byte-fed. URI holders
-/// parse first (`model.uri.parsePeer`) — same spine as
+/// parse first (`model.uri.parsePeer`), the same spine as
 /// `glowcap_host_session_open_dialed_locator`. The locator is borrowed for
 /// the call. The loop-fed bridge adopts with `openDialedOver` after
-/// `Loop.dialLocator` completes; this path mints the peer.
+/// `Loop.dialLocator` completes. This path mints the peer.
 pub fn openDialedLocator(self: *Host, locator: model.PeerLocator) !*HostSession {
     // Knowledge is recorded whenever the handed form carries it, whatever
     // this host's own profile: a baseline hello stamps nothing regardless,
@@ -76,13 +76,13 @@ pub fn openPendingDial(self: *Host, ticket: engine.Node.PendingId, route_index: 
 }
 
 /// `openDialedLocator` over a peer the embedder owns and pins at a stable
-/// address: identical wiring — crossed-hellos outbound registration, the
-/// initiator hello carrying the Node-owned acceptable location, the key-scheme
-/// dial's demand on the partner
-/// (`engine.Peer.demandPartnerDurableKey`) — minus ownership.
+/// address. The wiring is identical (crossed-hellos outbound registration, the
+/// initiator hello carrying the Node-owned acceptable location, and the key-scheme
+/// dial's demand on the partner, `engine.Peer.demandPartnerDurableKey`) except for
+/// ownership.
 /// The node routes through the adopted peer but never frees it: the
 /// embedder frees the peer itself, only after `releaseSession`. This is the
-/// completion loop's dialed adoption seam — the dial half of
+/// completion loop's dialed adoption seam, the dial half of
 /// `openAcceptedAdvertisedOver` (ADR-0076 loop-side dial executor).
 pub fn openDialedOver(
     self: *Host,
@@ -104,9 +104,9 @@ pub fn openDialedOverPending(
     return openDialedCommitted(self, .{ .over = peer }, locator.transport, locator.designator, false, view.demanded_partner_key);
 }
 
-/// Shared dialed-open core: `openDialedLocator` mints a node-owned peer;
+/// Shared dialed-open core: `openDialedLocator` mints a node-owned peer.
 /// `openDialedOver` adopts an embedder-owned one. Everything else is one
-/// path — crossed-hellos, role, keyed pin, hello — so the two entry
+/// path (crossed-hellos, role, keyed pin, hello), so the two entry
 /// points cannot drift.
 pub fn openDialedKnowing(
     self: *Host,
@@ -157,7 +157,8 @@ fn openDialedCommitted(
     // Two identities, two roles (ADR-0097). `partner_designator` is the
     // durable peer this dial races for: it decides *which two attempts
     // are racing*. The identifier beside it is this outbound session
-    // attempt's own identity: it decides *which of the two survives*. Registering after the mint is what lets the
+    // attempt's own identity: it decides *which of the two survives*.
+    // Registering after the mint is what lets the
     // second one be the session's key rather than the host's: they are the
     // same value only when a host signs every session with its durable
     // key, and reading the wrong one would order the tiebreak by a
@@ -184,7 +185,7 @@ fn openDialedCommitted(
 /// (`dial_plan.planAccept`), completes it, and retains it, selecting it only
 /// when nothing is selected yet. An explicitly set advertised locator (a
 /// rendezvous route carrying its relay hint, a published address) is the
-/// deployment's claim of reachability; an accept that overwrote it with the
+/// deployment's claim of reachability. An accept that overwrote it with the
 /// listener-derived fallback would strip the hints a handoff recipient needs
 /// to dial this peer back.
 pub fn ensureAcceptAdvertisedLocator(
@@ -210,7 +211,7 @@ pub fn ensureAcceptAdvertisedLocator(
 }
 
 /// Mint the accepting half of a session using this node's selected acceptable
-/// location, which may intentionally use another transport (ADR-0109).
+/// location, which may use another transport (ADR-0109).
 pub fn openAcceptedAdvertised(self: *Host, transport: []const u8) !*HostSession {
     try self.refuseReentry();
     try self.admitApplicationOperation();
@@ -252,7 +253,7 @@ pub fn openAcceptedAdvertisedOver(self: *Host, peer: *engine.Peer, transport: []
 /// the responder key off the shell's own
 /// dialed designator and turns it into the same demand a key-scheme dial
 /// makes, so the chokepoint weighs the partner's claim against what was
-/// dialed. The caller unwinds a refusal with `failOpen`; the shell frees the
+/// dialed. The caller unwinds a refusal with `failOpen`. The shell frees the
 /// channel in `freeSessionShell`.
 fn attachSealedChannel(self: *Host, session: *HostSession, role: enum { initiator, responder }) !void {
     var ephemeral_seed: [crypto.SEED_BYTES]u8 = undefined;
@@ -292,8 +293,8 @@ fn attachSealedChannel(self: *Host, session: *HostSession, role: enum { initiato
 }
 
 // ── Session directories (`sessions/directory.zig`) ──────────────────────────
-// Finding a live session again — by dialed target, proved durable peer, or
-// side index — plus the duplicate refusals and index upkeep those lookups
+// Finding a live session again (by dialed target, proved durable peer, or
+// side index), plus the duplicate refusals and index upkeep those lookups
 // power. `sessions/directory.zig` owns the bodies.
 pub const liveSessionForDial = directory.liveSessionForDial;
 pub const refuseDuplicateDial = directory.refuseDuplicateDial;
@@ -332,7 +333,7 @@ pub fn resolveSessionSecret(ctx: ?*anyopaque, peer_handle: engine.PeerHandle) ?c
 }
 
 /// Refuse a durable identity this host does not own. The caller first decides
-/// from the transport scheme that the designator is a key; byte shape alone
+/// from the transport scheme that the designator is a key. Byte shape alone
 /// carries no such authority.
 pub fn refuseUnheldIdentity(self: *const Host, designator: []const u8) error{UnheldIdentity}!void {
     const claimed = crypto.PeerKey.fromDesignator(designator) orelse return error.UnheldIdentity;
@@ -358,10 +359,10 @@ pub fn helloAndEnroll(self: *Host, session: *HostSession, advertised: model.Peer
 /// The accepted-open tail. On onion alone, an acceptor configured for an
 /// upgraded profile defers its hello until the initiator's arrives, because
 /// only that hello can say whether the partner is glowcap and therefore
-/// which preference ours may state (ADR-0118); the before-serve hook
+/// which preference ours may state (ADR-0118). The before-serve hook
 /// answers it (`Host.hostBeforeServe`). A default-profile acceptor gains
-/// nothing from waiting — its answer is bare either way — so it keeps the
-/// eager hello, and every other transport says hello at accept exactly as
+/// nothing from waiting: its answer is bare either way, so it keeps the
+/// eager hello, and every other transport says hello at accept as
 /// the dial side does.
 fn acceptedHelloAndEnroll(self: *Host, session: *HostSession, advertised: model.PeerLocator) !*HostSession {
     if (std.mem.eql(u8, session.transport, model.transport.onion) and
@@ -376,9 +377,9 @@ fn acceptedHelloAndEnroll(self: *Host, session: *HostSession, advertised: model.
 }
 
 /// Release one session: break its still-parked far vows (their
-/// resolutions can never arrive), retire it from the node — whose
+/// resolutions can never arrive), retire it from the node (whose
 /// fail-closed sweep queues the fail actions that break *sibling*
-/// sessions' answers — and free the shell. The sibling fails fire
+/// sessions' answers), and free the shell. The sibling fails fire
 /// inside this call, through the same pump every verb ends with.
 pub fn releaseSession(self: *Host, session: *HostSession) SessionReleaseError!void {
     try self.refuseReentry();
@@ -433,10 +434,6 @@ pub fn condemnRemainingSessions(self: *Host, message: []const u8) void {
         host_pump.condemnAndClose(self, remaining.*, .resource_exhausted, message);
 }
 
-/// One node-registered CapTP session shell over a node-owned peer: mint the
-/// peer, apply the host posture, and allocate the `HostSession`. The
-/// map slot is reserved here so `enroll` cannot fail; a caller that fails
-/// after this unwinds with `failOpen`.
 /// What a mint is told about the half being minted. The transport and
 /// dialed designator are borrowed here: `mintShell` copies them into one
 /// shell-owned identity block, so a caller never transfers ownership.
@@ -445,6 +442,10 @@ pub const RoleSpec = union(enum) {
     accepted,
 };
 
+/// One node-registered CapTP session shell over a node-owned peer: mint the
+/// peer, apply the host posture, and allocate the `HostSession`. The
+/// map slot is reserved here so `enroll` cannot fail. A caller that fails
+/// after this unwinds with `failOpen`.
 pub fn mint(self: *Host, spec: RoleSpec, transport: []const u8) !*HostSession {
     try self.sessions.ensureUnusedCapacity(self.allocator, 1);
     try self.pending_flush.ensureTotalCapacity(self.allocator, self.sessions.count() + 1);
@@ -460,7 +461,7 @@ pub fn mint(self: *Host, spec: RoleSpec, transport: []const u8) !*HostSession {
 
 /// `mint` over a peer the embedder already owns and pins at a stable
 /// address (`engine.Node.registerPeerOver`): the node routes through it
-/// and the host serves it, but neither ever frees it — `releaseSession` and
+/// and the host serves it, but neither ever frees it: `releaseSession` and
 /// `deinit` only unregister the slot, and the embedder frees the peer
 /// after `releaseSession`. This is how a peer-owning loop, whose fixed slots
 /// hold each peer inline, puts its sessions under one host.
@@ -590,7 +591,7 @@ pub const spawn = publication.spawn;
 pub const spawnHosted = publication.spawnHosted;
 
 /// Free one session's owned shell after it has been unregistered from every
-/// index and its Vat ingress has been canceled: the served Port, unconsumed feed tail, connection identity bytes,
+/// canceled: the served Port, unconsumed feed tail, connection identity bytes,
 /// then the shell itself. Every session teardown funnels through here so no
 /// path drops one of these frees. Call only after `unindexSession` (and, for
 /// a dialed session, `hellos.unregister`): the transport and designator bytes

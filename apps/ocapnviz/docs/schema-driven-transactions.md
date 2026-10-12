@@ -9,12 +9,12 @@ each re-encoded the same knowledge, and `event-helpers.ts` held a second copy of
 field, or id list broke every walker that forgot to update, silently.
 
 The code is the authority: `src/engine/schema/` holds `refs.ts`, `edges.ts`, `doc-index.ts`, `walk.ts`, `cascade.ts`,
-`clipboard.ts`, `extract.ts`, and `paste.ts`. Transactions live on `EditSession` in `src/engine/edit-session.ts`; the
+`clipboard.ts`, `extract.ts`, and `paste.ts`. Transactions live on `EditSession` in `src/engine/edit-session.ts`. The
 Engine is the public door.
 
 ## Invariants this preserves
 
-1. **The document is the source of truth and the world is a projection.** Every transaction commits to the document;
+1. **The document is the source of truth and the world is a projection.** Every transaction commits to the document.
    `seekTo(clock.t)` rebuilds the world from it. The schema layer touches the document only.
 2. **A transaction's state before and after are both schema-valid.** Its middle may be inconsistent, which is why
    validation runs at the transaction boundary rather than per intent.
@@ -29,7 +29,7 @@ Engine is the public door.
 **Event to entity.** Event payload fields naming an entity id: `peer-joined`'s `peerId`, `session-opened`'s `sessionId`,
 `a`, and `b`, `message-sent`'s `messageId`, `sessionId`, `from`, and `to`, and so on.
 
-**Entity to entity.** A session's `a` and `b` name peers; a message's `sessionId` names a session and its `from` and
+**Entity to entity.** A session's `a` and `b` name peers. A message's `sessionId` names a session and its `from` and
 `to` name peers.
 
 **Document index to entity.** Arrays of ids living elsewhere in the document: `rowOrder`, `rowHidden`, `rowLabelHidden`,
@@ -44,9 +44,9 @@ type SessionId = string & { readonly __brand: "SessionId" };
 type MessageId = string & { readonly __brand: "MessageId" };
 ```
 
-Brands and the edge map solve different halves of the same problem. The edge map makes references discoverable; without
+Brands and the edge map solve different halves of the same problem. The edge map makes references discoverable. Without
 brands every walker call site is stringly-typed and a `SessionId` passed where a `PeerId` belongs compiles fine. Brands
-make the types nominal; without the edge map nothing can tell you which fields hold one. The cost is roughly thirty
+make the types nominal. Without the edge map nothing can tell you which fields hold one. The cost is roughly thirty
 casts at the boundary where strings enter, at JSON parse, DOM keys, and sprite keys. Internal code is branded
 throughout.
 
@@ -67,7 +67,7 @@ type EdgeSpec<K extends TimelineEvent["kind"]> = {
 
 Mapping over `TimelineEvent["kind"]` forces every event kind to have an entry, so adding a kind without declaring its
 references does not compile. Constraining `field` to `RequiredKeys` forces the field to exist on that variant, so a typo
-does not compile either. Excluding optional fields is deliberate: with invariant 2 in force, every reference is
+does not compile either. Optional fields are excluded: with invariant 2 in force, every reference is
 required, so every cascade policy must produce a real value and none can leave a dangling reference behind.
 
 Entity edges follow the same shape. Document-index edges are a plain registry instead, because a new index is added by
@@ -82,7 +82,7 @@ The functions in `cascade.ts` and `paste.ts` implement the operations directly, 
 | -------------- | ---------------------------------- | -------------------------------------------------------- |
 | drop-dependent | `cascadeDelete`                    | Remove the dependent, and recurse into its own edges.    |
 | rewrite        | `cascadeRewrite`                   | Replace the field with a constant new value.             |
-| remap          | `cascadePaste`, `engine.duplicate` | Replace via a lookup table; absent entries pass through. |
+| remap          | `cascadePaste`, `engine.duplicate` | Replace via a lookup table. Absent entries pass through. |
 | clone-target   | `engine.duplicate`, through paste  | Deep-copy the dependent with fresh ids, and recurse.     |
 
 There is no generic policy union. Dangling external references are rejected by `cascadePaste` before mutation, because
@@ -91,10 +91,10 @@ every current reference is required, so a valid operation must rewrite its targe
 
 ## Discovery, then per-operation walks
 
-An earlier plan had one `cascade(ctx, target, policies)` dispatcher. Building it showed the operations have genuinely
-different control flow. `cascadeDelete` is a worklist: removing a peer queues its sessions, which queue their messages.
-`cascadeRewrite` is a single pass. Paste walks an incoming payload rather than the document. One dispatcher over all of
-them hides more than it shares.
+One `cascade(ctx, target, policies)` dispatcher does not fit, because the operations have different control flow.
+`cascadeDelete` is a worklist: removing a peer queues its sessions, which queue their messages. `cascadeRewrite` is a
+single pass. Paste walks an incoming payload rather than the document. One dispatcher over all of them hides more than
+it shares.
 
 What they do share is discovery. Given a target, find every site that references it. Three pure functions over the edge
 maps, in `walk.ts`:
@@ -123,9 +123,9 @@ bracket and close it from their teardown path.
 
 Validation before an ordinary intent goes through `engine.validate(intent)`, which answers without touching engine
 state. It covers rename collisions and an `add-peer` carrying a user-supplied id, so the Inspector and tool options can
-show the error inline. Paste validates its payload inside `cascadePaste` before mutation; duplicate extracts a payload
+show the error inline. Paste validates its payload inside `cascadePaste` before mutation. Duplicate extracts a payload
 and reaches the same path.
 
 The straggler checks at the end of rewrite and paste catch a missing edge declaration at the operation boundary.
-Whole-document parsing validates content when it enters from JSON; hot intents do not pay for a redundant full-document
+Whole-document parsing validates content when it enters from JSON. Hot intents do not pay for a redundant full-document
 walk after every pointer move.

@@ -63,11 +63,17 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 		self.installed = true;
 		drop(installation);
 		drop(original_source);
+		// Lifetime observation precedes readiness. A refused or unanswered
+		// ready call cannot keep a lost direct route looking usable forever.
+		if !self.observe_direct_connection(operation).await? {
+			return Ok(());
+		}
 		let selected = self.selected.clone();
 		let mut attempt = 0;
+		let mut conflicts = 0;
 		let mut admission = operation.to_owned();
-		let command = loop {
-			budget.select_admission(operation, &admission);
+		let command = 'admission: loop {
+			budget.select_admission(operation, &admission)?;
 			let Some(command) = self
 				.stage(|| async {
 					match &selected {
@@ -92,7 +98,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 				let result = tokio::select! {
 					biased;
 					_ = self.stopping.changed() => return Ok(()),
-					result = self.submission.as_mut().expect("owned admission observation").within(
+					result = self.submission.as_mut().ok_or_else(|| loam::refusal("Membership admission observation is not owned"))?.within(
 						&self.platform,
 						rooms_application::room::authority::REQUEST_TIMEOUT_MS,
 					) => result,
@@ -125,46 +131,62 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 				// The rejected attempt installed no continuation or receipt. Prepare
 				// a new operation through Source, which rechecks the exact original
 				// row, callback and source before reading its new revision.
+				conflicts += 1;
 				attempt += 1;
-				if attempt == 4 {
+				if conflicts == 4 {
 					return Err(loam::refusal("Membership admission repeatedly conflicted"));
 				}
 				admission = format!("{operation}:{attempt}");
 				continue;
 			}
-			break command;
-		};
-		loop {
-			let Some(status) = self.stage(|| async { command.status().await.map_err(error) }).await? else {
-				return Ok(());
-			};
-			match status {
-				EffectStatus::Committed => break,
-				EffectStatus::Unsent => {
-					// The original receipt proves no upstream dispatch. Retirement
-					// drains this worker before the registry starts a fresh attempt.
-					self.ready
-						.send_replace(Some(Err(loam::refusal("Membership was not sent"))));
-					self.recovery.recover();
+			loop {
+				let Some(status) = self.stage(|| async { command.status().await.map_err(error) }).await? else {
 					return Ok(());
-				}
-				EffectStatus::Pending => {
-					if !self.changed().await? {
+				};
+				match status {
+					EffectStatus::Committed => break 'admission command,
+					EffectStatus::Unsent => {
+						// A terminal refusal proves no dispatch. Reuse this exact
+						// worker, selection and finite window for a fresh admission.
+						let failure = command
+							.result()
+							.await
+							.err()
+							.map(error)
+							.unwrap_or_else(|| loam::refusal("Membership was not sent"));
+						let advice = rooms_application::failure::Failure::parse(&failure.to_string())
+							.and_then(|failure| failure.retry_advice());
+						self.ready.send_replace(Some(Err(failure)));
+						if let Some(advice) = advice {
+							if !self.retry_after(advice).await? {
+								return Ok(());
+							}
+							attempt += 1;
+							admission = format!("{operation}:{attempt}");
+							self.ready.send_replace(None);
+							continue 'admission;
+						}
+						self.recovery.recover();
 						return Ok(());
 					}
-				}
-				_ => {
-					if !self
-						.failed(loam::refusal(
-							"Membership requires explicit resolution of its original receipt",
-						))
-						.await?
-					{
-						return Ok(());
+					EffectStatus::Pending => {
+						if !self.changed().await? {
+							return Ok(());
+						}
+					}
+					_ => {
+						if !self
+							.failed(loam::refusal(
+								"Membership requires explicit resolution of its original receipt",
+							))
+							.await?
+						{
+							return Ok(());
+						}
 					}
 				}
 			}
-		}
+		};
 		if !matches!(target, Target::Direct) {
 			let mut conflicts = 0;
 			'acquire: loop {
@@ -237,47 +259,12 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 		}
 		self.ready.send_replace(Some(Ok(())));
 		loop {
-			if matches!(target, Target::Direct) {
-				let selection =
-					serde_json::to_string(&self.selected).map_err(|_| loam::refusal("invalid direct selection"))?;
-				let args = [
-					self.writer.root()?.into(),
-					selection.into(),
-					self.inbox.reference().clone().into(),
-					operation.into(),
-				];
-				let writer = self.writer.clone();
-				let endpoint = self.workspace.reference().clone();
-				if self
-					.stage(|| async { writer.host.send(&endpoint, "observe-direct-connection", &args).await })
-					.await?
-					.is_none()
-				{
-					return Ok(());
-				}
-			}
-			let retirement = self.retirement.clone();
-			let changed = tokio::select! {
-				biased;
-				ended = async {
-					match retirement {
-						Some(owner) => owner.ended().await,
-						None => std::future::pending().await,
-					}
-				} => {
-					ended?;
-					self.live = false;
-					self.recovery.recover();
-					return Ok(());
-				},
-				changed = self.changed() => changed?,
-			};
-			if !changed {
+			if !self.observe_direct_connection(operation).await? || !self.changed().await? {
 				return Ok(());
 			}
 			let snapshot = {
 				let _inspection = self.changes.inspect().await;
-				workspace.snapshot().await
+				workspace.owner_snapshot(&self.writer.root()?).await
 			};
 			match snapshot {
 				Ok(snapshot) if !self.selected.matches(&snapshot.intent) => return Ok(()),

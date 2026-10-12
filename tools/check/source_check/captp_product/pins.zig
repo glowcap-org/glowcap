@@ -17,7 +17,7 @@ const expectFileContains = util.expectFileContains;
 /// adopts its connections. Never to a session, a codec, a policy table, or an
 /// application driver that merely knows who it meant to reach.
 ///
-/// `demandPartnerDurableKey` is deliberately unpoliced: naming the
+/// `demandPartnerDurableKey` is unpoliced: naming the
 /// identity you dialed is any dialer's to do, and separating it from channel
 /// proof is the point of the split.
 ///
@@ -26,7 +26,7 @@ const expectFileContains = util.expectFileContains;
 /// field name `durable_pin` may appear only in the aggregate that declares it
 /// and the identity owner that implements its verbs. That covers a field
 /// write, a flag write inside the pin, and a read that would let a caller
-/// re-derive a verdict of its own — which the
+/// re-derive a verdict of its own, which the
 /// previous spelling, a ban on one assignment form, did not: the pin's fields
 /// are public, so `peer.durable_pin.?.remote_proved = true` matched no needle
 /// and wrote evidence from anywhere. Reads go through the accessors beside the
@@ -46,7 +46,7 @@ const expectFileContains = util.expectFileContains;
 /// a realizer is not always in this tree. A binding that owns its own sockets
 /// realizes its own connections, and an evidence verb only native code can
 /// speak is a hole: the session is weighed on what the partner volunteered
-/// while a stronger proof sat unread one layer down. That is not hypothetical —
+/// while a stronger proof sat unread one layer down. That is not hypothetical,
 /// it is how a binding-hosted iroh listener under-reported every accepted
 /// session, and no generated-mirror check could see it, because those compare
 /// symbols that exist and this one did not. So a verb either names the C entry
@@ -63,7 +63,7 @@ pub fn checkDurablePinWriters(
     // entry point for it, or no embedder can hold the fact and this says why.
     const Foreign = union(enum) {
         /// The `glowcap_host_*` prototype a foreign realizer speaks through,
-        /// checked present in `include/glowcap_host.h` — the actual public
+        /// checked present in `include/glowcap_host.h`, the actual public
         /// surface, so an export the inventory forgot to publish still fails.
         entry: []const u8,
         /// Why an absent entry point is the design rather than the gap.
@@ -117,7 +117,7 @@ pub fn checkDurablePinWriters(
     };
     const roots = [_][]const u8{ "src", "cli", "interop", "apps", "examples", "bench", "bindings", "tools" };
     // This file spells the needles it searches for, so it would otherwise
-    // report itself. Naming the exemption is the honest version of that.
+    // report itself. Naming the exemption is the correct version of that.
     const this_check = "tools/check/source_check/captp_product/pins.zig";
 
     // A rename that emptied a speaker list would leave the rule holding

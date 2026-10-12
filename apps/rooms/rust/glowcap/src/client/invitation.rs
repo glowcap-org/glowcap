@@ -9,8 +9,8 @@ pub struct Invitation<D> {
 	receipt: Receipt,
 }
 impl<D: Deadline + Entropy> Invitation<D> {
-	/// Adopt a received invitation. Entropy failure releases the adopted handle;
-	/// no claim has been sent and no remote authority has been consumed.
+	/// Adopt a received invitation. Entropy failure releases the adopted handle.
+	/// No claim has been sent and no remote authority has been consumed.
 	pub fn new(client: Client<D>, reference: Ref) -> Result<Self, Error> {
 		let receipt = client.deadline.invitation_receipt()?;
 		Ok(Self::with_receipt(client, reference, receipt))

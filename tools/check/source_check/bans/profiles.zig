@@ -5,7 +5,7 @@ const Ban = bans.Ban;
 
 /// Glowcap's default and native profiles have one semantic owner in the model
 /// and one C ABI projection. Bindings translate the generated ids into
-/// host-language option values; they do not choose either tuple themselves.
+/// host-language option values. They do not choose either tuple themselves.
 pub const rows: []const Ban = &.{
     .{
         .where = .{ .file = "src/ocapn/model/negotiated.zig" },

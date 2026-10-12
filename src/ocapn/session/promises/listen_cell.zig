@@ -1,6 +1,6 @@
 //! Shared listen/settle cell helpers for the third-party import store.
 //!
-//! `PromiseListenCell` lives on `Session`; these functions are the one install /
+//! `PromiseListenCell` lives on `Session`. These functions are the one install /
 //! take / peek / deinit spine `promises/imported.zig` calls, keeping the
 //! third-party import store's listen/settle contract in a single place.
 
@@ -12,7 +12,7 @@ const Error = session.Error;
 const PromiseListenCell = session.PromiseListenCell;
 const ListenerEntry = session.ListenerEntry;
 
-/// Append `listener` when under `max_listeners`; else `ListenerCapExceeded`.
+/// Append `listener` when under `max_listeners`. Else `ListenerCapExceeded`.
 pub fn installListener(
     cell: *PromiseListenCell,
     allocator: std.mem.Allocator,

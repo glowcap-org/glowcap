@@ -5,11 +5,11 @@
 //! Each sample is one synchronous `greet` round-trip: an `op:deliver` out and a
 //! resolve back over a live connection between two runtimes in this process:
 //! a `driver.Server` thread that publishes a greeter and serves, and a
-//! `driver.Session` client that fetches once and then calls in a loop. No pipelining; one call is in
+//! `driver.Session` client that fetches once and then calls in a loop. No pipelining. One call is in
 //! flight at a time, so the per-call number is the wire's serial latency and the
 //! throughput is its reciprocal.
 //!
-//! The iroh path carries the bytes over real keyed QUIC endpoints; only the
+//! The iroh path carries the bytes over real keyed QUIC endpoints. Only the
 //! address is resolved in-process (the `local_discovery` posture), so the data
 //! path is the encrypted channel, not a stub. The gap between the two transports
 //! is what the QUIC stack, the encryption, and the Rust sidecar's FFI boundary
@@ -18,7 +18,7 @@
 //! read this as the floor of the transport's own overhead, not field latency.
 //!
 //! Like the other benches, it reports numbers and gates none of them. Under
-//! `zig build check` it would run in Debug; it is not on `check` because it links
+//! `zig build check` it would run in Debug. It is not on `check` because it links
 //! the Rust sidecar. Read the printed `mode=` field and run with
 //! `-Doptimize=ReleaseFast` for absolute figures: `zig build bench-iroh`.
 
@@ -239,7 +239,7 @@ const LoopSync = struct {
 
 /// One throughput client: bind its own iroh endpoint, dial the server by id
 /// alone, fetch the greeter, warm the path, then, once every client is at the
-/// barrier, make `calls` sequential calls. Its own connection is serial; the
+/// barrier, make `calls` sequential calls. Its own connection is serial. The
 /// concurrency across the `loop_conns` clients is what the one thread
 /// multiplexes.
 fn loopClient(
@@ -276,7 +276,7 @@ fn loopClient(
 }
 
 /// Aggregate round-trip throughput when one Server thread serves `loop_conns`
-/// connections at once. Prints one `loop` line; the serial bench's per-stream
+/// connections at once. Prints one `loop` line. The serial bench's per-stream
 /// reciprocal is the contrast the page draws.
 fn benchIrohLoop(io: std.Io, allocator: std.mem.Allocator, warmup: usize, calls: usize) !void {
     const server_seed: [32]u8 = @splat(0x62);

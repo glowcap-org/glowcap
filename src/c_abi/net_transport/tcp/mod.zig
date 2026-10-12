@@ -1,4 +1,4 @@
-//! The framed TCP stream's public C ABI — `libglowcap_net_transport_tcp`.
+//! The framed TCP stream's public C ABI, `libglowcap_net_transport_tcp`.
 //!
 //! Blocking, cleartext TCP endpoint handles for a byte-fed Host. The C side
 //! cannot name a Zig `Io`, so the backend is
@@ -6,12 +6,12 @@
 //! Endpoints created from it borrow that backend and must be closed before it is
 //! released. There is no TLS.
 //!
-//! This is a *separate archive* from `libglowcap_ocapn` (ADR-0059): it imports
-//! only the shared vocabulary leaf (`@import("c_abi_shared")` — frame/context
+//! This is a separate archive from `libglowcap_ocapn` (ADR-0059): it imports
+//! only the shared vocabulary leaf (`@import("c_abi_shared")`: frame/context
 //! types, codes, allocation, the last-error slot), so it exports just the
 //! `glowcap_tcp_*` family and shares no core symbol with the ocapn archive. A
 //! consumer links both libraries (ocapn for shared vocabulary, this for the
-//! stream adapter) and reuses the shared types by layout, exactly as a C program
+//! stream adapter) and reuses the shared types by layout, as a C program
 //! including `glowcap_ocapn.h` and `glowcap_net_transport_tcp.h` does. The transport
 //! carries its own per-thread last-error slot, read through
 //! `glowcap_tcp_last_error`.
@@ -23,11 +23,11 @@ const std = @import("std");
 const net = @import("net");
 const runtime = @import("runtime.zig");
 
-// The shared C-ABI vocabulary leaf — types, codes, allocation policy,
-// managed-frame machinery, and the per-thread last-error slot — *not* the ocapn
+// The shared C-ABI vocabulary leaf: types, codes, allocation policy,
+// managed-frame machinery, and the per-thread last-error slot, not the ocapn
 // root. Importing the leaf gives this transport ABI the same frame and context
 // types `glowcap_ocapn.h` declares, with its own compiled copy of the helpers
-// and last-error slot, and pulls *none* of the ocapn archive's exported surface
+// and last-error slot, and pulls none of the ocapn archive's exported surface
 // (ADR-0059 companion split, generalized from the iroh companion).
 const c = @import("c_abi_shared");
 
@@ -37,7 +37,7 @@ pub const contract_layouts = [_]c.archive_contract.Layout{
     c.archive_contract.layout("GLOWCAP_TCP_OPERATION_OPTIONS", GlowcapTcpOperationOptions),
 };
 
-/// Exact callable/layout identity checked before a separately loaded TCP
+/// Callable and layout identity checked before a separately loaded TCP
 /// archive receives any ordinary arguments.
 pub const GLOWCAP_TCP_ARCHIVE_FINGERPRINT = c.archive_contract.fingerprint(
     "tcp",
@@ -50,16 +50,16 @@ pub export fn glowcap_tcp_archive_fingerprint() u64 {
 }
 
 /// The netlayer handle owns the one I/O backend the endpoints run on. Created
-/// and released explicitly by the host; it must outlive every connection and
+/// and released explicitly by the host. It must outlive every connection and
 /// listener made from it.
 pub const GlowcapTcpNetlayer = opaque {};
 /// One blocking TCP connection carrying one OCapN session, framed on the
-/// netlayer's codec. Owned by the caller; released with `glowcap_tcp_conn_release`.
+/// netlayer's codec. Owned by the caller. Released with `glowcap_tcp_conn_release`.
 pub const GlowcapTcpConn = opaque {};
-/// A bound TCP listener. Owned by the caller; released with
+/// A bound TCP listener. Owned by the caller. Released with
 /// `glowcap_tcp_listener_release`.
 pub const GlowcapTcpListener = opaque {};
-/// Per-stream TCP policy. All-zero disables keepalive; otherwise all three
+/// Per-stream TCP policy. All-zero disables keepalive. Otherwise all three
 /// fields must be positive. A null operation pointer inherits the provider
 /// default, while an explicit all-zero value overrides it off.
 pub const GlowcapTcpStreamOptions = runtime.GlowcapTcpStreamOptions;
@@ -68,7 +68,7 @@ pub const GlowcapTcpConfig = extern struct {
     stream: GlowcapTcpStreamOptions,
 };
 /// Provider-owned payload for one generic driver dial or listener operation.
-/// Omit the common envelope to inherit `GlowcapTcpConfig`; supplying this value
+/// Omit the common envelope to inherit `GlowcapTcpConfig`. Supplying this value
 /// overrides the stream settings, including an explicit all-zero disable.
 pub const GlowcapTcpOperationOptions = runtime.GlowcapTcpOperationOptions;
 const GlowcapContext = c.GlowcapContext;
@@ -87,15 +87,15 @@ const GLOWCAP_ERR_CLOSED = c.GLOWCAP_ERR_CLOSED;
 const GLOWCAP_ERR_IO = c.GLOWCAP_ERR_IO;
 
 /// The annotated symbol inventory (crossing semantics per export) the
-/// binding FFI-table generators reflect from — see `symbols.zig`.
+/// binding FFI-table generators reflect from. See `symbols.zig`.
 pub const symbols = @import("symbols.zig");
 
 /// Copy the calling thread's last TCP-transport error message into `out_buf`,
 /// the tcp sibling of `glowcap_last_error`. `libglowcap_net_transport_tcp`
 /// carries its own per-thread slot (a separate compiled copy of the shared
 /// leaf's slot), so a `glowcap_tcp_*` call that returns `GLOWCAP_ERR_IO` records
-/// its cause here, readable independently of the ocapn archive's. Copies at most
-/// `cap - 1` bytes and always NUL-terminates when `cap > 0`; `out_buf == NULL`
+/// its cause here, readable independently of the ocapn archive's. It copies at most
+/// `cap - 1` bytes and always NUL-terminates when `cap > 0`. `out_buf == NULL`
 /// or `cap == 0` queries the length. Returns the full message length, or 0 when
 /// none is set.
 pub export fn glowcap_tcp_last_error(out_buf: ?[*]u8, cap: usize) usize {
@@ -109,7 +109,7 @@ pub export fn glowcap_tcp_clear_last_error() void {
 
 /// The netlayer handle owns the one I/O backend the endpoints run on. It is
 /// created and released explicitly by the host. `std.Io` cannot cross the C ABI,
-/// so this is the plain handle translation of "pass `Io` in" rather than a
+/// so this is the plain handle translation of "pass `Io` in" instead of a
 /// hidden process-global runtime. Endpoints created from it borrow its `Io`, so
 /// the handle must outlive every connection and listener made from it.
 const TcpNetlayerPayload = runtime.TcpNetlayerPayload;
@@ -168,7 +168,7 @@ fn netlayerNewIn(
 }
 
 /// Borrow this TCP runtime's complete provider package: plain TCP, keyed TCP,
-/// and Noise-sealed TCP. The returned table is copied; its callback contexts
+/// and Noise-sealed TCP. The returned table is copied. Its callback contexts
 /// borrow `netlayer`, which must outlive the driver registration.
 pub export fn glowcap_tcp_transport_provider(
     netlayer: ?*GlowcapTcpNetlayer,
@@ -182,7 +182,7 @@ pub export fn glowcap_tcp_transport_provider(
 }
 
 /// Seal connect admission and request cancellation of a connect already in
-/// progress. Idempotent; release joins the operation before freeing the backend.
+/// progress. Idempotent. Release joins the operation before freeing the backend.
 pub export fn glowcap_tcp_netlayer_shutdown(netlayer: ?*GlowcapTcpNetlayer) void {
     const payload = netlayerFromOpaque(netlayer) orelse return;
     _ = payload.calls.beginShutdown(payload.io());
@@ -215,7 +215,7 @@ const TcpListenerPayload = struct {
 // with `begin`, release a never-installed payload with `abort`, an established
 // one with `destroy`. Buffer caps are the shared leaf's
 // `connection_read_buf_bytes` / `connection_write_buf_bytes`. Frame read/write
-// choreography is `ConnFrameOps` below — this archive keeps the `export fn`s.
+// choreography is `ConnFrameOps` below. This archive keeps the `export fn`s.
 const conn_lifecycle = c.ConnLifecycle(TcpConnPayload);
 const beginConn = conn_lifecycle.begin;
 const abortConn = conn_lifecycle.abort;
@@ -384,7 +384,7 @@ pub export fn glowcap_tcp_listener_port(listener: ?*GlowcapTcpListener, out_port
 /// reactor on this fd and calls `glowcap_tcp_accept` after it is readable.
 /// Readiness is advisory: another accept consumer or a close can spend it first,
 /// so serialize consumers when the reactor must not park. The listener owns the
-/// fd; do not close it or use it after `glowcap_tcp_listener_release`.
+/// fd. Do not close it or use it after `glowcap_tcp_listener_release`.
 pub export fn glowcap_tcp_listener_readiness_fd(listener: ?*GlowcapTcpListener, out_fd: ?*i32) i32 {
     c.lastErrorClear();
     const payload = listenerFromOpaque(listener) orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -450,7 +450,7 @@ pub export fn glowcap_tcp_accept(
     );
 }
 
-/// Block until one whole frame arrives, writing it as an *owned* managed frame
+/// Block until one whole frame arrives, writing it as an owned managed frame
 /// into `out_frame` (the caller releases it after feeding its bytes to a Host
 /// session). Returns `_CLOSED` on graceful EOF, `_IO` on a
 /// socket fault (see `glowcap_tcp_last_error`), `_MALFORMED` / `_FRAME_TOO_LARGE`
@@ -481,7 +481,7 @@ pub export fn glowcap_tcp_conn_read_frame(
     );
 }
 
-/// Write one frame's *borrowed* bytes and flush. Returns `_IO` on a socket fault.
+/// Write one frame's borrowed bytes and flush. Returns `_IO` on a socket fault.
 fn tcpConnWriteFrame(conn: ?*GlowcapTcpConn, frame_in: ?*const GlowcapFrame) i32 {
     const payload = connFromOpaque(conn) orelse return GLOWCAP_ERR_NULL_POINTER;
     const borrowed = frame_in orelse return GLOWCAP_ERR_NULL_POINTER;

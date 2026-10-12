@@ -1,12 +1,12 @@
 # conformance/goblins-peer
 
-Slim Spritely Goblins OCapN peer packaged for glowcap conformance work. It gives
-glowcap a real Goblins-shaped peer for wire-shape lookup, local demos, and the
+A slim Spritely Goblins OCapN peer for glowcap conformance work. It gives
+glowcap a real Goblins peer for wire-shape lookup, local demos, and the
 upstream OCapN test suite target.
 
-This is not Spritely Goblins itself. The upstream source lives in the
-`../spritely-goblins/upstream/` submodule; this directory contains glowcap-owned
-wrappers and small Racket programs around that API.
+This is not Spritely Goblins itself. The Goblins source lives in the
+`../spritely-goblins/upstream/` submodule, and this directory holds glowcap's
+wrappers and small Racket programs around its API.
 
 ## Files
 
@@ -19,14 +19,14 @@ wrappers and small Racket programs around that API.
 | `racket/session-trace.rkt` | The CapTP session facts a netlayer sees at the wire, reported to a trace sink. Shared by both netlayers. |
 | `racket/ocapn-names.rkt`  | The Public Identifier and Session ID both ends of a session derive alike. |
 | `racket/trace-publish.rkt` | Publishes a vat's own sessions to a live timeline endpoint.        |
-| `run.sh`                  | Native launcher using the devcontainer's `racket`. |
+| `run.sh`                  | Launcher using the devcontainer's `racket`. |
 
 ### Demos and suite target
 
 | File                         | Role                                                                      |
 | ---------------------------- | ------------------------------------------------------------------------- |
 | `racket/captp-demo.rkt`      | In-process CapTP demo over Goblins fake-intarwebs.                        |
-| `racket/tcp-demo.rkt`        | Two Goblins peers over local TCP; exits after one roundtrip.              |
+| `racket/tcp-demo.rkt`        | Two Goblins peers over local TCP. Exits after one roundtrip.              |
 | `racket/three-vat-demo.rkt`  | Three-party introduction over local TCP.                                  |
 | `racket/seven-caps-peer.rkt` | Long-running peer registering the seven caps expected by the OCapN suite. |
 
@@ -51,7 +51,7 @@ wrappers and small Racket programs around that API.
 | `racket/exporter-gifter-host.rkt` | Goblins Alice (gifter) over a greeter glowcap exports, so a Goblins pair deposits into and withdraws from glowcap's gift registry (`goblins-exporter`). |
 | `racket/deferred-exporter-host.rkt` | Goblins Bob (exporter) holding a promise he has not settled. He hands it to glowcap as a delivered argument, then either settles from stdin for `goblins-relayed-give` or settles a nested-capability value after glowcap's ordered `listenTo` in `goblins-listen-recipient`. |
 | `racket/relayed-give-recipient.rkt` | Goblins Carol (recipient), who waits on a promise glowcap introduced her to and reads the give out of the listener fire (`goblins-relayed-give`). |
-| `racket/rooms-client.rkt`         | The rooms wire protocol in Goblins terms — dial, reach the directory, enter or open a room, spawn the inbox the room calls back — shared by the three rooms members below. |
+| `racket/rooms-client.rkt`         | The rooms wire protocol in Goblins terms (dial, reach the directory, enter or open a room, spawn the inbox the room calls back), shared by the three rooms members below. |
 | `racket/rooms-dm.rkt`             | The direct-message half of that protocol: claim a name, mint one inbox per peer and offer it to the room, receive a message off-room and answer over the connection it arrived on. |
 | `racket/rooms-member.rkt`         | Goblins vat joining the rooms chat as an ordinary member, scripted: it enters a room, subscribes, posts one line, waits to hear what it came for, and exits (`goblins-rooms`). |
 | `racket/rooms-dm-member.rkt`      | Goblins vat sitting in the room and reachable by direct message, scripted: it narrates each message it receives and answers it, starts a direct message of its own with `--dm`, and stays up until killed (`goblins-rooms-dm`). |
@@ -90,23 +90,23 @@ TCP testing and iroh adapters used by the other conformance vats.
 | Live Goblins over Tor (`zig build goblins-onion`) | `onion` (upstream Goblins netlayer, glowcap `net.onion`) | Real Goblins ↔ glowcap CapTP over onion circuits, both directions |
 | Upstream OCapN suite target (`seven-caps-peer`, `ocapn-conformance`) | `tcp-testing-only` in printed URLs | Suite harness ↔ glowcap or seven-caps peer |
 
-Do not infer that the suite netlayer is the Goblins parity path.
+The suite netlayer is not the Goblins parity path.
 
-## How Glowcap Uses This
+## How glowcap uses this
 
-- **As an external peer.** Goblins emits OCapN/Syrup bytes glowcap must parse
-  and answer correctly.
+- **As an external peer.** Goblins emits OCapN/Syrup bytes that glowcap must
+  parse and answer.
 - **As a conformance-suite target.** `seven-caps-peer.rkt` supplies the target
   capabilities the upstream Python suite expects.
 - **As a wire-shape lookup.** When the Zig implementation needs evidence for a
-  Goblins-canonical shape, this peer can produce it on the wire.
+  Goblins shape, this peer produces it on the wire.
 
 ## Posture
 
-- The demos are editable glowcap-owned wrappers.
-- `seven-caps-peer.rkt` must stay compatible with the upstream suite's expected
-  cap behavior.
-- The testing TCP netlayer is cleartext loopback infrastructure, not a
-  production transport claim. The iroh netlayer beside it is encrypted and names
-  its peer by key, but it is still interop scaffolding rather than a Spritely
-  product: it has no graceful shutdown and no reconnect.
+- The demos are glowcap's own wrappers and are editable.
+- `seven-caps-peer.rkt` stays compatible with the capabilities the upstream
+  suite expects.
+- The testing TCP netlayer is cleartext loopback infrastructure. The iroh
+  netlayer beside it is encrypted and names its peer by key, but it is interop
+  scaffolding and not a Spritely product: it has no graceful shutdown and no
+  reconnect.

@@ -10,7 +10,12 @@ use crate::{
 	},
 	server::history::{KeptLine, Token},
 };
-use alloc::{collections::BTreeSet, string::String, sync::Arc, vec::Vec};
+use alloc::{
+	collections::{BTreeSet, VecDeque},
+	string::String,
+	sync::Arc,
+	vec::Vec,
+};
 
 /// The key a room lives under. Two namespaces share one table, a listed
 /// room's public name and a managed or private room's opaque id, and the
@@ -96,7 +101,15 @@ pub(super) struct Member<C, R> {
 	pub kind: MembershipKind,
 	/// Why this member has stepped away, empty while they are here.
 	pub away: String,
+	/// Coalesce identical typing until its display lease is due for renewal.
+	pub typing_until: core::cell::Cell<u64>,
 	pub files: FileMember,
+}
+
+pub(super) struct OfflineName {
+	pub nick: String,
+	/// Computed once on disconnect. Joins compare keys without folding every row.
+	key: String,
 }
 
 pub(super) struct Room<C, R> {
@@ -107,11 +120,16 @@ pub(super) struct Room<C, R> {
 	pub key: RoomKey,
 	pub policy: RoomPolicy,
 	pub members: Vec<Member<C, R>>,
+	/// Disconnected display names only, bounded oldest first.
+	/// No seat, registration, callback, or other authority survives here. The
+	/// queue dies with this room generation. Removing it loses offline presence
+	/// on a fresh subscription while existing readers still retain those names.
+	pub offline: VecDeque<OfflineName>,
 	pub invitations: BTreeSet<super::InvitationKey>,
 	/// The lines this generation still answers edits on, oldest first, so
 	/// the editable window closes from its oldest end.
 	pub lines: BTreeSet<super::LineKey>,
-	/// The connection that opened the room; an empty room it opened goes
+	/// The connection that opened the room. An empty room it opened goes
 	/// with it.
 	pub lifetime_owner: C,
 	/// Names the next line this room generation makes.
@@ -121,6 +139,27 @@ pub(super) struct Room<C, R> {
 }
 
 impl<C: Copy + PartialEq, R> Room<C, R> {
+	pub fn forget_offline(&mut self, nick: &str) -> Option<String> {
+		if self.offline.is_empty() {
+			return None;
+		}
+		let key = folded(nick);
+		let index = self.offline.iter().position(|name| name.key == key)?;
+		self.offline.remove(index).map(|name| name.nick)
+	}
+	pub fn remember_offline(&mut self, nick: String) -> Option<String> {
+		// Every successful subscribe removes its old offline entry first.
+		let evicted = if self.offline.len() == super::MAX_ROOM_OFFLINE {
+			self.offline.pop_front()
+		} else {
+			None
+		};
+		self.offline.push_back(OfflineName {
+			key: folded(&nick),
+			nick,
+		});
+		evicted.map(|name| name.nick)
+	}
 	/// The name durable authority files this room under: a managed room's
 	/// opaque key, or a public room's display name.
 	pub fn durable_name(&self) -> &str {
@@ -149,7 +188,7 @@ impl<C: Copy + PartialEq, R> Room<C, R> {
 			id: Text(self.entry_id.as_str().into()),
 			name: Text(self.name.as_str().into()),
 			kind: PublicationKind::Local,
-			count: Nullable::Value(SafeInteger::new(self.members.len() as u64).expect("a bounded roster")),
+			count: Nullable::Value(roster_count(self.members.len())),
 			origin: Text("".into()),
 			proof: OriginProof::Local,
 			offers: match self.policy.public_membership() {
@@ -180,13 +219,22 @@ impl<C: Copy + PartialEq, R> Room<C, R> {
 	}
 }
 
+/// A roster count as the listing carries it. Membership admission bounds the
+/// count by the room's ceiling, so it is always inside the safe range.
+pub(crate) fn roster_count(count: usize) -> SafeInteger {
+	#[expect(
+		clippy::expect_used,
+		reason = "membership admission bounds a roster by MAX_MEMBERS, far inside 2^53"
+	)]
+	SafeInteger::new(count as u64).expect("a bounded roster")
+}
+
 /// Who is present, said to the one reader who just arrived. A sentence,
 /// because it is read rather than parsed: the names travel beside it.
 pub fn roster_said(names: &[String]) -> String {
-	if names.len() == 1 {
+	let Some((last, rest)) = names.split_last().filter(|(_, rest)| !rest.is_empty()) else {
 		return "Nobody else is in the room.".into();
-	}
-	let (last, rest) = names.split_last().expect("a roster names its arrival");
+	};
 	let mut said = rest.join(", ");
 	said.push_str(" and ");
 	said.push_str(last);

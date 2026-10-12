@@ -1,9 +1,9 @@
 #lang racket/base
-;; tcp-netlayer.rkt — a minimal TCP netlayer for Spritely Goblins's CapTP.
+;; tcp-netlayer.rkt: a minimal TCP netlayer for Spritely Goblins's CapTP.
 ;;
 ;; Modeled after `goblins/ocapn/netlayer/fake-intarwebs.rkt`, but with
 ;; real `tcp-listen` / `tcp-connect` instead of an in-process pipe.
-;; Provides `^tcp-netlayer` — spawn it with the local bind host+port,
+;; Provides `^tcp-netlayer`, spawn it with the local bind host+port,
 ;; pass the resulting netlayer to `spawn-mycapn`, and the Vat speaks
 ;; CapTP over TCP.
 ;;
@@ -43,27 +43,27 @@
 
 ;; Constructor for a TCP netlayer.
 ;;
-;;   listen-host  — string passed to `tcp-listen`. Use "127.0.0.1" for
+;;   listen-host: string passed to `tcp-listen`. Use "127.0.0.1" for
 ;;                  loopback-only, "0.0.0.0" for any interface.
-;;   listen-port  — integer port to bind.
-;;   announce-host — string used in the netlayer's advertised location
+;;   listen-port: integer port to bind.
+;;   announce-host: string used in the netlayer's advertised location
 ;;                   (what dialers will use to reach back). Often the
 ;;                   same as listen-host; differs when we bind 0.0.0.0
 ;;                   but want to advertise a specific external name.
 ;;
-;; Optional `#:trace trace-fn` — a `(lambda (event . args) ...)`
+;; Optional `#:trace trace-fn`, a `(lambda (event . args) ...)`
 ;; called for each TCP-level event the netlayer observes:
 ;;
 ;;   (trace-fn 'accept self-location)
-;;       — incoming connection accepted on our listening port
+;;       ,  incoming connection accepted on our listening port
 ;;   (trace-fn 'connect self-location remote-location)
-;;       — outbound connect_to dialing a remote peer
+;;       ,  outbound connect_to dialing a remote peer
 ;;
 ;; The default no-ops. `three-vat-demo.rkt` uses it to observe whether
 ;; a third Vat dials a peer directly or routes via an introducer
-;; (the load-bearing signal that OCapN three-party handoff actually
+;; (the essential signal that OCapN three-party handoff
 ;; happens).
-;; Optional `#:location-hints hints` — a value to advertise as the netlayer's
+;; Optional `#:location-hints hints`, a value to advertise as the netlayer's
 ;; own location hints (e.g. a hash of route metadata). The contracted
 ;; `ocapn-node` constructor admits only #f-or-string hints, while the wire
 ;; unmarshaller builds nodes through the raw constructor and accepts the
@@ -71,23 +71,23 @@
 ;; decoded hello would hold, so the hinted location is built through the
 ;; unmarshaller's own constructor.
 ;;
-;; Optional `#:session-trace sink` — a `(lambda (event handle info) ...)` called
+;; Optional `#:session-trace sink`, a `(lambda (event handle info) ...)` called
 ;; with the CapTP session facts this netlayer observes at the wire:
 ;;
 ;;   (sink 'open handle info)
-;;       — a session finished its handshake. `info` is an immutable hash
+;;       ,  a session finished its handshake. `info` is an immutable hash
 ;;         carrying `'transport`, `'our-designator`, `'partner-designator`,
 ;;         `'session-id`, `'captp-version`, `'codec` and
 ;;         `'durable-provenance`.
 ;;   (sink 'close handle #f)
-;;       — that session ended. Only sessions whose open was reported.
+;;       ,  that session ended. Only sessions whose open was reported.
 ;;
 ;; `handle` is this netlayer's own name for the session and is meaningful to
 ;; nobody else; a sink that publishes correlates on the Session ID in `info`,
 ;; which both ends of the session derive alike. The default is #f, and with no
 ;; sink the wire path is untouched.
 ;;
-;; Optional `#:interop-message-sink sink` — test-only observation of decoded
+;; Optional `#:interop-message-sink sink`, test-only observation of decoded
 ;; inbound CapTP records before this netlayer hands them to Goblins. This is not
 ;; an application API; it exists so glowcap's interop probes can prove a
 ;; canonical Goblins-written frame caused the partner's semantic response even
@@ -108,7 +108,7 @@
                        #:interop-outbound-message-sink [interop-outbound-message-sink #f])
   ;; The bind happens here, on the caller's thread, so returning from the
   ;; constructor means the port is listening and a dial lands in its backlog.
-  ;; Anything later — `setup`, the accept thread below — leaves a window where a
+  ;; Anything later, `setup`, the accept thread below, leaves a window where a
   ;; host has printed `vat-ready` and a peer has been handed a locator naming
   ;; this vat while nothing is bound, and the dial fails with connection
   ;; refused. It is also the only place the ephemeral port below can be read.

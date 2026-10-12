@@ -1,10 +1,10 @@
 // Speaking to a bridge gateway over CapTP.
 //
 // The verbs and the description are generic: a gateway answers `snapshot` with
-// its whole description, opens a connection from a submitted answers record,
-// and hands back a connection capability whose leases are added and removed by
-// the same answer-or-id shape. Nothing here knows IRC; the bridge behind the
-// capability does.
+// its description, opens a connection from a submitted answers record, and
+// hands back a connection capability whose leases are added and removed by
+// the same answer-or-id shape. Nothing here knows IRC, and the bridge behind
+// the capability does.
 
 import { Ref, retainCleanupFailures, type Session } from "@glowcap/runtime";
 import { SNAPSHOT } from "../protocol.ts";
@@ -20,7 +20,7 @@ import {
 import { ask } from "../ask.ts";
 import { takeOperationsCap } from "../operations.ts";
 
-/** Fetch the gateway and read its whole description. */
+/** Fetch the gateway and read its description. */
 export async function takeBridgeGateway(session: Session, pasted: string): Promise<{
 	cap: Ref;
 	gateway: BridgeGateway;
@@ -39,7 +39,7 @@ export async function snapshotBridgeGateway(session: Session, cap: Ref): Promise
 	return parseBridgeGateway(raw);
 }
 
-/** `run` rather than `use`: React 19's hook of that name is what the
+/** `run` and not `use`: React 19's hook of that name is what the
  * hook-ordering lint matches on, and this is a resource bracket. */
 async function withConnection<T>(session: Session, connection: Ref, run: (connection: Ref) => Promise<T>): Promise<T> {
 	let answer: T;
@@ -76,12 +76,12 @@ export async function openBridgeConnection(session: Session, gateway: Ref, answe
 	);
 	if (typeof id !== "string" || id === "") throw new Error("the gateway did not name the opened connection");
 	// The gateway answers only after its durable work commits, so the id is
-	// already re-readable; nothing further to await.
+	// already re-readable and there is nothing further to await.
 	return id;
 }
 
 /** Add a lease under a connection from the answers a reader filled into the
- * gateway's lease form. Resolves with the lease's own name when it has one. */
+ * gateway's lease form. Resolves with the lease's name when it has one. */
 export async function addBridgeLease(
 	session: Session,
 	gateway: Ref,

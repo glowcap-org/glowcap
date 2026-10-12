@@ -1,6 +1,5 @@
 // What a slash command says back, in the log of the conversation it ran in,
-// and why one could not run. Moved here verbatim from the command modules
-// so the product's voice can be read in one place.
+// and why one could not run.
 
 /** Why a command could not enter a room on this tab, when the missing handle
  * is a directory. */

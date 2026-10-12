@@ -83,8 +83,8 @@ test "core host: a crossed-hellos loser refuses every verb condemned; release st
     try std.testing.expectError(condemned_err, a.breakFarVows(condemned, "gone"));
     try std.testing.expectError(condemned_err, a.setExporterLocation(condemned, null));
 
-    // The queued typed abort still drains — the embedder writes it before
-    // closing — and the release path stays ungated.
+    // The queued typed abort still drains, the embedder writes it before
+    // closing, and the release path stays ungated.
     var abort_frame = (try condemned.takeOutbound()) orelse return error.MissingAbort;
     abort_frame.deinit();
     try a.releaseSession(condemned);
@@ -292,7 +292,7 @@ test "core host: a burst of accepts before any start-session indexes every partn
     // Regression (ADR-0012): `partner_by_side` reserves at its own insert
     // (`indexPartnerKey`), not at mint. A partner key is unknown until that
     // partner's `op:start-session` arrives, so every session minted before a
-    // single start-session is fed stays un-indexed — a mint-time reservation
+    // single start-session is fed stays un-indexed, a mint-time reservation
     // would never grow the map across those mints and would overflow
     // `putAssumeCapacity` once the burst passed the map's usable capacity.
     const allocator = std.testing.allocator;
@@ -344,9 +344,9 @@ test "session identity: crossed-hello ordering is per session over one advertise
     // different identities, and fresh session keys are what force them apart:
     //
     //   * matching asks *which two attempts are racing*, and that is a
-    //     question about the durable peer — both attempts name the same one;
+    //     question about the durable peer, both attempts name the same one;
     //   * ordering asks *which one survives*, and that is a question about
-    //     session identity — the two sessions' own keys.
+    //     session identity, the two sessions' own keys.
     //
     // While every session reused its host's durable key one value answered
     // both, so the split was invisible and a wrong reading still worked. Here
@@ -370,7 +370,7 @@ test "session identity: crossed-hello ordering is per session over one advertise
 
     // The teeth: no session's signing key is its host's durable key, so a
     // tiebreak reading durable keys would be comparing values this race never
-    // uses — and, being equal across both of a host's sessions, could not
+    // uses, and, being equal across both of a host's sessions, could not
     // order them anyway. These assertions fail under key reuse.
     const a_durable = crypto.derivePublicIdentifier(a.node.secretKey().publicKey());
     const b_durable = crypto.derivePublicIdentifier(b.node.secretKey().publicKey());
@@ -468,7 +468,7 @@ const CrossedPairProof = enum { none, authenticated_channel };
 
 /// Exercise the same fresh-key crossed pair with and without realizer proof.
 /// Four distinct session keys make the durable-peer directory the only possible
-/// cross-connection match; a bare key designator cannot populate it, while a
+/// cross-connection match. A bare key designator cannot populate it, while a
 /// channel-authenticated durable key can.
 fn expectFreshKeyCrossedPair(transport: []const u8, proof: CrossedPairProof) !void {
     const allocator = std.testing.allocator;

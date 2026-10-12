@@ -50,15 +50,15 @@ the leases and receipts were gone by commit time.
    deliver the Peer queues is marked provisional on its pending row. Abort
    removes each marked row, which keeps every other row in order, because
    releases and listens share the queue:
-   - it frees the row's message and returns its charge;
+   - it frees the row's message and returns its charge
    - it releases the row's export retains with `sent_exports.releaseMessage`,
-     the exact inverse of `retainMessage`;
+     the exact inverse of `retainMessage`
    - it retires the outbound answer row and, on `next`, abandons the paired
-     resolver export first, because that link names the answer;
+     resolver export first, because that link names the answer
    - the Port breaks the retracted send's vow with the turn's error, or, with
-     no listener yet, records it so a later `on` is refused.
+     no listener yet, records it so a later `on` is refused
    Commit clears the marks. A row a step encoded before the outcome has left
-   the Peer and stays sent; only an embedder that steps inside a handler can
+   the Peer and stays sent. Only an embedder that steps inside a handler can
    reach this case.
 3. **The Host defers its receipts.** A Host send made inside a turn calls
    `holdForTurn` before the send, which enrolls the Host and reserves room, so
@@ -107,16 +107,16 @@ retain.
 
 - A send outside a turn pays nothing. A far send inside a turn pays one flag
   on its pending row and one enrollment per Port per turn. The Peer gains one
-  flag within its struct budget; the Host's Vat gains the participant list.
+  flag within its struct budget. The Host's Vat gains the participant list.
 - Host lowering gains a turn-scoped receipt list, and the Node a list of the
-  batches staged for an open window; each is one list per Host.
+  batches staged for an open window. Each is one list per Host.
 
 ## Evidence and gate
 
 [`test/actors/vat/turn_far_test.zig`](../../../test/actors/vat/turn_far_test.zig)
 serves a deliver whose handler sends far, with and without an answer, on both
 profiles: a failed turn sends its caller only the break, breaks the retracted
-send's vow, and leaves the session's export and answer tables as they were; a
+send's vow, and leaves the session's export and answer tables as they were. A
 successful one sends both. The atomic forward walk is held by
 [`test/session/gc_test.zig`](../../../test/session/gc_test.zig) ("a send refused
 for memory takes no export retain").
@@ -127,5 +127,5 @@ successful one keeps both.
 shows a failed turn's send carrying another session's capability is withdrawn
 from Node staging and never reaches its recipient. On both profiles, a failed
 turn's send carrying only another session's promise leaves no proxy, no queued
-home listen, and no new export or import row; a successful one keeps its home
+home listen, and no new export or import row. A successful one keeps its home
 listener.

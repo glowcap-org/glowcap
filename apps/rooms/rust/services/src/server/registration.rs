@@ -21,7 +21,7 @@ struct Claim {
 }
 
 /// Read `locator` against `session`. A durable identity the partner proved
-/// must name the same designator the locator claims (ADR-0097); an address
+/// must name the same designator the locator claims (ADR-0097). An address
 /// designator names a socket a key does not determine, so an unproved
 /// connection holds its own claim.
 fn claim(session: &Session, locator: &str) -> Result<Claim, String> {
@@ -123,6 +123,25 @@ pub(super) fn register(state: &Shared, connection: u64, args: &[Argument]) -> Re
 		let id = id.clone();
 		session
 			.spawn_owned(move |verb, args| {
+				{
+					use rooms_application::{admission::Class, protocol_data, signaling};
+					let mut held = state.borrow_mut();
+					let (caller, _) = super::rooms::caller(&mut held)?;
+					let class = match verb {
+						protocol_data::LEAVE | signaling::DONE => Class::Cleanup,
+						signaling::OFFER_INBOX | signaling::OFFER | signaling::ANSWER | signaling::CANDIDATE => {
+							Class::Signal
+						}
+						_ => Class::Read,
+					};
+					if class != Class::Cleanup {
+						held.ingress(caller)?;
+					}
+					// Offer charges both caller and recipient at the signaling owner.
+					if verb != signaling::OFFER {
+						held.admit_work(caller, class, 1)?;
+					}
+				}
 				if verb == rooms_application::signaling::CHECK {
 					if !args.is_empty() {
 						return Err("signalCheck takes no arguments".into());
@@ -200,7 +219,7 @@ pub(super) fn register(state: &Shared, connection: u64, args: &[Argument]) -> Re
 	let granted = held
 		.policy
 		.registered_nick(connection)
-		.expect("committed registration names its holder")
+		.ok_or("committed registration names no holder")?
 		.to_owned();
 	held.apply(effects);
 	// Identity and exact custody have one commit and one reply. Notifications

@@ -1,9 +1,9 @@
 // The Operations surface in the content cell: one address per held capability.
 //
-// It is not its own screen. The shell — rail, topbar, Settings — stays up,
+// It is not its own screen. The shell (rail, topbar, Settings) stays up,
 // and this surface stands where the conversation stands, so the way back is
 // the rail itself and Settings opens over it exactly as it opens over a room.
-// The modal this surface replaced could only show what was already held; an
+// The modal this surface replaced could only show what was already held. An
 // address can be arrived at cold, so the gate lives here: a pane this tab
 // holds is drawn, and one it does not hold leads to the one saved
 // capability-set editor. Possession, not the address, is what grants the
@@ -123,7 +123,7 @@ function GateCard({ pane, canEdit }: { pane: OpsPaneFace; canEdit: boolean }) {
 
 /** Operations panes are real addresses, so their chooser is navigation rather
  * than a segmented tab control. The grid keeps every held capability visible
- * and reflows as a whole; no label is squeezed, clipped, or hidden behind an
+ * and reflows as a whole. No label is squeezed, clipped, or hidden behind an
  * overflow menu when the server mints the complete set. */
 function OpsNav(
 	{ panes, selected, held }: {

@@ -7,10 +7,9 @@
 ---
 
 Call a capability from your shell, host a peer, inspect a live session in the
-REPL, or expose CapTP tools over MCP. The command uses the same Host and
-transport implementations as the library. Complete command and configuration
-reference:
-[docs/cli.md](https://github.com/jimisaacs/glowcap/blob/main/docs/cli.md).
+REPL, or expose CapTP tools over MCP, with the same Host and transports as the
+library. The [CLI guide](https://github.com/jimisaacs/glowcap/blob/main/docs/cli.md)
+is the complete reference.
 
 ```sh
 zig build
@@ -37,7 +36,7 @@ The CLI's demo greeter accepts the verb `greet` and one argument, then returns
 a waiting or serving `listen` cleanly with exit 0. Run terminal A first, then
 paste its printed locator (the peer's dialable `ocapn://` address) into `LOC`
 in terminal B. `init` mints the identity keys a peer signs its sessions with,
-stored under `GLOWCAP_STATE`; each terminal gets its own directory so it acts
+stored under `GLOWCAP_STATE`. Each terminal gets its own directory so it acts
 as its own peer.
 
 ```sh
@@ -59,11 +58,10 @@ glowcap --json ocapn call "$LOC" greeter greet world
 
 # REPL, MCP, and completion
 
-The binary also serves CapTP tools over MCP and completes your shell. `glowcap repl`
-opens an interactive CapTP lab on a live session: the exports, imports, and
-answers appear beside the prompt as you type the verbs, and typing `guide`
-turns on a staged walkthrough. The REPL and `probe` want a live listener, so
-their full recipes are in the [CLI guide](https://github.com/jimisaacs/glowcap/blob/main/docs/cli.md).
+`glowcap repl` opens a live session and shows its exports, imports, and answers
+beside the prompt as you type the verbs. Type `guide` for a staged walkthrough.
+The REPL and `probe` need a live listener, so their recipes are in the
+[CLI guide](https://github.com/jimisaacs/glowcap/blob/main/docs/cli.md).
 
 ```sh
 glowcap mcp --tools default                # CapTP tools for an editor assistant (MCP)
@@ -72,5 +70,4 @@ eval "$(glowcap completion bash)"          # tab completion
 
 For the library API behind these commands, continue to [Start
 building]($link.page('start')). The [demo apps]($link.page('examples')) use the
-same operations in a chat room, a task board, and a capability-oriented tool
-service across five languages.
+same operations in a chat room, a task board, and a tool service.

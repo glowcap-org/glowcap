@@ -21,7 +21,7 @@ The proof module named beside each file is under `src/`.
 
 | Fixture | Proof | What it pins |
 | --- | --- | --- |
-| `failures.json` | `failures` | The protocol failure codes and how a bare, wrapped, unknown, or nested reason is read back. Only the leading canonical code is authoritative; code-shaped detail cannot impersonate one. |
+| `failures.json` | `failures` | The protocol failure codes and how a bare, wrapped, unknown, or nested reason is read back. Only the leading canonical code is authoritative. Code-shaped detail cannot impersonate one. |
 | `session-documents.json` | `documents` | The document ceilings and how ordinary UTF-8, byte-order marks, and malformed bytes decode. |
 | `grants-v1.json`, `grants-suspended-v1.json`, `grants-surrogate-v1.json` | `grants`, `grant_protocol`, `documents` | Version-one grant documents: an interact grant with a padded label and no history access, its suspension with a note beside a revoked tombstone, and a label that is one isolated high surrogate, which a rewrite must preserve. The derivation vector uses sixteen bytes of `0x5a` as root entropy. |
 | `grant-commands.json` | `grant_protocol` | Grant commands for every access level: issue, retry, conflict, policy patches, note clearing, and revocation. |
@@ -31,8 +31,8 @@ The proof module named beside each file is under `src/`.
 | `session-command-admission.json` | `command_admission` | The command dispatcher's access and envelope checks up to a stubbed mutation: argument count, UTF-16, encoded-byte, and revision limits, and a handed invitation received then accepted through both checkpoint reducers. |
 | `session-results.json` | `session_results` | Result-command preparation, application, and resume, driven through the durable state engine both uninterrupted and restarted at every write. |
 | `reconciliation.json` | `reconciliation` | State-sync cases followed by the equality check durable reconciliation uses: stale routes and tokens, room retirement isolation, acquired-authority conflicts, publication versions, reconnect results, direct registration, and collection limits. Every changed fact is replayed to prove idempotence. |
-| `session-events.json` | `session_events` | Event-reader decisions: header and integer bounds, mutation identity, archive coordinates, presence and room facts, escaped tags, surrogates, nulls, and positional arrays. A valid attachment guard outlives delivery; a malformed one leaves no guard behind. |
-| `snapshots.json` | `snapshot` | Snapshot-reader cases for all four facet projections and the overflow degradation order. Large overflow inputs are rebuilt from bounded rows by the proof; only their answers are stored. |
+| `session-events.json` | `session_events` | Event-reader decisions: header and integer bounds, mutation identity, archive coordinates, presence and room facts, escaped tags, surrogates, nulls, and positional arrays. A valid attachment guard outlives delivery. A malformed one leaves no guard behind. |
+| `snapshots.json` | `snapshot` | Snapshot-reader cases for all four facet projections and the overflow degradation order. Large overflow inputs are rebuilt from bounded rows by the proof. Only their answers are stored. |
 | `operator-views.json` | `operator_views` | Operator page rows for every category, member bounds, stewardship relations, decimal revisions, listener relationships, and bridge gateway records. Nested objects refuse positional arrays. |
 | `workspaces.json` | `workspace` | Saved workspace documents decoded, normalized, and exported against a fixture route authority. |
 | `conversation.json` | `conversation` | Room history under its line and byte bounds, file transfer state through chunked upload progress, and the authority a file post needs. |
@@ -50,7 +50,7 @@ The proof module named beside each file is under `src/`.
 | `directory-view.json` | `directory_view` | The durable directory view across room updates, registration replacement, stale unregister notices, truncation, row limits, and contextual Unicode lowercase. |
 | `registration-client.json` | `registration_client` | Registration arguments, name-voucher calls, registration-id acceptance, and control notifications. |
 | `introduction-client.json` | `introduction_client` | Introduction traces: direct success, early and fresh offers, a stale banked offer, retry exhaustion, offline refusal, and malformed replies, replayed against the notification bank and retry policy. |
-| `signaling-client.json` | `signaling_client` | Signaling reply admission and the relayed-signal byte limits, including the WebRTC description ceiling. SDP and ICE are bounded opaque text here; no channel is negotiated. |
+| `signaling-client.json` | `signaling_client` | Signaling reply admission and the relayed-signal byte limits, including the WebRTC description ceiling. SDP and ICE are bounded opaque text here. No channel is negotiated. |
 | `archive.json` | `archive`, `archive_host` | Archive record and filter acceptance with canonical output: integer wire kinds, safe bounds, UTF-8 and UTF-16 limits, control characters, withdrawal, attachment shapes, digests, and malformed rows. |
 | `archive-record-documents.json` | `archive_documents` | The archive record document as one file both readers read: the Rust proof and `apps/rooms/test/archive/record_document_test.ts` parse the same documents, so the two sides cannot drift apart. |
 | `archive-disk.json` | `archive_disk` | Version-one JSONL archive files opened with a small capacity and compaction delta: acceptance, revision high-water marks, surviving records, torn-tail repair, snapshot gaps, malformed rows, a leading byte-order mark, and isolated surrogates. |

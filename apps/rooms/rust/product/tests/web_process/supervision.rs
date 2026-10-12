@@ -1,4 +1,4 @@
-//! Attachment borrows a running directory; takeover acquires its kept state.
+//! Attachment borrows a running directory. Takeover acquires its kept state.
 use super::*;
 use std::path::PathBuf;
 
@@ -63,7 +63,7 @@ async fn web_attaches_by_local_address_and_takes_over_the_same_kept_directory() 
 		web.ready().await;
 		assert_same_endpoint(&web.status("locator").await, locator);
 		web.reach().await;
-		// Cross a periodic probe. The announced IP deliberately has no listener.
+		// Cross a periodic probe. The announced IP has no listener.
 		tokio::time::sleep(Duration::from_millis(2200)).await;
 		assert_same_endpoint(&web.status("locator").await, locator);
 		web.stop().await;

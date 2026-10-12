@@ -1,5 +1,5 @@
 /* Directory context beneath room and direct-message names. The primary line
-   identifies the conversation; this second line is reserved for the directory
+   identifies the conversation. This second line is reserved for the directory
    it belongs to and that directory's connection state. */
 
 .rwhere {
@@ -46,6 +46,14 @@
 #roomList li:has(.rwhere),
 #dmList li:has(.rwhere) {
 	padding-bottom: 6px;
+}
+
+/* Status text has no button chrome. Align it with the conversation name. */
+#roomList li .rwhere-status,
+#dmList li .rwhere-status {
+	margin-inline-start: calc(var(--row-pad) + var(--mark-col) + var(--mark-gap));
+	font-size: var(--type-fine);
+	color: var(--ink-soft);
 }
 
 /* A direct line wears its directory on the avatar rim as well as naming it in

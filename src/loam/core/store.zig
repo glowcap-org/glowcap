@@ -1,6 +1,6 @@
 //! The portable Store: bounded staging, checked phase transitions, and
 //! resolution against adapter-reported outcomes. Backends execute the emitted
-//! batch inside their own atomic transaction; this type owns no I/O.
+//! batch inside their own atomic transaction. This type owns no I/O.
 const std = @import("std");
 const records = @import("loam_records");
 const transaction = @import("transaction.zig");
@@ -50,7 +50,7 @@ pub const Store = struct {
     }
 
     /// Schemas are borrowed until deinit. Metadata comes from an exclusively
-    /// claimed backend; constructing another Store with the same claim is invalid.
+    /// claimed backend. Constructing another Store with the same claim is invalid.
     pub fn init(allocator: std.mem.Allocator, metadata: transaction.Metadata, schemas: []const records.Schema, limits: Limits) !Store {
         if (metadata.incarnation == 0) return error.InvalidLimits;
         try validateConfiguration(schemas, limits);
@@ -113,7 +113,7 @@ pub const Store = struct {
         self.cache.evict();
     }
 
-    /// Acquire only already-resident current data; never starts storage work.
+    /// Acquire only already-resident current data. Never starts storage work.
     pub fn resident(self: *Store, id: records.ObjectId) !residency.Lease {
         if (self.collection_work != null) return error.Busy;
         if (self.phase == .uncertain) return error.RecoveryRequired;
@@ -144,7 +144,7 @@ pub const Store = struct {
     }
 
     /// Copies a complete proposed record. A null expected revision creates a
-    /// freshly allocated object; otherwise the backend compares the existing row.
+    /// freshly allocated object. Otherwise the backend compares the existing row.
     /// Re-proposing a record this transaction already staged replaces the staged
     /// bytes and keeps the staged revision expectation, so one transaction can
     /// compose several operations that each advance the same record (an owner
@@ -195,7 +195,7 @@ pub const Store = struct {
     /// null when this transaction staged none. Staging consults it to compose
     /// further changes onto the same record: each stage then re-proposes the
     /// record with the composed delta. The view borrows store-owned memory until
-    /// that row is re-proposed or the transaction ends; the expectation is copied.
+    /// that row is re-proposed or the transaction ends. The expectation is copied.
     pub fn proposed(self: *Store, id: records.ObjectId) !?Proposed {
         if (self.phase != .staging) return null;
         for (self.changes[0..self.count]) |change| {
@@ -331,7 +331,7 @@ pub const Store = struct {
 
     /// Prepare a bounded tracing batch. Execute and settle it through the
     /// ordinary beginWrite/completeWrite/recovery path. New leases and live
-    /// retention claims wait until completion; existing leases remain usable.
+    /// retention claims wait until completion. Existing leases remain usable.
     pub fn prepareCollection(self: *Store, work_limit: usize) !transaction.Ticket {
         if (work_limit == 0) return error.InvalidLimits;
         try self.begin();

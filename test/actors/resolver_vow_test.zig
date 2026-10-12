@@ -1,6 +1,6 @@
 //! The resolver vow (ADR-0102): a local vow minted without a send, whose
 //! settle authority is a separate resolver id. These units pin the pair's
-//! contract — one-shot settle, top-level only, read side never settles — and
+//! contract, one-shot settle, top-level only, read side never settles, and
 //! the headline: a served behavior defers its wire answer onto a resolver vow
 //! and the partner hears the settle only when the resolver fires later, as
 //! its own top-level event.
@@ -160,7 +160,7 @@ test "a served behavior defers its answer onto a resolver vow; the partner hears
     defer host_port.deinit(&host_vat);
 
     // The behavior mints the pair inside its turn (that is the primary use),
-    // defers its answer, and parks the resolver for the "worker" — here the
+    // defers its answer, and parks the resolver for the "worker", here the
     // test body, which settles it later from the top level.
     const Deferring = struct {
         resolver: u64 = 0,

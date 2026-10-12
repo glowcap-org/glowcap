@@ -3,8 +3,8 @@
 //! Plain `tcp`, identity-addressed `keyed-tcp`, and sealed `noise-tcp` share
 //! one socket realization and differ only in locator posture and channel
 //! profile. Their composition belongs here, beside that implementation. A
-//! driver holds one `Provider` at a stable address and stores `netlayers()`;
-//! it does not construct or enumerate the members itself.
+//! driver holds one `Provider` at a stable address and stores `netlayers()`.
+//! It does not construct or enumerate the members itself.
 //!
 //! This provider is native-only because it owns `std.Io` socket residents.
 //! A byte-fed host, including the wasm build, carries the same transport
@@ -48,12 +48,12 @@ pub const resolveProfile = addressing.resolveProfile;
 pub const CompletionPolicy = @import("tcp/completion_policy.zig").Policy;
 
 /// The complete archive-owned TCP profile inventory. Native and C projections
-/// consume this one declaration; adding a profile cannot silently update only
+/// consume this one declaration. Adding a profile cannot silently update only
 /// one surface.
 pub const profiles = [_]model.transport.Known{ .tcp, .keyed_tcp, .noise_tcp };
 
 /// Defaults inherited by every stream this provider dials or accepts. A direct
-/// TCP primitive still takes `StreamOptions` for a one-operation override; the
+/// TCP primitive still takes `StreamOptions` for a one-operation override. The
 /// provider keeps the common case once, beside the socket runtime that applies
 /// it. The library default leaves keepalive disabled.
 pub const Config = struct {
@@ -61,7 +61,7 @@ pub const Config = struct {
 };
 
 /// One dial or listener override. Passing this view selects these stream
-/// settings for that operation; omitting it inherits `Provider` configuration.
+/// settings for that operation. Omitting it inherits `Provider` configuration.
 /// An explicit `.stream = .{}` disables keepalive even when the provider
 /// default enables it.
 pub const OperationOptions = stream.OperationOptions;

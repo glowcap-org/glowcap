@@ -59,7 +59,10 @@ pub(super) fn gated_entrance(
 		if !args.is_empty() {
 			return Err(format!("{verb} takes no arguments"));
 		}
-		let state = shared.borrow();
+		let mut state = shared.borrow_mut();
+		let (caller, _) = super::super::rooms::caller(&mut state)?;
+		state.ingress(caller)?;
+		state.admit_work(caller, rooms_application::admission::Class::Read, 1)?;
 		let core = state.irc.core.borrow();
 		let bridge = core.bridge(&publication.key).ok_or_else(retired)?;
 		match verb {
@@ -93,6 +96,8 @@ fn subscribe(
 		.room
 		.admit_reader(connection, nick)
 		.map_err(|e| e.reason())?;
+	state.ingress(connection)?;
+	state.admit_join(connection, &publication.id)?;
 	state.irc.next_member = state
 		.irc
 		.next_member

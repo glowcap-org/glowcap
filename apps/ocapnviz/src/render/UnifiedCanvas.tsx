@@ -1,7 +1,7 @@
 /**
- * UnifiedCanvas — the single full-viewport PixiJS canvas behind
- * every React UI panel. One canvas, one Application, one ticker;
- * scenes (Stage, Timeline) attach to `app.stage` as sub-containers
+ * UnifiedCanvas. The single full-viewport PixiJS canvas behind
+ * every React UI panel. One canvas, one Application, one ticker.
+ * Scenes (Stage, Timeline) attach to `app.stage` as sub-containers
  * and read their layout from a shared `RegionRegistry`.
  *
  * Architecture (Figma / Sketch / AE viewer pattern):
@@ -14,7 +14,7 @@
  *     </div>
  *   </body>
  *
- * Panels overlay the canvas; the canvas is visually visible only
+ * Panels overlay the canvas. The canvas is visually visible only
  * where panels don't cover it. Each scene's marker tells the
  * registry where to paint.
  *
@@ -40,14 +40,14 @@ export interface UnifiedCanvasContextValue {
 	app: Application;
 	regions: RegionRegistry;
 	/** Write the canvas cursor. The scene that owns the gesture pipeline (the
-	 *  Stage) calls this once per frame with `cursorFor`'s answer; this element
-	 *  has exactly one writer, and the scene is it. Repeats are free — the DOM
+	 *  Stage) calls this once per frame with `cursorFor`'s answer. This element
+	 *  has exactly one writer, and the scene is it. Repeats are free, the DOM
 	 *  is touched only when the value changes. */
 	setCursor: (cursor: string) => void;
 }
 
 /** `null` until `app.init()` resolves. Callers bail their effect
- * on null; the effect reruns when context populates. */
+ * on null. The effect reruns when context populates. */
 const Ctx = createContext<UnifiedCanvasContextValue | null>(null);
 
 export function useUnifiedCanvas(): UnifiedCanvasContextValue | null {
@@ -172,7 +172,7 @@ export function UnifiedCanvas(
 	// `cursorStyles.default` callback. Pixi writes the canvas cursor itself on
 	// every pointer event: it runs `setCursor(rootBoundary.cursor)`, which falls
 	// back to `cursorStyles.default` when the hit-test found no sprite with a
-	// cursor of its own — and no sprite has one, because the cursor is derived
+	// cursor of its own, and no sprite has one, because the cursor is derived
 	// once per frame from the gesture pipeline (`cursorFor`) rather than
 	// attached to sprites. By making `default` a function instead of a string,
 	// Pixi's write lands on the value the scene last asked for instead of a
@@ -201,7 +201,7 @@ export function UnifiedCanvas(
 				ref={canvasRef}
 				id={CANVAS_ELEMENT_ID}
 				// Suppress the browser's right-click menu on the canvas.
-				// Reason isn't "menus are bad" — it's that an accidental
+				// Reason isn't "menus are bad", it's that an accidental
 				// right-click DURING an in-flight drag (peer drag, row
 				// reorder, scrub, marquee) corrupts the pointer event
 				// stream: the browser eats focus, the contextmenu event
@@ -209,7 +209,7 @@ export function UnifiedCanvas(
 				// gets "stuck" because we never see the gesture finish.
 				// Editor convention (Photoshop / Figma / Adobe / Flash):
 				// the canvas never shows a browser context menu. Cheap
-				// and defensible — sidebar inputs / dropdowns still get
+				// and defensible, sidebar inputs / dropdowns still get
 				// their native menus since this only binds to the
 				// canvas element.
 				onContextMenu={(e) => e.preventDefault()}
@@ -227,9 +227,9 @@ export function UnifiedCanvas(
 					// color (`--ocv-canvas` = `themedColors(theme).canvas`).
 					// Without this, the few hundred ms between React mounting
 					// the canvas and `app.init()` resolving shows the body's
-					// `--ocv-bg` through the still-transparent canvas — a
+					// `--ocv-bg` through the still-transparent canvas, a
 					// visible "darker strip" in dark mode where the body bg
-					// is intentionally a notch darker than the canvas color
+					// is a notch darker than the canvas color
 					// (canvas is the focal workspace, chrome is the frame).
 					// Pixi's first paint takes over identically; no visible
 					// transition. Inline `background` instead of a CSS rule

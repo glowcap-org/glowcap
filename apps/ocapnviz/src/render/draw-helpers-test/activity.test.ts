@@ -86,7 +86,7 @@ Deno.test("the activity mark rides the body's own corner", () => {
 });
 
 Deno.test("the mark is the same size on a peer and on a claim", () => {
-	// It reports one fact — bytes are moving here — and the same fact drawn
+	// It reports one fact, bytes are moving here, and the same fact drawn
 	// smaller would read as a lesser one. Only the corner it sits on moves.
 	const peer = activity(LOOSE_END_ALONE.radius, "receiving");
 	const claim = activity(LOOSE_END_CLAIMING.radius, "receiving");

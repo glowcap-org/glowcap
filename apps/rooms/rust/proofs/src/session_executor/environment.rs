@@ -57,6 +57,16 @@ impl rooms_glowcap::client::Tasks for Platform {
 	}
 }
 impl Deadline for Platform {
+	fn monotonic_millis(&self) -> u64 {
+		#[cfg(not(target_arch = "wasm32"))]
+		{
+			rooms_platform::HostPlatform.monotonic_millis()
+		}
+		#[cfg(target_arch = "wasm32")]
+		{
+			rooms_browser::platform::Platform::new().unwrap().monotonic_millis()
+		}
+	}
 	async fn within<T>(&self, ms: u64, work: impl core::future::Future<Output = T>) -> Option<T> {
 		if self.refuse_observation.get() {
 			self.refused_observations.set(self.refused_observations.get() + 1);

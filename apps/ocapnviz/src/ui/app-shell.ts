@@ -2,7 +2,7 @@
  * The ocapnviz grid shell: pointer-events contract and pane chrome.
  *
  * The unified canvas sits under a transparent grid. Empty center-pane
- * area passes events through; every opaque panel claims them back.
+ * area passes events through. Every opaque panel claims them back.
  * AppView and the rails own what goes in each pane.
  */
 
@@ -28,7 +28,7 @@ export function appShellStyle(
 		// shows through where panels don't cover. Stacking context via
 		// z-index 1 so the resize-handle z-indexes layer above the
 		// canvas. `pointer-events: none` so empty (center-pane) area
-		// passes events through to the canvas — each opaque panel
+		// passes events through to the canvas. Each opaque panel
 		// re-claims `pointerEvents: "auto"`.
 		background: "transparent",
 		position: "relative",
@@ -93,7 +93,7 @@ export const headerSpacer = { flex: 1 } satisfies CSSProperties;
  *
  * Its two rows are ruled apart by `.ocv-tools-panel` in `styles.css`, which is
  * the same hairline the Inspector's field rows use, and the gap here is the same
- * 5px that sits above it — so the line has equal air on both sides, as it does in
+ * 5px that sits above it. So the line has equal air on both sides, as it does in
  * every other panel. Every mode offers at least Select and Hand
  * (`toolsForMode`), so the box can never be empty.
  */
@@ -120,7 +120,7 @@ export const leftPane = {
 //
 // Flex column so the ToolOptionsBar (when rendered in build mode)
 // takes its natural height at the top and the Stage marker fills
-// the remaining space — without that, Stage's `height: 100%` would
+// the remaining space, without that, Stage's `height: 100%` would
 // overlap the bar (both stack to 100% of the pane).
 export const centerPane = {
 	display: "flex",

@@ -17,7 +17,7 @@ const Wire = HostRuntime.Wire;
 
 /// Write what the core queued for `wire`: the retained frame first,
 /// then the core's queue, each through `try_write` until the window refuses. A
-/// partial frame is retained with its offset — the window announces writable
+/// partial frame is retained with its offset. The window announces writable
 /// readiness and the drain resumes exactly there, so bytes are never resent or
 /// reordered.
 /// The core owns whether the prefix is present, so this I/O tier never
@@ -155,7 +155,10 @@ const Exec = struct {
 };
 
 /// Stage a redeem dial so the active pump advances its handshake and reports
-/// the result through `exporterDialed` / `dialFailed`.
+/// the result through `exporterDialed` / `dialFailed`. Keeps `anyerror` on
+/// purpose: its failure path drains actions again, so narrowing it to an
+/// inferred set closes a dependency loop through the action drain that the
+/// toolchain refuses to resolve.
 fn answerDial(self: *HostRuntime, ticket: engine.Node.PendingId, route_index: usize) anyerror!void {
     const pending = self.core.pendingDial(ticket, route_index) orelse return;
     // The pending row owns every locator slice until the ticket settles;

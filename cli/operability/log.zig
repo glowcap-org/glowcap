@@ -2,7 +2,7 @@
 //!
 //! Default destination is stderr. The CapTP lab TUI installs a process divert
 //! for the whole alt-screen lifetime so *every* `info`/`err` (including
-//! callers that only have `std.Io`) lands in the transcript — never beside
+//! callers that only have `std.Io`) lands in the transcript, not beside
 //! the cursor. In a test compilation the fallback is `test_capture` instead
 //! of stderr: the build runner echoes any stderr a passing test step writes
 //! (under its verbose-context `failed command:` label), so a green gate log
@@ -26,7 +26,7 @@ pub fn hasDivert() bool {
     return divert != null;
 }
 
-/// Write raw bytes through divert when active; otherwise stderr, except in a
+/// Write raw bytes through divert when active. Otherwise stderr, except in a
 /// test compilation, where the fallback is `test_capture` (see module doc).
 pub fn writeMsg(io: std.Io, msg: []const u8) void {
     if (divert) |d| {
@@ -44,14 +44,14 @@ pub fn writeMsg(io: std.Io, msg: []const u8) void {
 /// One test-compilation capture stream. Test binaries own neither process
 /// stream: the build runner echoes stderr from passing steps, and the test
 /// protocol (`--listen=-`) owns stdout, so in a test build every CLI stream
-/// write lands in a capture instead. Instantiate with a distinct tag; each
+/// write lands in a capture instead. Instantiate with a distinct tag. Each
 /// tag owns independent storage, so the stdout/stderr split stays
 /// assertable. A case asserting on a stream calls `reset()` first,
 /// drives the path, then reads `captured()`. Overflow truncates: a capture
 /// is evidence for assertions, not a transcript.
 pub fn TestCapture(comptime tag: @TypeOf(.enum_literal)) type {
     return struct {
-        /// Which stream this capture is. Load-bearing even with no reader: a
+        /// Which stream this capture is. Needed even with no reader: a
         /// returned struct that never mentions `tag` is the same type for every
         /// tag, and one type is one `storage`, so the stdout and diagnostics
         /// captures would silently share bytes. Naming the tag here is what

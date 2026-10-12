@@ -1,5 +1,5 @@
 //! Production ingress and result selection retain their complete transaction.
-//! The page supplies intent; shared admission owns custody and revision checks.
+//! The page supplies intent. Shared admission owns custody and revision checks.
 use super::*;
 use rooms_glowcap::client::{
 	Deadline,
@@ -212,7 +212,7 @@ pub struct RoomsManagedResultAcquisition {
 #[wasm_bindgen]
 impl RoomsManagedResultAcquisition {
 	/// A conflict proves no result adoption. Unknown outcomes reject and retain
-	/// this candidate; only a proved conflict permits another preparation.
+	/// this candidate. Only a proved conflict permits another preparation.
 	pub fn submit(&self) -> js_sys::Promise {
 		let request = self.request.clone();
 		self.driver

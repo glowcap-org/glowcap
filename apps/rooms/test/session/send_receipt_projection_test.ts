@@ -20,6 +20,7 @@ for (const echoFirst of [true, false]) {
 		store.openDir(page.projection, directory, "directory");
 		store.patchDir(page.projection, directory, { nick: "ada" });
 		const room = store.ensureRoom(page.projection, directory, "garden", { persistId: "conversation" });
+		store.setRoomMembership(page.projection, room.key, "joined", "");
 		let released = 0;
 		const files = new AttachedSessionFiles({
 			fetchAttachment: () => Promise.resolve(new Uint8Array()),
@@ -128,45 +129,99 @@ for (const archiveFirst of [true, false]) {
 	});
 }
 
-for (const echoFirst of [true, false]) {
-	Deno.test(`a commit receipt names the sending bubble, which keeps sending, echo first: ${echoFirst}`, () => {
+for (const archived of [false, true]) {
+	Deno.test(`a retired receipt preserves a newer numeric identity, archived: ${archived}`, () => {
+		const page = new RoomsPage();
+		const directory = dirId("directory");
+		store.openDir(page.projection, directory, "directory");
+		const room = store.ensureRoom(page.projection, directory, "garden", { persistId: "conversation" });
+		store.setRoomMembership(page.projection, room.key, "joined", "");
+		const original = store.chatItem(page.projection, "ada", "original", true, "sending", undefined, 1);
+		store.deliver(page.projection, room.key, { ...original, awaitingReceipt: true, operation: "op" });
+		const history = { source: "archive", generation: "original", id: "7" };
+		const echo = store.chatItem(page.projection, "ada", archived ? "original" : "newer", true);
+		store.deliver(page.projection, room.key, { ...echo, lineId: 7, held: true, ...(archived ? { history } : {}) });
+		try {
+			store.confirmSentLine(page.projection, room.key, original.id, { history, held: false });
+			const lines = store.historyOf(page.projection, room.key).filter((row) => row.kind === "chat");
+			assertEquals(
+				lines.map((row) => [row.id, row.text, row.lineId, row.held, row.state]),
+				archived
+					? [[original.id, "original", 7, true, undefined]]
+					: [[original.id, "original", undefined, false, undefined], [echo.id, "newer", 7, true, undefined]],
+			);
+		} finally {
+			store.forgetConv(page.projection, room.key);
+		}
+	});
+}
+
+for (const confirmed of [false, true]) {
+	Deno.test(`an ended notice prevents receipt naming before refresh, previously confirmed: ${confirmed}`, () => {
+		const page = new RoomsPage();
+		const directory = dirId("directory");
+		store.openDir(page.projection, directory, "directory");
+		const room = store.ensureRoom(page.projection, directory, "garden", { persistId: "conversation" });
+		store.setRoomMembership(page.projection, room.key, "joined", "");
+		const original = store.chatItem(page.projection, "ada", "sent", true, "sending");
+		store.deliver(page.projection, room.key, original);
+		try {
+			if (confirmed) store.confirmSentLine(page.projection, room.key, original.id, { id: 7, held: true });
+			store.setRoomMembership(page.projection, room.key, "unavailable", "ended");
+			store.confirmSentLine(page.projection, room.key, original.id, { id: 7, held: true });
+			const line = store.historyOf(page.projection, room.key).find((row) => row.kind === "chat")!;
+			assertEquals([line.lineId, line.held, line.state], [undefined, false, undefined]);
+		} finally {
+			store.forgetConv(page.projection, room.key);
+		}
+	});
+}
+
+for (const committedFirst of [false, true]) {
+	Deno.test(`correlated echoes keep identical posts and another viewer distinct, commitment first: ${committedFirst}`, () => {
 		const page = new RoomsPage();
 		const directory = dirId("directory");
 		store.openDir(page.projection, directory, "directory");
 		store.patchDir(page.projection, directory, { nick: "ada" });
 		const room = store.ensureRoom(page.projection, directory, "garden", { persistId: "conversation" });
+		store.setRoomMembership(page.projection, room.key, "joined", "");
 		const projection = new AttachedLineProjection(() => room.key, null, page);
-		const original = store.chatItem(page.projection, "ada", "hello", true, "sending", undefined, 1);
-		store.deliver(page.projection, room.key, { ...original, awaitingReceipt: true, operation: "op" });
-		const coordinates = { source: "archive", generation: "original", id: "7" };
-		const echo = () =>
+		const originals = ["first", "second"].map((operation) => {
+			const line = store.chatItem(page.projection, "ada", "same", true, "sending");
+			store.deliver(page.projection, room.key, { ...line, operation, awaitingReceipt: true });
+			return line;
+		});
+		const echo = (operation: string, lineId: number) =>
 			projection.apply({
 				conversationId: "conversation",
+				operation,
 				from: "ada",
-				text: "hello",
+				text: "same",
 				at: 2,
-				lineId: 7,
+				lineId,
 				change: "said",
-				editable: true,
-				history: coordinates,
+				editable: false,
+				history: null,
 				system: false,
 				previewUrls: [],
 				attachments: [],
 			});
-		const chat = () => store.historyOf(page.projection, room.key).filter((item) => item.kind === "chat");
-		try {
-			if (echoFirst) echo();
-			store.nameSentLine(page.projection, room.key, original.id, { id: 7, history: coordinates });
-			if (!echoFirst) echo();
-			assertEquals(chat().map((line) => [line.id, line.lineId, line.history, line.state, line.operation]), [
-				[original.id, 7, coordinates, "sending", "op"],
-			]);
-			store.confirmSentLine(page.projection, room.key, original.id, { id: 7, history: coordinates, held: true });
-			assertEquals(chat().map((line) => [line.id, line.lineId, line.state, line.held, line.at]), [
-				[original.id, 7, undefined, true, original.at],
-			]);
-		} finally {
-			store.forgetConv(page.projection, room.key);
+		if (committedFirst) store.confirmSentOperations(page.projection, new Set(["first", "second"]));
+		echo("second", 8);
+		assertEquals(
+			store.historyOf(page.projection, room.key).map((line) => line.id),
+			originals.map((line) => line.id),
+		);
+		echo("another-viewer", 9);
+		echo("first", 7);
+		echo("second", 8);
+		assertEquals(store.historyOf(page.projection, room.key).length, 3);
+		for (const [index, id] of [7, 8].entries()) {
+			store.confirmSentLine(page.projection, room.key, originals[index].id, { id, held: true });
 		}
+		const lines = store.historyOf(page.projection, room.key);
+		assertEquals(lines.length, 3);
+		assertEquals(lines.slice(0, 2).map((line) => line.id), originals.map((line) => line.id));
+		store.forgetConv(page.projection, room.key);
 	});
 }

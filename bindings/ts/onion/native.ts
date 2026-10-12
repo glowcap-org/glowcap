@@ -64,13 +64,13 @@ export type Auth =
 /** Where Tor listens and what to ask it for. */
 export interface NetlayerOptions {
 	/** Tor's SOCKS endpoint: an absolute Unix socket path, or a `host:port`.
-	 * Required — a netlayer that cannot dial is not a netlayer. */
+	 * Required: a netlayer that cannot dial is not a netlayer. */
 	socks: string;
 	/** Tor's control endpoint, in the same two forms. Omit for dial-only. */
 	control?: string;
 	/** Defaults to `{ kind: "none" }`. */
 	auth?: Auth;
-	/** The key that restores an existing service, exactly as
+	/** The key that restores an existing service, as
 	 * `Listener.serviceKey` reported it. Omit to ask for a fresh service. */
 	serviceKey?: Uint8Array;
 	/** The local endpoint Tor forwards the service's virtual port to. Omit to bind

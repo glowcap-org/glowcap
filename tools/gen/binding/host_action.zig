@@ -1,5 +1,5 @@
-//! Generates the four binding HostAction mirrors — kind constants, typed
-//! HostAction, and decode — from `src/c_abi/host` (`GLOWCAP_HOST_ACTION_*`,
+//! Generates the four binding HostAction mirrors, kind constants, typed
+//! HostAction, and decode, from `src/c_abi/host` (`GLOWCAP_HOST_ACTION_*`,
 //! `GlowcapHostAction`). Same authority pattern as `tools/gen/binding/ts_abi.zig`: a
 //! Zig declaration rename is a compile error here, and
 //! `zig build gen-binding-host-action-check` (part of `check`) holds each
@@ -7,7 +7,7 @@
 //!
 //! One `arms` table drives every language's types, decode, and the exhaustive
 //! `dispatch*` skeleton. Executor arm *bodies* stay hand-written in each
-//! binding's `action` module; a new kind fails generate/check rather than
+//! binding's `action` module. A new kind fails generate/check rather than
 //! silently missing in five hand-rolled switches.
 
 const std = @import("std");
@@ -231,7 +231,7 @@ fn tsHandlerName(gpa: std.mem.Allocator, arm: Arm) ![]u8 {
 /// Emit one `HostActionHandlers` member. `deno fmt` wraps a member whose
 /// single-line form is wider than its 120-column print width, where the one
 /// leading tab renders as the four-column indent width. The generator wraps at
-/// the same boundary so its raw output is already `deno fmt`-clean — the check
+/// the same boundary so its raw output is already `deno fmt`-clean, the check
 /// compares bytes, and there is no formatter pass between generate and commit.
 fn emitTsHandlerSignature(out: *std.ArrayList(u8), gpa: std.mem.Allocator, method: []const u8, name: []const u8) !void {
     const single = try std.fmt.allocPrint(

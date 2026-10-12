@@ -1,8 +1,8 @@
 /**
- * Timeline control row — play/pause/restart, lane toggles, zoom,
+ * Timeline control row, play/pause/restart, lane toggles, zoom,
  * fit, time readout, speed, and Live's record chrome.
  *
- * `TimelinePanel` owns the canvas regions and the view reducer; this
+ * `TimelinePanel` owns the canvas regions and the view reducer. This
  * module owns the DOM toolbar those canvases sit under. Live mode
  * drops playback verbs outright rather than dimming them, so the
  * chrome never accumulates ghost buttons.
@@ -20,12 +20,12 @@ import type { LaneKind } from "./state.ts";
  * and the connection badge. Provided iff the panel is in Live mode. */
 export type TimelineLive = {
 	/** Whether the feed's socket is open. Live mode dials on
-	 *  entry, so this is usually true before anyone records; the
+	 *  entry, so this is usually true before anyone records. The
 	 *  badge below reads it only to say when a running capture
 	 *  has lost its feed. */
 	connected: boolean;
 	/** True while a capture is running. Idle Live renders no
-	 *  timeline body at all — no rows, no playhead — just the
+	 *  timeline body at all, no rows, no playhead, just the
 	 *  Record affordance. */
 	recording: boolean;
 	/** True iff the buffer holds any events (fixture, file,
@@ -90,7 +90,7 @@ export function TimelineToolbar(
 	// everything in place: Live MODE has no notion of playback (the
 	// feed advances on its own), no start/end to seek between, and
 	// no playback speed to scale, so those controls are dropped
-	// outright. What stays is everything that still has meaning —
+	// outright. What stays is everything that still has meaning,
 	// visibility, lane expansion, zoom, fit, the LIVE badge, and
 	// the live-edge readout. Play / Build keep the full set. The
 	// split renders as two branches instead of a sea of `disabled`
@@ -227,7 +227,7 @@ const controlRow = {
 	paddingInline: SPACE.md,
 	paddingBlock: SPACE.sm,
 	borderBottom: `1px solid ${c.divider}`,
-	// Opaque chrome — the surrounding bar is transparent so the
+	// Opaque chrome. The surrounding bar is transparent so the
 	// unified canvas can paint Overview / Scrubber pixels through.
 	background: c.surface,
 } satisfies React.CSSProperties;
@@ -242,7 +242,7 @@ const visibleRange = {
 } satisfies React.CSSProperties;
 
 // "ZOOM" / "SPEED" eyebrow next to the ScrubInput. Sans-serif
-// label against the input's mono value — matches the sidebar's
+// label against the input's mono value, matches the sidebar's
 // key / value convention.
 const labeledControlWrap = {
 	display: "inline-flex",
@@ -260,7 +260,7 @@ const controlLabel = {
 	color: c.textSubtle,
 } satisfies React.CSSProperties;
 
-// Thin vertical hairline used to separate logical groups in the
+// Thin vertical hairline that separates logical groups in the
 // control row. Slightly shorter than the row so it reads as a
 // divider, not a border.
 const dividerStyle = {
@@ -307,7 +307,7 @@ const timeReadout = {
  * Whether a feed is connected at all is a different fact, and it is
  * answered where a reader asks it: beside the URL in the Source panel,
  * which is green before anyone presses Record. Being connected is not
- * recording, and this badge is deliberately not a second place to read
+ * recording, and this badge is not a second place to read
  * the connection. */
 function LiveBadge({ connected }: { connected: boolean }) {
 	const label = connected ? "recording" : "reconnecting…";
@@ -333,7 +333,7 @@ function LiveBadge({ connected }: { connected: boolean }) {
 				fontWeight: WEIGHT.semibold,
 				letterSpacing: 0.6,
 				textTransform: "uppercase",
-				// Steady dot, not pulsing — pulsing on a static badge
+				// Steady dot, not pulsing, pulsing on a static badge
 				// gets annoying after a few seconds of monitoring.
 			}}
 		>
@@ -378,7 +378,7 @@ function LaneToggles(
 	);
 }
 
-/** Playback speed format: below 1× always two decimals (`0.50×`);
+/** Playback speed format: below 1× always two decimals (`0.50×`),
  * 1× and above two decimals only when non-integer (`1×`, `1.50×`,
  * `10×`). Tabular-nums takes care of column alignment. */
 function formatSpeed(value: number): string {
@@ -427,7 +427,7 @@ function RestartGlyph() {
 		</svg>
 	);
 }
-// Vertical double-arrow between two horizontal rails — reads as
+// Vertical double-arrow between two horizontal rails, reads as
 // "snap height to fit". Distinct from the time-Fit corner glyph.
 function FitHeightGlyph() {
 	return (

@@ -1,7 +1,7 @@
 // Where this session's messages are kept.
 //
 // One switch answers whether anything is kept at all and one sentence under it
-// says where. Choosing the archive capability lives under Holdings; policy and
+// says where. Choosing the archive capability lives under Holdings. Policy and
 // authority therefore do not masquerade as one setting.
 //
 // The sentence is written for the state the reader is in, including the state
@@ -139,13 +139,26 @@ export function ArchiveHolding({ archiveTarget }: { archiveTarget: ArchiveTarget
 						{onPeer ? archiveTarget.label : historyBuiltInSession}
 					</span>
 					{onPeer && <span className="tag">{historyPeerSaved}</span>}
+					{onPeer && archiveTarget.status === "unavailable" && (
+						<div className="actions">
+							<Button
+								type="button"
+								variant="quiet"
+								busy={busy === "reconnect"}
+								disabled={busy !== null}
+								onClick={() => void act("reconnect", () => session.retryArchivePeer())}
+							>
+								{historyPeerReconnect}
+							</Button>
+						</div>
+					)}
 				</div>
 				<p className="hint">
 					{onPeer
 						? archiveTarget.status === "unavailable" ? historyPeerUnavailable : historyPeerDurable
 						: historyOwnedSession}
 				</p>
-				<div className="actions" data-stack-narrow>
+				<div className="actions">
 					{onPeer && (
 						<Button
 							type="button"
@@ -155,17 +168,6 @@ export function ArchiveHolding({ archiveTarget }: { archiveTarget: ArchiveTarget
 							onClick={() => void act("own", () => session.useOwnedArchive())}
 						>
 							{historyUseSessionArchive}
-						</Button>
-					)}
-					{onPeer && archiveTarget.status === "unavailable" && (
-						<Button
-							type="button"
-							variant="quiet"
-							busy={busy === "reconnect"}
-							disabled={busy !== null}
-							onClick={() => void act("reconnect", () => session.retryArchivePeer())}
-						>
-							{historyPeerReconnect}
 						</Button>
 					)}
 					<Button

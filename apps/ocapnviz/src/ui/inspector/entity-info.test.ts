@@ -4,7 +4,7 @@
  * When the playhead sits outside an entity's window there is no ECS
  * entity to read, so these fall back to the document. The fallback
  * has to answer the same question the stage would: what is this
- * entity's value AT the playhead — not the value it was created
+ * entity's value AT the playhead. Not the value it was created
  * with. Reading the genesis value instead is the same defect the
  * stage had for peer names, one layer over.
  */
@@ -15,13 +15,13 @@ import { TimelineDocument } from "../../engine/timeline.ts";
 import { peerInfo, sessionInfo, sessionsTouchingPeer } from "./entity-info.ts";
 
 /** Engine construction runs d3-force, whose timer Deno's sanitizer
- *  flags; same workaround as the other engine-constructing tests. */
+ *  flags. Same workaround as the other engine-constructing tests. */
 function engineTest(name: string, fn: () => void): void {
 	Deno.test({ name, sanitizeOps: false, sanitizeResources: false, fn });
 }
 
 /** Alice and Bob hold one session from t=100 to t=400. Bob is
- *  renamed at t=200; the session opens negotiating and reaches open
+ *  renamed at t=200. The session opens negotiating and reaches open
  *  at t=250. Everything is over by t=400, so a playhead past it
  *  reads through the document rather than the world. */
 function doc(): TimelineDocument {

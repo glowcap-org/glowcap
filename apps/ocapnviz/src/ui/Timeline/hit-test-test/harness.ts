@@ -3,15 +3,15 @@
  *
  * Geometry the tests assume:
  *   width            = 224
- *   LANE_LABEL_WIDTH = 104 (constant in state.ts; bumped from 80
+ *   LANE_LABEL_WIDTH = 104 (constant in state.ts, bumped from 80
  *                           to fit chevron + category-eyeball +
  *                           category label)
  *   plotWidth        = 120
  *   windowStart..End = 0..1000
  *   → t→px:  px(t) = 104 + (t / 1000) * 120
- *   → t=500 → px=164;  t=1000 → px=224;  t=800 → px=200
+ *   → t=500 → px=164,  t=1000 → px=224,  t=800 → px=200
  *
- *   RULER_HEIGHT = 22; LANE_GAP = 2; laneHeight = 30
+ *   RULER_HEIGHT = 22, LANE_GAP = 2, laneHeight = 30
  *   expanded = {peers, sessions, messages}
  *   → height = RULER + 3*(LH+GAP) = 22 + 96 = 118
  *   → peer lane y ∈ [0, 32), session ∈ [32, 64), messages ∈ [64, 96)
@@ -24,9 +24,9 @@ import { projectFromObservations } from "../../../engine/temporal/project-from-o
 import { type LaneKind, type TimelineView } from "../state.ts";
 import type { DragPlan } from "../hit-test.ts";
 
-/** Assert the plan is event-addressed and return its eventId — the
- * loaded-fixture cases below all expect the event-addressed variants;
- * entity-addressed plans (freshly authored spans) have their own cases. */
+/** Assert the plan is event-addressed and return its eventId, the
+ * loaded-fixture cases below all expect the event-addressed variants.
+ * Entity-addressed plans (freshly authored spans) have their own cases. */
 export function eventIdOf(plan: DragPlan | null): string {
 	if (plan === null || !("eventId" in plan)) {
 		throw new Error("expected an event-addressed drag plan");
@@ -43,7 +43,7 @@ export const VIEW: TimelineView = {
 	expandedCategories: new Set(),
 };
 // Width chosen so the plot is exactly 120 px after subtracting the
-// 104 px gutter AND the 4 px left + 4 px right pad — keeps the pixel
+// 104 px gutter AND the 4 px left + 4 px right pad, keeps the pixel
 // arithmetic in the docstring above tractable and isolates these
 // tests from gutter-default / pad changes.
 export const WIDTH = 232;
@@ -104,7 +104,7 @@ export function docFor(events: readonly TimelineEvent[]): TimelineDocument {
  *  injects a placeholder per category so the test's py-values
  *  (HEIGHT = 22 + 3·32 layout) hit the expected lanes regardless
  *  of what events the specific test supplies. Empty categories still
- *  get a row — `row-layout.test.ts` pins that walk. */
+ *  get a row, `row-layout.test.ts` pins that walk. */
 export function rowsFor(events: readonly TimelineEvent[]): RowDescriptor[] {
 	const peers = new Set<string>(["_peer_placeholder"]);
 	const sessions = new Set<string>(["_session_placeholder"]);

@@ -1,5 +1,5 @@
 #lang racket
-;; deferred-exporter-host.rkt — Goblins Bob, the exporter whose capability does
+;; deferred-exporter-host.rkt: Goblins Bob, the exporter whose capability does
 ;; not exist yet. He is the far end of the relayed-give proof
 ;; (`zig build goblins-relayed-give`), where glowcap introduces a third party to
 ;; a promise Bob has not settled.
@@ -79,7 +79,7 @@
 ;; Bob's published object. `hold-with` is the relayed-give fixture's one-way
 ;; handoff. `lend-to` returns the holder's answer, so an owning-session client
 ;; knows the delivered promise has arrived before it subscribes. The separate
-;; `settle-nested` delivery is deliberately ordered after that subscription on
+;; `settle-nested` delivery is ordered after that subscription on
 ;; the same CapTP session; it settles once to a list containing a callable cap.
 ;; This makes the listen-before-settle ordering a wire fact, not a sleep.
 (define (^rendezvous _bcom greeter-vow)

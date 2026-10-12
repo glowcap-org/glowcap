@@ -170,7 +170,7 @@ async def _enliven_round_trips_then_caches() -> None:
         else:
             raise AssertionError("next interpreted a v1.0 swiss as the same authority")
         # Listen (CapTP ``op:listen``): a held capability's resolution comes
-        # back through the vow -- a listen on an already-settled capability
+        # back through the vow: a listen on an already-settled capability
         # answers at once.
         observation = session.listen(cap)
         try:
@@ -290,7 +290,7 @@ async def _distributed_release_reaches_each_capability_home() -> None:
 
 async def _fetch_failed_is_typed() -> None:
     """A fetch that fulfills with a plain value (not a capability) raises the
-    dedicated :class:`FetchFailed` — the foreign-bootstrap shape a non-glowcap
+    dedicated :class:`FetchFailed`: the foreign-bootstrap shape a non-glowcap
     partner can produce. A glowcap host always answers a fetch with a
     capability, so a relay doctors the wire: the client's bootstrap-fetch
     deliver is retargeted from export 0 to the export of a published object
@@ -352,9 +352,9 @@ async def _fetch_failed_is_typed() -> None:
 
         async def serve_one() -> None:
             async for session in server:
-                # The doctored fetch deliver lands here with verb "fetch";
-                # answer with a plain integer, which is exactly what a fetch
-                # must not resolve to.
+                # The doctored fetch deliver lands here with verb "fetch".
+                # Answer with a plain integer, a value a fetch must not
+                # resolve to.
                 session.publish("plain", lambda verb, args: 42)
                 export_known.set()
                 await session.serve()
@@ -387,7 +387,7 @@ async def _turn_spawn_survives_originating_port_close() -> None:
     """An actor first published through one Port remains a Host actor. Close
     that Port, call it through a sibling, then use the captured stale Session
     handle to spawn a child inside the sibling's turn. Host ownership selects
-    turn-spawn; the dead Session is not consulted for routing."""
+    turn-spawn. The dead Session is not consulted for routing."""
     server = await tcp.listen("127.0.0.1", 0)
     ready = asyncio.Event()
     try:

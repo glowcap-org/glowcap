@@ -2,14 +2,12 @@
 // could work instead, the access links a shared session hands out, the state
 // file, message history, and the capabilities it holds.
 //
-// These are the sentences a reader meets while deciding something about
-// their own session, so each says what stays and what goes: a session that
-// keeps running for everyone else, a browser that forgets, an archive that is
-// not erased. Moved here verbatim from the Settings components so the
-// product's voice can be read in one place.
+// A reader meets these while deciding something about their own session, so
+// each says what stays and what goes: a session that keeps running for
+// everyone else, a browser that forgets, an archive that is not erased.
 
-/** The three access levels a session link can carry, and what each lets
- * its holder do. */
+/** The three access levels a session link can carry, and what each lets its
+ * holder do. */
 export type SessionAccessLevel = "observe" | "interact" | "admin";
 export const sessionAccessLabel: Readonly<Record<SessionAccessLevel, string>> = {
 	observe: "Read only",
@@ -21,9 +19,8 @@ export const sessionAccessSaid: Readonly<Record<SessionAccessLevel, string>> = {
 	interact: "Can join, post, and update their own activity, but cannot manage the session.",
 	admin: "Full workspace control, including session data, access links, and saved capabilities.",
 };
-/** Reading the past is its own grant rather than a step on the access scale,
- * because reading the past and administering the session are different
- * authorities. */
+/** Reading earlier messages is a separate grant, not a step on the access
+ * scale, because it is a different authority from administering the session. */
 export const sessionHistoryLabel = "Can read earlier messages";
 export const sessionHistorySaid =
 	"Everything this session has recorded, not only what is said from the moment the link is used.";
@@ -188,7 +185,7 @@ export const sessionDataClearLocalAsk = "Delete local session…";
 
 /** Message history. */
 export function historyKeptBy(label: string): string {
-	return `New room and direct messages are kept by ${label}. Turning this off stops new writes. It cannot erase the session.`;
+	return `New room and direct messages are kept by ${label}. Turning this off stops new messages from being saved. It cannot erase the session.`;
 }
 export function historyPeerUnavailableSaid(label: string): string {
 	return `The selected ${label} is unavailable. New messages are not silently copied into this browser.`;
@@ -206,11 +203,10 @@ export const historyPeerSessionRetains =
 	"This session retains the archive capability across reloads and for every attached view.";
 export const historyPeerCommit = "Use archive peer";
 
-/** Holdings: the capabilities this session has. Its lead and the title of
- * its access well are `ops.ts`'s and `settings.ts`'s. */
+/** Holdings: the capabilities this session has. The lead is in `ops.ts` and
+ * the access title is in `settings.ts`. */
 export const holdingsCopyHosted = "Copy the hosted session capability";
 export const holdingsCopyAttached = "Copy the attached session capability";
-export const sessionManageAccessAsk = "Manage access…";
 export const holdingsSavedTitle = "Saved bearer authority";
 export const holdingsSavedEmpty = "This session has saved no room authority.";
 export const holdingsEntryLink = "Entry link";
@@ -218,3 +214,10 @@ export const holdingsModerator = "Moderator";
 export const holdingsManager = "Manager";
 export const holdingsOpenRoomControls = "Open room controls";
 export const holdingsOpsTitle = "Operations capabilities";
+/** The session card's acts, one per line like "Where this browser works":
+ * what the line is about, then the act. */
+export const sessionChangesName = "Unfinished changes";
+export const sessionChangesAct = "Review…";
+export const sessionAccessName = "Access";
+export const sessionAccessAct = "Manage…";
+export const sessionDataName = "Session data";

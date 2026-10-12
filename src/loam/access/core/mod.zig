@@ -1,6 +1,6 @@
 //! Portable resource structure, policy algebra, and managed grant lifecycle.
 //! Owners create their own use and control references to committed grants.
-//! Holding a reference conveys its authority; shared views own evaluation.
+//! Holding a reference conveys its authority. Shared views own evaluation.
 
 const identity = @import("identity.zig");
 pub const OwnerId = identity.OwnerId;

@@ -17,7 +17,7 @@ const glowcap = @import("glowcap");
 
 const engine = glowcap.ocapn.engine;
 
-/// A no-answer (`#f` answer position) `op:deliver` to live local export 7 — the
+/// A no-answer (`#f` answer position) `op:deliver` to live local export 7, the
 /// fire-and-forget one-way send. With no answer position it installs no inbound
 /// answer row, so re-applying it is idempotent on the session tables and a steady
 /// stream of them never errors. A distinct-answer deliver would instead trip the
@@ -26,7 +26,7 @@ const engine = glowcap.ocapn.engine;
 const deliver_to_export7 = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
 
 /// Apply every whole frame currently buffered, compacting the unconsumed tail to
-/// the front of `buf` — exactly the loop's inner drain. Returns the number of
+/// the front of `buf`, exactly the loop's inner drain. Returns the number of
 /// frames applied and the new valid length.
 fn drainBuffered(peer: *engine.Peer, buf: []u8, valid_in: usize) !struct { applied: usize, valid: usize } {
     var valid = valid_in;
@@ -141,8 +141,92 @@ test "completion seam: recvStreamPrefix fails closed on incomplete-at-cap" {
     try std.testing.expectError(error.FrameTooLarge, peer.recvStreamPrefix(&junk));
 }
 
+test "whole-frame ingress refuses over-cap borrowed and owned frames on both codecs" {
+    const allocator = std.testing.allocator;
+    for ([_]model.CodecId{ .syrup, .capnp }) |encoding| {
+        for ([_]bool{ false, true }) |owned| {
+            var peer = engine.Peer.init(allocator);
+            defer peer.deinit();
+            peer.session_state.codec = encoding;
+            try peer.session_state.registerExport(.from(7));
+            var frame = try codec.dispatch.encodeMessageForProfile(encoding, allocator, .v1_0, .{ .deliver = .{
+                .target = .{ .far = model.FarRef.object(7) },
+                .args = &.{.{ .string = "hello" }},
+                .answer = null,
+            } });
+            peer.session_state.limits.max_frame_bytes = frame.bytes().len - 1;
+            if (owned) {
+                // Admission consumes ownership even when it refuses the frame.
+                try std.testing.expectError(error.FrameTooLarge, peer.feedOwned(frame));
+            } else {
+                defer frame.deinit();
+                try std.testing.expectError(error.FrameTooLarge, peer.recvBorrowed(frame.view()));
+            }
+            try std.testing.expect(peer.sessionIsClosed());
+            try std.testing.expect(!peer.hasEvent());
+            try std.testing.expectEqual(@as(usize, 0), peer.session_state.inbound_answers.len());
+            try std.testing.expectEqualStrings("FrameTooLarge", peer.lastAbort().?.error_name);
+        }
+    }
+}
+
 const model = glowcap.ocapn.model;
 const codec = glowcap.ocapn.codec;
+
+test "whole-frame ingress accepts the exact cap and rechecks queued frames" {
+    for ([_]model.CodecId{ .syrup, .capnp }) |encoding| {
+        for ([_]bool{ false, true }) |owned| {
+            var peer = engine.Peer.init(std.testing.allocator);
+            defer peer.deinit();
+            peer.session_state.codec = encoding;
+            try peer.session_state.registerExport(.from(7));
+            var frame = try codec.dispatch.encodeMessageForProfile(encoding, std.testing.allocator, .v1_0, .{ .deliver = .{
+                .target = .{ .far = model.FarRef.object(7) },
+                .args = &.{.{ .string = "hello" }},
+            } });
+            peer.session_state.limits.max_frame_bytes = frame.bytes().len;
+            if (owned) {
+                try peer.feedOwned(frame);
+                try peer.stepToIdle();
+            } else {
+                defer frame.deinit();
+                try peer.recvBorrowed(frame.view());
+            }
+            try std.testing.expectEqual(@as(usize, 1), try drainDeliverEvents(&peer));
+        }
+        var peer = engine.Peer.init(std.testing.allocator);
+        defer peer.deinit();
+        peer.session_state.codec = encoding;
+        try peer.session_state.registerExport(.from(7));
+        const frame = try codec.dispatch.encodeMessageForProfile(encoding, std.testing.allocator, .v1_0, .{ .deliver = .{
+            .target = .{ .far = model.FarRef.object(7) },
+            .args = &.{},
+        } });
+        const smaller_cap = frame.bytes().len - 1;
+        try peer.feedOwned(frame);
+        peer.session_state.limits.max_frame_bytes = smaller_cap;
+        try std.testing.expectError(error.FrameTooLarge, peer.step());
+        try std.testing.expect(peer.sessionIsClosed());
+        try std.testing.expect(!peer.hasEvent());
+    }
+}
+
+test "whole-frame ingress refuses before copying even under allocation pressure" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var peer = engine.Peer.init(failing.allocator());
+    defer peer.deinit();
+    peer.session_state.limits.max_frame_bytes = deliver_to_export7.len - 1;
+    failing.fail_index = failing.alloc_index;
+    try std.testing.expectError(error.FrameTooLarge, peer.recvBorrowed(.{
+        .bytes = deliver_to_export7,
+        .shape = .byte,
+    }));
+    // Encoding the terminal abort can fail locally. The size refusal remains
+    // authoritative and the session closes even without an outbound frame.
+    try std.testing.expect(peer.sessionIsClosed());
+    try std.testing.expectEqualStrings("FrameTooLarge", peer.lastAbort().?.error_name);
+    try std.testing.expectEqual(error.OutOfMemory, peer.lastAbort().?.abort_delivery_error.?);
+}
 
 /// A real `op:start-session` grown past the scan threshold by its designator,
 /// with only its closing bracket removed. Every element is whole and the record
@@ -217,7 +301,7 @@ test "the scan branch refuses at the cap with a typed abort, not a silent stall"
     try std.testing.expectError(error.FrameTooLarge, peer.recvStreamPrefix(bytes));
 
     // And the partner is told. This branch returned bare for one commit, which
-    // left the peer's own contract — a refusal projects a typed abort — broken
+    // left the peer's own contract, a refusal projects a typed abort, broken
     // with nothing in the tree to notice it.
     const abort = peer.lastAbort() orelse return error.NoAbortRecorded;
     try std.testing.expectEqual(model.AbortKind.resource_exhausted, abort.kind);
@@ -233,7 +317,7 @@ test "completion seam: a prefix that is exactly the cap and still open is refuse
     var peer = engine.Peer.init(allocator);
     defer peer.deinit();
 
-    // The boundary byte that used to justify a second entry point. A codec
+    // The boundary byte. A codec
     // refuses a prefix *longer* than the cap, so one that is exactly the cap
     // and still open came back `incomplete`, and a consumer that believed it
     // would read past its own limit. The sibling test above is refused a step
@@ -255,7 +339,7 @@ test "completion seam: a prefix that is exactly the cap and still open is refuse
     const abort = peer.lastAbort() orelse return error.NoAbortRecorded;
     try std.testing.expectEqual(model.AbortKind.resource_exhausted, abort.kind);
 
-    // One byte of headroom and the same bytes are simply incomplete, which is
+    // One byte of headroom and the same bytes are incomplete, which is
     // what stops this from refusing frames that could still arrive.
     var roomy = engine.Peer.init(allocator);
     defer roomy.deinit();

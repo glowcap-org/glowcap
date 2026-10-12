@@ -3,7 +3,7 @@ use rooms_application::bridge::{self, Answers, Form};
 
 impl<D: Deadline + Tasks + Clone + 'static> Room<D> {
 	/// Fetch the membership's current form. An absent form and a refused call
-	/// are distinct outcomes; no cached declaration stands in for the bridge.
+	/// are distinct outcomes. No cached declaration stands in for the bridge.
 	pub async fn bridge_form(&self) -> Result<Option<Form>, Error> {
 		let answer = self
 			.inner

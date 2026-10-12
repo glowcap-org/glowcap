@@ -70,7 +70,7 @@ fn refusal(refusal: Refusal) -> String {
 }
 
 /// The behavior of one room entrance reference. `subscribe` creates the live
-/// room when needed and seats the caller; the other verbs describe the room
+/// room when needed and seats the caller. The other verbs describe the room
 /// the entrance names.
 pub(super) fn entrance(
 	shared: Shared,
@@ -82,12 +82,16 @@ pub(super) fn entrance(
 		}
 		let mut state = shared.borrow_mut();
 		let (connection, session) = caller(&mut state)?;
+		state.ingress(connection)?;
 		if !state.rooms.gate_open(connection, &entrance, &state.authority) {
 			let detail = match entrance.gate {
 				Gate::Link { .. } => "this room link was revoked",
 				_ => "this room entrance is no longer offered",
 			};
-			return Err(format!("{}: {detail}", FailureCode::NoSuchRoom.wire()));
+			return Err(FailureCode::NoSuchRoom.line(format_args!("{detail}")));
+		}
+		if verb != SUBSCRIBE {
+			state.admit_work(connection, rooms_application::admission::Class::Read, 1)?;
 		}
 		match verb {
 			SUBSCRIBE => subscribe(&shared, &mut state, connection, &session, &entrance, args),
@@ -172,6 +176,18 @@ fn subscribe(
 	if Value(&args[0]).contains_capability() {
 		return Err(shape());
 	}
+	let fresh = fresh(state)?;
+	let generation: [u8; 36] = state
+		.rooms
+		.generation(&entrance.room)
+		.unwrap_or(fresh.entry_id.as_str())
+		.as_bytes()
+		.try_into()
+		.map_err(|_| "room generation is not a canonical identifier")?;
+	state.admit_join(
+		connection,
+		core::str::from_utf8(&generation).map_err(|_| "room generation is not text")?,
+	)?;
 	// The actors this seat is answered with are minted before the seat is
 	// filed; a refusal drops them unfilled and nothing is orphaned.
 	let membership = Rc::new(Cell::new(None));
@@ -196,7 +212,6 @@ fn subscribe(
 		),
 		rooms_application::room::policy::MembershipKind::Observer => (None, None),
 	};
-	let fresh = fresh(state)?;
 	let authority = state.authority.clone();
 	let claimants = state.claimants();
 	let same = |a: u64, b: u64| {
@@ -287,10 +302,7 @@ pub(super) fn directory_verb(
 					|| state.irc.holds_name(name)
 					|| state.authority_writer.holds_name(name))
 			{
-				return Err(format!(
-					"{}: room \"{name}\" already exists",
-					FailureCode::RoomExists.wire()
-				));
+				return Err(FailureCode::RoomExists.line(format_args!("room \"{name}\" already exists")));
 			}
 			let fresh = fresh(&state)?;
 			let authority = state.authority.clone();
@@ -415,7 +427,7 @@ pub(super) fn directory_verb(
 				return Err("a foreign room is linked by its source directory".into());
 			}
 			let Some(key) = state.rooms.public_key_of(name) else {
-				return Err(format!("{}: no room named \"{name}\"", FailureCode::NoSuchRoom.wire()));
+				return Err(FailureCode::NoSuchRoom.line(format_args!("no room named \"{name}\"")));
 			};
 			let durable = state
 				.rooms

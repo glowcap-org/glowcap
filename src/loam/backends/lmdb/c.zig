@@ -1,5 +1,5 @@
 //! Internal C declarations for the pinned LMDB library. This is not a glowcap
-//! C ABI; the adapter alone owns these handles and borrowed values.
+//! C ABI. The adapter alone owns these handles and borrowed values.
 pub const Env = opaque {};
 pub const Txn = opaque {};
 pub const Cursor = opaque {};

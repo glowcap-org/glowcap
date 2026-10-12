@@ -15,7 +15,7 @@ const Node = engine.Node;
 
 /// The answer position the node assigned the one withdraw it has parked on
 /// `exporter`. In production the exporter echoes this id on its resolve frame,
-/// so a host reads it off the wire; a white-box test drives `claimResolve`
+/// so a host reads it off the wire. A white-box test drives `claimResolve`
 /// directly and recovers it from the node's single pending withdraw. Asserts
 /// exactly one withdraw is parked, on `exporter`.
 pub fn pendingWithdrawAnswer(node: *Node, exporter: engine.PeerHandle) u64 {
@@ -66,12 +66,11 @@ pub fn takeWithdrawCount(peer: *engine.Peer) !u64 {
 
 /// A structurally valid signed `desc:handoff-give`, for tests that exercise
 /// `Node`'s withdraw bookkeeping rather than the give's own signature or
-/// content — any two calls are interchangeable here. `Node.acceptGive` hands
-/// its `give` bytes to `Peer.sendWithdrawGift`, which now decodes them into
+/// content. Any two calls are interchangeable here. `Node.acceptGive` hands
+/// its `give` bytes to `Peer.sendWithdrawGift`, which decodes them into
 /// typed fields (`decodeSignedHandoffGiveOwned`) so a Cap'n Proto session can
-/// carry a binding-originated give too; an ASCII placeholder no longer parses
-/// as Syrup, where this file used to get away with one. Caller owns the
-/// returned bytes.
+/// carry a binding-originated give too. An ASCII placeholder does not parse
+/// as Syrup. Caller owns the returned bytes.
 pub fn testGiveBytes(allocator: std.mem.Allocator) ![]u8 {
     const location = try engine.encodePeerLocatorRecord(allocator, .{
         .transport = "tcp",
@@ -118,7 +117,7 @@ pub fn mintRedeemedRoute(
 
 /// Open a keyed session between the node-owned peer `p` (signing with the
 /// node's retained identity) and a fresh standalone counterpart, driving both
-/// handshakes to quiescence in memory. Returns the counterpart; the caller
+/// handshakes to quiescence in memory. Returns the counterpart. The caller
 /// deinits it.
 pub fn openKeyedSessionWithCounterpart(
     allocator: std.mem.Allocator,

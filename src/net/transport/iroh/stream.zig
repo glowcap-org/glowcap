@@ -41,7 +41,7 @@ const ConnSource = struct {
 
 /// One dialed/accepted QUIC stream, pinned so its reader/writer interfaces hold
 /// a stable address for the `Connection`'s life. It is the shared
-/// `net.netlayer.PinnedStream` over the sidecar's `ConnSource`; closing it
+/// `net.netlayer.PinnedStream` over the sidecar's `ConnSource`. Closing it
 /// finishes the QUIC stream (the partner reads a clean end of stream) and frees
 /// the sidecar connection handle. Read and write ride the one `*CConn`, so both
 /// Shim sources name it.

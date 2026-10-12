@@ -21,7 +21,7 @@ pub(super) fn callback(input: Invocation<'_>) -> Result<Invocation<'_>> {
 	})
 }
 /// Read canonical intent once at admission. Only private workers retain the
-/// exact target coordinate; restoration cannot hold up the admitted message.
+/// exact target coordinate. Restoration cannot hold up the admitted message.
 pub(in crate::session::managed) fn destination<P: Tasks + Deadline + Clone + 'static>(
 	owner: &Rc<super::super::State<P>>,
 	record: &MetadataRecord,

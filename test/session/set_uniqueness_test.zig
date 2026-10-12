@@ -1,5 +1,5 @@
 //! Duplicate set elements and struct keys refused pre-commit on every walk
-//! shape — inbound on both codecs' spines, outbound before encode — and the
+//! shape, inbound on both codecs' spines, outbound before encode, and the
 //! comparison bound refusing a wide equal-hashed pair instead of grinding
 //! through it.
 
@@ -14,6 +14,56 @@ const capnp = glowcap.ocapn.codec.capnp;
 const harness = @import("session_harness.zig");
 const startSessionMessage = harness.startSessionMessage;
 const startSessionMessageWithKey = harness.startSessionMessageWithKey;
+
+test "distinct nested hash collisions preserve checkpoint mapping after sorting on both codecs" {
+    const allocator = std.testing.allocator;
+    const identity: [13]u8 = @splat('a');
+    var references: [12]model.SturdyRef = undefined;
+    var nested: [12][65]model.Argument = undefined;
+    var elements: [14]model.Argument = undefined;
+    // Unrelated hashes surround a spilled collision run. Each nested member
+    // differs only by its sturdyref's transport/designator split: the hash
+    // concatenates those bytes, while equality compares the fields separately.
+    elements[0] = .{ .integer = 99 };
+    elements[13] = .{ .boolean = false };
+    for (&nested, &references, 0..) |*values, *reference, index| {
+        for (values[0..64], 0..) |*value, i| value.* = .{ .integer = @intCast(i) };
+        reference.* = .{ .peer = .{
+            .transport = identity[0 .. index + 1],
+            .designator = identity[index + 1 ..],
+        }, .swissnum = "name" };
+        values[64] = .{ .reference = .{ .sturdy = reference } };
+        elements[index + 1] = .{ .list = values };
+        if (index > 0) try std.testing.expectEqual(
+            model.equality.argumentHash(elements[1]),
+            model.equality.argumentHash(elements[index + 1]),
+        );
+    }
+    const args = [_]model.Argument{.{ .set = &elements }};
+    for ([_]model.CodecId{ .syrup, .capnp }) |encoding| {
+        var frame = try glowcap.ocapn.codec.dispatch.encodeMessageForProfile(encoding, allocator, .v1_0, .{ .deliver = .{
+            .target = .{ .far = model.FarRef.object(7) },
+            .args = &args,
+        } });
+        defer frame.deinit();
+        const body = try glowcap.ocapn.codec.dispatch.decodeBodyForProfile(encoding, .v1_0, frame.view());
+        var state = session.Session.init(allocator);
+        defer state.deinit();
+        try state.registerExport(.from(7));
+        try state.recordRecvView(body);
+    }
+    // The same spilled run must still refuse a duplicate on both model shapes.
+    elements[12] = elements[1];
+    const duplicate: model.Message = .{ .deliver = .{
+        .target = .{ .near = model.NearRef.object(7) },
+        .args = &args,
+    } };
+    var state = session.Session.init(allocator);
+    defer state.deinit();
+    try state.registerExport(.from(7));
+    try std.testing.expectError(error.DuplicateSetElement, state.recordRecv(duplicate));
+    try std.testing.expectError(error.DuplicateSetElement, state.recordRecvView(model.view.Body.fromOwned(&duplicate)));
+}
 
 test "an inbound set carrying two Equal elements is refused on both walk shapes" {
     const allocator = std.testing.allocator;
@@ -37,7 +87,7 @@ test "an inbound set carrying two Equal elements is refused on both walk shapes"
 
     // Two inner sets spelling one member in different element order are Equal
     // (set equality is order-independent), so the outer set still carries a
-    // duplicate — this pins the hash's commutative combine to the equality it
+    // duplicate, this pins the hash's commutative combine to the equality it
     // serves.
     var inner_a = [_]model.Argument{ .{ .integer = 1 }, .{ .integer = 2 } };
     var inner_b = [_]model.Argument{ .{ .integer = 2 }, .{ .integer = 1 } };
@@ -63,7 +113,7 @@ test "a Cap'n Proto set with duplicate elements is refused on the session inboun
     // Cap'n Proto decode admits sets without uniqueness (unlike Syrup). The
     // session walk is the codec-neutral backstop. Craft the untrusted frame by
     // encoding a list of two Equal integers (legal), then flipping that
-    // argument's ArgKind discriminant to set — the same patch pattern as the
+    // argument's ArgKind discriminant to set, the same patch pattern as the
     // duplicate-key struct cases in `test/codec/capnp_test.zig`.
     const allocator = std.testing.allocator;
     const ArgKind = capnp.shared.ArgKind;
@@ -102,7 +152,7 @@ test "a Cap'n Proto set with duplicate elements is refused on the session inboun
     try std.testing.expectEqual(@as(usize, 2), try arg0.set.len());
 
     // Session refuse on the same borrowed path Peer.recvBorrowed uses after
-    // decode — DuplicateSetElement, not a codec MalformedFrame.
+    // decode, DuplicateSetElement, not a codec MalformedFrame.
     var s = session.Session.init(allocator);
     defer s.deinit();
     try s.registerExport(.from(7));

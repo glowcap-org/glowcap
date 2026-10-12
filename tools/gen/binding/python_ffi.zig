@@ -52,9 +52,9 @@ const Special = struct {
 
 /// The ctypes spelling of one parameter type. Byte and `anyopaque` pointers
 /// spell `P` (`c_void_p`, which accepts every call style the binding uses:
-/// buffers, casts, and None); a single-pointer out-slot of a handle spells
+/// buffers, casts, and None). A single-pointer out-slot of a handle spells
 /// `ctypes.POINTER(P)` while a borrowed *array* of pointers or scalars stays
-/// `P`; single-pointer scalars spell their typed `*_p` alias; struct pointers
+/// `P`, single-pointer scalars spell their typed `*_p` alias, struct pointers
 /// spell `ctypes.POINTER(_X)` through the mirror rule.
 fn pyParamType(comptime T: type, comptime specials: []const Special) []const u8 {
     inline for (specials) |s| {

@@ -15,7 +15,7 @@ import { type EndName as EndNameOf } from "../session-name.ts";
  *
  *  A row rather than a run of text, because the heading has to hold two
  *  names and one line. Left as text the first name takes the whole line
- *  and the reader loses the arrow and the second end entirely; as flex
+ *  and the reader loses the arrow and the second end entirely. As flex
  *  items both names give way together and the arrow, which is one
  *  character and the thing that makes the heading a pair, never does.
  *
@@ -69,7 +69,7 @@ export function SessionEndNames({ a, b }: { a: EndNameOf; b: EndNameOf }) {
  *
  *  The three go in a group of their own, titled with the side. A session
  *  has exactly two ends and they are symmetrical, and saying "end a" in
- *  front of all three labels was the label doing a grouping's job — six
+ *  front of all three labels was the label doing a grouping's job, six
  *  rows that looked like six unrelated facts, each with its longest word
  *  spent on something the reader already knew. With the side in the
  *  title the labels are short, which is also what leaves the value
@@ -84,11 +84,11 @@ export function SessionEndNames({ a, b }: { a: EndNameOf; b: EndNameOf }) {
  *
  *  Read-only, the peer is the one the end is attached to AT the
  *  playhead, which is the peer the stage is drawing the edge to, and
- *  the attribution beside it is that same attachment's — the two are
+ *  the attribution beside it is that same attachment's, the two are
  *  one fact and are never read from two different moments.
  *
- *  The engine is where the one-way invariant is enforced — nothing can
- *  attribute an end to nobody — and an unattached end's attribution
+ *  The engine is where the one-way invariant is enforced. Nothing can
+ *  attribute an end to nobody, and an unattached end's attribution
  *  picker therefore says so instead of offering a write that would be
  *  refused. A control a reader can change with no effect is worse than
  *  one that is plainly unavailable: the first teaches that the model is

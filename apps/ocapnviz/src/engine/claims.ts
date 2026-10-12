@@ -3,7 +3,7 @@ import type { TimelineDocument, TimelineEvent } from "./timeline.ts";
 import { observationsOf } from "./temporal/recording-access.ts";
 
 /**
- * What each session end claims, and who it names — the one answer two
+ * What each session end claims, and who it names. The one answer two
  * surfaces read.
  *
  * A session end whose `peer` field is absent is LOOSE: nothing proved who is
@@ -49,7 +49,7 @@ function indexPeersByDesignator(
 }
 
 /** The peer a designator names, or undefined when it names nobody the
- *  document declares — or more than one. */
+ *  document declares, or more than one. */
 function claimedPeer(
 	designator: string | undefined,
 	byDesignator: ReadonlyMap<string, string | null>,
@@ -65,7 +65,7 @@ function claimedPeer(
  * Asked of the document rather than of one moment, so the answer does not
  * change as the playhead moves: whether a claim names a drawn peer changes
  * only when the document does. That makes the ambiguity rule document-wide
- * too, including peers in eras this claim never coexists with — the
+ * too, including peers in eras this claim never coexists with, the
  * conservative reading, and the one that refuses to draw a relationship the
  * document does not settle. A designator two peers answer to in eras that
  * never overlap still names neither of them, because the document never says
@@ -78,7 +78,7 @@ function claimedPeer(
  *   - an end whose claim two peers answer to, per `indexPeersByDesignator`;
  *   - an end naming the peer its own session already ends at, or the peer its
  *     other end claims. Such a claim has no direction to lean in and its
- *     session has no pair to bundle with; it is an ordinary loose end. (An end
+ *     session has no pair to bundle with. It is an ordinary loose end. (An end
  *     naming a peer an author spelled like a stage id is the same case.)
  *
  * Whether the named peer is on stage in a given era is a separate question,
@@ -102,7 +102,7 @@ export function claimedPeerByEnd(doc: TimelineDocument): Map<string, string> {
 	// A stage id belongs to exactly one session, so one entry per end is enough
 	// to find a claim's other end. Every candidate is collected before any is
 	// dropped, so the two ends of one session decide together rather than in
-	// listed order — and so the lookup is one step deep and never follows a
+	// listed order, and so the lookup is one step deep and never follows a
 	// chain: a claim at the far end contributes the peer IT names.
 	const otherEnd = new Map<string, string>();
 	for (const ends of sessionEnds(doc).values()) {
@@ -122,9 +122,9 @@ export function claimedPeerByEnd(doc: TimelineDocument): Map<string, string> {
 
 /**
  * The claims a moment can act on: those whose end and whose named peer are
- * both standing in it. Every era asks this, and so does every frame — the
+ * both standing in it. Every era asks this, and so does every frame, the
  * layout with the node set it is about to solve, the renderer with the world
- * at the playhead — so the two agree on which ends are claims about somebody
+ * at the playhead, so the two agree on which ends are claims about somebody
  * present and which are ordinary bodies.
  */
 export function claimsOnStage(

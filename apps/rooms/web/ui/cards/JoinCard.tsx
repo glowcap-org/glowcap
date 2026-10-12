@@ -1,14 +1,13 @@
 // The card the page opens with, and the one it comes back to when you leave a
 // room without entering another.
 //
-// Joining is an async action, so React owns the pending state: the button reads
-// "Joining…" for exactly as long as the join is outstanding, including the part
-// where the peer session is still opening. Without that, the window needs its own
-// bookkeeping (a staged request, a hand-written label, and a reset on every
-// path that might end the wait), with nothing but the label holding "this is
-// in flight".
+// React owns the form's wait. The opening owns acquisition and retains dispatched
+// work after cancellation, so stopping releases the fields immediately without
+// discarding a receipt or selecting a late answer.
 
-import { memo, useActionState, useRef } from "react";
+import { ActionFeedback, useActionCooldown } from "../ActionFeedback.tsx";
+import { joinRefusalKeys } from "../admission_feedback.ts";
+import { memo, useActionState, useEffect, useRef } from "react";
 import { avatarLabel } from "../../../lib/text/controls.ts";
 import { MAX_NICK, MAX_ROOM, nickRefusal } from "../limits.ts";
 import { tooLong } from "../text.ts";
@@ -20,7 +19,7 @@ import { useSuggest } from "../Suggest.tsx";
 import { Avatar } from "../Avatar.tsx";
 import { Button } from "../Button.tsx";
 import { Icon } from "../icons.tsx";
-import { nextRoomPreset, policyForRoomPreset } from "../room_policy.ts";
+import { nextRoomPreset } from "../room_policy.ts";
 import {
 	destination,
 	type DirectoryDestinationContext,
@@ -33,8 +32,8 @@ import {
 	joinRoomOffers,
 	looksLikeRoomLink,
 	resolveJoin,
+	submittedRoomDestination,
 	suggestedJoinNick,
-	thisDirectoryLocator,
 	typedRoomLink,
 } from "../joining.ts";
 import { answerJoinNick, joinNickAvailability } from "../join_nick.ts";
@@ -126,7 +125,6 @@ export const JoinCard = memo(function JoinCard(
 	const locator = answers.locator.value;
 	const nick = answers.nick.value;
 	const roomPreset = answers.roomPreset.value;
-	const secret = roomPreset === "private";
 	const conversations = useRoomsState((state) => state.convs);
 	const members = useRoomsState((state) => state.members);
 	const defaultDirectoryAddress = directoryContext.defaultDirectory?.locator ?? null;
@@ -138,6 +136,11 @@ export const JoinCard = memo(function JoinCard(
 	// the two cannot disagree about one question.
 	const { standing } = resolved;
 	const wantedRoom = room.trim();
+	const joinFeedback = joinRefusalKeys(
+		session.directoryId(locator.trim() || directoryContext.defaultDirectory?.locator || "") ?? homeDir ?? "",
+		wantedRoom,
+	);
+	const cooldown = useActionCooldown(joinFeedback);
 	// The card asks one question at a time. A directory the reader named and this
 	// tab has not reached has no listing, so there is nothing here that could
 	// tell one room from another, name a standing, or say whether a name makes a
@@ -174,7 +177,9 @@ export const JoinCard = memo(function JoinCard(
 		);
 	};
 	const halt = useRef<AbortController | null>(null);
+	useEffect(() => () => halt.current?.abort(), []);
 	const [error, join, joining] = useActionState(async (was: JoinError, form: FormData): Promise<JoinError> => {
+		if (cooldown > 0) return was;
 		halt.current?.abort();
 		const run = new AbortController();
 		halt.current = run;
@@ -220,28 +225,18 @@ export const JoinCard = memo(function JoinCard(
 				// explicit intent through the room question and clear it after join.
 				return null;
 			}
-			// Empty, the bare home authority, and home's hinted route are one
-			// destination: this page's own directory, reached over the session
-			// already open rather than by a fresh dial. A room link is none of
-			// those: collapsing it to home would drop the swissnum.
-			const typed = thisDirectoryLocator(typedText, directoryContext, session.directoryId(typedText.trim()));
-			const locator = typed;
-			const linked = typedRoomLink(locator, typedRoom);
-			// A remembered room name is from a previous join, not a name for this
-			// link. Only a name the reader typed under this paste is a label.
-			const namedTheLink = linked !== null &&
-				(answers.room.from === "edited" || answers.room.from === "named");
-			const room = linked !== null ? (namedTheLink ? linked.label : "") : typedRoom || JOIN_DEFAULT_ROOM;
-			if (room.length > MAX_ROOM) return { field: "room", text: tooLong("room name", MAX_ROOM, "characters") };
-			const roomDestination = {
-				room,
-				locator: linked !== null ? linked.link : locator,
-				// A room that already answers to this name has its own standing,
-				// and this session is not the one that sets it. Same answer the
-				// control reads, so what the card showed is what the act sends.
-				hidden: linked !== null || submitted.fixed ? false : secret,
-				policy: linked !== null || submitted.fixed ? undefined : policyForRoomPreset(roomPreset),
-			};
+			const roomDestination = submittedRoomDestination(
+				typedText,
+				typedRoom,
+				answers.room.from,
+				submitted.fixed,
+				roomPreset,
+				directoryContext,
+				session.directoryId(typedText.trim()),
+			);
+			if (roomDestination.room.length > MAX_ROOM) {
+				return { field: "room", text: tooLong("room name", MAX_ROOM, "characters") };
+			}
 			const target = joinNickTarget(
 				roomDestination.locator,
 				roomDestination.room,
@@ -282,6 +277,9 @@ export const JoinCard = memo(function JoinCard(
 						implicitFor,
 						suggestion: after.kind === "taken" ? after.suggestion : suggestedNickname(nick),
 					};
+				}
+				if (outcome.code === "rate-limited" || outcome.code === "admission-busy") {
+					return null;
 				}
 				return { field: "form", text: outcome.text };
 			}
@@ -520,13 +518,15 @@ export const JoinCard = memo(function JoinCard(
 				    started, so wearing another's work would put a stop on the card with
 				    nothing behind it. */
 				}
+				<ActionFeedback action={joinFeedback} />
 				<WorkingAction
 					type="submit"
 					id="joinBtn"
 					size="large"
 					block
 					busy={joining}
-					disabled={!canInteract || nickAvailability.kind === "taken"}
+					busyLabel={reaching ? joinConnecting : making ? joinCreating : joinJoining}
+					disabled={!canInteract || nickAvailability.kind === "taken" || cooldown > 0}
 					stopId="joinStop"
 					stopLabel={reaching ? joinStopConnecting : making ? joinStopCreating : joinStopJoining}
 					onStop={() => halt.current?.abort()}
@@ -538,9 +538,7 @@ export const JoinCard = memo(function JoinCard(
 						: nickAvailability.kind === "taken"
 						? joinChooseAnotherName
 						: reaching
-						? (joining ? joinConnecting : joinConnect)
-						: joining
-						? (making ? joinCreating : joinJoining)
+						? joinConnect
 						: making
 						? joinCreateRoom
 						: joinJoinRoom}
@@ -548,7 +546,7 @@ export const JoinCard = memo(function JoinCard(
 				{
 					/* The phone's way to the rooms screen before anything is open. A
 				    paused link has no rooms to go to and the screen it opens says so,
-				    which makes this an offer with nothing behind it; the rail is still
+				    which makes this an offer with nothing behind it. The rail is still
 				    a tap away on the header. */
 				}
 				{!paused && (
@@ -608,7 +606,7 @@ function JoinLocator(
 			{
 				/* The addresses already in hand, from the mark that stands for this
 				    field. A locator is forty characters nobody can retype, and every one
-				    of these was typed or pasted once already; the only reason the field
+				    of these was typed or pasted once already. The only reason the field
 				    is empty on the way back to it is that the field is where a *new* one
 				    goes. Leaving it empty means this page's own directory, so that one
 				    clears rather than fills. The last row is the way to an address that

@@ -13,7 +13,7 @@ pub(crate) fn mint_peer_id(endpoint: &EndpointInner) -> Option<usize> {
 }
 
 /// Create a peer. `is_offerer` chooses the role: an offerer creates the `ocapn`
-/// data channel now; an answerer installs it when `on_data_channel` fires.
+/// data channel now. An answerer installs it when `on_data_channel` fires.
 /// Returns a heap `GlowcapWebrtcPeer` the caller frees with `peer_free`, or null
 /// on failure.
 ///
@@ -112,7 +112,7 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_new(
 ///
 /// Building one is the unsafe act, and it happens once per entry point. After
 /// that the buffer's bounds are this value's own, so writing through it is
-/// ordinary safe code — which is the difference between stating the caller's
+/// ordinary safe code, which is the difference between stating the caller's
 /// contract once and restating it at every write.
 pub(crate) struct OutText {
 	out: *mut u8,
@@ -130,7 +130,7 @@ impl OutText {
 
 	fn report_len(&self, len: usize) {
 		if !self.out_len.is_null() {
-			// SAFETY: `new`'s contract — a non-null `out_len` is one writable word.
+			// SAFETY: `new`'s contract, a non-null `out_len` is one writable word.
 			unsafe { *self.out_len = len };
 		}
 	}
@@ -197,7 +197,7 @@ pub(crate) fn write_local_candidate(queue: &mut LocalCandidates, out: &OutText) 
 /// writing the offer SDP into `(out, cap)`. Offerer only.
 ///
 /// # Safety
-/// `peer` per `borrowed`; `out`/`out_len` per `OutText::new`.
+/// `peer` per `borrowed`. `out`/`out_len` per `OutText::new`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_create_offer(
 	peer: *mut GlowcapWebrtcPeer,
@@ -235,7 +235,7 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_create_offer(
 /// offer is set.
 ///
 /// # Safety
-/// `peer` per `borrowed`; `out`/`out_len` per `OutText::new`.
+/// `peer` per `borrowed`. `out`/`out_len` per `OutText::new`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_create_answer(
 	peer: *mut GlowcapWebrtcPeer,
@@ -273,7 +273,7 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_create_answer(
 /// (set by the offerer).
 ///
 /// # Safety
-/// `peer` live; `sdp` points to `sdp_len` readable bytes of UTF-8, with
+/// `peer` live. `sdp` points to `sdp_len` readable bytes of UTF-8, with
 /// `sdp_len <= MAX_SIGNAL_BYTES`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_set_remote(
@@ -316,7 +316,7 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_set_remote(
 /// `peer_next_local_candidate` produced.
 ///
 /// # Safety
-/// `peer` live; `cand` points to `cand_len` readable bytes of UTF-8 JSON, with
+/// `peer` live. `cand` points to `cand_len` readable bytes of UTF-8 JSON, with
 /// `cand_len <= MAX_ICE_CANDIDATE_BYTES`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_add_remote_candidate(
@@ -354,7 +354,7 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_add_remote_candidate(
 /// `BUFFER_TOO_SMALL` (the candidate stays queued for the retry).
 ///
 /// # Safety
-/// `peer` per `borrowed`; `out`/`out_len` per `OutText::new`.
+/// `peer` per `borrowed`. `out`/`out_len` per `OutText::new`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_next_local_candidate(
 	peer: *mut GlowcapWebrtcPeer,

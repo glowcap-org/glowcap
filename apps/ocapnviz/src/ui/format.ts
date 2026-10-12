@@ -1,12 +1,12 @@
 /**
- * Display formatting — the one authority for turning a stored
+ * Display formatting. The one authority for turning a stored
  * value (a time, a coordinate, raw bytes) into text. Two roles,
- * deliberately different:
+ * different:
  *
  * - **A fact reads at full fidelity.** Inspector values and typed-
  *   edit seeds show every digit the value carries, up to a per-kind
  *   cap, with trailing zeros trimmed so authored values stay short
- *   (`2.3s`, not `2.30000s`). Live producers stamp nanoseconds;
+ *   (`2.3s`, not `2.30000s`). Live producers stamp nanoseconds.
  *   rounding a stored fact for display hid real spacing and read
  *   as "the app is imprecise". A typed-edit SEED especially must
  *   not round: committing a rounded seed writes the rounding back
@@ -14,7 +14,7 @@
  *   quantize its pin to integers and cold-recompute the layout).
  *
  * - **A moving readout reads coarse and stable.** The transport
- *   clock and the playhead tick many times a second; five decimal
+ *   clock and the playhead tick many times a second. Five decimal
  *   places there is flicker, not information. `formatClockTime`
  *   shows centiseconds under a minute and scales its unit as the
  *   magnitude grows (a Live doc runs to an hour).
@@ -27,7 +27,7 @@ const MS_PER_SEC = 1000;
 const TIME_DECIMALS_MAX = 5;
 
 /** The finest resolution a displayed coordinate carries: 3 decimal
- *  places of a world unit — sub-pixel at any practical zoom, and
+ *  places of a world unit, sub-pixel at any practical zoom, and
  *  finer than the force layout's meaningful convergence. */
 const COORD_DECIMALS_MAX = 3;
 
@@ -47,7 +47,7 @@ export function formatTimeInput(ms: number): string {
 
 /** A stored coordinate as a bare number in world units, full
  *  fidelity, trailing zeros trimmed. Display and typed-edit seed
- *  alike — the seed must round-trip, see the module header. */
+ *  alike. The seed must round-trip, see the module header. */
 export function formatCoord(v: number): string {
 	return trimmedFixed(v, COORD_DECIMALS_MAX);
 }
@@ -69,7 +69,7 @@ export const parseTime = (text: string): number | null => {
 /** A moving readout (transport clock, playhead): centisecond
  *  precision under a minute (`12.34s`), then coarser units so the
  *  text stays short at any magnitude. Months and years use the
- *  30d / 365d approximation — the timeline measures elapsed
+ *  30d / 365d approximation. The timeline measures elapsed
  *  simulation time, not wall-clock dates. */
 export function formatClockTime(ms: number): string {
 	const abs = Math.abs(ms);
@@ -114,11 +114,11 @@ const HEX_ROW_BYTES = 16;
  * the whole row, which prints the familiar run of byte pairs.
  *
  * Eight is for Cap'n Proto. A capnp message is a sequence of 64-bit
- * words — a struct pointer is one word, a list pointer is one word,
- * a struct's data section is a whole number of words — so grouping
+ * words, a struct pointer is one word, a list pointer is one word,
+ * a struct's data section is a whole number of words, so grouping
  * the dump by eight puts a visible break at every boundary the
  * format actually has, and each row reads as exactly two words. The
- * bytes and their order are the same either way; only the spacing
+ * bytes and their order are the same either way. Only the spacing
  * moves, which is why this is a display decision the app makes from
  * the session's codec rather than a question it asks the reader.
  * `hexdump -e` and `xxd -g 8` group the same way for the same

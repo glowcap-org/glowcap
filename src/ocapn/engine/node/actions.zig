@@ -14,7 +14,7 @@ const PeerHandle = @import("../peer_handle.zig").PeerHandle;
 
 /// A failed effect may also settle an inbound answer this Node claimed while
 /// originating a give. Success for that path is published directly by the
-/// two-peer transaction, so it deliberately is not a `redeem.Destination` and
+/// two-peer transaction, so it is not a `redeem.Destination` and
 /// cannot appear in a `.settle` action.
 pub const FailureDestination = union(enum) {
     answer: struct { recipient_peer: PeerHandle, answer: model.AnswerPosition },
@@ -35,16 +35,16 @@ pub const FailureReason = union(enum) {
 };
 
 /// What the embedder must do next. Byte views are node-owned and valid until
-/// the next `Node.nextAction` call (or node teardown); copy what outlives that.
-/// `dial` carries a pending ticket and route index — URI and dial pieces live
+/// the next `Node.nextAction` call (or node teardown). Copy what outlives that.
+/// `dial` carries a pending ticket and route index, URI and dial pieces live
 /// on the pending row (`Node.pendingDial`) so `acceptGive` owns them once.
 pub const Action = union(enum) {
     /// Dial the exporter named by `pending`'s dial view with the node's
     /// retained identity, register the CapTP session, open the keyed session,
     /// bind any key the channel proved on that Peer, then feed
-    /// `Node.exporterDialed(pending, route_index, peer_handle)` — or
+    /// `Node.exporterDialed(pending, route_index, peer_handle)`, or
     /// `Node.dialFailed(pending, route_index, reason)` if any step refuses.
-    /// The executor must first commit the exact dial effect; borrow its locator
+    /// The executor must first commit the exact dial effect. Borrow its locator
     /// via `Node.pendingDial` until a report consumes it.
     dial: struct {
         pending: redeem_dials.PendingId,
@@ -68,7 +68,7 @@ pub const Action = union(enum) {
         dest: FailureDestination,
         /// Most failures own a copy of a call-scoped reason. Teardown uses
         /// one static diagnostic so its reserved consequence cannot fail
-        /// allocation; the union makes those lifetimes non-interchangeable.
+        /// allocation. The union makes those lifetimes non-interchangeable.
         reason: FailureReason,
     },
     /// Stop selecting and close an exporter session opened solely for handoff
@@ -77,7 +77,7 @@ pub const Action = union(enum) {
     /// Draw 32 bytes of gift-id entropy and feed them back through
     /// `Node.provideGiftId(ticket, bytes)`. Entropy is a host effect like
     /// dialing: the sans-io node never generates it, and requesting it only
-    /// when a reply actually becomes a gift keeps the ordinary reply path free
+    /// when a reply becomes a gift keeps the ordinary reply path free
     /// of speculative draws.
     need_gift_id: struct { ticket: u64 },
     /// Release one Host capability retain transferred into a delayed
@@ -174,7 +174,7 @@ pub fn pushReserved(self: *Node, action: Action) void {
 
 /// Claim a contiguous range in the Node-wide external-effect ticket namespace.
 /// Call only after every fallible acquisition and immediately before infallible
-/// publication; the maximum remains the first unissued sentinel.
+/// publication. The maximum remains the first unissued sentinel.
 pub fn claimTicketRange(
     self: *Node,
     count: usize,
@@ -233,7 +233,7 @@ pub fn consumePeekedAction(self: *Node) error{NoPendingAction}!void {
 }
 
 /// Pop borrowed: the preceding action remains valid until this call retires it.
-/// Returning a dial commits that exact attempt to the executor; stale queued
+/// Returning a dial commits that exact attempt to the executor. Stale queued
 /// attempts are discarded. Call `rollbackDialEffect` only when the executor
 /// refuses before publishing any physical work.
 pub fn nextAction(self: *Node) ?Action {

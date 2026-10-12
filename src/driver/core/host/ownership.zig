@@ -1,7 +1,7 @@
 //! Host construction, aggregate destruction, and exclusive-owner transfer.
 //!
 //! The Host root owns the state layout and supported index. This internal leaf
-//! owns the one transaction that creates or retires that whole aggregate; it
+//! owns the one transaction that creates or retires that whole aggregate. It
 //! does not add a runtime owner object or widen `driver.core`'s namespace.
 
 const std = @import("std");
@@ -24,7 +24,7 @@ const Host = host_mod.Host;
 const crypto = foundation.crypto;
 
 /// Why an I/O owner cannot adopt this byte-fed Host. Queued actions are
-/// transferable; live sessions and a popped action are not, because their byte
+/// transferable. Live sessions and a popped action are not, because their byte
 /// channels or borrowed payload already belong to the current driver.
 pub const RuntimeAdoptionError = error{
     ReenteredHost,
@@ -33,7 +33,7 @@ pub const RuntimeAdoptionError = error{
 };
 
 /// Validate transfer from a byte-fed driver to an owning runtime. Queued
-/// actions transfer; live sessions and a popped action retain their current
+/// actions transfer. Live sessions and a popped action retain their current
 /// byte-channel or borrowed-payload owner.
 pub fn checkRuntimeAdoption(self: *const Host) RuntimeAdoptionError!void {
     if (self.in_callback) return error.ReenteredHost;

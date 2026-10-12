@@ -1,12 +1,12 @@
 /**
- * Adobe-style tool-options bar — sits above Stage in build mode.
- * Tracks the active builder tool; shows per-tool prefilled-but-
+ * Adobe-style tool-options bar, sits above Stage in build mode.
+ * Tracks the active builder tool. Shows per-tool prefilled-but-
  * editable configuration fields that the *next* click on the canvas
  * will use.
  *
  * Scope: configured tool values, plus the two things a half-finished gesture
  * needs that the banner cannot carry. The banner over the stage says what to
- * click next and is deliberately short — it sits over the picture, so a hint
+ * click next and is short, it sits over the picture, so a hint
  * long enough to need reading is covering the thing being read. Detail about the
  * pending click, and the way out of it, live here instead: there is room, it is
  * already scoped to the active tool, and it can hold a button, which the banner
@@ -18,7 +18,7 @@
  * Identity-at-creation (Cluster 2 of the authoring-identity handoff):
  * typing into the ID field BEFORE clicking the canvas commits the
  * typed id with the drop. Collisions surface inline as `<FieldError>`
- * via the engine's `validate` pre-flight; the actual drop still goes
+ * via the engine's `validate` pre-flight. The actual drop still goes
  * through `engine.dispatch` which re-checks (race-safe).
  */
 
@@ -45,7 +45,7 @@ import { ScrubInput } from "./Timeline/ScrubInput.tsx";
 /** Per-tool draft values the bar holds. App lifts these into state
  *  so the values survive tool-switch and so `handleAddPeer` /
  *  `advanceTwoClick` can read them at dispatch time. Session and
- *  message values are sticky across drops by design — users
+ *  message values are sticky across drops, users
  *  typically build several of the same kind in a row, so flipping
  *  `codec` once should apply to every session you drop after. */
 export type ToolDrafts = {
@@ -60,7 +60,7 @@ export type ToolDrafts = {
 	// send-message
 	messageLabel: string;
 	/** Flight duration in ms. Empty string means "use engine default
-	 *  (DEFAULT_MESSAGE_FLIGHT_MS = 500)"; non-empty parses to a
+	 *  (DEFAULT_MESSAGE_FLIGHT_MS = 500)". Non-empty parses to a
 	 *  number, with invalid values silently treated as the default
 	 *  too. UI keeps it as a string so the field can be cleared. */
 	messageFlightMs: string;
@@ -82,8 +82,8 @@ export const EMPTY_TOOL_DRAFTS: ToolDrafts = {
  *
  * Two things read them, at different moments. This bar renders
  * them on every keystroke. `handleAddPeer` and the two-click
- * session/message flows read them once, at the click that commits
- * — and that click is the only moment their value matters. Held as
+ * session/message flows read them once, at the click that commits,
+ * and that click is the only moment their value matters. Held as
  * state at the App's scope, the second reader saw whatever the
  * drafts were when its callback was last rebuilt, so a field
  * edited after that click's callback was built committed its
@@ -105,7 +105,7 @@ export class ToolDraftStore {
 		for (const fn of this.#listeners) fn();
 	};
 
-	/** Replace some fields and leave the rest — how a caller outside
+	/** Replace some fields and leave the rest, how a caller outside
 	 *  the bar edits a draft (clearing the peer id after a drop). */
 	update = (patch: Partial<ToolDrafts>): void => {
 		this.set({ ...this.#drafts, ...patch });
@@ -141,12 +141,12 @@ export function ToolOptionsBar(
 		onCancelArmed,
 	}: {
 		tool: BuilderTool;
-		/** Required — caller should not render the bar when there's no
+		/** Required, caller should not render the bar when there's no
 		 *  engine (no doc loaded). The bar reads collision pre-flight
-		 *  off the engine; a null engine has no
+		 *  off the engine. A null engine has no
 		 *  useful shape to render. */
 		engine: Engine;
-		/** The App's one draft store. This bar is its only subscriber;
+		/** The App's one draft store. This bar is its only subscriber.
 		 *  the click handlers that commit a draft read it directly. */
 		drafts: ToolDraftStore;
 		/** Display label of the node a two-click tool is waiting on a second click
@@ -494,7 +494,7 @@ const fieldLabel = {
 // What a draft field in this bar is beyond an `.ocv-input`: a fixed
 // width, mono, and an ellipsis when the draft outruns it. Corner,
 // surface, inset and hover are the class's, and this object used to
-// restate three of them — which left these the only fields in the app
+// restate three of them, which left these the only fields in the app
 // with a three-pixel corner and no hover, because an inline value beats
 // the class silently.
 const inlineInput = {

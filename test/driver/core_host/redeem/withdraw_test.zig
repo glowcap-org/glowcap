@@ -44,7 +44,7 @@ const FailedRedeemListener = struct {
         CapturedRef.record(&self.captured, resolution);
         if (!self.adopt_exporter or resolution != .broken) return;
         const session = self.session orelse return;
-        // `tell` is intentionally callback-safe. It claims application
+        // `tell` is callback-safe. It claims application
         // ownership synchronously, while its encode work waits for the host
         // pump's outer unwind.
         self.host.tell(
@@ -118,7 +118,7 @@ fn runMissingGifterRedeem(adopt_in_failure_listener: bool) !void {
     const session_name = engine.handoff_names.sessionName(gifter_side_name, exporter_side_name);
 
     // Closing the required session destroys its Peer-owned registry. The Host
-    // directory can no longer resolve either the key or the gift table.
+    // directory cannot resolve either the key or the gift table.
     try exporter.releaseSession(g_to_e.b);
     try gifter.releaseSession(g_to_e.a);
     const resolver = exporter.node.gifterSessionResolver().?;
@@ -321,7 +321,7 @@ test "core host: a redeem reuses a live exporter session instead of dialing a du
     const all_pairs = [_]Pair{ g_to_e, r_to_g, r_to_e };
 
     // Introduce: the give is minted and claimed, and because a live session to
-    // the exporter already exists it redeems in place — no dial is surfaced.
+    // the exporter already exists it redeems in place. No dial is surfaced.
     const introduce_vow = try recipient.send(r_to_g.a, introducer_ref, .{ .verb = "introduce", .args = &.{} });
     var redeemed = CapturedRef{};
     try recipient.vowOn(introduce_vow, .{ .ctx = &redeemed, .func = CapturedRef.record });

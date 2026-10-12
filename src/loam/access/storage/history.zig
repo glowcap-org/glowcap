@@ -7,7 +7,7 @@ const Read = @import("read.zig").Read;
 const record = @import("record.zig");
 const Batch = records.ChangeBatchRecord;
 
-/// The first effect allocates a batch; later effects reuse that batch's
+/// The first effect allocates a batch. Later effects reuse that batch's
 /// position. Stamps and retained effects share this one sequencing authority.
 pub fn position(view: *Read) !u64 {
     try view.current();

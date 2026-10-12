@@ -1,10 +1,10 @@
-//! The annotated symbol inventory of `libglowcap_net_transport_webrtc` — the
+//! The annotated symbol inventory of `libglowcap_net_transport_webrtc`: the
 //! crossing semantics a language FFI table cannot reflect from the C signature
 //! alone.
 //!
 //! Every export has a row here (in the loader's reading order) or an omission
-//! reason on its row. The readiness and try-I/O exports return immediately;
-//! peer construction and SDP/ICE mutation enter the sidecar runtime and are
+//! reason on its row. The readiness and try-I/O exports return immediately.
+//! Peer construction and SDP/ICE mutation enter the sidecar runtime and are
 //! marked as blocking crossings.
 
 const shared = @import("c_abi_shared");

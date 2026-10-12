@@ -17,9 +17,10 @@ import {
 	type Unread,
 } from "../types.ts";
 import { dirWhere, nothingWhilePaused } from "../text.ts";
-import { useSessionPaused } from "../hooks.ts";
+import { useRoomsState, useSessionPaused } from "../hooks.ts";
+import { useRoomsBrowser } from "../controller/browser.ts";
 import { dirRow, inviteRow, type RailRow, roomRow, unreadCount } from "./filter.ts";
-import { Empty, EmptyDirRow, heldBack, InviteRow, nothingMatches, RoomRow } from "./rows.tsx";
+import { Empty, EmptyDirRow, heldBack, InviteRow, nothingMatches, PendingRoomRow, RoomRow } from "./rows.tsx";
 import { bridgedOrigin } from "../store.ts";
 import { railReachingDirectory, railRoomsAppearHere } from "../../../lib/text/rail.ts";
 
@@ -80,6 +81,11 @@ export function YourRooms(
 	},
 ) {
 	const rooms = [...convs.values()].filter((conv): conv is RoomConv => conv.type === "room");
+	const target = useRoomsState((state) => state.navigationTarget);
+	const browser = useRoomsBrowser();
+	// A typed name is still discovery, even if a saved room has the same name.
+	// Its temporary row cannot claim that conversation's identity before lookup.
+	const pending = target?.kind === "room" ? target : null;
 	const paused = useSessionPaused();
 	const unreadOf = (key: string) => unreads.get(key) ?? CAUGHT_UP;
 	const held = invites.filter((invite) => shows(inviteRow(invite)));
@@ -87,14 +93,14 @@ export function YourRooms(
 	const bare = empty.filter((dir) => shows(dirRow(dir, home)));
 	const total = invites.length + rooms.length + empty.length;
 	const hidden = total - held.length - open.length - bare.length;
-	if (total === 0) {
+	if (total === 0 && pending == null) {
 		return (
 			<Empty
 				text={paused ? nothingWhilePaused : dirs.size === 0 ? railReachingDirectory : railRoomsAppearHere}
 			/>
 		);
 	}
-	if (hidden === total) {
+	if (hidden === total && pending == null) {
 		return <Empty text={nothingMatches} />;
 	}
 	return (
@@ -125,6 +131,7 @@ export function YourRooms(
 					onAbout={onAbout}
 				/>
 			))}
+			{pending != null && <PendingRoomRow name={pending.name} onCancel={browser.cancelConversationOpening} />}
 			{bare.map((dir) => (
 				<EmptyDirRow
 					key={dir.id}

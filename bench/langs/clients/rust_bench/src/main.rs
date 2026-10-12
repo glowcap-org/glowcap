@@ -229,9 +229,9 @@ async fn measure_hits(conn: &Session, target: &Ref, n: usize) -> Result<Vec<f64>
 	Ok(lats)
 }
 
-// The `local` mode (see contract.md): (a) in_lang — a counter spawned on this
+// The `local` mode (see contract.md): (a) in_lang, a counter spawned on this
 // connection, dispatched in process by the binding's own local path; (b)
-// via_host — the same behavior published across a loopback pair inside this
+// via_host: the same behavior published across a loopback pair inside this
 // process (listen on 127.0.0.1:0 + connect to itself), so every turn pays wire
 // codec, feed, trampoline, and marshal both ways. The orchestrator's host/port
 // arguments are unused; the pair is self-contained.

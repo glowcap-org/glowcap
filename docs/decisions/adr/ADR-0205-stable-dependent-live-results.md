@@ -22,11 +22,11 @@ recognize a retry carrying the original upstream result.
 
 ## Decision
 
-`save_live_dependent` declares an actual managed source endpoint and exact held
-target. Shared preparation constructs the existing dependent endpoint and
-reserves its live custody before any preparation wait. The callback can borrow
-only the facet from its matching declaration, then stage that facet as a live
-field. Borrowing it grants no reply disclosure.
+`save_live_dependent` declares a managed source endpoint and exact held target.
+Shared preparation constructs the existing dependent endpoint and reserves its
+live custody before any preparation wait. The callback can borrow only the facet
+from its matching declaration, then stage that facet as a live field. Borrowing
+it grants no reply disclosure.
 
 The committed recipe restores the same retained facet throughout the hosting
 lifetime. Exact disclosure of that field preserves replay identity. Every
@@ -38,22 +38,22 @@ dependent requirements.
 Attachment locality does not imply a common authority owner. When a held local
 target belongs to another owner, hosting uses ordinary forwarding even if both
 endpoints live in one attachment. Source admission uses the source content's
-dependent requirement; the actual target performs its own admission. The
-shared local evaluator remains available within one authority domain.
-Owner selection precedes decoding local actions. Forwarding a sequenced
-mutation preserves its verb, sequence and arguments for the target's own
-receipt; the source does not consume that sequence.
+dependent requirement. The target performs its own admission. The shared local
+evaluator remains available within one authority domain. Owner selection
+precedes decoding local actions. Forwarding a sequenced mutation preserves its
+verb, sequence and arguments for the target's own receipt. The source does not
+consume that sequence.
 
-Each scope reservation carries the actual guarded pair alongside its facet.
-These capability names borrow the facet's two retains. Matching requires the
-actual source actor and exact target capability; resource IDs, policy equality
-and result coordinates cannot substitute. On a committed settlement retry,
-the application restores its saved facet, checks this pair against the incoming
-source and target, and reuses the facet. It does not construct another one.
+Each scope reservation carries the guarded pair alongside its facet. These
+capability names borrow the facet's two retains. Matching requires the source
+actor and exact target capability. Resource IDs, policy equality and result
+coordinates cannot substitute. On a committed settlement retry, the application
+restores its saved facet, checks this pair against the incoming source and
+target, and reuses the facet. It does not construct another one.
 
 The reservation, unknown-write recovery, collection and lifetime-close rules
 are those of ADR-0204. No runtime handle enters storage. Cold restoration
-refuses; stable identity is a property of the current live custody only.
+refuses. Stable identity is a property of the current live custody only.
 C and Rust project declarations, callback borrowing and pair matching without
 adding authority state outside shared hosting.
 

@@ -1,5 +1,5 @@
 /**
- * Session inspector panel — Details + Timing (with the full
+ * Session inspector panel, Details + Timing (with the full
  * trajectory editor) for `SessionFields`, and the Connections sub-
  * panel listing what each end connects to for `SessionConnections`.
  *
@@ -13,8 +13,8 @@
  * section lists every moment on all three, numbered in time order,
  * and each row can be dragged, edited, or cleared. What the session
  * is BORN with is not a moment: the genesis state folds onto the
- * start row, and each end's genesis — its claim, the peer it attaches
- * to, and what attributed it — is edited in that end's own block.
+ * start row, and each end's genesis, its claim, the peer it attaches
+ * to, and what attributed it, is edited in that end's own block.
  */
 
 import { TRANSPORT_OPTIONS } from "../../schema/topology.ts";
@@ -60,7 +60,7 @@ export function SessionFields(
 	if (!live && !def) return <Unknown kind="session" id={id} />;
 
 	// Where each end sits at the playhead, and whether anything attributed
-	// it — one question, asked where it is answered for the stage too, so
+	// it. One question, asked where it is answered for the stage too, so
 	// this panel and the picture cannot disagree about which ends are loose.
 	const place = {
 		a: sessionEndpointPlaceAt(engine.doc, id, "a", engine.clock.t),
@@ -284,7 +284,7 @@ export function SessionFields(
 						/* The session's trajectory: every moment it changed
               state or an end attached to a peer, numbered in time
               order. "start" above carries what the session was BORN
-              in; each row here is one property stated at one moment —
+              in; each row here is one property stated at one moment,
               a time, what changed, the value, and an X to clear it.
               Clearing an attachment is how an end comes loose again. */
 					}
@@ -385,8 +385,8 @@ export function SessionConnections(
 				// reference where the document is telling the truth.
 				// Every branch below is keyed the same way, on the end this row
 				// IS rather than on whatever happens to be attached to it. The
-				// three keys this had — the end's stage id, the side name, and
-				// the attached peer's id — were three namespaces over one list,
+				// three keys this had, the end's stage id, the side name, and
+				// the attached peer's id, were three namespaces over one list,
 				// and two of them collide: both ends attached to one peer (a
 				// loopback session, which a live producer can report and nothing
 				// refuses) gave two rows one key, and so did a peer named `a`

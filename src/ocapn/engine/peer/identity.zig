@@ -31,9 +31,9 @@ pub const DurableProvenance = enum {
 
 /// Record the durable identity named by a dial before partner bytes arrive.
 /// This is a target requirement, never proof. A partner hello selecting a key
-/// route must claim it; an address route makes no durable claim and is weighed
-/// on the realizer/netlayer evidence. Repeating the same demand is idempotent;
-/// naming another key is a caller bug because no peer input reaches here.
+/// route must claim it. An address route makes no durable claim and is weighed
+/// on the realizer/netlayer evidence. Repeating the same demand is idempotent.
+/// Naming another key is a caller bug because no peer input reaches here.
 pub fn demandPartnerDurableKey(self: *Peer, key: foundation.crypto.PeerKey) void {
     if (self.durable_pin.demanded_partner) |existing| std.debug.assert(existing.eql(key));
     self.durable_pin.demanded_partner = key;
@@ -42,9 +42,9 @@ pub fn demandPartnerDurableKey(self: *Peer, key: foundation.crypto.PeerKey) void
 /// Record the durable key the connection realizer proved for the byte-channel
 /// endpoint. Native iroh/WebRTC residents, the completion bridge, a completed
 /// Noise handshake, or a foreign realizer through the C ABI may make this
-/// assertion; the transport symbol itself is never proof. The key names the
+/// assertion. The transport symbol itself is never proof. The key names the
 /// channel endpoint, not necessarily the CapTP partner across a transparent
-/// relay. Repeating the same proof is idempotent; another key is a caller bug.
+/// relay. Repeating the same proof is idempotent. Another key is a caller bug.
 pub fn bindVerifiedChannelKey(self: *Peer, key: foundation.crypto.PeerKey) void {
     if (self.durable_pin.channel) |existing| std.debug.assert(existing.eql(key));
     self.durable_pin.channel = key;
@@ -63,8 +63,8 @@ pub fn verifiedChannelKey(self: *const Peer) ?foundation.crypto.PeerKey {
 }
 
 /// Derive provenance for exactly the durable key `designator` names. Channel
-/// evidence authenticates the partner only when both names identify one node;
-/// a byte-transparent relay deliberately permits them to differ.
+/// evidence authenticates the partner only when both names identify one node.
+/// A byte-transparent relay permits them to differ.
 pub fn partnerDurableProvenance(self: *const Peer, designator: []const u8) DurableProvenance {
     const claimed = foundation.crypto.PeerKey.fromDesignator(designator) orelse
         return .unauthenticated;

@@ -32,6 +32,7 @@ enum State {
 	Unresolved,
 	Unknown,
 	KnownAbsent,
+	Refused,
 	Committed,
 }
 
@@ -43,6 +44,7 @@ pub fn encode_effect<R: References>(receipt: &EffectReceipt<R>) -> Result<Vec<Pa
 		Outcome::Unresolved => (State::Unresolved, None, Vec::new()),
 		Outcome::Unknown { .. } => (State::Unknown, None, Vec::new()),
 		Outcome::KnownAbsent => (State::KnownAbsent, None, Vec::new()),
+		Outcome::Refused { .. } => (State::Refused, None, Vec::new()),
 		Outcome::Committed { result, retained } => {
 			fields.extend(retained.0.iter().map(RetainedField::borrowed));
 			(
@@ -73,7 +75,7 @@ pub fn encode_effect<R: References>(receipt: &EffectReceipt<R>) -> Result<Vec<Pa
 		outcome,
 		result,
 		reason: match &receipt.outcome {
-			Outcome::Unknown { reason } => Some(Cow::Borrowed(reason)),
+			Outcome::Unknown { reason } | Outcome::Refused { reason } => Some(Cow::Borrowed(reason)),
 			_ => None,
 		},
 		retained: List::new(retained).ok_or(Error::Capacity)?,
@@ -126,6 +128,9 @@ fn assemble<R: References>(
 	match (&data.outcome, &data.result, &data.reason) {
 		(State::Committed, Some(_), None) => {}
 		(State::Unknown, None, Some(_)) if data.retained.0.is_empty() => {}
+		// The private executor establishes absence. The diagnostic need not
+		// be admission advice: Host refusal can also prove no dispatch.
+		(State::Refused, None, Some(_)) if data.retained.0.is_empty() => {}
 		(State::Unresolved | State::KnownAbsent, None, None) if data.retained.0.is_empty() => {}
 		_ => return Err(Error::Format),
 	}
@@ -149,6 +154,9 @@ fn assemble<R: References>(
 	drop(fields);
 	let outcome = match (data.outcome, data.result, data.reason) {
 		(State::Unknown, None, Some(reason)) if retained.0.is_empty() => Outcome::Unknown {
+			reason: reason.into_owned(),
+		},
+		(State::Refused, None, Some(reason)) if retained.0.is_empty() => Outcome::Refused {
 			reason: reason.into_owned(),
 		},
 		(State::Committed, Some(result), None) => Outcome::Committed {

@@ -102,7 +102,7 @@ Deno.test("message: arrival past session end → effective end clamped, stored p
 	const i = intrinsicOf(v, session);
 	assertEquals(i, { start: 7, end: 12 });
 	assertEquals(effectiveOf(i, session), { start: 7, end: 10 });
-	// intrinsic untouched — Inspector can show stored=5ms,
+	// intrinsic untouched, Inspector can show stored=5ms,
 	// effective=3ms with "session <id>" as reason.
 });
 

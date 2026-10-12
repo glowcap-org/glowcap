@@ -2,10 +2,10 @@
 //!
 //! Name plate: `ExportTable` / `ImportTable` (over the shared `WireDeltaTable`
 //! core). Not `slot.zig` (the CapTP `Slot` sum alone). CapTP keeps export,
-//! import, and answer as separate position namespaces — answer rows live in
-//! `answers/store.zig`; these tables own the export and import namespaces.
+//! import, and answer as separate position namespaces, answer rows live in
+//! `answers/store.zig`. These tables own the export and import namespaces.
 //!
-//! An export row holds the authoritative `slot.Slot` for its position;
+//! An export row holds the authoritative `slot.Slot` for its position,
 //! `Session.exportSlot` reads the cell rather than synthesizing a kind from
 //! "row exists." An import row holds no cell: a far import is always
 //! `remote_value` of its own position (`desc:export` names it regardless of
@@ -18,13 +18,13 @@
 //! every one is released by exactly one outbound `op:gc-exports`. Which side
 //! sends that release is the fact `ImportRow.session_held` keeps. A mention
 //! the application received is the caller's to release, through
-//! `Session.recordSend`. A mention the session itself consumed — the resolver a
+//! `Session.recordSend`. A mention the session itself consumed, the resolver a
 //! V1.0 deliver advertised, the listener an `op:listen` nominated, the promise
-//! a shortening callback advanced to — is released by the session's own
+//! a shortening callback advanced to, is released by the session's own
 //! prepared message beside the callback, fire, or closure that spends it, and
 //! `adoptForSession` marks it so at the moment the session takes it. A caller's
 //! release is validated against `releasable`, the remainder, so it can never
-//! address a row the session still has to settle through; the row's presence
+//! address a row the session still has to settle through. The row's presence
 //! at that later release is then an invariant, not a runtime question.
 //!
 //! ## Why a hash, not a raw `position -> row` vector
@@ -32,7 +32,7 @@
 //! Export positions are locally allocated and monotonic, so a flat index vector
 //! would be safe and ideal for them. But import positions are *partner-
 //! allocated*: an untrusted peer can name `import_position = 1 << 63`, and a raw
-//! index vector would try to grow to that length — a memory DoS. An integer-
+//! index vector would try to grow to that length, a memory DoS. An integer-
 //! keyed hash keeps the O(1) win without letting a partner's sparse position
 //! explode the backing store.
 //!
@@ -45,7 +45,7 @@
 //! the protocol stops it releasing one and reusing the number for a different
 //! object. Every reader of an import position therefore depends on that
 //! partner being monotonic, or on holding something besides the number.
-//! Goblins is monotonic, so this is a dependence rather than a live defect —
+//! Goblins is monotonic, so this is a dependence rather than a live defect,
 //! but it is a dependence, not an absence of one, and the readers that carry
 //! it should say so:
 //!
@@ -73,7 +73,7 @@ pub const ExportRow = struct {
 };
 
 /// One live import position. `count` is every wire retain the partner's
-/// mentions granted; `session_held` is how many of those the session keeps
+/// mentions granted. `session_held` is how many of those the session keeps
 /// for a release it will put on the wire itself, never more than `count`.
 pub const ImportRow = struct {
     count: u64,
@@ -81,7 +81,7 @@ pub const ImportRow = struct {
 };
 
 /// Wire-delta table (ADR-0008) keyed by CapTP position. Each position is
-/// installed live at count 1 with its `Row`; the owning table's release verb
+/// installed live at count 1 with its `Row`. The owning table's release verb
 /// decrements by the wire delta and retires the row at zero. Underflow or an
 /// unknown position is a loud error, never a silent clamp.
 fn WireDeltaTable(comptime Row: type) type {
@@ -117,7 +117,7 @@ fn WireDeltaTable(comptime Row: type) type {
             return row.count;
         }
 
-        /// Register `position` live with `fresh` if absent; idempotent no-op
+        /// Register `position` live with `fresh` if absent. Idempotent no-op
         /// otherwise (existing row kept).
         pub fn register(self: *Self, allocator: std.mem.Allocator, position: u64, fresh: Row) !void {
             const gop = try self.rows.getOrPut(allocator, position);
@@ -157,7 +157,7 @@ fn WireDeltaTable(comptime Row: type) type {
 /// Export rows: local-mint CapTP slots + wire-delta counts.
 ///
 /// An export position is *locally allocated* (`Session.allocateExport`) and
-/// monotonic, so its row count is bounded by our own sends; there is nothing a
+/// monotonic, so its row count is bounded by our own sends. There is nothing a
 /// partner can do to grow it without bound, and `register`/`retain` therefore
 /// take no cap.
 pub const ExportTable = struct {
@@ -189,7 +189,7 @@ pub const ExportTable = struct {
     }
 
     /// Reserve backing capacity for exports a prepared send may establish.
-    /// Existing rows make an overestimate harmless; the caller's commit can
+    /// Existing rows make an overestimate harmless. The caller's commit can
     /// then register and retain without allocating after authority moves.
     pub fn ensureUnusedCapacity(self: *ExportTable, allocator: std.mem.Allocator, additional: usize) !void {
         const count32 = std.math.cast(u32, additional) orelse return error.OutOfMemory;
@@ -198,7 +198,7 @@ pub const ExportTable = struct {
 
     /// Wire-held references to `position`: the refcount minus the local
     /// baseline every live export row carries. This is the most a partner's
-    /// `op:gc-exports` may release — validating inbound GC against `count`
+    /// `op:gc-exports` may release, validating inbound GC against `count`
     /// instead would let a partner over-release delete the row and with it
     /// our own live capability.
     pub fn wireHeld(self: *const ExportTable, position: Id) u64 {
@@ -211,7 +211,7 @@ pub const ExportTable = struct {
     pub const releasable = wireHeld;
 
     /// Install `position` as a near object (`local_value`) at count 1 if
-    /// absent; idempotent otherwise.
+    /// absent. Idempotent otherwise.
     pub fn register(self: *ExportTable, allocator: std.mem.Allocator, position: Id) !void {
         return self.slots.register(allocator, position.int(), .{ .cell = .{ .local_value = position.int() }, .count = 1 });
     }
@@ -224,16 +224,16 @@ pub const ExportTable = struct {
     }
 
     /// Install `position` as a local *promise* (`local_unresolved`) at count 1
-    /// if absent; idempotent otherwise. The promise twin of `register`: a
+    /// if absent. Idempotent otherwise. The promise twin of `register`: a
     /// resolver export is minted unresolved at allocation, so its slot is
     /// authoritative before any wire mention projects it (ADR-0080).
     pub fn registerPromise(self: *ExportTable, allocator: std.mem.Allocator, position: Id) !void {
         return self.slots.register(allocator, position.int(), .{ .cell = .{ .local_unresolved = position.int() }, .count = 1 });
     }
 
-    /// Take one wire reference — or one explicit addressability grant — on a
+    /// Take one wire reference, or one explicit addressability grant, on a
     /// live export row. Callers install the local baseline first (`register`),
-    /// so every export row's count stays baseline plus wire-held; retaining an
+    /// so every export row's count stays baseline plus wire-held. Retaining an
     /// absent row would mint a baseline-less count that `wireHeld` misreads,
     /// hence the assert.
     pub fn retain(self: *ExportTable, allocator: std.mem.Allocator, position: Id) !void {
@@ -268,7 +268,7 @@ pub const ImportTable = struct {
     /// route id (ADR-0069) and the opaque Host capability id (ADR-0096). Both die
     /// with the import row, so partner reuse of one numeric position cannot
     /// revive either identity. One optional map preserves the one-word empty
-    /// session cost while the two layer-specific identities coexist; the map
+    /// session cost while the two layer-specific identities coexist. The map
     /// is bounded by the import table's own cap.
     identities: ?*IdentityMap = null,
 
@@ -278,7 +278,7 @@ pub const ImportTable = struct {
         node_route_id: u64 = 0,
         host_ref: u64 = 0,
         /// Number of this row's wire retains already surfaced as Host handles.
-        /// Lift may consume each wire retain once; local copies of one borrowed
+        /// Lift may consume each wire retain once. Local copies of one borrowed
         /// reference cannot manufacture matching GC authority.
         lifted_retains: u64 = 0,
     };
@@ -289,7 +289,7 @@ pub const ImportTable = struct {
     pub const IdentityMap = std.AutoHashMapUnmanaged(u64, Identity);
     pub const Id = model.ImportPosition;
     pub const Error = WireDeltaTable(ImportRow).Error;
-    /// Adding a new import row can hit the partner-import cap; everything else
+    /// Adding a new import row can hit the partner-import cap. Everything else
     /// an import table does (decrement, lookup) shares the wire-delta errors.
     pub const RetainError = std.mem.Allocator.Error || Error || error{ImportCapExceeded};
     pub const empty: ImportTable = .{};
@@ -323,6 +323,9 @@ pub const ImportTable = struct {
     /// Undo a route enrollment that never became observable. The import row
     /// remains authoritative and any Host identity attached beside the route id
     /// is preserved. Retained map capacity is intentional high-water storage.
+    /// Presence is certain because `noteRouteId` in the same commit/rollback
+    /// pair created the map and row for this position, behind the
+    /// `holdsImport` gate `noteForeignRouteId` checks first.
     pub fn abandonRouteId(self: *ImportTable, position: Id, route_id: model.CapabilityRouteId) void {
         const map = self.identities orelse unreachable;
         const identity = map.getPtr(position.int()) orelse unreachable;
@@ -379,7 +382,7 @@ pub const ImportTable = struct {
     }
 
     /// Return claimed Host retains as their handles are released. The wire row
-    /// may already be gone after GC; in that case its memo died with it.
+    /// may already be gone after GC. In that case its memo died with it.
     pub fn releaseHostRetains(self: *ImportTable, position: Id, host_ref: u64, delta: u64) void {
         const map = self.identities orelse return;
         const identity = map.getPtr(position.int()) orelse return;
@@ -427,7 +430,7 @@ pub const ImportTable = struct {
     }
 
     /// Retain one wire reference to a partner-introduced import. A *new* id is
-    /// bounded by `max` (`SessionLimits.max_imports`); an already-held id only
+    /// bounded by `max` (`SessionLimits.max_imports`). An already-held id only
     /// increments its wire-delta refcount and is never refused, since a partner
     /// may reference the same export repeatedly and our later `op:gc-exports`
     /// must release the same total delta.
@@ -439,7 +442,7 @@ pub const ImportTable = struct {
     }
 
     /// Reserve one retain without changing authority. A fresh partner-chosen
-    /// position is cap-checked here; an existing row is checked for wire-delta
+    /// position is cap-checked here. An existing row is checked for wire-delta
     /// overflow. `retainAssumeCapacity` is then infallible at commit.
     pub fn prepareRetain(
         self: *ImportTable,
@@ -457,7 +460,7 @@ pub const ImportTable = struct {
     }
 
     /// Reserve rows for a validated batch of distinct new imports. The
-    /// validation walk has already enforced `max_imports`; this function owns
+    /// validation walk has already enforced `max_imports`. This function owns
     /// only the backing allocation needed to make the later mention-by-mention
     /// retain pass infallible.
     pub fn ensureUnusedCapacity(
@@ -475,12 +478,23 @@ pub const ImportTable = struct {
         self.slots.retainAssumeCapacity(position.int(), .{ .count = 1 });
     }
 
+    /// The live row behind the session's own adopts and releases. Presence is
+    /// certain because the adopting seams retained in the same turn:
+    /// `retainImportForSession` retains then adopts in one call, and
+    /// `adoptImportRetain`'s same-turn retainers (a V1.0 deliver's resolver, a
+    /// shortening callback's advanced-to promise) retained through
+    /// `ImportTable.retain`. The session's release spends only what it
+    /// adopted (`applySessionImportRelease`, `releaseSessionImportRetain`).
+    fn liveRow(self: *ImportTable, position: Id) *ImportRow {
+        return self.slots.rows.getPtr(position.int()) orelse unreachable;
+    }
+
     /// Take one of `position`'s counted retains as the session's own: it will
     /// leave through the session's prepared release and no caller may spend
-    /// it. The row must be live with a retain left to adopt; both are
+    /// it. The row must be live with a retain left to adopt. Both are
     /// invariants of the seams that adopt, which retained in the same turn.
     pub fn adoptForSession(self: *ImportTable, position: Id) void {
-        const row = self.slots.rows.getPtr(position.int()) orelse unreachable;
+        const row = self.liveRow(position);
         std.debug.assert(row.session_held < row.count);
         row.session_held += 1;
     }
@@ -501,7 +515,7 @@ pub const ImportTable = struct {
     /// The session's release of `delta` of its own retains, retiring the row
     /// at zero. Infallible: the session adopted what it releases.
     pub fn releaseSessionHeld(self: *ImportTable, position: Id, delta: u64) void {
-        const row = self.slots.rows.getPtr(position.int()) orelse unreachable;
+        const row = self.liveRow(position);
         std.debug.assert(delta <= row.session_held);
         row.session_held -= delta;
         row.count -= delta;

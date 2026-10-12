@@ -1,6 +1,6 @@
-// The CapTP host — multi-session CapTP product over the byte-fed host archive
+// The CapTP host: multi-session CapTP product over the byte-fed host archive
 // (libglowcap_host, ADR-0072). Goblins' `mycapn` is two roles: the product maps
-// to this `Host`, the router tables map to `engine.Node` that the host owns — never
+// to this `Host`, the router tables map to `engine.Node` that the host owns, and never
 // a single-type equation. The `GlowcapHost` owns every decision: the retained
 // identity, live-session directory, routing, transparent three-party
 // redemption, and the gifter half's origination. What lives here is only what
@@ -88,7 +88,7 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 	 * host enlivens it over a live session it already dialed to that peer, or
 	 * dials one itself through this host's own DIAL action and finishes when
 	 * the dial reports. The session-scoped `Session.enliven` is the narrower
-	 * verb — it never dials, and refuses a sturdyref for another peer. */
+	 * verb: it never dials, and refuses a sturdyref for another peer. */
 	async enliven(sturdyref: string, captpVersion?: CaptpVersion): Promise<Ref> {
 		const raw = this.raw;
 		const swiss = utf8Encoder.encode(sturdyref);
@@ -208,8 +208,8 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 	}
 
 	/** The canonical key designator (64 lowercase hex digits) for this host's
-	 * identity seed — what a keyed-tcp locator names as its designator
-	 * (ADR-0075). */
+	 * identity seed (what a keyed-tcp locator names as its designator,
+	 * (ADR-0075)). */
 	designator(): string {
 		const out = new Uint8Array(64);
 		checkHost(hostS.glowcap_host_designator_from_seed(
@@ -253,8 +253,8 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 	}
 
 	/** Publish `behavior` under a freshly minted durable swiss name and return
-	 * that name — the swiss to place in a sturdyref beside this host's own
-	 * locator (ADR-0098). Unpredictable, never reassigned, structurally
+	 * that name (the swiss to place in a sturdyref beside this host's own
+	 * locator, ADR-0098). Unpredictable, never reassigned, structurally
 	 * disjoint from every mutable alias, removable only through
 	 * {@link unpublishDurable}. When supplied, `entropy` lets an embedder retain
 	 * and reproduce the same durable name; otherwise this method draws it. */
@@ -397,8 +397,9 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 
 	/** Stop tracking this released wrapper. Native addresses may be recycled;
 	 * stale teardown must never delete a newer Session registered at the same
-	 * address. Binding-internal. */
-	unregisterSession(ptr: Ptr, session: Session): void {
+	 * address. The operation is identity over the exact registered instance,
+	 * so any object reference names it. Binding-internal. */
+	unregisterSession(ptr: Ptr, session: object): void {
 		if (this._sessions.get(ptr) === session) this._sessions.delete(ptr);
 	}
 
@@ -427,8 +428,8 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 	/** The live `Session` homing remote `ref`, or null for a local, stale,
 	 * foreign-Host, or closed-session capability. Deterministic (ADR-0088): the reply's
 	 * own token carries its route, so `Session.sendRedeeming` resolves the exact
-	 * exporter session it should host its back-channel on — no capture window,
-	 * no dependence on which dial completed first, and it finds an exporter that
+	 * exporter session it should host its back-channel on (no capture window,
+	 * no dependence on which dial completed first), and it finds an exporter that
 	 * a prior redeem already dialed (a cache hit that mints no new dial at all).
 	 * `Session.sendRedeeming` suppresses its own sending session and surfaces
 	 * only a different exporter. Binding-internal. */
@@ -447,8 +448,8 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 		if (found == null && this._driverLoop != null) {
 			// A loop-owned Host redeems inside its own steps (ADR-0112), so the
 			// exporter session it dialed exists with no wrapper yet. Wrap it
-			// lazily — adoption registers it, so a repeat lookup returns this
-			// same object — and the loop stays its release authority.
+			// lazily. Adoption registers it, so a repeat lookup returns this
+			// same object and the loop stays its release authority.
 			return this._driverLoop.adoptSession(ptr);
 		}
 		return found;

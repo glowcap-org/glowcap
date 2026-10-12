@@ -10,7 +10,7 @@
 // whole control, and the page draws the face over it: a mark, then either the
 // invitation or the name of the file that was chosen. The input is what the
 // pointer and the keyboard both reach, which is why it is transparent rather
-// than hidden — a hidden input takes no press and no focus, and driving one
+// than hidden: a hidden input takes no press and no focus, and driving one
 // from a label's click handler loses the keyboard.
 
 import { Icon } from "./icons.tsx";

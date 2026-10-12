@@ -405,8 +405,8 @@ export class IrohConnection {
 	 * only because the peer held the secret for this key. Null when the
 	 * connection is gone or the handshake proved nothing.
 	 *
-	 * This is the fact a session is otherwise missing. glowcap cannot see it —
-	 * it did not open this connection — so whoever did passes it on with
+	 * This is the fact a session is otherwise missing. glowcap cannot see it:
+	 * it did not open this connection, so whoever did passes it on with
 	 * `Session.bindVerifiedChannelKey`, which `_connectIroh`
 	 * below do for every session this module establishes. */
 	remoteNodeId(): string | null {

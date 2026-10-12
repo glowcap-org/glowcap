@@ -18,8 +18,8 @@
          "loop/listeners.rkt"
          "loop/lifecycle.rkt")
 
-;; Construct the aggregate only after every owner module — notably lifecycle's
-;; Host hook installation — has loaded. Internal leaves expose transitions to
+;; Construct the aggregate only after every owner module (notably lifecycle's
+;; Host hook installation) has loaded. Internal leaves expose transitions to
 ;; siblings; only this complete facade can mint a usable driver loop.
 (define (fresh-event-buf)
   (make-GlowcapDriverEvent

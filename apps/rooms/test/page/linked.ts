@@ -4,7 +4,7 @@
 // view of it rather than a form of its own: one room name, one lock, one
 // destination, one submission. So this phase presses each half and reads the
 // other, and it checks after every one of those presses that the panel is still
-// standing — the card is the rest of this form rather than somewhere else to
+// standing, the card is the rest of this form rather than somewhere else to
 // go, and a caret or a press landing over there must not take this half away.
 //
 // Part of the opening conversation in `opening.ts`, run with that page's state
@@ -47,9 +47,9 @@ export async function run(tab: Page): Promise<void> {
 
 	// The third thing they share is where the room lands. The rail's panel says
 	// which directory that is, and while the card is up the card's locator field
-	// is what decides it — one name being typed into two places cannot be going
-	// to two directories. The panel used to state the directory the reader was
-	// standing on whatever the card had been aimed at, so naming another
+	// is what decides it, one name being typed into two places cannot be going
+	// to two directories. The panel states the directory the card is aimed at,
+	// not the one the reader is standing on, so naming another
 	// directory in the card left the rail promising the room to this one.
 	const railWhere = async () => ((await tab.textContent("#newRoom .rwhere-said")) ?? "").trim();
 	const atHome = await railWhere();
@@ -98,7 +98,7 @@ export async function run(tab: Page): Promise<void> {
 
 	// An address this tab does not hold has nowhere in the rail to be typed, so
 	// that row hands over the field where it can be, leaving everything answered
-	// so far where it is — the panel included, because handing over a field is
+	// so far where it is, the panel included, because handing over a field is
 	// the plainest case of one half acting on the other.
 	await tab.click('.where-picks [role=menuitem]:has-text("Another address")');
 	if (await tab.evaluate(() => document.activeElement?.id ?? "") !== "locator") {

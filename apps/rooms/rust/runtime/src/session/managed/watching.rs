@@ -40,7 +40,7 @@ impl Refresh {
 }
 
 /// A view onto the session-owned observation worker. Abandoning readiness or
-/// dropping this view requests retirement; actual cleanup stays at the session.
+/// dropping this view requests retirement. Actual cleanup stays at the session.
 pub struct WorkspaceActivity<P: Tasks>(Membership<P>);
 impl<P: Tasks> WorkspaceActivity<P> {
 	pub fn is_active(&self) -> bool {
@@ -91,6 +91,9 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		);
 		let locator = locator.to_owned();
 		let refresh = self.state.discovery_refresh.clone();
+		// Cold restoration can fail before a connection exists to report loss.
+		// Drive the same bounded recovery until initial realization succeeds.
+		refresh.recover();
 		let platform = self.state.platform.clone();
 		Ok(WorkspaceActivity(supervision::spawn(
 			&self.state.platform,
@@ -110,9 +113,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 					memberships: Memberships::with_kinds(kinds),
 					discover: kinds.discovery,
 					discovery: discovery::Discoveries::default(),
-					request: None,
-					observation: None,
-					cursor: None,
+					watch: Watch::Idle,
 					pending_receive: super::changes::Receive::default(),
 					refresh,
 					refreshed: 0,
@@ -160,13 +161,33 @@ struct Worker<P: Tasks + Deadline + Clone + 'static, E, F, R> {
 	memberships: Memberships<P>,
 	discovery: discovery::Discoveries<P>,
 	discover: bool,
-	request: Option<ObservationRequest>,
-	observation: Option<Observation<P>>,
-	cursor: Option<loam::ObservationCursor>,
+	watch: Watch<P>,
 	pending_receive: super::changes::Receive,
 	refresh: std::rc::Rc<Refresh>,
 	refreshed: u64,
 	recovery_delay: u64,
+}
+/// Where the worker is in establishing its workspace observation. `run` walks
+/// the phases forward. `changed` reads only a polled observation, and
+/// `cleanup` cancels whichever phase was reached.
+enum Watch<P: Tasks + Deadline + Clone + 'static> {
+	Idle,
+	Requested(ObservationRequest),
+	Observing(Observation<P>),
+	Polled {
+		observation: Observation<P>,
+		cursor: loam::ObservationCursor,
+	},
+}
+impl<P: Tasks + Deadline + Clone + 'static> Watch<P> {
+	/// Record the cursor a poll or change delivered. A phase without an
+	/// observation has no cursor to move.
+	fn polled(&mut self, cursor: loam::ObservationCursor) {
+		*self = match std::mem::replace(self, Self::Idle) {
+			Self::Observing(observation) | Self::Polled { observation, .. } => Self::Polled { observation, cursor },
+			other => other,
+		};
+	}
 }
 fn error(error: rooms_glowcap::client::Error) -> glowcap::Error {
 	loam::refusal(error.to_string())
@@ -180,8 +201,13 @@ where
 {
 	async fn run(&mut self) {
 		loop {
-			if self.request.is_none() {
-				match self.workspace.mutation_sequence().await {
+			let observed = match &self.watch {
+				Watch::Idle => None,
+				Watch::Requested(request) => Some(self.workspace.observe(request).await),
+				Watch::Observing(_) | Watch::Polled { .. } => break,
+			};
+			match observed {
+				None => match self.workspace.mutation_sequence().await {
 					Ok(sequence) => {
 						let mut identity = [0; 16];
 						if let Err(failure) = self.entropy.fill(&mut identity) {
@@ -189,34 +215,32 @@ where
 							self.retry().await;
 							continue;
 						}
-						self.request =
-							Some(ObservationRequest::new_live(sequence, identity).expect("validated mutation sequence"))
+						match ObservationRequest::new_live(sequence, identity) {
+							Ok(request) => self.watch = Watch::Requested(request),
+							Err(failure) => {
+								self.fail(error(failure));
+								self.retry().await;
+							}
+						}
 					}
 					Err(failure) => {
 						self.fail(error(failure));
 						self.retry().await;
-						continue;
 					}
-				}
-			}
-			match self.workspace.observe(self.request.as_ref().unwrap()).await {
-				Ok(observation) => {
-					self.observation = Some(observation);
-					self.request.take();
+				},
+				Some(Ok(observation)) => {
+					self.watch = Watch::Observing(observation);
 					break;
 				}
-				Err(failure) => {
+				Some(Err(failure)) => {
 					self.fail(error(failure));
 					self.retry().await;
 				}
 			}
 		}
-		loop {
-			match self.observation.as_ref().unwrap().poll(None).await {
-				Ok(state) => {
-					self.cursor = Some(*state.view().cursor);
-					break;
-				}
+		while let Watch::Observing(observation) = &self.watch {
+			match observation.poll(None).await {
+				Ok(state) => self.watch.polled(*state.view().cursor),
 				Err(failure) => {
 					self.fail(error(failure));
 					self.retry().await;
@@ -250,8 +274,9 @@ where
 					// A workspace change can retire a row while its effect is
 					// pending. Interrupt only this reconciliation observer; the
 					// registry retains every inserted worker and exact request.
-					let observation = self.observation.as_ref().unwrap();
-					let cursor = self.cursor.as_ref().unwrap();
+					let Watch::Polled { observation, cursor } = &self.watch else {
+						return;
+					};
 					let Some(state) = self.session.upgrade() else {
 						self.fail(loam::refusal("Workspace session owner has closed"));
 						return;
@@ -262,7 +287,7 @@ where
 						_ = self.refresh.wake.notified() => None,
 						change = self.pending_receive.next(observation, cursor) => {
 							match change {
-								Ok(state) => self.cursor = Some(*state.view().cursor),
+								Ok(state) => self.watch.polled(*state.view().cursor),
 								Err(failure) => { self.fail(error(failure)); self.retry().await; }
 							}
 							None
@@ -297,15 +322,21 @@ where
 		(self.report)(Err(failure));
 	}
 	async fn retry(&mut self) {
-		let _ = self.signals.retrying.changed().await;
+		if self.signals.retrying.changed().await.is_ok() {
+			self.memberships.retry_failed();
+		}
 	}
 	async fn changed(&mut self) {
-		let observation = self.observation.as_ref().unwrap();
-		let cursor = self.cursor.as_ref().unwrap();
+		let Watch::Polled { observation, cursor } = &self.watch else {
+			return;
+		};
 		let result = tokio::select! {
 			biased;
 			_ = self.refresh.wake.notified() => return,
-			_ = self.signals.retrying.changed() => return,
+			result = self.signals.retrying.changed() => {
+				if result.is_ok() { self.memberships.retry_failed(); }
+				return;
+			},
 			_ = self.platform.within(self.recovery_delay, std::future::pending::<()>()), if self.refresh.recovering.get() => {
 				self.recovery_delay = (self.recovery_delay * 2).min(5_000);
 				return;
@@ -313,7 +344,7 @@ where
 			result = self.pending_receive.next(observation, cursor) => result,
 		};
 		match result {
-			Ok(state) => self.cursor = Some(*state.view().cursor),
+			Ok(state) => self.watch.polled(*state.view().cursor),
 			Err(failure) => {
 				self.fail(error(failure));
 				self.retry().await;
@@ -328,14 +359,14 @@ where
 			Err(error) => Err(error.with_cleanup(discovery)),
 		};
 		let observation = async {
-			if let Some(request) = &self.request {
-				self.observation = Some(self.workspace.observe(request).await.map_err(error)?);
-				self.request.take();
+			if let Watch::Requested(request) = &self.watch {
+				let observation = self.workspace.observe(request).await.map_err(error)?;
+				self.watch = Watch::Observing(observation);
 			}
-			if let Some(observation) = &self.observation {
+			if let Watch::Observing(observation) | Watch::Polled { observation, .. } = &self.watch {
 				observation.cancel().await.map_err(error)?;
 				self.pending_receive.drain().await;
-				self.observation.take();
+				self.watch = Watch::Idle;
 			}
 			Ok(())
 		}

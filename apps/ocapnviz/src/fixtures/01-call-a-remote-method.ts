@@ -2,7 +2,7 @@ import { TimelineDocument } from "../engine/timeline.ts";
 import { payloadOf, wireFrames } from "./wire-frames.ts";
 
 /**
- * Chapter 01 — Call a remote method.
+ * Chapter 01, Call a remote method.
  *
  * The phone calls `speaker.queue("Hot Knife")` on the kitchen speaker.
  * Speaker fulfills with a print-job-receipt-style export. Phone
@@ -18,7 +18,7 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  * the vocabulary has and the picture says so.
  * Both peers run glowcap, so this session settles on Cap'n Proto over
  * glowcap-next. That is the pairing a glowcap fleet configures
- * (`HostRuntime.Options.codec` / `.captp_version` in `src/driver/host_runtime.zig`); the
+ * (`HostRuntime.Options.codec` / `.captp_version` in `src/driver/host_runtime.zig`). The
  * Syrup / OCapN 1.0 baseline is what a session settles on the moment a peer
  * at either end cannot follow.
  */

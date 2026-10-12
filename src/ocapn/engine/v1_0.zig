@@ -1,18 +1,18 @@
 //! The OCapN V1.0 resolver-callback translation (ADR-0010), end to end.
 //!
-//! OCapN V1.0 has no wire `op:resolve`; a promise settles through a *resolver
+//! OCapN V1.0 has no wire `op:resolve`. A promise settles through a *resolver
 //! capability* instead. The round trip lives in this one file. On the way out,
 //! `prepareOutboundDeliver` augments an answered `op:deliver` with a
 //! synthesized resolver export advertised as `resolve_me_desc`, committing the
 //! answer-to-export link in the session. On the way back,
 //! `preparePartnerResolver` prepares the partner's advertised resolver as our
-//! import, so our eventual resolution has somewhere to go; recognizing a
+//! import, so our eventual resolution has somewhere to go. Recognizing a
 //! deliver *to* one of our resolver exports is version-neutral and belongs to
 //! the inbound classifier (ADR-0095). Our side of that settlement is
 //! `encodeResolveAsCallback`, which
 //! renders a semantic `Resolve` as the `['fulfill|'break, payload]` deliver the
 //! partner's resolver import expects. The functions take a `*Peer` and mutate
-//! session authority through it — the names say so — exactly like the engine's
+//! session authority through it, as the names say, like the engine's
 //! `pipeline` half.
 
 const model = @import("model");
@@ -23,8 +23,8 @@ const Peer = engine.Peer;
 
 /// A V1.0 wire message whose synthesized resolver mention has been installed
 /// in authoritative session state but has not reached the outbound queue yet.
-/// The encode owner must call `abandon` on every failure before publication;
-/// once the frame is queued, the partner owns the mention and the preparation
+/// The encode owner must call `abandon` on every failure before publication.
+/// Once the frame is queued, the partner owns the mention and the preparation
 /// is committed by doing nothing.
 pub const PreparedMessage = struct {
     message: model.Message,
@@ -41,7 +41,7 @@ pub const PreparedMessage = struct {
 /// answer-to-export link is installed, and the export takes the wire-delta
 /// retain its on-wire mention requires. A deliver with no answer, or one that
 /// already carries a `resolve_me_desc`, passes through untouched. The returned
-/// message borrows `deliver`'s heap; the caller's ownership of the original
+/// message borrows `deliver`'s heap. The caller's ownership of the original
 /// message is unchanged. V1.0 sessions only, the caller gates on
 /// `Session.needsV1_0Translation`.
 pub fn prepareOutboundDeliver(peer: *Peer, deliver: model.Deliver) !PreparedMessage {
@@ -83,10 +83,10 @@ pub fn prepareOutboundDeliver(peer: *Peer, deliver: model.Deliver) !PreparedMess
 /// answer pointed at a synthesized resolver export: when the partner settles
 /// the projection it fires the listener as a `['fulfill|'break, …]` deliver to
 /// that export, which the inbound classifier recognizes and surfaces back as
-/// a semantic `Resolve` for the projected answer — the same round trip an
+/// a semantic `Resolve` for the projected answer, the same round trip an
 /// answered deliver earns, carried on a separate `op:listen` frame. The
 /// `op:listen` must reach the wire *after* the projection that opened the
-/// answer; the caller orders the two pushes. V1.0 sessions only — the caller
+/// answer. The caller orders the two pushes. V1.0 sessions only: the caller
 /// gates on `Session.needsV1_0Translation`. Returns null when explicit release
 /// retired the projected answer before deferred encoding reached this step.
 pub fn prepareProjectionListener(peer: *Peer, projected_answer: model.AnswerPosition) !?PreparedMessage {
@@ -112,9 +112,9 @@ pub fn prepareProjectionListener(peer: *Peer, projected_answer: model.AnswerPosi
 /// (ADR-0010), addressed to the partner's resolver import recorded when their
 /// augmented deliver arrived. The callback and the `op:gc-exports` that releases
 /// its one-shot resolver import publish as one adjacent pair. The
-/// resolution becomes `['fulfill, payload]` or `['break, reason-symbol]` args;
-/// both borrow `resolve` for the encode call. The break reason rides as a bare
-/// Symbol — the same payload shape the listener fire uses — because Goblins'
+/// resolution becomes `['fulfill, payload]` or `['break, reason-symbol]` args.
+/// Both borrow `resolve` for the encode call. The break reason rides as a bare
+/// Symbol, the same payload shape the listener fire uses, because Goblins'
 /// unmarshal table has no `<error …>` record: an unknown record tag raises
 /// `captp-unknown-record-rag` on the partner and the break is lost (the
 /// `<error>` record stays next / `.error`-argument vocabulary, which never
@@ -138,9 +138,9 @@ pub fn encodeResolutionAsCallback(
     };
     const wire: model.Message = .{
         .deliver = .{
-            // A far import carries no wire kind — `desc:export` names it regardless
+            // A far import carries no wire kind, `desc:export` names it regardless
             // (ADR-0010), and the `Slot` sum makes remote-mint value object-only
-            // (ADR-0080). The old `.kind = .promise` here was dead and misleading.
+            // (ADR-0080).
             .target = .{ .far = .{ .import_position = resolver_import } },
             .args = &args,
             .answer = null,
@@ -164,11 +164,11 @@ pub fn encodeResolutionAsCallback(
 
 /// Prepare the resolver the partner advertised on an inbound V1.0 deliver.
 /// Capacity, caps, and answer/import collisions are decided here without
-/// installing authority; the inbound owner commits the returned value only
+/// installing authority. The inbound owner commits the returned value only
 /// after the frame's queue or event destination is secured.
 ///
-/// The other half of the V1.0 round trip — recognizing a deliver *to* one of
-/// our resolver exports — is version-neutral and lives in the inbound
+/// The other half of the V1.0 round trip, recognizing a deliver *to* one of
+/// our resolver exports, is version-neutral and lives in the inbound
 /// classifier (`engine.inbound.classifyInboundDeliver`, ADR-0095).
 pub fn preparePartnerResolver(
     peer: *Peer,

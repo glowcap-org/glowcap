@@ -53,7 +53,7 @@ fn read_listener<A: ListArgument>(value: &A) -> Result<Listener, Refusal> {
 		id: if id == 0 {
 			Nullable::Null
 		} else {
-			Nullable::Value(SafeInteger::new(id).expect("positive admitted id"))
+			Nullable::Value(SafeInteger::new(id).ok_or(Refusal::Number)?)
 		},
 		locator: if locator.text() == Some("") {
 			Nullable::Null

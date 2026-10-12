@@ -1,5 +1,5 @@
 #lang racket/base
-;; gift-recipient.rkt — Goblins Carol, the recipient in the glowcap-as-gifter
+;; gift-recipient.rkt: Goblins Carol, the recipient in the glowcap-as-gifter
 ;; three-party handoff proof. Dials the glowcap gifter's introducer, asks it for
 ;; the greeter, and calls it. With the optional `nested` mode the answer is a
 ;; list containing two recursively placed gives; Carol must redeem and call
@@ -8,7 +8,7 @@
 ;; The introduction returns a `desc:handoff-give` glowcap minted that names the
 ;; Goblins exporter (Bob). Goblins redeems it transparently: it dials Bob
 ;; directly, withdraws the gift, and resolves the send to the live greeter cap.
-;; The greeter call then lands straight on Bob — glowcap (the gifter) is never in
+;; The greeter call then lands straight on Bob, glowcap (the gifter) is never in
 ;; the message path. The reply must carry the name we sent, proving data
 ;; integrity across the cross-implementation handoff.
 ;;
@@ -19,7 +19,7 @@
 ;; and exits 1 otherwise. With the optional `expect-hint` name, the netlayer's
 ;; connect trace inspects each dialed node's hints and prints
 ;; `HINT SEEN: <name> <byte-length>` when a dial target carries that hint as a
-;; bytes value — the positive signal that the give's exporter locator crossed
+;; bytes value: the positive signal that the give's exporter locator crossed
 ;; the upstream unmarshaller with its hint dict intact.
 
 (require goblins
@@ -42,7 +42,7 @@
 ;; The wire unmarshaller builds `ocapn-node` through the raw constructor, so a
 ;; decoded node can carry mapping-shaped hints even though the contracted
 ;; accessor admits only #f-or-string. The struct is transparent, so the probe
-;; reads the hints field reflectively — observing what actually arrived
+;; reads the hints field reflectively, observing what arrived
 ;; without re-imposing the constructor contract on it.
 (define (connect-trace event . args)
   (when (and expect-hint (eq? event 'connect))

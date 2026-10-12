@@ -1,9 +1,8 @@
 # Design and implementation plans
 
-Status: active plan index. The [roadmap](../roadmap.md) owns project priority;
-this guide maps the design documents and their responsibilities. The
-[shipped inventory](../shipped.md) owns implementation status. A contract in
-these plans describes the intended behavior unless it explicitly names
+Status: active plan index. The [roadmap](../roadmap.md) owns project priority
+and the [shipped inventory](../shipped.md) owns implementation status. A
+contract in these plans describes intended behavior unless it names
 implemented evidence.
 
 ## Definition of complete
@@ -28,45 +27,41 @@ unfinished. Follow the repository's
 A completed slice of a larger item must have explicit scope and evidence.
 Record its implemented behavior at the owning surface and leave only the
 remaining obligations in the queue. The parent item stays open until all of
-its acceptance criteria are met; documenting an omitted requirement does not
+its acceptance criteria are met. Documenting an omitted requirement does not
 complete it. Documentation-only cleanup follows the same integration requirement
 and uses the relevant documentation check.
 
 ## Priority and readiness
 
 Agent work picked up from this directory resumes Rooms in its dependency order.
-The C/Rust and browser fixed-resource lifecycles and bounded managed-control
-helpers are implemented; the
-[C/Rust guide](../loam/c-and-rust.md) and [browser guide](../loam/browser.md)
-record their scope and evidence. The [backend acceptance queue](loam/completion.md)
-retains unperformed macOS acceptance under maintainer ownership; OS portability
-and target validation are outside this agent sequence. They remain required
-before claiming support on those targets.
-
-Failure and cost evidence land with each feature. A completed registration or
-transaction slice does not complete the C/Rust resource path: create, share,
-edit, restart and reopen must work together through the consumer.
+Failure and cost evidence land with each feature. The C/Rust resource path is
+complete only when create, share, edit, restart and reopen work together
+through the consumer.
 
 | Lane | Next action and prerequisite |
 | --- | --- |
-| Loam | Maintainer-owned macOS acceptance remains in the [completion queue](loam/completion.md#execution-order). |
-| Rooms | The [managed session](../rooms/session.md) owns production startup, browser state, retained admission and shared management. Replace recursive room and directory resources. |
-| Visualizer | Re-measure on the reporting machine's real GPU before deciding whether further renderer changes are needed. |
-| Publication | Follow the maintainer account checklist, then exact-commit release evidence and archive publication. These external actions do not block local engineering. |
-| Crypto-version transition | Resume when the upstream wire contract is agreed; the upstream watch owns that condition. |
-| A2A | Deferred by ADR-0084; do not expand it while picking up ready work. |
-| Runtime semantics | Local sends commit with the turn under ADR-0191. The [runtime semantics plan](runtime-semantics.md) orders what remains: far-send retraction (ADR-0194), then one I/O runtime (ADR-0193). |
+| Loam | Maintainer-owned macOS acceptance remains in the [maintainability and security plan](../roadmap.md#open-obligations-from-retired-plans). |
+| Rooms | Execute the [Rooms plan](rooms.md#ordered-implementation-and-exit-criteria) phases in order. The [managed session](../rooms/session.md) owns production startup, browser state, retained admission and shared management. |
+| Visualizer | Re-measure on the reporting machine's real GPU before deciding whether further renderer changes are needed ([plan](../roadmap.md#open-obligations-from-retired-plans)). |
+| Publication | Follow the maintainer account steps in the [maintainability and security plan](../roadmap.md#open-obligations-from-retired-plans), then exact-commit release evidence and archive publication. These external actions do not block local engineering. |
+| Crypto-version transition | Resume when the upstream wire contract is agreed. The upstream watch owns that condition. |
+| A2A | Deferred by ADR-0084. Do not expand it while picking up ready work. |
+| Runtime semantics | Local sends commit with the turn (ADR-0191) and far sends retract with a failed turn (ADR-0194). The [one I/O runtime plan](one-io-runtime.md) carries ADR-0193's remaining batches. |
 
-The [roadmap](../roadmap.md) also tracks independent platform and reachability
-work outside these plans. Its release and platform requirements still apply;
-none is an implicit prerequisite for starting the local Loam queue.
+OS portability and target validation are outside this agent sequence, but
+support on a target is not claimed without them. The [roadmap](../roadmap.md)
+tracks that and other platform work. None of it blocks the local queue.
 
 ## Loam and Rooms
 
-Start with the [Loam architecture](loam/architecture.md) for the foundation,
-then the [Rooms content model](rooms/content.md) for the application it should
-support. Loam supplies persistent objects and capabilities with bounded
-resident memory. Its included `loam.access` module adds managed resources,
+The Loam foundation is documented under [`docs/loam/`](../loam.md#the-guides-in-reading-order).
+Its design contracts ([architecture](../loam/architecture.md), [API](../loam/api.md),
+[sleepy actors](../loam/actors.md), [managed access architecture](../loam/access-architecture.md),
+[managed access API](../loam/access-api.md), and [managed access storage](../loam/access-storage.md))
+describe shipped behavior. The [Rooms plan](rooms.md) holds the application
+work that is not built: recursive rooms, directory access, conversation
+workflows, and the shared access editor. Loam supplies persistent objects and
+capabilities with bounded resident memory. Its included `loam.access` module adds managed resources,
 grants, delegation, and editable access. Rooms supplies the collaboration
 model and interface. Applications can use Loam without managed resources.
 
@@ -82,74 +77,43 @@ flowchart BT
     Loam --> Other
 ```
 
-Arrows show what supplies each capability, rather than source imports. The
+Arrows show what supplies each capability, not source imports. The
 architecture document owns the module dependency graph. Persistence integration
-uses the existing execution owners; Loam adds no separate actor runtime.
+uses the existing execution owners, and Loam adds no separate actor runtime.
 
 | Reader's question | Owning document |
 | --- | --- |
-| How do glowcap, Loam, actors, and managed access fit together? | [Loam architecture and implementation stages](loam/architecture.md) |
-| Which verified Loam gap comes next, what does it depend on, and what removes it? | [Temporary completion queue and execution order](loam/completion.md#execution-order) |
-| How are objects, reference fields, leases, transactions, and backend outcomes represented? | [Loam API contract](loam/api.md) |
-| How do actors sleep, wake, preserve call ordering, and release memory? | [Sleepy actors and durable hosting](loam/actors.md) |
-| How are resources, facets, grant mutation, and change events enforced? | [Managed access architecture](loam/access/architecture.md) |
-| What does an application use from Zig or a language binding to define and manage resources? | [Managed access API](loam/access/api.md) |
-| What must storage prove for grants, protected queries, restoration, and recovery? | [Managed access storage requirements](loam/access/storage.md) |
-| What evidence must managed access provide at each integration surface? | [Managed access acceptance](loam/access/acceptance.md) |
-| What are directories, rooms, conversations, messages, and branching or reorganization? | [Rooms content and interaction model](rooms/content.md) |
-| How do direct sharing, facets, provenance, and recursive composition work? | [Rooms resource and sharing model](rooms/resource-model.md) |
-| How do presets, Custom permissions, pause, and revocation appear in the interface? | [Rooms access editor](rooms/access-editor.md) |
-| Which permission admits each method and returned capability? | [Rooms operation authority](rooms/authority.md) |
-| Which records, limits and recovery transactions must Rooms implement? | [Rooms authority storage and budgets](rooms/persistence.md) |
-| Which consumers and recovery mechanisms must be replaced? | [Rooms consumer and recovery inventory](rooms/integration.md) |
-| How do the opening sharing scenarios behave through their whole lifecycle? | [Rooms sharing walkthroughs](rooms/scenarios.md) |
-| Which Rooms surfaces change together, and what proves completion? | [Rooms integration plan](rooms/access-grants.md) |
+| How does Rooms admit work, configure allowances and recover from overload? | [Rooms work admission](../rooms/admission.md) |
 
 ## Persistence research and prior art
 
-The research lives under `loam/research/`. Begin with the persistence reuse review
-for the build-or-adapt recommendation; use the broader study for alternative
-memory models and the measurement program.
+Start with the persistence reuse review for the build-or-adapt recommendation.
 
 | Evidence or question | Document |
 | --- | --- |
-| Sandstorm's Blackrock, Goblins storage internals, POST++, source revisions, and which systems libraries can be reused | [Persistence reuse review](loam/research/native-reuse.md) |
-| LMDB and SQLite, persistent heaps and regions, memory isolation, graph size, and whole-product experiments | [Memory and persistence research](loam/research/memory-persistence.md) |
+| Sandstorm's Blackrock, Goblins storage internals, POST++, source revisions, and which systems libraries can be reused | [Persistence reuse review](../loam/research/native-reuse.md) |
+| LMDB and SQLite, persistent heaps and regions, memory isolation, graph size, and whole-product experiments | [Memory and persistence research](../loam/research/memory-persistence.md) |
 
-The selected direction builds the shared object/capability layer over an
-existing engine. LMDB is implemented, and the
-[LMDB workload](../../bench/loam/README.md) measures managed lifecycle, ancestry, sustained workers, foreign restoration, retention and process memory.
-The [completion queue](loam/completion.md) retains macOS acceptance. Compare
-another backend if measurements identify a physical-engine constraint, under
-matching durability and workload. A custom pager requires
-evidence that the physical engine is the limiting factor. The research keeps
-that evidence and its limits
-separate from the accepted [ownership decision](../decisions/adr/ADR-0161-loam-foundation-and-access-extension.md).
+Loam builds its object and capability layer over LMDB, and the
+[LMDB workload](../../bench/loam/README.md) measures it. Compare another
+backend, or write a custom pager, only when measurements show the storage
+engine is the limit under matching durability and workload. The
+[ownership decision](../decisions/adr/ADR-0161-loam-foundation-and-access-extension.md)
+is accepted and the research does not reopen it.
 
 ## Implementation and document ownership
 
-The [Loam architecture](loam/architecture.md#implementation-order-and-acceptance)
-owns the layer stages and the implementation readiness checkpoint. Much of the record,
-LMDB, actor and managed integration is already implemented; use the
-[roadmap](../roadmap.md#durable-applications) to extend it in priority
-order rather than restart those stages. The Zig implementation and first C/Rust and browser lifecycles
-have consumer integration evidence. Rooms uses them for its managed session;
-recursive room and directory resources are the next application integration.
-Outstanding macOS acceptance remains a maintainer-owned
-platform obligation, not an agent scheduling prerequisite.
-Research supplies measurements and failure cases throughout. The access
-storage requirements specialize acceptance; they do not introduce a second
-backend or execution sequence.
-
-Rooms design can be refined alongside that work. Its
-[integration sequence](rooms/access-grants.md#ordered-implementation-and-exit-criteria)
-consumes the shared foundation before replacing session access and expanding
-room, directory, and conversation workflows.
+The [Loam architecture](../loam/architecture.md#implementation-order-and-acceptance)
+owns the layer stages and the readiness checkpoint. Extend it in
+[roadmap](../roadmap.md#durable-applications) order rather than restarting
+those stages. Recursive room and directory resources are the next application
+integration, in the Rooms
+[integration sequence](rooms.md#ordered-implementation-and-exit-criteria).
 
 Keep generic persistence contracts in the Loam API, actor lifecycle in the
 actor contract, resource authority in managed access, and application semantics
 in Rooms. Link to the owning contract when another document needs it. Accepted
-decisions belong in [ADRs](../decisions/README.md); source observations and
+decisions belong in [ADRs](../decisions/README.md). Source observations and
 unproven alternatives belong in research. The [completion definition](#definition-of-complete)
 governs evidence, planning cleanup and integration into `dev`.
 
@@ -158,6 +122,5 @@ governs evidence, planning cleanup and integration into `dev`.
 | Work | Plan and status owner |
 | --- | --- |
 | OCapN crypto-version transition | [Protocol plan](ocapn-crypto-version-handshake.md), waiting on [upstream](../upstream-watch.md). |
-| Visualizer performance | [Remaining measurement](ocapnviz-backlog.md), ordered in the roadmap. |
-| Repository and website publication | [Public release readiness](public-release-readiness.md), ordered in the roadmap. |
 | A2A facade | [Historical design sketch](glowcap-a2a-on-captp-design.md), deferred by ADR-0084. |
+| One I/O runtime | [Active plan](one-io-runtime.md): retire `BlockingSession`, runtime dial retry, a Zig Loam worker, release on drop as a Host option. |

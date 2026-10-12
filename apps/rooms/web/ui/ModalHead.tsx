@@ -3,8 +3,8 @@
 //
 // Every modal is left the same way, so the dismiss is drawn once here rather
 // than by each card. A form's own Cancel beside its submit is an action and
-// stays in the form; this is only the way out of the layer. A card with a
-// second mark that belongs to the whole card — copying the whole of an error —
+// stays in the form. This is only the way out of the layer. A card with a
+// second mark that belongs to the whole card, copying the whole of an error,
 // puts it beside the dismiss, in `actions`.
 
 import type { ReactNode, Ref } from "react";

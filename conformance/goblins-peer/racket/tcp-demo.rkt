@@ -1,9 +1,9 @@
 #lang racket/base
-;; tcp-demo.rkt — two Goblins peers chatting over real TCP via CapTP.
+;; tcp-demo.rkt: two Goblins peers chatting over real TCP via CapTP.
 ;;
 ;; Same shape as captp-demo.rkt (two-peer greeter exchange) but uses
 ;; the local `tcp-netlayer` instead of `fake-intarwebs`. The bytes
-;; really flow through the OS's TCP stack — both peers are in this one
+;; really flow through the OS's TCP stack, both peers are in this one
 ;; process, but each binds its own port and dials the other over the
 ;; loopback interface.
 ;;

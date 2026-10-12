@@ -54,8 +54,8 @@ INTRODUCER_SWISS = "introducer"
 
 async def run() -> None:
     # Spawn Bob (the Goblins exporter). A piped child stream that is never read
-    # deadlocks the child once its OS pipe fills — Goblins logs to stderr during
-    # operation — so drain stderr in the background and print it only on failure.
+    # deadlocks the child once its OS pipe fills, Goblins logs to stderr during
+    # operation, so drain stderr in the background and print it only on failure.
     bob = await asyncio.create_subprocess_exec(
         RACKET, EXPORTER_SCRIPT, HOST, str(PORT),
         stdout=asyncio.subprocess.PIPE,

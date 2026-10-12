@@ -3,7 +3,7 @@
 const bans = @import("../bans.zig");
 const Ban = bans.Ban;
 
-/// `foundation.PeerId` is the protocol peer identifier; `engine.PeerHandle` is
+/// `foundation.PeerId` is the protocol peer identifier, `engine.PeerHandle` is
 /// the Node-scoped registered-session handle. The engine surface must not
 /// expose both as `PeerId`, because handoff routing code routinely carries both
 /// facts across the same boundary.

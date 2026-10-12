@@ -9,7 +9,7 @@ export interface RoomsRuntimeOptions {
 	readonly host?: Host;
 	/** The provider already installed by a listener on the adopted Host. */
 	readonly installedTransport?: typeof TRANSPORT_TCP | typeof TRANSPORT_IROH;
-	/** Include iroh only when this peer actually dials it. */
+	/** Include iroh when this peer dials it. */
 	readonly iroh?: iroh.IrohConfig;
 	/** Include the encrypted rendezvous carrier when this peer reaches browser members. */
 	readonly relay?: relay.RelayOptions;

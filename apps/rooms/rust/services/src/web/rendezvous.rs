@@ -1,5 +1,6 @@
 //! A registration owns one waiting byte channel. Promotion moves that channel
-//! and its early hello to exactly one dialer; the registry holds no capability.
+//! and its early hello to exactly one dialer. The registry holds no capability.
+use rooms_application::admission::{Charge, Class, Profile, Registry as Budgets};
 use rooms_platform::websocket::WsBytes;
 use std::{
 	cell::RefCell,
@@ -22,19 +23,14 @@ struct Entry {
 	ticket: u64,
 	claim: oneshot::Sender<Claim>,
 }
-/// How many claims a minute one identity's registrations may be taken by,
-/// refilled continuously. A page from any origin may dial a rendezvous
-/// identity it knows, so without this one page could churn a peer's whole
-/// registration pool as fast as it could open sockets.
-const CLAIMS_PER_MINUTE: f64 = 4.0;
-#[derive(Default)]
 struct State {
 	queues: BTreeMap<String, VecDeque<Entry>>,
 	count: usize,
 	next: u64,
-	/// Per identity: the claim tokens left and when they were last refilled.
-	/// A row is removed with the identity's last registration.
-	claims: BTreeMap<String, (f64, Instant)>,
+	/// Depleted destinations survive their last registration until refill.
+	/// The independent row cap refuses new accounting rather than resetting debt.
+	claims: Budgets<[u8; 32]>,
+	start: Instant,
 }
 pub(super) struct Registry {
 	state: RefCell<State>,
@@ -48,14 +44,27 @@ pub(super) struct Registration {
 	claim: oneshot::Receiver<Claim>,
 }
 impl Registry {
+	#[cfg(test)]
 	pub fn new(capacity: usize, per_identity: usize) -> Rc<Self> {
+		Self::with_profile(capacity, per_identity, Profile::default())
+	}
+	pub fn with_profile(capacity: usize, per_identity: usize, profile: Profile) -> Rc<Self> {
 		Rc::new(Self {
-			state: RefCell::default(),
+			state: RefCell::new(State {
+				queues: BTreeMap::new(),
+				count: 0,
+				next: 0,
+				start: Instant::now(),
+				claims: Budgets::new(profile, capacity),
+			}),
 			capacity,
 			per_identity,
 		})
 	}
 	pub fn register(self: &Rc<Self>, identity: &str) -> Result<Registration, &'static str> {
+		if !designator(identity) {
+			return Err("rooms: invalid rendezvous identity\n");
+		}
 		let mut state = self.state.borrow_mut();
 		if state.count >= self.capacity || state.queues.get(identity).is_some_and(|q| q.len() >= self.per_identity) {
 			return Err("rooms: rendezvous registration capacity exceeded\n");
@@ -80,24 +89,45 @@ impl Registry {
 		})
 	}
 	pub fn take(&self, identity: &str) -> Result<oneshot::Receiver<Held>, String> {
+		let now = self
+			.state
+			.borrow()
+			.start
+			.elapsed()
+			.as_millis()
+			.try_into()
+			.unwrap_or(u64::MAX);
+		self.take_at(identity, now)
+	}
+	fn take_at(&self, identity: &str, now: u64) -> Result<oneshot::Receiver<Held>, String> {
 		let mut state = self.state.borrow_mut();
 		if !state.queues.contains_key(identity) {
 			return Err("rendezvous peer is not registered".into());
 		}
-		let now = Instant::now();
-		let (tokens, at) = state.claims.get(identity).copied().unwrap_or((CLAIMS_PER_MINUTE, now));
-		let tokens = (tokens + now.duration_since(at).as_secs_f64() * CLAIMS_PER_MINUTE / 60.0).min(CLAIMS_PER_MINUTE);
-		if tokens < 1.0 {
-			state.claims.insert(identity.into(), (tokens, now));
-			return Err("rendezvous claims for this peer are rate limited".into());
+		let mut key = [0; 32];
+		for (index, byte) in key.iter_mut().enumerate() {
+			*byte = identity
+				.get(index * 2..index * 2 + 2)
+				.and_then(|pair| u8::from_str_radix(pair, 16).ok())
+				.ok_or("rendezvous identity is not a hexadecimal key")?;
 		}
-		state.claims.insert(identity.into(), (tokens - 1.0, now));
+		state
+			.claims
+			.admit(
+				&[Charge {
+					key,
+					class: Class::Rendezvous,
+					amount: 1,
+				}],
+				now,
+			)
+			.map_err(|refusal| refusal.reason_at(rooms_application::admission::Owner::Http))?;
 		loop {
 			let queue = state
 				.queues
 				.get_mut(identity)
 				.ok_or("rendezvous peer is not registered")?;
-			let entry = queue.pop_front().expect("empty queues are pruned");
+			let entry = queue.pop_front().ok_or("rendezvous peer is not registered")?;
 			if queue.is_empty() {
 				state.queues.remove(identity);
 			}
@@ -159,4 +189,47 @@ impl Registration {
 }
 pub(super) fn designator(value: &str) -> bool {
 	value.len() == 64 && value.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	#[test]
+	fn claim_accounting_does_not_grow_with_retired_registrations() {
+		let registry = Registry::new(2, 1);
+		for index in 0..20 {
+			let identity = format!("{index:064x}");
+			let registration = registry.register(&identity).unwrap();
+			let _claim = registry.take(&identity);
+			drop(registration);
+		}
+		assert!(
+			registry.state.borrow().claims.len() <= 2,
+			"retired identities grew the claim budget table"
+		);
+	}
+	#[test]
+	fn replacing_the_last_registration_does_not_reset_debt() {
+		let registry = Registry::new(2, 1);
+		let identity = format!("{:064x}", 1);
+		for _ in 0..4 {
+			let registration = registry.register(&identity).unwrap();
+			assert!(registry.take_at(&identity, 0).is_ok());
+			drop(registration);
+		}
+		let _registration = registry.register(&identity).unwrap();
+		let error = registry
+			.take_at(&identity, 1)
+			.err()
+			.expect("depletion survives recreation");
+		assert_eq!(
+			rooms_application::failure::Failure::parse(&error)
+				.unwrap()
+				.retry_advice()
+				.unwrap()
+				.retry_ms,
+			14_999
+		);
+		assert!(registry.take_at(&identity, 15_000).is_ok());
+	}
 }

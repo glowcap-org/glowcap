@@ -1,17 +1,17 @@
 //! iroh transport for the async surface (the `iroh` feature).
 //!
 //! iroh's encrypted-QUIC netlayer links the Rust sidecar, which ADR-0055 keeps
-//! out of the pure-Zig archives; it ships as its own optional companion library,
+//! out of the pure-Zig archives. It ships as its own optional companion library,
 //! `libglowcap_net_transport_iroh`, built with `zig build iroh-abi` (needs cargo). It exports
 //! only the `glowcap_iroh_*` family, so the `iroh` cargo feature links it
 //! *alongside* the static core archives (core symbols come from there) and exposes a
 //! dialer/listener here.
 //!
-//! The frame unit is identical to TCP's — one codec-self-delimited CapTP
+//! The frame unit is identical to TCP's: one codec-self-delimited CapTP
 //! message. Byte-fed iroh channels use [`Stream`], whose private
 //! `IrohLoop` owns the sidecar readiness choreography for dial and explicit
 //! Host-sharing paths. The default listener registers the same endpoint as a
-//! resident with `driver_loop`; its generic listener lifecycle owns accept,
+//! resident with `driver_loop`. Its generic listener lifecycle owns accept,
 //! handshake, and session release.
 
 use std::collections::HashMap;
@@ -164,6 +164,9 @@ struct DialGuard {
 impl Drop for DialGuard {
 	fn drop(&mut self) {
 		if self.armed {
+			// SAFETY: `self.netlayer.raw` is the netlayer handle `NetlayerRaw` owns, kept unreleased by the `Arc` this
+			// `DialGuard` holds; `request_id` names the dial this guard admitted, which the callee cancels, and no
+			// pointer is passed.
 			unsafe {
 				ffi::glowcap_iroh_netlayer_cancel_connect(self.netlayer.raw, self.request_id);
 			}
@@ -193,7 +196,7 @@ impl Netlayer {
 	}
 
 	/// Bind an iroh endpoint whose Ed25519 identity is reconstructed from
-	/// `seed` — the same durable identity a [`Host`](crate::Host) must use so
+	/// `seed`: the same durable identity a [`Host`](crate::Host) must use so
 	/// designator and endpoint id stay one value (ADR-0075). CapTP session
 	/// signing keys still come from the Host's fresh session-key root
 	/// (ADR-0097).
@@ -206,18 +209,22 @@ impl Netlayer {
 	fn from_seed_blocking(config: Config, seed: &[u8; 32]) -> Result<Netlayer> {
 		crate::require_archive_fingerprint(
 			"iroh",
+			// SAFETY: `glowcap_iroh_archive_fingerprint` takes no arguments and returns a scalar.
 			unsafe { ffi::glowcap_iroh_archive_fingerprint() },
 			crate::abi_constants::IROH_ARCHIVE_FINGERPRINT,
 		)?;
 		let mut raw: *mut GlowcapIrohNetlayer = core::ptr::null_mut();
 		// `..Default::default()` zero-fills the rest, and 0 is the built-in
-		// default for every timeout — the header's zero-init contract.
+		// default for every timeout: the header's zero-init contract.
 		let raw_config = ffi::GlowcapIrohConfig {
 			reachability: config.reachability as u32,
 			connect_timeout_ms: config.connect_timeout_ms.unwrap_or(0),
 			idle_timeout_ms: config.idle_timeout_ms.unwrap_or(0),
 			worker_threads: config.worker_threads.unwrap_or(0),
 		};
+		// SAFETY: `seed` is a borrowed `&[u8; 32]` and `raw_config` a local `GlowcapIrohConfig`, both live for the
+		// call, and the callee copies the seed; `raw` is a local out-parameter the callee fills with the new netlayer
+		// handle, and the three null and zero diagnostic arguments omit the error capture.
 		check_iroh(unsafe {
 			ffi::glowcap_iroh_netlayer_new(
 				seed.as_ptr(),
@@ -240,13 +247,21 @@ impl Netlayer {
 	pub fn node_id(&self) -> Result<String> {
 		let mut buf = [0u8; IROH_NODE_ID_BYTES];
 		let mut len: usize = 0;
+		// SAFETY: `self.raw.raw` is the netlayer handle `NetlayerRaw` owns, kept unreleased by the `Arc` in `self.raw`;
+		// `buf` is a local array of `IROH_NODE_ID_BYTES`, the capacity the header requires, and `len` is a local
+		// out-parameter, both written by the callee.
 		check_iroh(unsafe { ffi::glowcap_iroh_netlayer_node_id(self.raw.raw, buf.as_mut_ptr(), buf.len(), &mut len) })?;
 		Ok(String::from_utf8_lossy(&buf[..len]).into_owned())
 	}
 
 	/// Return this endpoint's archive-owned provider package.
 	pub fn transport_provider(&self) -> Result<crate::driver_loop::ProviderPackage<'_>> {
+		// SAFETY: `GlowcapTransportProvider` is a plain C struct of integers and null pointers; all-zero is a valid
+		// value, and the callee fills it before it is read.
 		let mut package: crate::sys::GlowcapTransportProvider = unsafe { core::mem::zeroed() };
+		// SAFETY: `self.raw.raw` is the netlayer handle `NetlayerRaw` owns, kept unreleased by the `Arc` in `self.raw`;
+		// `package` is a local out-parameter the callee fills, and the returned `ProviderPackage` borrows `self` so the
+		// handle outlives it.
 		check_iroh(unsafe { ffi::glowcap_iroh_transport_provider(self.raw.raw, &mut package) })?;
 		Ok(crate::driver_loop::ProviderPackage {
 			package,
@@ -304,7 +319,7 @@ impl Netlayer {
 		// If this future is dropped (cancelled) while the dial is awaiting, the
 		// guard's `Drop` shuts the loop down so the dispatcher task releases its
 		// endpoint rather than leaking it. The `?` below routes an early dial
-		// failure through the same shutdown, subsuming the old explicit error arm.
+		// failure through the same shutdown.
 		let mut guard = LoopGuard {
 			iloop: Arc::clone(&iloop),
 			armed: true,
@@ -327,7 +342,7 @@ impl Netlayer {
 		)
 		.await?;
 		// Dial succeeded: ownership of the loop moves into the returned stream,
-		// whose `Drop` now owns the shutdown, so disarm the cancel guard.
+		// whose `Drop` owns the shutdown, so disarm the cancel guard.
 		guard.armed = false;
 		iloop.register(conn);
 		Ok(Stream::new(conn as *mut GlowcapIrohConn, iloop, Some(self), true))
@@ -339,6 +354,8 @@ impl Netlayer {
 // stand-in.
 fn direct_addresses(raw: *mut GlowcapIrohNetlayer) -> Result<Option<String>> {
 	let mut cap: usize = 0;
+	// SAFETY: `raw` is the netlayer handle of a `NetlayerRaw` that the caller keeps unreleased for this call; the null
+	// output with capacity zero asks for the size only, and `cap` is a local out-parameter the callee writes.
 	let code = unsafe { ffi::glowcap_iroh_netlayer_direct_addrs(raw, std::ptr::null_mut(), 0, &mut cap) };
 	if code != sys::ERR_BUFFER_TOO_SMALL {
 		check_iroh(code)?;
@@ -349,6 +366,8 @@ fn direct_addresses(raw: *mut GlowcapIrohNetlayer) -> Result<Option<String>> {
 	loop {
 		let mut buf = vec![0u8; cap];
 		let mut len: usize = 0;
+		// SAFETY: as the first `glowcap_iroh_netlayer_direct_addrs` call above for `raw`; `buf` is a live local
+		// `Vec<u8>` of `buf.len()` bytes the callee writes during the call, and `len` is a local out-parameter.
 		let code = unsafe { ffi::glowcap_iroh_netlayer_direct_addrs(raw, buf.as_mut_ptr(), buf.len(), &mut len) };
 		if code == sys::ERR_BUFFER_TOO_SMALL && len > cap {
 			cap = len;
@@ -374,7 +393,7 @@ pub(crate) async fn ensure_loop_provider(
 	let netlayer = Netlayer::from_seed(config, host.durable_seed()).await?;
 	let node_id = netlayer.node_id()?;
 	lp.add_provider(netlayer.transport_provider()?)?;
-	// The driver now holds the provider lease, the endpoint's lifetime
+	// The driver holds the provider lease, the endpoint's lifetime
 	// authority. Dropping the construction reference instead would close the
 	// endpoint under that lease and refuse every later dial as a closed
 	// endpoint.
@@ -394,7 +413,7 @@ pub fn provider(config: Config) -> crate::driver_loop::Provider {
 }
 
 /// Configure an explicit byte-fed iroh connector. Native applications should
-/// normally prefer [`provider`]; this form is for an embedder that deliberately
+/// normally prefer [`provider`]. This form is for an embedder that
 /// owns channel pumping. A hinted handoff redeem uses direct reachability,
 /// while an ordinary connect uses the configured posture.
 pub fn connector(config: Config) -> crate::Result<crate::Connector> {
@@ -410,7 +429,7 @@ pub fn connector(config: Config) -> crate::Result<crate::Connector> {
 				} else {
 					config.reachability
 				};
-				Session::connect_iroh_with_host(&locator.designator, &addresses, reachability, host, timeout).await
+				Session::connect_iroh_with_host(&locator.designator, addresses, reachability, host, timeout).await
 			})
 		},
 	)
@@ -440,12 +459,12 @@ use reactor::{ConnPtr, IrohLoop};
 
 /// A byte stream over one iroh QUIC connection: the iroh sibling of a
 /// `TcpStream` for the [`Session`] driver. Inbound bytes
-/// come from the sidecar's non-blocking `try_read`; the peer re-frames them.
+/// come from the sidecar's non-blocking `try_read`. The peer re-frames them.
 /// Outbound bytes go through `try_write`, re-arming on the next writable record
 /// when the sidecar buffer is full. Its readiness loop, not a parked blocking
 /// read, decides when bytes move. `close().await` is the explicit teardown
 /// barrier: a dialer (`owns_loop`) joins its loop and releases its ephemeral
-/// endpoint; an accepted stream leaves the server's loop and releases its
+/// endpoint. An accepted stream leaves the server's loop and releases its
 /// connection. Dropping is only the last-resort fallback.
 pub struct Stream {
 	conn: Option<ConnPtr>,
@@ -460,7 +479,7 @@ pub struct Stream {
 
 mod stream;
 
-/// A listening iroh endpoint — the iroh sibling of [`crate::tcp::Server`].
+/// A listening iroh endpoint: the iroh sibling of [`crate::tcp::Server`].
 /// The native driver loop owns the multiplexed resident, listener, accept
 /// handshake, and every accepted session. This type is only the public
 /// listener view over that generic lifecycle.

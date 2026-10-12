@@ -1,5 +1,5 @@
 //! Pending collector effects, separate from live-custody authority. One cycle
-//! owns bounded ID storage and worker scratch; receipts retire submitted debt.
+//! owns bounded ID storage and worker scratch. Receipts retire submitted debt.
 const std = @import("std");
 const records = @import("loam_records");
 
@@ -22,7 +22,7 @@ pub const Custody = struct {
         self.* = undefined;
     }
 
-    /// Reservation changes capacity only; failed acquisition publishes no debt.
+    /// Reservation changes capacity only. Failed acquisition publishes no debt.
     pub fn reserve(self: *Custody, count: usize) !void {
         if (count > self.limit - self.roots.items.len) return error.RetentionCapacity;
         const required = self.roots.items.len + count;

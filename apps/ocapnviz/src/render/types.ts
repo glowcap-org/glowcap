@@ -26,7 +26,7 @@ type InFlight = { messageInFlight: { from: string; to: string } };
 
 /**
  * What one message says about the two nodes it names: its source is sending
- * and its destination is receiving. THE statement of the rule — both readers
+ * and its destination is receiving. THE statement of the rule, both readers
  * below fold over this rather than spelling it again, so a node's chip in the
  * Inspector cannot disagree with the mark on the node it names.
  */
@@ -36,7 +36,7 @@ const ROLES = [
 ] as const;
 
 /** Add one direction to what a node was already doing. Two of them is
- *  `both`; the same one twice changes nothing. */
+ *  `both`. The same one twice changes nothing. */
 function withRole(
 	was: PeerActivity | undefined,
 	add: "sending" | "receiving",
@@ -51,7 +51,7 @@ function withRole(
  *
  * Fills and returns `into`, so the per-frame caller owns the buffer. The
  * Inspector asks about one node instead and calls `nodeActivityIn`, which
- * folds by the same rule — one statement of what sending and receiving mean,
+ * folds by the same rule. One statement of what sending and receiving mean,
  * read two ways, so the chip in the panel cannot disagree with the mark on
  * the node it names.
  */
@@ -88,17 +88,17 @@ export function nodeActivityIn(
 }
 
 /** How strongly a node, edge, or dot is ringed. "Anchor is a strict subset of
- *  selected" — the two booleans collapse into one tier. "anchor" paints the
+ *  selected". The two booleans collapse into one tier. "anchor" paints the
  *  selected outer ring plus a second inner ring, so under multi-select the
  *  user can see WHICH selected entity the Inspector follows. Single-select is
- *  "anchor" too; the inner ring reads fine when only one thing is selected. */
+ *  "anchor" too. The inner ring reads fine when only one thing is selected. */
 export type HaloTier = "none" | "selected" | "anchor";
 
 /**
  * What one entity is picked, or nothing.
  *
  * An `EntityRef`, because the four kinds a reader can pick on the stage are the
- * four the rest of the app already names — and this file spelled them out a
+ * four the rest of the app already names, and this file spelled them out a
  * second time, in a union that had to hold the same four and its own copy of the
  * note about what an endpoint is. `EntityKind` enumerates them, so the alias
  * refuses exactly what the union refused.
@@ -120,7 +120,7 @@ export type StageVisibility = {
 };
 
 // The selection-gesture grammar (`SelectMode`,
-// `selectModeFromModifiers`) lives in the interaction layer — every
-// surface speaks it — and is re-exported here for render-local
+// `selectModeFromModifiers`) lives in the interaction layer, every
+// surface speaks it, and is re-exported here for render-local
 // importers.
 export { type SelectMode, selectModeFromModifiers } from "../interactions/types.ts";

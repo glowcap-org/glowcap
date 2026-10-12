@@ -21,14 +21,14 @@ import {
 
 Deno.test("a replayed snapshot draws what a feed that never had to learn draws", () => {
 	// Stop a recording and start another, and the viewer asks for the topology
-	// again. The endpoint answers with every live session's open — and one wire
+	// again. The endpoint answers with every live session's open, and one wire
 	// is TWO of those, because both its ends report it. Fed one at a time, that
 	// re-runs the live learning sequence: an end drawn loose, then the moment it
 	// attached. Live that sequence is honest, because the far end's report had
 	// not arrived. On a snapshot it is not: both ends are in the batch before
 	// anything is drawn, so there is no moment at which the viewer did not know.
 	//
-	// The bar is not "no blip" — an absent symptom would also be met by a
+	// The bar is not "no blip", an absent symptom would also be met by a
 	// snapshot path that quietly drew something else. It is that the snapshot
 	// lands on exactly the picture a feed draws when it is told the naming end
 	// first and never has to learn anything. Same construction, same end state,
@@ -73,7 +73,7 @@ Deno.test("a replayed snapshot draws what a feed that never had to learn draws",
 Deno.test("a room whose every end publishes is a room of glowcap peers", () => {
 	// The case the user actually watches: a room server and two browser tabs,
 	// each publishing its own trace, on the OCapN v1.0 floor. Every peer here
-	// is some producer's own end, so every peer is known — reached through the
+	// is some producer's own end, so every peer is known, reached through the
 	// snapshot, where the batch holds both ends of each wire before it draws,
 	// and through the live order, where the second end has to be learned.
 	const snapshot = makeBaseEventConverter();
@@ -97,7 +97,7 @@ Deno.test("a room whose every end publishes is a room of glowcap peers", () => {
 
 	// Live, the same three peers arrive one report at a time, so one of them is
 	// drawn before its own producer has spoken. It is known by the end of the
-	// sequence either way — through its join or through the moment it learned.
+	// sequence either way, through its join or through the moment it learned.
 	const live = runThrough(AS_STAMPED);
 	const liveJoined = joinedProfiles(live);
 	const learned = new Set(
@@ -113,7 +113,7 @@ Deno.test("a room whose every end publishes is a room of glowcap peers", () => {
 
 Deno.test("the same reports arriving live still learn, and say so", () => {
 	// The contrast the test above rests on. Fed one at a time in the order the
-	// endpoint stamped them, the very same reports DO make the viewer learn —
+	// endpoint stamped them, the very same reports DO make the viewer learn,
 	// so the snapshot's silence is a property of the batch, not of the records.
 	const live = runThrough(AS_STAMPED);
 	assert(
@@ -136,7 +136,7 @@ Deno.test("the same reports arriving live still learn, and say so", () => {
 Deno.test("an empty snapshot, and a batch nobody closes, both land", () => {
 	// Two shapes the boundary has to survive. A viewer connecting to an idle
 	// endpoint gets the mark with nothing before it. And a producer predating
-	// the mark sends a batch nobody closes — the first live record draws it,
+	// the mark sends a batch nobody closes. The first live record draws it,
 	// because a held batch that never renders is worse than one drawn early.
 	const idle = makeBaseEventConverter();
 	assertEquals(
@@ -174,7 +174,7 @@ Deno.test("an empty snapshot, and a batch nobody closes, both land", () => {
 Deno.test("a producer restarting discards the batch it never finished", () => {
 	// A batch describes the topology of ONE producer process. If that process
 	// is replaced while its batch is still held, the sessions in it died with
-	// it and its wire names may now belong to something else — so drawing it
+	// it and its wire names may now belong to something else. So drawing it
 	// into the new epoch would materialize exactly the ghosts the epoch change
 	// exists to clear.
 	const convert = makeBaseEventConverter();
@@ -187,7 +187,7 @@ Deno.test("a producer restarting discards the batch it never finished", () => {
 		[],
 		"the batch is held",
 	);
-	// The endpoint restarted. Nothing of the old process survives.
+	// The endpoint restarted. Nothing of the previous process survives.
 	const afterRestart = convert({
 		...opened(1, "p0/s1", "rooms-key", "tab2-key", ROOM_WIRE_2, true),
 		epoch: 2,
@@ -205,7 +205,7 @@ Deno.test("a feed that never ends its batch cannot grow it without limit", () =>
 	// Everything on this feed is untrusted until it is read: the
 	// viewer dials the endpoint. A feed that marked records `replay` forever
 	// would otherwise buffer for the connection's life. Past the bound the held
-	// records are DRAWN rather than dropped — losing topology silently would be
+	// records are DRAWN rather than dropped, losing topology silently would be
 	// worse than drawing it early and having to learn an end.
 	const convert = makeBaseEventConverter();
 	let drawn = 0;
@@ -226,22 +226,21 @@ Deno.test("a feed that never ends its batch cannot grow it without limit", () =>
 });
 
 Deno.test("a producer's later sessions hang off the node its end attached to", () => {
-	// The defect that survived the first fix. A claim is scoped to ONE wire, so
-	// nothing else may be filed under it — but a producer that spoke for a
-	// wire-scoped row used to leave a pointer at it, and every later session it
-	// opened was drawn against that row. When the row eventually merged away,
-	// those other sessions were joined to a peer whose row had ended, so they
-	// visibly closed the moment the picture improved. That is exactly the
-	// falsehood this vocabulary exists to delete, surviving one hop out. Nothing
-	// is filed under a claim now, which is what removes the class rather than
-	// the instance.
+	// A claim is scoped to ONE wire, so nothing else may be filed under it. A
+	// producer that spoke for a wire-scoped row must not leave a pointer at it,
+	// or every later session it opened would be drawn against that row. When
+	// the row eventually merged away, those other sessions would be joined to a
+	// peer whose row had ended, so they would visibly close the moment the
+	// picture improved. That is the falsehood this vocabulary exists to delete,
+	// surviving one hop out. Nothing is filed under a claim, which removes the
+	// class rather than the instance.
 	const convert = makeBaseEventConverter();
 	const roomWire = wireName("e");
 	const otherWire = wireName("f");
 	// The room accepts a dialer it cannot name.
 	convert(opened(0, "p0/s1", "rooms-key", "127.0.0.1:0", roomWire, false));
 	// The dialer's own producer speaks for that end, and that is the first time
-	// anything is drawn for it — under its own designator, never the claim.
+	// anything is drawn for it, under its own designator, never the claim.
 	const spoke = convert(
 		opened(1, "p1/s1", "tab1-key", "rooms-key", roomWire, true),
 	);
@@ -268,7 +267,7 @@ Deno.test("a producer's later sessions hang off the node its end attached to", (
 		"tab1-key",
 	);
 	// A third producer reports the FIRST wire. Both its ends are known, so
-	// there is nothing here to learn — and crucially nothing that could end the
+	// there is nothing here to learn, and nothing that could end the
 	// node the second wire is drawn against.
 	const third = convert(
 		opened(3, "p2/s1", "other-key", "rooms-key", roomWire, true),
@@ -299,7 +298,7 @@ Deno.test("a producer leaving takes its view, not the conversation", () => {
 	// The last leak of the defect this vocabulary exists for. A telemetry
 	// socket dropping is a fact about the FEED. The conversation it was
 	// reporting may have ended, or may be running happily with nobody
-	// watching — from here those are indistinguishable, so saying
+	// watching, from here those are indistinguishable, so saying
 	// `session-closed` picks one and states it as protocol fact.
 	const convert = makeBaseEventConverter();
 	convert(opened(0, "p1/s1", "tab1-key", "rooms-key", wireName("g"), true));
@@ -346,9 +345,9 @@ Deno.test("a wire another producer still watches survives one leaving", () => {
 
 Deno.test("a peer named by a designator records it as its identifier", () => {
 	// A peer's public identifier is the durable name it answers to, as
-	// against the name it is shown by. The live feed has that fact — it is
-	// what `verified` proves, and it is the key the ledger files the row
-	// under — and used to spend it on the label alone. A room then renamed
+	// against the name it is shown by. The live feed has that fact. It is
+	// what `verified` proves, and it is the key the ledger files the row under,
+	// so it must not be spent on the label alone. A room then renamed
 	// the peer to a nickname and the designator was gone from the picture,
 	// which is the one fact that made this end attributable at all.
 	const convert = makeBaseEventConverter();
@@ -375,7 +374,7 @@ Deno.test("a peer named by a designator records it as its identifier", () => {
 	}
 
 	// A later rename states a NAME. The identifier is not a name, so it does
-	// not move — that is the whole point of keeping the two apart.
+	// not move. That is the whole point of keeping the two apart.
 	const renamed = convert({
 		v: 1,
 		kind: "rooms.member-named",
@@ -395,7 +394,7 @@ Deno.test("a peer named by a designator records it as its identifier", () => {
 Deno.test("an unproven claim never becomes anyone's identifier", () => {
 	// The other half: a name nothing backed is a claim about an end, not a
 	// designator anyone answers to. It lives on the endpoint that carries it and
-	// reaches no peer — recording it as an identifier would state the very fact
+	// reaches no peer, recording it as an identifier would state the very fact
 	// the loose end exists to say is missing.
 	const convert = makeBaseEventConverter();
 	const wire = wireName("h");
@@ -414,7 +413,7 @@ Deno.test("an unproven claim never becomes anyone's identifier", () => {
 	);
 
 	// Its own producer now speaks for it. The end attaches to that producer's
-	// peer, and that peer arrives carrying the designator it answers to —
+	// peer, and that peer arrives carrying the designator it answers to,
 	// stated once, on the join that draws it, because the ledger only ever
 	// draws a peer under a name somebody stated (`ensurePeer`).
 	const spoke = convert(
@@ -430,7 +429,7 @@ Deno.test("an unproven claim never becomes anyone's identifier", () => {
 
 	// And a nickname arriving afterwards is a NAME. It must not carry an
 	// identifier, because that is the fact a nickname would otherwise
-	// erase — the whole reason the two are kept apart.
+	// erase. The whole reason the two are kept apart.
 	const renamed = convert({
 		v: 1,
 		kind: "rooms.member-named",
@@ -467,7 +466,7 @@ Deno.test("no end the feed draws is attributed to nobody", () => {
 	// The endpoint model's one-way invariant, held over a whole feed rather than
 	// one record: `attributedBy` present means `peer` present, because nothing
 	// can attribute an end to nobody. The converse is what makes it one-way, and
-	// it is deliberate — an authored scenario attaches a peer with no
+	// it is deliberate. An authored scenario attaches a peer with no
 	// measurement to report, and so does a feed whose producer named its partner
 	// and stated no verdict about it (the test below holds that end of it). Every
 	// producer here states a verdict, so every end this feed draws is either

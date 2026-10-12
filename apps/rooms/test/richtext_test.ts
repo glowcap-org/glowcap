@@ -143,7 +143,7 @@ Deno.test("a fence is source, and nothing inside it is read as anything else", (
 // so these are read by state: a byte turns bold on and the same byte turns it
 // off, a reset clears everything, and a line may end with one still on. Written
 // as escapes here because they are invisible in a file, which is exactly why a
-// line carrying them was previously shown with holes in it.
+// line carrying them could be shown with holes in it.
 
 Deno.test("a toggle opens and closes, and reads as the app's own emphasis", () => {
 	assertEquals(drawn("\x02bold\x02 after"), "<strong>bold</strong> after");
@@ -167,8 +167,8 @@ Deno.test("emphasis nests by state rather than by pairing", () => {
 
 Deno.test("a reset clears everything at once", () => {
 	const out = drawn("\x02\x1f\x1dall\x0fplain");
-	// Which emphasis wraps which is arbitrary — all three are in force over the
-	// same text — so this asks that each one is there and that the reset ended
+	// Which emphasis wraps which is arbitrary, all three are in force over the
+	// same text, so this asks that each one is there and that the reset ended
 	// them, rather than pinning an order that means nothing.
 	for (const wrapper of ["<strong>", "<em>", "<u>"]) {
 		if (!out.includes(wrapper)) fail(`${wrapper} was not in force before the reset: ${out}`);

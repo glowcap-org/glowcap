@@ -1,12 +1,12 @@
 //! One bounded boundary copy for owning Values and plain model data.
-//! Capabilities preserve opaque identity; conversion to model data refuses them.
+//! Capabilities preserve opaque identity. Conversion to model data refuses them.
 const std = @import("std");
 
-pub fn copy(comptime To: type, allocator: std.mem.Allocator, value: anytype) anyerror!To {
+pub fn copy(comptime To: type, allocator: std.mem.Allocator, value: anytype) !To {
     return copyAt(To, allocator, value, 0);
 }
 
-fn copyAt(comptime To: type, allocator: std.mem.Allocator, value: anytype, depth: usize) anyerror!To {
+fn copyAt(comptime To: type, allocator: std.mem.Allocator, value: anytype, depth: usize) !To {
     if (depth > 64) return error.ValueTooDeep;
     switch (value) {
         inline else => |payload, tag| {
@@ -51,7 +51,7 @@ pub fn measureSlice(values: []const @import("value.zig").Value) !usize {
     return bytes;
 }
 
-fn measureAt(value: @import("value.zig").Value, depth: usize) anyerror!usize {
+fn measureAt(value: @import("value.zig").Value, depth: usize) !usize {
     if (depth > 64) return error.ValueTooDeep;
     var bytes: usize = 0;
     switch (value) {

@@ -1,7 +1,7 @@
 //! The keyed-relay headline loopback: register, get pinged in the park,
 //! cold dial the key designator through the relay's rendezvous leg, and
-//! fetch round-trip over the bridged WebSocket pair; a cold dial routed
-//! through the target's other relay; and malformed, typed, duplicate, and
+//! fetch round-trip over the bridged WebSocket pair. A cold dial routed
+//! through the target's other relay, and malformed, typed, duplicate, and
 //! oversized relay hints refused. The live sibling against the Deno
 //! reference relay is `zig build zig-keyed-relay-rendezvous`.
 

@@ -3,7 +3,7 @@ id: ADR-0111
 status: accepted
 date: 2026-08-06
 tags: [captp, next, promises, op-listen, shortening, settlement]
-decision: "The next profile follows OCapN PR 282: answered operations have no inline resolver and are followed by a mode-3 listen; every received remote promise gets one private mode-1 shortening listen; callbacks settle application answers or advance session-owned forwarding; next sends no wire op:resolve."
+decision: "The next profile follows OCapN PR 282: answered operations have no inline resolver and are followed by a mode-3 listen. Every received remote promise gets one private mode-1 shortening listen. Callbacks settle application answers or advance session-owned forwarding. Next sends no wire op:resolve."
 supersedes: []
 superseded_by: []
 amends: [ADR-0007, ADR-0095]
@@ -33,7 +33,7 @@ mode-1 listen. Its resolver export is session maintenance, not an application
 answer. A callback must fulfill with a far promise. The session records that
 forwarding edge, subscribes to the returned promise, rewrites later outbound
 references through the chain, and refuses duplicate callbacks or cycles. Each
-edge remains stable because it owns the callback-introduced import retain; GC
+edge remains stable because it owns the callback-introduced import retain. GC
 releases that target, transitively, with the source.
 
 One promise incarnation may also carry one mode-2 wire settling listener. When
@@ -44,7 +44,7 @@ application answers and Node proxy recipients fan out behind its callback. No
 second settling listener crosses the wire.
 
 Local answer release unlinks one fan-out consumer in O(1). Releasing the
-primary promotes a follower; releasing the final application consumer leaves
+primary promotes a follower. Releasing the final application consumer leaves
 the Node consumer in control when one exists. Otherwise the resolver becomes a
 pending tombstone: one callback already in flight is admitted and its imports
 are immediately released, while a duplicate is refused. The resolver export's
@@ -53,8 +53,8 @@ the export table's `baseline + wire-held` accounting.
 
 Releasing the source import does not cancel a live settling consumer. If the
 promise later shortens, the consumer is rearmed on the target before that
-callback-introduced import is returned. A retired consumer is not rearmed;
-shortening concludes its pending tombstone because the old settling-only
+callback-introduced import is returned. A retired consumer is not rearmed.
+Shortening concludes its pending tombstone because the old settling-only
 listener was discarded.
 
 The neutral model uses `ListenMode`. Syrup and Cap'n Proto translate Goblins's
@@ -67,18 +67,18 @@ notification concludes its subscription.
 
 ## Consequences
 
-- V1.0 wire behavior remains Goblins-compatible.
-- Next tracks the pending proposal rather than the pinned settled draft.
+- V1.0 wire behavior is Goblins-compatible.
+- Next tracks the pending proposal, not the pinned settled draft.
 - Mandatory operation/listen pairs are prepared before session authority is
   committed, so allocation failure cannot leave an answered operation without
   its listener.
-- Promise forwarding remains session authority. Codecs only parse and render
-  the profile-specific forms.
+- Promise forwarding is session authority. Codecs parse and render the
+  profile-specific forms.
 - Shortening leaves one settling-listener claim on the target and merges local
   consumers before callback dispatch, including mixed application and Node
   ownership.
 - Answer GC, Node proxy teardown, and callback delivery each conclude only the
-  consumer or retain they own; none turns a racing callback into an application
+  consumer or retain they own. None turns a racing callback into an application
   call or over-releases the resolver export.
 
 ## Evidence

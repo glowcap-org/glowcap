@@ -1,6 +1,6 @@
 //! The benchmark table and the ReleaseFast wall-clock tripwire: each row is
 //! a public step forwarding `-- <args>`, with a dedicated gate run that
-//! never sees user arguments; `perf-check` holds the docs/ladder.md step 2
+//! never sees user arguments, `perf-check` holds the docs/ladder.md step 2
 //! ceilings under `check`.
 
 const std = @import("std");
@@ -34,7 +34,7 @@ pub fn register(
     // Optimize mode is per-module: an executable whose root module is
     // ReleaseFast still runs Debug *library* code when it imports the
     // `-Doptimize` graph. Every consumer that claims optimized glowcap figures
-    // — the `--gate` tripwire runs below and the bench-langs Zig rows — must
+    // (the `--gate` tripwire runs below and the bench-langs Zig rows) must
     // therefore import this dedicated ReleaseFast graph, never `lib_mod`.
 
     // The ReleaseFast wall-clock tripwire (docs/ladder.md step 2 owns the
@@ -42,7 +42,7 @@ pub fn register(
     // with a ReleaseFast `--gate` run: it proves "still runs" strictly
     // stronger and holds the wall-clock ceiling while it is at it. The
     // ceilings sit roughly an order of magnitude over the measured figures,
-    // so only a structural regression — never machine noise — crosses one.
+    // so only a structural regression, never machine noise, crosses one.
     const perf_check_step = b.step("perf-check", "Gate ReleaseFast wall-clock cost: warm inbound dispatch and the outbound answered-send path against docs/ladder.md step 2 ceilings, plus the gc-storm linearity ratio (runs under check)");
     check_step.dependOn(perf_check_step);
     const benches = [_]struct {
@@ -60,6 +60,8 @@ pub fn register(
     }{
         .{ .step_name = "bench-frame-view", .description = "Run frame/view benchmark", .name = "frame-view-bench", .path = "bench/frame_view_bench.zig" },
         .{ .step_name = "bench-host-locator", .description = "Measure warmed Host advertised-route allocation traffic", .name = "host-locator-bench", .path = "bench/host_locator_bench.zig" },
+        .{ .step_name = "bench-uri", .description = "Measure locator and sturdyref URI rendering time and allocation traffic", .name = "uri-bench", .path = "bench/uri_bench.zig" },
+        .{ .step_name = "bench-set-uniqueness", .description = "Measure borrowed set validation and collision scratch on both codecs", .name = "set-uniqueness-bench", .path = "bench/set_uniqueness_bench.zig" },
         .{ .step_name = "bench-codec", .description = "Run codec/dispatch throughput benchmark", .name = "codec-bench", .path = "bench/codec_bench.zig" },
         .{ .step_name = "bench-dispatch-scaling", .description = "Measure inbound dispatch ns/turn across N peers (cold-cache regime) with p50/p99", .name = "dispatch-scaling-bench", .path = "bench/dispatch_scaling_bench.zig", .gate_on_check = true },
         .{ .step_name = "bench-outbound", .description = "Measure the outbound engine path (send/step/takeOutbound) and the op:gc-answers release storm", .name = "outbound-bench", .path = "bench/outbound_bench.zig", .gate_on_check = true },

@@ -2,11 +2,13 @@
 //! checksummed archives. Product proofs run only extracted public commands.
 const std = @import("std");
 const common = @import("common.zig");
+const execution = @import("execution.zig");
 const staging = @import("release/stage.zig");
 const transaction = @import("release/transaction.zig");
 pub const Manifest = staging.Manifest;
 
 pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, version: std.SemanticVersion, iroh_abi_step: *std.Build.Step, check_step: *std.Build.Step, manifest: Manifest) void {
+    productPreset(b, target);
     const manifest_tests = staging.addManifestTests(b);
     check_step.dependOn(&manifest_tests.step);
     b.step("product-manifest-test", "Generate and parse a sealed staged product without a release package build")
@@ -29,20 +31,49 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
 
     const product_archive = archive(b, target, version, "glowcap", "product", "glowcap-release");
     product_archive.run.step.dependOn(&b.top_level_steps.get("rooms-build").?.step);
-    const proof = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/glowcap_release.py" });
+    // A finite sequence of release operations; every child command and
+    // readiness wait owns its deadline rather than sharing one 30s timer.
+    const proof = common.addRootedSystemCommand(b, .child_bounded, &.{ "python3", "tools/check/glowcap_release.py" });
     proof.addFileArg(product_archive.path);
     proof.step.dependOn(&product_archive.run.step);
     proof.step.dependOn(test_step);
     gate(b, target, optimize, b.step("glowcap-pack", "Package and exercise the complete relocatable glowcap product (explicit Release mode and baseline CPU required)"), &proof.step);
 }
 
+fn productPreset(b: *std.Build, target: std.Build.ResolvedTarget) void {
+    const step = b.step("rooms-release", "Prepare the complete host product with ReleaseSafe and baseline CPU settings for installation or Linux deployment");
+    if (hostTargetFailure(b, target)) |reason| {
+        step.dependOn(&b.addFail(reason).step);
+        return;
+    }
+    // Build options apply to the whole graph. Invoke the shared product graph
+    // in its fixed configuration, preserving the caller's target, prefix, and
+    // cache root. The environment front owns the lease across both builds.
+    const run = execution.addSystemCommand(b, .build_tool, &.{
+        b.graph.zig_exe, "build", "rooms-build", "-Doptimize=ReleaseSafe", "-Dcpu=baseline", "--cache-dir",
+    });
+    run.addDirectoryArg2(std.Build.LazyPath.cache_root, .{ .make_absolute = true });
+    run.addArg("--prefix");
+    run.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix } }, .{ .make_absolute = true });
+    run.addArg(b.fmt("-Dtarget={s}", .{target.query.zigTriple(b.allocator) catch @panic("OOM")}));
+    run.setCwd(b.path("."));
+    run.has_side_effects = true;
+    step.dependOn(&run.step);
+}
+
+fn hostTargetFailure(b: *std.Build, target: std.Build.ResolvedTarget) ?[]const u8 {
+    if (target.result.os.tag != b.graph.host.result.os.tag or target.result.cpu.arch != b.graph.host.result.cpu.arch or target.result.abi != b.graph.host.result.abi)
+        return "host products must be built on their target OS and architecture; use the Linux/macOS release matrix, not a mixed Zig/Cargo cross-build";
+    if (target.result.os.tag == .linux and target.result.os.version_range.linux.glibc.order(b.graph.host.result.os.version_range.linux.glibc) == .lt)
+        return "Rust runtimes use the build host's libc; build on the chosen Linux baseline instead of labeling host artifacts with an older glibc target";
+    return null;
+}
+
 fn gate(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, step: *std.Build.Step, proof: *std.Build.Step) void {
     if (optimize == .debug) {
         step.dependOn(&b.addFail("release packages refuse Debug; pass -Doptimize=ReleaseSafe").step);
-    } else if (target.result.os.tag != b.graph.host.result.os.tag or target.result.cpu.arch != b.graph.host.result.cpu.arch or target.result.abi != b.graph.host.result.abi) {
-        step.dependOn(&b.addFail("host packages must be built on their target OS and architecture; use the Linux/macOS release matrix, not a mixed Zig/Cargo cross-build").step);
-    } else if (target.result.os.tag == .linux and target.result.os.version_range.linux.glibc.order(b.graph.host.result.os.version_range.linux.glibc) == .lt) {
-        step.dependOn(&b.addFail("Rust runtimes use the build host's libc; build on the chosen Linux baseline instead of labeling host artifacts with an older glibc target").step);
+    } else if (hostTargetFailure(b, target)) |reason| {
+        step.dependOn(&b.addFail(reason).step);
     } else if (!target.query.cpu_model.eql(.baseline) or !target.query.cpu_features_add.isEmpty()) {
         step.dependOn(&b.addFail("release packages require -Dcpu=baseline without added CPU features").step);
     } else {

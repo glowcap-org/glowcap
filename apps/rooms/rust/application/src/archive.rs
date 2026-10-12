@@ -42,7 +42,7 @@ pub mod retention;
 pub mod scope;
 mod serde_record;
 pub mod shares;
-pub use records::{Attachment, Body, ConversationKind, Coordinates, Kind, LineState, Record};
+pub use records::{Attachment, Body, ConversationKind, Coordinates, Kind, LineState, Record, history_data};
 pub use scope::{Access, Facet, Filter};
 pub const MAX_READ: usize = 128;
 pub const MAX_RECORDS: usize = 5000;

@@ -4,6 +4,43 @@ use glowcap::{Argument, Host, PendingWork};
 use std::{cell::RefCell, time::Duration};
 
 #[tokio::test]
+async fn refused_admission_retires_without_a_receipt_and_unknown_admission_stays_owned() {
+	tokio::task::LocalSet::new()
+		.run_until(async {
+			let host = Host::from_seed([130; 32]).unwrap();
+			let endpoint = host
+				.spawn(|verb, args| match verb {
+					"command" if args[0].as_str() == Some("refused") => {
+						Err("rate-limited: retry-after-ms=1000; scope=message; owner=session".into())
+					}
+					"command" => Err("admission observation was lost".into()),
+					_ => Err("no receipt exists for this admission".into()),
+				})
+				.unwrap();
+			let workspace = Workspace::local(host.clone(), HostPlatform, endpoint);
+			let commands = Commands::default();
+			let args = vec!["standing".to_owned()];
+			let refusal = commands
+				.submit(&workspace, "refused", 1, "setStanding", &args)
+				.await
+				.unwrap_err();
+			assert_eq!(refusal.class, "rate-limited");
+			commands.release("refused").await.unwrap();
+			assert!(commands.0.lock().await.is_empty());
+			commands
+				.submit(&workspace, "unknown", 1, "setStanding", &args)
+				.await
+				.unwrap_err();
+			assert!(commands.release("unknown").await.is_err());
+			assert!(commands.0.lock().await.contains_key("unknown"));
+			commands.close().await.unwrap();
+			drop(workspace);
+			host.close(PendingWork::Cancel).await.unwrap();
+		})
+		.await;
+}
+
+#[tokio::test]
 async fn pending_admission_leaves_other_commands_and_release_available() {
 	tokio::task::LocalSet::new()
 		.run_until(async {

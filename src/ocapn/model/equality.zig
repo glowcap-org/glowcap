@@ -12,7 +12,7 @@
 //! comparison across sessions. The other arms compare field by field, and
 //! promise paths and arguments recurse, so the check is total over the whole
 //! tree. (The finer question of what equality *means* for container shapes is
-//! a separate conformance concern; the structural groundwork is here.)
+//! a separate conformance concern. The structural groundwork is here.)
 
 const std = @import("std");
 const model = @import("mod.zig");
@@ -26,10 +26,9 @@ const model = @import("mod.zig");
 
 // One spine. Every comparison and hash below runs over the borrowed
 // `model.view.*` shape, and the owned entry points project through
-// `view.*.fromOwned` — the same one-spine pattern `owned.zig` uses for its
-// clones. There used to be a second, hand-mirrored owned spine here, and the
-// divergence between the two is where a codec-dependent union read hid; a
-// projection cannot diverge. An owned projection is slice-backed and its hints
+// `view.*.fromOwned`, the same one-spine pattern `owned.zig` uses for its
+// clones. A projection cannot diverge from the borrowed spine, which a second
+// hand-mirrored owned spine could. An owned projection is slice-backed and its hints
 // are `.projected`, so the lazy-view failure arms (`MalformedView`, the
 // materialize allocation) cannot fire on it; that is what licenses the
 // `catch unreachable` in the infallible wrappers below.
@@ -58,9 +57,9 @@ pub fn peerLocatorsEqual(a: model.PeerLocator, b: model.PeerLocator) bool {
 }
 
 /// Structural equality on two argument value trees. Recurses through lists,
-/// sets, tagged values, and nested references; the `Hints.wire_form`
+/// sets, tagged values, and nested references. The `Hints.wire_form`
 /// hint-encoding marker is *not* compared (it is a wire-shape artifact, not a
-/// semantic value). Runs over the borrowed spine via `fromOwned`; see the
+/// semantic value). Runs over the borrowed spine via `fromOwned`. See the
 /// one-spine note at the top of this file.
 pub fn argumentsEqual(a: model.Argument, b: model.Argument) bool {
     var budget = CompareBudget.init(unbounded_visits);
@@ -75,7 +74,7 @@ pub fn argumentsEqual(a: model.Argument, b: model.Argument) bool {
 
 /// The budgeted owned comparison, for owned trees that carry partner
 /// influence (a stored relayed resolution, an inbound owned fallback). Same
-/// spine as `viewArgumentsEqualBounded`; the projection is just cheaper to
+/// spine as `viewArgumentsEqualBounded`. The projection is just cheaper to
 /// build.
 pub fn argumentsEqualBounded(
     a: *const model.Argument,
@@ -86,7 +85,7 @@ pub fn argumentsEqualBounded(
 }
 
 /// The hash of a float, consistent with `float64Equal`. Every NaN bit pattern
-/// is one Equal class, so they all fold to one constant; everything else
+/// is one Equal class, so they all fold to one constant. Everything else
 /// compares by raw bits and so hashes by raw bits, which keeps `+0.0` and
 /// `-0.0` distinct exactly as equality does.
 fn float64Hash(x: f64) u64 {
@@ -127,7 +126,7 @@ fn hashReference(h: *std.hash.Wyhash, ref: anytype) void {
 /// Fold a handoff into `h` over fields both `handoffsEqual` and `giveEqual`
 /// compare. `raw_signed` is excluded for the same reason equality excludes it:
 /// it caches a wire encoding, not identity. The signatures are excluded because
-/// the borrowed shape spells one as a union rather than bytes; the gift id and
+/// the borrowed shape spells one as a union rather than bytes. The gift id and
 /// recipient key already separate distinct handoffs, and hashing less than
 /// equality compares only ever costs a collision.
 fn hashHandoff(h: *std.hash.Wyhash, handoff: anytype) void {
@@ -152,7 +151,7 @@ fn hashHandoff(h: *std.hash.Wyhash, handoff: anytype) void {
 /// shapes share one hasher and one grouping: distinct values that collide
 /// under one entry point collide under the other, so a fold that grouped by
 /// one hasher can confirm with either comparison. Process-local
-/// grouping only (duplicate detection inside one frame); never a wire
+/// grouping only (duplicate detection inside one frame). Never a wire
 /// artifact.
 pub fn argumentHash(arg: model.Argument) u64 {
     // Hashing never compares elements or materializes hints, so the only
@@ -388,7 +387,7 @@ fn viewStructsEqualDepth(
 }
 
 /// Resolves one key by scanning, so a struct comparison is quadratic in entry
-/// count for the same reason a set comparison is; each scanned entry charges.
+/// count for the same reason a set comparison is. Each scanned entry charges.
 fn findViewEntry(
     entries: model.view.StructEntries,
     key: []const u8,

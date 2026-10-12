@@ -1,5 +1,5 @@
 //! The bytes a room holds for the files posted in it. The store is the
-//! owner; these verbs name the upload or blob an actor stands for and hand
+//! owner. These verbs name the upload or blob an actor stands for and hand
 //! the call through, so admission, budgets, and eviction live in one place.
 use super::{Refusal, Rooms, UploadKey};
 use crate::files::{Blob, FileArgument, FileCallError, ReadOutcome};

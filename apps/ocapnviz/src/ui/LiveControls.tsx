@@ -1,15 +1,15 @@
 /**
  * Live-mode recording controls. Entering Live connects the feed, so
- * a reader can see one is there before deciding to record it; Live
+ * a reader can see one is there before deciding to record it, Live
  * renders nothing until Record because a capture is what there is to
  * render. The capture mounts at the press, on a fresh dial, so its
  * t=0 is the press and the producer's replay materializes that
  * moment's topology inside it. Stop claims the recording as the
- * unsaved buffer source and lands in Play; Discard throws it away.
+ * unsaved buffer source and lands in Play, Discard throws it away.
  *
  * Pressing Record when the buffer has content asks first, through the
  * app's own dialog (`ui/confirm.ts`), the same way switching source
- * does; Stop needs no prompt — consent was given at the press.
+ * does, Stop needs no prompt, consent was given at the press.
  */
 
 import { type ConfirmRequest, requestConfirm } from "./confirm.ts";

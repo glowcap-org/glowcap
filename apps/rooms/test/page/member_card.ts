@@ -2,7 +2,7 @@
 //
 // The roster row and the rail's foot open one card about the same person. A
 // roster names the reader by that directory's grant while the foot uses the
-// page's primary grant, so those titles may differ; identity, the complete name
+// page's primary grant, so those titles may differ. Identity, the complete name
 // list, and page-wide presence may not.
 //
 // It runs last and leaves nothing open, because the page test is one long
@@ -56,7 +56,7 @@ async function readCard(tab: Page) {
 
 export async function run(tab: Page): Promise<void> {
 	// A roster only exists in a room, and the scene before this one leaves a
-	// direct conversation open, so this puts a room back on screen first — the
+	// direct conversation open, so this puts a room back on screen first, the
 	// home-directory room, by name, never the rail's first row. After the
 	// directories scene the reader holds a name per directory, and the card
 	// titles the name in the door's context; only this directory's room has the
@@ -100,7 +100,7 @@ export async function run(tab: Page): Promise<void> {
 	).catch(() => fail("the directory behind a name did not open that directory"));
 
 	// The other door. The foot is about the reader wherever they are, so it opens
-	// the same card with no room—and therefore no directory-scoped alias—in the
+	// the same card with no room (and therefore no directory-scoped alias) in the
 	// question.
 	await tab.click("#standingBtn");
 	await tab.locator(".standing-actions [role=menuitem]", { hasText: "About you" }).first().click();
@@ -136,7 +136,7 @@ export async function run(tab: Page): Promise<void> {
 	await tab.waitForSelector("#line:not([disabled])", { timeout: 10_000 })
 		.catch(() => fail("returning from the directory did not put a room back"));
 
-	// The same two questions once the reader is somewhere else. Until now the pip
+	// The same two questions once the reader is somewhere else. Before this the pip
 	// and the row agreed on "here", which they would do even if nothing joined
 	// them, so this is the leg that can actually tell them apart. Set, read, and
 	// put back: the page test is one conversation and this scene borrows its

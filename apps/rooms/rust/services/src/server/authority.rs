@@ -3,8 +3,9 @@
 //! loop's authority task runs one at a time: it prepares the successor in a
 //! turn's terms, persists its document, installs it, and only then publishes
 //! or takes down durable names and answers the caller. A name recorded but
-//! not published is answered by the next restart; a name published but not
+//! not published is answered by the next restart. A name published but not
 //! recorded is gone with the process. Only one of those heals itself.
+pub(super) mod links;
 pub(super) mod queue;
 use super::{
 	notice::Notice,
@@ -12,6 +13,7 @@ use super::{
 	state::{Shared, State},
 };
 use glowcap::Argument;
+pub(crate) use links::{AuthorityRefusal, Links, Swiss};
 use queue::{Commit, Prepare};
 pub(super) use queue::{request, submit};
 use rooms_application::{
@@ -29,118 +31,6 @@ use rooms_application::{
 	},
 };
 use rooms_glowcap::Value;
-use std::collections::BTreeMap;
-
-/// The durable names this server has published, by kind and folded name.
-#[derive(Default)]
-pub(super) struct Links {
-	room: BTreeMap<String, String>,
-	steward: BTreeMap<String, String>,
-	manager: BTreeMap<String, String>,
-	by_swiss: BTreeMap<String, (Kind, String)>,
-	identity_by_name: BTreeMap<String, String>,
-	name_by_identity: BTreeMap<String, String>,
-}
-
-fn fold(name: &str) -> String {
-	name.to_lowercase()
-}
-
-impl Links {
-	fn table(&mut self, kind: Kind) -> &mut BTreeMap<String, String> {
-		match kind {
-			Kind::Room => &mut self.room,
-			Kind::Steward => &mut self.steward,
-			Kind::Manager => &mut self.manager,
-		}
-	}
-	pub fn swiss(&self, kind: Kind, name: &str) -> Option<&str> {
-		let table = match kind {
-			Kind::Room => &self.room,
-			Kind::Steward => &self.steward,
-			Kind::Manager => &self.manager,
-		};
-		table.get(&fold(name)).map(String::as_str)
-	}
-	/// Every published name of `kind` with its current swiss.
-	pub fn published(&self, kind: Kind) -> impl Iterator<Item = (String, String)> + '_ {
-		self.by_swiss
-			.iter()
-			.filter(move |(_, (held, _))| *held == kind)
-			.map(|(swiss, (_, name))| (name.clone(), swiss.clone()))
-	}
-	fn set(&mut self, kind: Kind, name: &str, swiss: String) {
-		let key = fold(name);
-		if let Some(previous) = self.table(kind).insert(key, swiss.clone()) {
-			self.by_swiss.remove(&previous);
-		}
-		self.by_swiss.insert(swiss, (kind, name.into()));
-	}
-	fn drop(&mut self, kind: Kind, name: &str) -> Option<String> {
-		let swiss = self.table(kind).remove(&fold(name))?;
-		self.by_swiss.remove(&swiss);
-		Some(swiss)
-	}
-	/// The name a current token stands for, when it is the current
-	/// generation of that kind.
-	pub fn resolve(&self, kind: Kind, token: &str) -> Result<String, String> {
-		let held = self.by_swiss.get(token).filter(|(held, _)| *held == kind);
-		match held {
-			Some((_, name)) => Ok(name.clone()),
-			None => Err(format!(
-				"that {} capability generation is no longer current",
-				match kind {
-					Kind::Room => "room link",
-					Kind::Steward => "moderator",
-					Kind::Manager => "manager",
-				}
-			)),
-		}
-	}
-	/// Knowledge of a current token does not extend a held manager's room.
-	fn resolve_for(&self, kind: Kind, token: &str, room: &str) -> Result<String, String> {
-		let resolved = self.resolve(kind, token)?;
-		if fold(&resolved) != fold(room) {
-			return Err("that authority token belongs to a different room".into());
-		}
-		Ok(resolved)
-	}
-	pub(super) fn manager_name(&self, identity: &str) -> Result<&str, String> {
-		self.name_by_identity
-			.get(identity)
-			.map(String::as_str)
-			.ok_or_else(|| "that room management identity is not known to this directory".into())
-	}
-
-	/// A live baseline room can name its management identity before it becomes
-	/// durable. Bound these optional lookups without refusing restoration or
-	/// publication of the separately bounded durable manager registry.
-	pub(super) fn cache_identity(&mut self, name: &str, identity: String) -> Result<(), String> {
-		if self.identity_by_name.len() >= rooms_application::server::document::MAX_ROOM_LINKS
-			&& !self.identity_by_name.contains_key(&fold(name))
-		{
-			return Err("room management identity capacity reached".into());
-		}
-		self.set_identity(name, identity)
-	}
-
-	fn set_identity(&mut self, name: &str, identity: String) -> Result<(), String> {
-		let key = fold(name);
-		if self.identity_by_name.get(&key).is_some_and(|held| *held != identity) {
-			return Err("a room changed its stable management identity".into());
-		}
-		if self
-			.name_by_identity
-			.get(&identity)
-			.is_some_and(|held| fold(held) != key)
-		{
-			return Err("two rooms derived the same management identity".into());
-		}
-		self.identity_by_name.insert(key, identity.clone());
-		self.name_by_identity.insert(identity, name.into());
-		Ok(())
-	}
-}
 
 impl State {
 	/// Publish the room link for `name` under its current generation, or
@@ -159,7 +49,7 @@ impl State {
 			.host
 			.publish_durable_with_entropy(entropy, move || Box::new(rooms::entrance(shared, entrance)))
 			.map_err(|e| format!("room link state is committed; publication failed: {e}"))?;
-		self.links.set(Kind::Room, name, swiss.clone());
+		self.links.set(Kind::Room, name, Swiss::from(swiss.clone()));
 		Ok(swiss)
 	}
 	pub fn publish_steward(&mut self, name: &str) -> Result<(String, String), String> {
@@ -179,7 +69,7 @@ impl State {
 				Box::new(steward(shared, held_name, held_identity, generation, room_generation))
 			})
 			.map_err(|e| format!("steward state is committed; publication failed: {e}"))?;
-		self.links.set(Kind::Steward, name, swiss.clone());
+		self.links.set(Kind::Steward, name, Swiss::from(swiss.clone()));
 		Ok((identity, swiss))
 	}
 	pub fn publish_manager(&mut self, name: &str) -> Result<String, String> {
@@ -196,11 +86,11 @@ impl State {
 			.host
 			.publish_durable_with_entropy(entropy, move || Box::new(manager(shared, held, generation)))
 			.map_err(|e| format!("manager state is committed; publication failed: {e}"))?;
-		self.links.set(Kind::Manager, name, swiss.clone());
+		self.links.set(Kind::Manager, name, Swiss::from(swiss.clone()));
 		Ok(swiss)
 	}
 	pub(super) fn unpublish(&mut self, kind: Kind, name: &str) -> Option<String> {
-		let swiss = self.links.drop(kind, name)?;
+		let swiss = String::from(self.links.drop(kind, name)?);
 		if let Err(cause) = self.host.remove_durable(&swiss) {
 			self.report(Notice::UnpublishFailed {
 				swiss: swiss.clone(),
@@ -295,6 +185,12 @@ pub(super) fn bootstrap(
 		if verb != rooms_application::directory::creation::AUTHORITIES || !args.is_empty() {
 			return Err(format!("a room manager bootstrap has no method {verb}"));
 		}
+		{
+			let mut state = shared.borrow_mut();
+			let (caller, _) = rooms::caller(&mut state)?;
+			state.ingress(caller)?;
+			state.admit_work(caller, rooms_application::admission::Class::Read, 1)?;
+		}
 		let (name, managed) = (name.clone(), managed.clone());
 		let (held, registration) = (name.clone(), managed.clone());
 		submit(
@@ -338,10 +234,14 @@ fn steward(
 		if !state.authority.room_link_generation_is_current(&name, room_generation)
 			|| !state.authority.steward_generation_is_current(&name, generation)
 		{
-			return Err(format!(
-				"{}: this steward capability was revoked",
-				FailureCode::NotSteward.wire()
-			));
+			return Err(FailureCode::NotSteward.line("this steward capability was revoked"));
+		}
+		let (caller, _) = rooms::caller(&mut state)?;
+		if verb == verbs::KICK {
+			state.admit_work(caller, rooms_application::admission::Class::Cleanup, 1)?;
+		} else {
+			state.ingress(caller)?;
+			state.admit_work(caller, rooms_application::admission::Class::Read, 1)?;
 		}
 		match verb {
 			verbs::GOVERNS => {
@@ -372,8 +272,18 @@ fn manager(shared: Shared, name: String, generation: u64) -> impl FnMut(&str, &[
 		if args.iter().any(|arg| Value(arg).contains_capability()) {
 			return Err("a room manager accepts no capability arguments".into());
 		}
-		let state = shared.borrow();
+		let mut state = shared.borrow_mut();
 		require_manager(&state, &name, generation)?;
+		let (caller, _) = rooms::caller(&mut state)?;
+		let class = match verb {
+			verbs::MANAGED_IDENTITY | verbs::GOVERNS | verbs::LINK => rooms_application::admission::Class::Read,
+			verbs::REVOKE_STEWARD | verbs::REVOKE_ROOM_LINK => rooms_application::admission::Class::Cleanup,
+			_ => rooms_application::admission::Class::Create,
+		};
+		if class != rooms_application::admission::Class::Cleanup {
+			state.ingress(caller)?;
+		}
+		state.admit_work(caller, class, 1)?;
 		let text = |at: usize| args.get(at).and_then(Argument::as_str);
 		match verb {
 			verbs::MANAGED_IDENTITY | verbs::GOVERNS => {
@@ -462,9 +372,9 @@ fn manager(shared: Shared, name: String, generation: u64) -> impl FnMut(&str, &[
 	}
 }
 
-fn require_manager(state: &State, room: &str, generation: u64) -> Result<(), String> {
+fn require_manager(state: &State, room: &str, generation: u64) -> Result<(), AuthorityRefusal> {
 	if !state.authority.manager_generation_is_current(room, generation) {
-		return Err("this room manager capability was revoked".into());
+		return Err(AuthorityRefusal::ManagerRevoked);
 	}
 	Ok(())
 }
@@ -547,10 +457,7 @@ fn set_policy(
 					|| state.foreign.holds_name(&held_name)
 					|| (!own_name && state.rooms.public_name_taken(&held_name)))
 			{
-				return Err(format!(
-					"{}: room \"{held_name}\" already exists",
-					FailureCode::RoomExists.wire()
-				));
+				return Err(FailureCode::RoomExists.line(format_args!("room \"{held_name}\" already exists")));
 			}
 			Ok(state.authority.with_managed_room_policy(&held_id, &held_name, policy)?)
 		},

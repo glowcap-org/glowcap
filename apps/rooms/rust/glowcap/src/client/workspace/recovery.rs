@@ -9,8 +9,8 @@ pub struct EffectEntry {
 	pub resumable: bool,
 }
 /// One canonical intent moves from the admitted Loam reply into this owner.
-/// The original endpoint remains held for status, result and explicit resume;
-/// an operation ID alone never selects authority or permits fresh dispatch.
+/// The original endpoint remains held for status, result and explicit resume.
+/// An operation ID alone never selects authority or permits fresh dispatch.
 pub struct RecoveredEffect<D> {
 	caller: Caller<D>,
 	source: Ref,

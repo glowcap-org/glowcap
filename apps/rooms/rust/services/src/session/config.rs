@@ -5,6 +5,7 @@ pub use rooms_platform::serving::Transport;
 use std::{collections::BTreeMap, path::PathBuf};
 
 pub struct Config {
+	pub admission: rooms_application::admission::Settings,
 	pub state: PathBuf,
 	pub transport: Transport,
 	pub checkpoint: Option<PathBuf>,
@@ -12,12 +13,19 @@ pub struct Config {
 	/// The rendezvous relay this peer dials browser members through when a
 	/// direct partner advertises a relay route.
 	pub relay_url: Option<String>,
+	/// The advertised public route for the same relay registry. Dial it through
+	/// `relay_url`. Unrelated peer routes are followed normally.
+	pub relay_alias_url: Option<String>,
 	/// Deployment transport composition, independent of persisted capabilities.
 	pub dial_transports: Vec<String>,
 }
 
 pub const HELP: &str = "rooms-session --state=<directory> [--transport=iroh|tcp|onion]
   --local-control  expose this session through <state>/control.sock
+  --admission-scale=<1..100>  scale default work allowances (default: 1)
+  --admission-rates=<class=burst/per-minute,...>  absolute per-class overrides
+  --admission-rows=<1..65536>  retained grant row cap (default: 4096)
+  --admission-aggregate-scale=<1..100>  root/session pool multiplier (default: 8)
   --checkpoint=<Rooms JSON>  import capability-free managed workspace intent
   --dial-transports=tcp,iroh,onion  install outgoing transport families before restoration
   --readiness-file=<path>  write the workspace use sturdyref (default: <state>/workspace.sturdyref)
@@ -28,16 +36,24 @@ pub const HELP: &str = "rooms-session --state=<directory> [--transport=iroh|tcp|
   --port=<port>  onion local forward port; 0 chooses an ephemeral loopback port
   --onion-forward=<absolute-path>  bind a Unix forwarding socket instead (requires --port=0)
   --relay-url=<url>  dial browser members through this rendezvous relay
+  --relay-alias-url=<url>  redirect this advertised route to --relay-url (same registry)
 Options override GLOWCAP_ROOMS_SESSION_* environment variables. TCP defaults to 127.0.0.1:0.
 rooms-session --check-ready=<path>  print the sturdyref a running peer wrote to its readiness file, or exit nonzero
 ";
 
 /// The options beyond the transport's own.
-const KEYS: &[&str] = &["state", "checkpoint", "readiness-file", "relay-url", "dial-transports"];
+const KEYS: &[&str] = &[
+	"state",
+	"checkpoint",
+	"readiness-file",
+	"relay-url",
+	"relay-alias-url",
+	"dial-transports",
+];
 
 impl Config {
 	/// `None` means help was asked for. Every option may also come from
-	/// `GLOWCAP_ROOMS_SESSION_<NAME>`; an argument wins over the environment.
+	/// `GLOWCAP_ROOMS_SESSION_<NAME>`. An argument wins over the environment.
 	pub fn parse(
 		args: impl IntoIterator<Item = String>,
 		env: impl Fn(&str) -> Option<String>,
@@ -51,7 +67,10 @@ impl Config {
 				.strip_prefix("--")
 				.and_then(|s| s.split_once('='))
 				.ok_or_else(|| Error::refused("options use --name=value"))?;
-			if !KEYS.contains(&key) && !Transport::OPTIONS.contains(&key) {
+			if !KEYS.contains(&key)
+				&& !Transport::OPTIONS.contains(&key)
+				&& !rooms_application::admission::Settings::OPTIONS.contains(&key)
+			{
 				return Err(Error::refused(format!("unknown session option: --{key}")));
 			}
 			if named.insert(key.to_owned(), value.to_owned()).is_some() {
@@ -82,11 +101,30 @@ impl Config {
 			return Err(Error::refused("dial transports must be tcp, iroh or onion"));
 		}
 		Ok(Some(Self {
+			admission: rooms_application::admission::Settings::parse_from(
+				|key| {
+					value(key).map(|v| {
+						(
+							v,
+							if named.contains_key(key) {
+								rooms_application::admission::Source::Argument
+							} else {
+								rooms_application::admission::Source::Environment
+							},
+						)
+					})
+				},
+				4096,
+				8,
+			)
+			.map_err(String::from)
+			.map_err(Error::refused)?,
 			state: state.into(),
 			transport,
 			checkpoint: value("checkpoint").filter(|s| !s.is_empty()).map(Into::into),
 			readiness_file: value("readiness-file").filter(|s| !s.is_empty()).map(Into::into),
 			relay_url: value("relay-url"),
+			relay_alias_url: value("relay-alias-url"),
 			dial_transports,
 		}))
 	}

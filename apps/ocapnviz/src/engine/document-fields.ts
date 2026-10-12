@@ -10,7 +10,7 @@
  * path.
  *
  * `document-fields.test.ts` is the evidence. The engine's public
- * methods are the door the UI and those tests walk through; they
+ * methods are the door the UI and those tests walk through. They
  * notify and bracket undo. This module is the write.
  */
 
@@ -90,7 +90,7 @@ export function writeMetadataField(
  * Outside history by construction: it is called after the edit's transaction
  * has closed, and `endTransaction` is the only thing that records, so nothing
  * here can push an entry. `DocSnapshot` also leaves this one key out, so an
- * undo reverts the edit and not the record that an edit happened — reverting a
+ * undo reverts the edit and not the record that an edit happened, reverting a
  * title should not claim the document was last modified before it was.
  *
  * `now` is a parameter rather than read from a clock here, so the edit path
@@ -105,7 +105,7 @@ export function writeDocumentModified(
 
 /**
  * The floor a duration will not go below: the last moment the document states
- * anything at. `latestStatedTime` is the one answer; this name is the duration
+ * anything at. `latestStatedTime` is the one answer. This name is the duration
  * field's.
  */
 export function documentDurationFloor(doc: TimelineDocument): number {
@@ -146,7 +146,7 @@ export function writeDocumentDuration(
  *
  * An ordinary document edit: pressed for, recorded in the history, taken back
  * by undo like a title. That is the whole reason it is a verb rather than
- * something the camera does — a document changes when a reader changes it, and
+ * something the camera does. A document changes when a reader changes it, and
  * every change a reader makes is a step they can walk back.
  *
  * The camera does NOT write this as it moves. Looking around is reading, and a

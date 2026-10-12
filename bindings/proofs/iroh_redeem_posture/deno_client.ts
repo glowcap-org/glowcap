@@ -1,19 +1,19 @@
 // Hermetic proof that a recipient's *configured redeem posture* governs how a
-// hint-less iroh handoff give is dialed (ADR-0009), all in the Deno binding —
+// hint-less iroh handoff give is dialed (ADR-0009), all in the Deno binding:
 // the sibling of the Rust/Python/Racket `iroh_redeem_posture` clients.
 //
 // A give whose exporter location names the exporter by node id alone (no
-// `direct-addresses`) cannot be dialed `Direct` — the recipient must resolve the
+// `direct-addresses`) cannot be dialed `Direct`: the recipient must resolve the
 // id. Which discovery posture it resolves under is the recipient node's
 // `setRedeemReachability` knob: `Discovery` (n0 relays + DNS/pkarr) by default,
 // lowerable for a deployment policy. This gate sets that knob to
-// `LocalDiscovery` — an in-process address book, no network — and proves the
+// `LocalDiscovery`, an in-process address book, no network, and proves the
 // hint-less redeem dials by id through it and withdraws the gift.
 //
 // It is a *discriminating* proof: with the default `Discovery`, the hint-less
 // redeem would reach for n0's public relays + DNS and fail with no internet; the
 // redeem succeeds here only because `dialExporter` honors the configured
-// posture. Deterministic and flake-free — three `LocalDiscovery` endpoints in
+// posture. Deterministic and flake-free: three `LocalDiscovery` endpoints in
 // one process sharing one address book.
 //
 // Topology:
@@ -21,7 +21,7 @@
 //             `greeter`.
 //   Gifter    binds its own endpoint, dials the exporter by id (one node
 //             identity), fetches the greeter, and records the exporter's
-//             id-only location as the give's exporter location — a hint-less
+//             id-only location as the give's exporter location: a hint-less
 //             give.
 //   Recipient binds its own endpoint, sets its redeem posture to
 //             `LocalDiscovery`, dials the gifter, asks for the greeter, redeems
@@ -64,7 +64,7 @@ const gifterRuntime = await Runtime.open({
 const toExporter = await gifterRuntime.connect(locator(exporterId));
 toExporter.serve().catch(() => {});
 const greeterRef = await toExporter.fetch("greeter");
-// Record the exporter's location by node id alone — no direct-addresses. This
+// Record the exporter's location by node id alone: no direct-addresses. This
 // is what forces the recipient down the configured-posture redeem path instead
 // of a Direct dial.
 toExporter.setExporterLocator(
@@ -115,8 +115,8 @@ console.log(
 		"the recipient's configured LocalDiscovery posture (default Discovery would need the network)",
 );
 
-// Teardown: dialing connections first — the recipient's close also tears down
-// the node-dialed exporter connection its redeem opened — then the servers,
+// Teardown: dialing connections first (the recipient's close also tears down
+// the node-dialed exporter connection its redeem opened), then the servers,
 // whose close releases every accepted connection still borrowing their loop.
 recipient.close();
 toExporter.close();

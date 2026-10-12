@@ -1,5 +1,5 @@
 //! Browser-facing ICE records. The host supplies its transport's resource
-//! limits; validation and the public record shape are identical on both hosts.
+//! limits. Validation and the public record shape are identical on both hosts.
 use alloc::{
 	string::{String, ToString},
 	vec,
@@ -56,7 +56,7 @@ impl Servers {
 		decode::read(value, limits)
 	}
 	/// Decode directly into bounded records. Transport callers bound the input
-	/// bytes first; no unrestricted JSON tree is allocated before count checks.
+	/// bytes first. No unrestricted JSON tree is allocated before count checks.
 	pub fn from_json(bytes: &[u8], limits: Limits) -> Result<Self, &'static str> {
 		let mut input = serde_json::Deserializer::from_slice(bytes);
 		let servers = decode::read(&mut input, limits)?;

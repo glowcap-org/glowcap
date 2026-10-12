@@ -44,7 +44,7 @@ pub struct Register<R> {
 }
 
 /// The exact registrations admitted before an inbox capability settles.
-/// Completion revalidates both names and capacity; a replacement registration
+/// Completion revalidates both names and capacity. A replacement registration
 /// cannot inherit an offer started by its predecessor.
 pub struct InboxOffer<C> {
 	registry: Rc<()>,
@@ -286,7 +286,12 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 		}
 		if held_by_another {
 			// Spend the voucher at the commit boundary; the check above proved it.
-			let voucher = request.voucher.expect("a current voucher was checked");
+			let Some(voucher) = request.voucher else {
+				return Err(Refusal::coded(
+					FailureCode::NickTaken,
+					format!("the reconnect proof for \"{}\" is no longer current", request.nick),
+				));
+			};
 			if !self
 				.rows
 				.get_mut(&key)
@@ -435,6 +440,25 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 			count: 0,
 		});
 		withdrawn.withdrawn_keys.push(key.into());
+	}
+	pub fn direct_request_due(&self, connection: C, nick: &str, id: &str, now: u64) -> Result<bool, Refusal> {
+		let caller = self
+			.own(connection)
+			.ok_or_else(|| Refusal::coded(FailureCode::NotRegistered, "requestDirect needs a registered name"))?;
+		if self.member_registration(nick)?.as_str() != id {
+			return Err(Refusal::coded(
+				FailureCode::PeerOffline,
+				"direct target registration has changed",
+			));
+		}
+		let target = self
+			.rows
+			.get(&fold(nick))
+			.ok_or_else(|| Refusal::coded(FailureCode::PeerOffline, "direct target registration has changed"))?;
+		Ok(target
+			.requests
+			.get(caller.id.as_str())
+			.is_none_or(|prior| now.saturating_sub(*prior) >= DIRECT_REQUEST_COALESCE_MS))
 	}
 	pub fn request_direct(
 		&mut self,

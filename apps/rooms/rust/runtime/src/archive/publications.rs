@@ -1,5 +1,5 @@
 //! Durable lookup names and revocable descendants follow committed share specs.
-//! The worker owns every publication effect; callbacks only admit queued work.
+//! The worker owns every publication effect. Callbacks only admit queued work.
 use super::*;
 use glowcap::{CaptpVersion, Host, Locator};
 use rooms_application::archive::{
@@ -123,12 +123,15 @@ impl Publications {
 			});
 		}
 		if self.root_name.is_none() {
-			self.root_name = Some(self.publish(
-				receiver,
-				self.root,
-				Facet::new(Filter::default(), Access::ReadWrite).expect("whole archive"),
-				Authority::Issuer,
-			)?);
+			self.root_name = Some(
+				self.publish(
+					receiver,
+					self.root,
+					Facet::new(Filter::default(), Access::ReadWrite)
+						.map_err(|error| Error::storage_message(error.to_string()))?,
+					Authority::Issuer,
+				)?,
+			);
 		}
 		self.ready.set(true);
 		Ok(specs)
@@ -193,7 +196,7 @@ impl Drop for Publications {
 }
 impl<B: Backend, P: Platform> Worker<B, P> {
 	/// Configure once before running the worker. Publication failure preserves
-	/// owned names for retry_publications; no partially restored share answers.
+	/// owned names for retry_publications. No partially restored share answers.
 	pub async fn publish(
 		&mut self,
 		host: Host,
@@ -211,7 +214,14 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 	}
 	pub async fn retry_publications(&mut self) -> Result<String, Error> {
 		self.reconcile_publications().await?;
-		self.publications.as_ref().expect("configured publications").root_link()
+		self.publications()?.root_link()
+	}
+	/// The durable share issuer `publish` configured, or the refusal every
+	/// share request gives before it exists.
+	fn publications(&self) -> Result<&Publications, Error> {
+		self.publications
+			.as_ref()
+			.ok_or_else(|| Error::refused("archive has no durable share issuer"))
 	}
 	async fn reconcile_publications(&mut self) -> Result<Vec<Share>, Error> {
 		let publications = self
@@ -241,17 +251,13 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 			protocol::Request::Revoke(id) => (None, self.backend.change_share(Command::Revoke(id)).await),
 			protocol::Request::List => {
 				let specs = self.reconcile_publications().await?;
-				return self
-					.publications
-					.as_ref()
-					.expect("configured publications")
-					.listing(&specs);
+				return self.publications()?.listing(&specs);
 			}
 		};
 		let changed = match changed {
 			Ok(v) => v,
 			Err(e) => {
-				self.publications.as_ref().expect("configured publications").suspend();
+				self.publications()?.suspend();
 				// A policy refusal leaves storage usable. Reconcile that committed
 				// state before the next queued call; uncertain storage stays closed,
 				// and a reconcile that also failed is retained behind the refusal.
@@ -260,11 +266,7 @@ impl<B: Backend, P: Platform> Worker<B, P> {
 		};
 		self.reconcile_publications().await?;
 		if let Some(id) = id {
-			self.publications
-				.as_ref()
-				.expect("configured publications")
-				.share_link(&id)
-				.map(Argument::String)
+			self.publications()?.share_link(&id).map(Argument::String)
 		} else {
 			Ok(Argument::Boolean(changed == Change::Revoked))
 		}

@@ -1,17 +1,17 @@
 //! The OCapN locator-to-URI grammar, in both directions, for C.
 //!
-//! This is the one C surface over `model.uri` — the `ocapn://<designator>.<transport>[/s/<swiss>][?hints]`
+//! This is the one C surface over `model.uri`: the `ocapn://<designator>.<transport>[/s/<swiss>][?hints]`
 //! bootstrap form a peer or sturdyref address travels in. It is core OCapN
 //! vocabulary, not a transport feature: the grammar is transport-agnostic, so a
 //! TCP-only binding reaches it the same as the iroh companion library, and no binding
-//! hand-rolls a percent codec. Pure Zig, no I/O, no new artifact — it lands in
+//! hand-rolls a percent codec. It is pure Zig with no I/O and lands in
 //! `libglowcap_ocapn`'s `glowcap_ocapn.h`.
 //!
-//! The split mirrors the core module it fronts. `model.uri` is the grammar —
-//! the verbs that turn a string into a structure and back; `model.PeerLocator` / `SturdyRef` are the values
+//! The split mirrors the core module it fronts. `model.uri` is the grammar:
+//! the verbs that turn a string into a structure and back. `model.PeerLocator` / `SturdyRef` are the values
 //! it produces (the noun). So the verbs are `glowcap_uri_*` (parse/format) and
 //! the nouns are distinct `GlowcapLocator` and `GlowcapSturdyRef` handles. A
-//! sturdyref embeds a peer locator plus authority-bearing swiss bytes; keeping
+//! sturdyref embeds a peer locator plus authority-bearing swiss bytes. Keeping
 //! those types distinct prevents a peer-view operation from silently dropping
 //! the swissnum.
 //!
@@ -49,7 +49,7 @@ const adoptSturdyRef = ownership.adoptSturdyRef;
 
 /// Map a `model.uri` parse failure to a C code. A grammar failure is a bad
 /// input argument (the bytes are not an OCapN URI), with the concrete reason in
-/// `glowcap_last_error`; only allocation faults are internal.
+/// `glowcap_last_error`. Only allocation faults are internal.
 fn parseErrToCode(err: model.uri.Error) i32 {
     return switch (err) {
         error.OutOfMemory => blk: {
@@ -99,7 +99,7 @@ pub export fn glowcap_uri_parse_peer_in(
 /// Parse an `ocapn://…/s/<swiss>` sturdyref URI into an owned locator handle
 /// carrying its swissnum. Same borrow, error, and release contract as
 /// glowcap_uri_parse_peer. `captp_version` selects the profile-specific
-/// swissnum path spelling; an unknown value is refused rather than guessed.
+/// swissnum path spelling. An unknown value is refused.
 fn uriParseSturdyrefIn(
     allocator: std.mem.Allocator,
     captp_version: u32,
@@ -323,8 +323,8 @@ fn appendHint(payload: *LocatorPayload, name: []const u8, value: model.HintValue
     payload.refreshView() catch |err| {
         // Projection is the commit point for a C-visible mutation. Keep the
         // previously borrowed view authoritative if validation ever grows a
-        // new refusal: the just-appended ownership is still ours to undo, and
-        // no library-side invariant is allowed to terminate the process.
+        // new refusal. The just-appended ownership is still ours to undo, and
+        // no library-side invariant may terminate the process.
         const appended = payload.hints.pop().?;
         model.freeHintEntry(payload.allocator, appended);
         payload.hint_views.shrinkRetainingCapacity(payload.hints.items.len);
@@ -452,8 +452,8 @@ pub export fn glowcap_locator_hint_wire_form(loc: ?*GlowcapLocator, out_wire_for
 const BuildError = error{ OutOfMemory, NullPointer, TooManyHints };
 
 /// Borrow the i-th string from a parallel (pointers, lengths) pair. A zero
-/// length is the empty string; a non-zero length behind a NULL pointer is a
-/// caller bug, refused rather than dereferenced.
+/// length is the empty string. A non-zero length behind a NULL pointer is a
+/// caller bug and is refused.
 fn viewAt(arr: [*]const ?[*]const u8, lens: [*]const usize, i: usize) BuildError![]const u8 {
     const len = lens[i];
     if (len == 0) return &.{};
@@ -462,7 +462,7 @@ fn viewAt(arr: [*]const ?[*]const u8, lens: [*]const usize, i: usize) BuildError
 }
 
 /// Build a borrowed `HintEntry` slice from the parallel key/value string arrays.
-/// The entries view the caller's bytes for the call only; the slice itself is
+/// The entries view the caller's bytes for the call only. The slice itself is
 /// owned and must be freed. An empty set returns an empty slice (no allocation).
 fn buildHints(
     alloc: std.mem.Allocator,
@@ -500,8 +500,8 @@ fn buildErrToCode(err: BuildError) i32 {
 }
 
 /// Format a peer locator as an `ocapn://` URI into `out`. Hints are parallel
-/// key/value string arrays of `hint_count` entries; all inputs are borrowed.
-/// `out_len` receives the full URI length; a buffer too small is
+/// key/value string arrays of `hint_count` entries. All inputs are borrowed.
+/// `out_len` receives the full URI length. A buffer too small is
 /// GLOWCAP_ERR_BUFFER_TOO_SMALL with the length still reported. A null output is
 /// allowed only with `cap == 0` to query the size.
 pub export fn glowcap_uri_format_peer(
@@ -540,9 +540,9 @@ pub export fn glowcap_uri_format_peer(
 }
 
 /// Format a sturdyref locator (peer + swissnum) as an `ocapn://…/s/<swiss>` URI.
-/// Same hint-array and buffer contract as glowcap_uri_format_peer; `swissnum` is
-/// borrowed. `captp_version` selects the profile-specific swissnum spelling;
-/// an unknown value is refused rather than guessed.
+/// Same hint-array and buffer contract as glowcap_uri_format_peer. `swissnum` is
+/// borrowed. `captp_version` selects the profile-specific swissnum spelling.
+/// An unknown value is refused.
 pub export fn glowcap_uri_format_sturdyref(
     captp_version: u32,
     transport: ?[*]const u8,

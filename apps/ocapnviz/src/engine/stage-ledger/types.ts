@@ -1,6 +1,6 @@
 /**
  * Stage-ledger vocabulary: the live peer and wire rows, and the keys
- * that identify them. The ledger class owns the maps; this module owns
+ * that identify them. The ledger class owns the maps. This module owns
  * the shape of an entry and the functions that name a side or a wire.
  */
 
@@ -9,7 +9,7 @@ import type { SessionSide } from "../../schema/session-end.ts";
 
 /** A live incarnation of a peer. `stageId` is the timeline entity id
  * this incarnation renders as, and `liveWires` counts the open wires
- * touching it — a peer leaves when the last one closes, unless it is
+ * touching it. A peer leaves when the last one closes, unless it is
  * `eternal` (a producer's own reporting host, whose lifetime is its
  * producer's rather than any one session's).
  *
@@ -29,7 +29,7 @@ export type LivePeer = {
 	shown: string;
 	/** The implementation this peer is currently known by, so a
 	 * restatement is not a change. Starts unknown and only ever moves to a
-	 * named implementation — see `LedgerNames.learnProfile`. */
+	 * named implementation, see `LedgerNames.learnProfile`. */
 	profile: PeerProfile;
 };
 
@@ -44,12 +44,12 @@ export type Observer = {
 	otherKey: string;
 };
 
-/** A live incarnation of one wire — one stage session, however many
+/** A live incarnation of one wire. One stage session, however many
  * producers report it. */
 export type LiveWire = {
 	stageId: string;
 	/** The two ends. Which POSITION a side holds is fixed when the wire
-	 * opens — `a` is the end the first observer reported as its own —
+	 * opens, `a` is the end the first observer reported as its own,
 	 * and only the key AT a position ever moves (`#retargetSide`). Every
 	 * `session-endpoint-attributed` the timeline holds names a position,
 	 * so swapping these would silently retarget keyframes already
@@ -60,7 +60,7 @@ export type LiveWire = {
 	observers: Map<string, Observer>;
 	/** Message tags already drawn on this wire. A tag is entered by the
 	 * first end to report the message and CONSUMED by the second, so a
-	 * peer that genuinely sends the same bytes twice draws two
+	 * peer that sends the same bytes twice draws two
 	 * messages. Bounded, oldest out first. */
 	seen: Set<string>;
 	/** Names an application claimed for an end nobody could name yet,
@@ -76,7 +76,7 @@ export type LiveWire = {
 };
 
 /** Message tags held per wire for the fold. One conversation's
- * in-flight window is a handful; this is far past it and still a
+ * in-flight window is a handful. This is far past it and still a
  * fixed ceiling per wire. */
 export const MAX_SEEN_DIGESTS = 512;
 
@@ -100,7 +100,7 @@ export type EndingReason = "closed" | "unobserved";
  *
  * `partner-named` means the reporting producer named that end and the caller
  * passed the name as an identity (`openSession`'s `verified`). What backed the
- * name is the caller's own fact — this ledger never sees the evidence.
+ * name is the caller's own fact. This ledger never sees the evidence.
  * `correlated` means a second producer's own report of this same wire supplied
  * the name: a correlation across two self-reports, which is the viewer's
  * inference and nobody's measurement. */
@@ -142,7 +142,7 @@ export function selfProfileOf(opts?: {
  * sent no session key.
  *
  * Exported because the ledger is not the only caller that has to
- * group observations by edge — resolving a replayed batch groups by
+ * group observations by edge, resolving a replayed batch groups by
  * the same thing before handing anything to `openSession`, and two
  * implementations of "which edge is this" would be two answers the moment
  * one of them changed. */

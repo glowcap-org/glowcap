@@ -5,7 +5,7 @@ import { spawnWeb } from "../support/web_front.ts";
 // between two members, formed by three-party introduction and held on the
 // members' own hosts; the room server never carries a byte of it, so the room's
 // own trace can never show it. Each tab publishes its own trace to the shared
-// endpoint instead, on a socket that only goes one way — telemetry converges,
+// endpoint instead, on a socket that only goes one way, telemetry converges,
 // the conversation stays direct.
 //
 // What this proves, watching the endpoint as a viewer would:
@@ -137,8 +137,19 @@ try {
 				"tabs published nothing",
 		);
 	}
-	const ids = opens.map((r) => r.session as string);
-	if (new Set(ids).size !== ids.length) fail(`two sessions collided on one id: ${ids}`);
+	// Topology replay and later metadata can announce the same session again.
+	// A collision changes its endpoints or negotiated identity, not its label.
+	const identities = new Map<string, Record_>();
+	for (const open of opens) {
+		const id = open.session as string;
+		const previous = identities.get(id);
+		for (const field of ["a", "b", "session_id"]) {
+			if (previous?.[field] != null && open[field] != null && previous[field] !== open[field]) {
+				fail(`two sessions collided on ${id}: ${field} changed`);
+			}
+		}
+		identities.set(id, { ...previous, ...open });
+	}
 
 	// The direct session is the one carrying the `dm` verb. Browser producers
 	// label themselves with their granted nickname, just as the server labels itself.
@@ -174,7 +185,7 @@ try {
 
 	// Both tabs hold this session and both trace it, and both views arrive:
 	// choosing between them is the viewer's decision, and the endpoint is the
-	// transport. What makes one conversation out of two views is here — the
+	// transport. What makes one conversation out of two views is here, the
 	// same session id on both opens, and the same tag on each message, derived
 	// by each end from the bytes it holds.
 	const dmOpens = dmSessionIds.map((id) => opens.find((r) => r.session === id));
@@ -208,7 +219,7 @@ try {
 	if (dm === undefined) fail(`the direct session ${dmId} carried traffic with no open`);
 
 	// It came from a browser tab, not from the room. The room server cannot
-	// report this session at all — it carries none of it — so a `dm` verb on a
+	// report this session at all, it carries none of it, so a `dm` verb on a
 	// room-produced session would mean the DM had been routed through the room.
 	if (dm.a_label !== "web-alice" && dm.a_label !== "web-bob") {
 		fail(`the direct message was drawn on the room's own session (${dm.a_label})`);
@@ -218,7 +229,7 @@ try {
 	}
 
 	// And a human can read who it is with: each end names its partner, and both
-	// namings reach the feed now that neither view is dropped.
+	// namings reach the feed because neither view is dropped.
 	const named = seen.some(
 		(r) =>
 			r.kind === "ocapn.session-meta" &&

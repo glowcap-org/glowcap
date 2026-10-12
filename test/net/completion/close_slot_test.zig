@@ -110,8 +110,8 @@ test "close-slot: terminal drain ignores a late completion from the already-arme
 }
 
 test "close-slot: the terminal drain is bounded out of the box" {
-    // No production path sets `park_kill_ms` — not the Host bridge, not
-    // `net.TcpLoop`, not the iroh loop — so a drain bound that had to be
+    // No production path sets `park_kill_ms`, not the Host bridge, not
+    // `net.TcpLoop`, not the iroh loop, so a drain bound that had to be
     // opted into would be a bound nothing ever applied. The default is the
     // whole guarantee: a partner that never reads an abort cannot pin a slot,
     // its fd, its peer, and its queues for the loop's lifetime.

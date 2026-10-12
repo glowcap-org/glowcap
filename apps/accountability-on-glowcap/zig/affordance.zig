@@ -1,7 +1,7 @@
 //! The Affordance: the published actor whose every invocation the host accounts
 //! for, and the caller-side attestation it verifies.
 //!
-//! This is the load-bearing claim of the whole application, so it lives in one
+//! This is the essential claim of the whole application, so it lives in one
 //! place: the blocking host (`main.zig`), the standalone host (`host.zig`),
 //! and the owning three-Host proof (`three_party_test.zig`) use thin adapters
 //! over the same verification and recording state.
@@ -9,8 +9,8 @@
 //! Attribution is attested, not trusted. The caller signs a canonical preimage
 //! over the request with its KERI key, and presents that verkey together with
 //! the key event log that binds it to the AID it claims. The host checks both
-//! before it records an Outcome Episode, and refuses — as a clean broken
-//! promise — anything it cannot attribute.
+//! before it records an Outcome Episode, and refuses, as a clean broken
+//! promise, anything it cannot attribute.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -33,7 +33,7 @@ pub const frame_cap: usize = 1 << 16;
 
 /// Environment override for gate runs that must not dirty the source tree.
 pub const data_root_env = "GLOWCAP_ACCOUNTABILITY_DATA_ROOT";
-/// The root the public demo stores its `.data/` under; each host owns a
+/// The root the public demo stores its `.data/` under. Each host owns a
 /// subdirectory.
 pub const default_data_root = "apps/accountability-on-glowcap/.data";
 
@@ -45,7 +45,7 @@ pub fn dataRoot(init: std.process.Init) []const u8 {
 pub const invoke_verb = "invoke";
 
 /// The signed preimage that binds a caller to the subject it claims and to the
-/// request it is making. The caller signs it; the host verifies it before
+/// request it is making. The caller signs it. The host verifies it before
 /// attributing an Episode. Signer and host must hash the same bytes, so the form
 /// is fixed here.
 ///
@@ -57,10 +57,10 @@ pub const invoke_verb = "invoke";
 ///
 /// The request arrives from the wire and can be as large as a frame, so the
 /// preimage is allocated rather than built in a fixed buffer. Callers pass a
-/// scratch allocator; the host passes its turn arena.
+/// scratch allocator. The host passes its turn arena.
 /// The subject is a fixed-width AID rather than a slice, so the two fields
 /// cannot run together. With both unbounded, `("a|b", "c")` and `("a", "b|c")`
-/// would sign identical bytes; the width is what makes the split unambiguous,
+/// would sign identical bytes. The width is what makes the split unambiguous,
 /// and it belongs here rather than in whichever caller happens to check it.
 pub fn attestation(
     allocator: std.mem.Allocator,
@@ -79,7 +79,7 @@ pub fn strArg(a: model.Argument) ?[]const u8 {
 
 /// The signed part of an `invoke`, encoded once from a signing key and a
 /// request: the verkey the caller presents and its signature over the preimage.
-/// `tamper` corrupts the signature so the host must refuse to attest it — the
+/// `tamper` corrupts the signature so the host must refuse to attest it, the
 /// path that has to surface as a clean broken promise.
 pub const Attestation = struct {
     /// The caller's verkey, `D`-coded base64url (44 bytes).

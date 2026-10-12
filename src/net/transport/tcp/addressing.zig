@@ -2,7 +2,7 @@
 //!
 //! This module owns the only conversion from OCapN transport/designator/hint
 //! vocabulary to a socket address. Socket creation stays in `runtime.zig` and
-//! `stream.zig`; callers cannot reach it through a locator without passing
+//! `stream.zig`. Callers cannot reach it through a locator without passing
 //! this admission.
 
 const std = @import("std");

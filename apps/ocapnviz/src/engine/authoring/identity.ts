@@ -2,9 +2,9 @@
  * Rename / re-key authoring operations.
  *
  * `rekeyEntity` changes an entity's identity key (`peer-1` → `alice`)
- * across every reference site in the doc — entities map, cross-
+ * across every reference site in the doc, entities map, cross-
  * category entity refs, every event, every doc-level index. The walk
- * itself is `cascadeRewrite` in `engine/schema/cascade.ts`; this
+ * itself is `cascadeRewrite` in `engine/schema/cascade.ts`. This
  * module wraps it with the engine concerns (apply-in-place into the
  * live doc, seek to rebuild the world).
  *
@@ -31,7 +31,7 @@ function renameCategoryToEntitiesKey(
 }
 
 /** Validate-only: would `rekeyEntity(ctx, category, oldId, newId)`
- *  collide? Pure read; no mutation. Inspector inline edits call
+ *  collide? Pure read. No mutation. Inspector inline edits call
  *  this on blur to gate the dispatch. */
 export function checkRekeyCollision(
 	doc: TimelineDocument,

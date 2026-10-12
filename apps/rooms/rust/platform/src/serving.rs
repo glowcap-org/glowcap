@@ -1,6 +1,6 @@
 //! What every host-side peer stands on to be reached: the transport it listens
 //! over, the options that choose it, and serving one accepted partner to its
-//! end. A peer composes these; none of them knows what the peer answers, so
+//! end. A peer composes these. None of them knows what the peer answers, so
 //! the session peer, the archive peer, and the next one share exactly one
 //! listener, one option grammar, and one account of a partner leaving.
 use glowcap::{ErrorKind, PendingWork, Session, iroh, tcp};
@@ -26,7 +26,7 @@ pub const ACCEPT_RETRY: Duration = Duration::from_millis(250);
 
 /// The wait after a refused accept, for a listener to back off on its own
 /// while the peer keeps serving everyone already in. A refusal sets the
-/// deadline; `wait` sleeps toward it and clears it; `ready` says whether the
+/// deadline. `wait` sleeps toward it and clears it. `ready` says whether the
 /// listener may accept again. Cancelling a wait keeps its deadline.
 #[derive(Default)]
 pub struct Retry(Option<tokio::time::Instant>);
@@ -60,7 +60,7 @@ pub enum Transport {
 impl Transport {
 	/// Read the transport from named options, `value` answering each option
 	/// name from the argument list or the environment. `peer` names the
-	/// program in a refusal. TCP defaults to `127.0.0.1:0`; a wildcard bind
+	/// program in a refusal. TCP defaults to `127.0.0.1:0`. A wildcard bind
 	/// needs an announced host, because the listener's own address is not one
 	/// anybody can dial.
 	pub fn parse(
@@ -163,15 +163,15 @@ impl Listener {
 	}
 }
 
-/// Whether an accept failure ends listening. Only a closed listener does;
-/// anything else is a passing refusal the peer asks again after
+/// Whether an accept failure ends listening. Only a closed listener does.
+/// Anything else is a passing refusal the peer asks again after
 /// `ACCEPT_RETRY`, because one exhausted descriptor table is not a reason to
 /// stop serving the partners already here.
 pub fn accept_ended(error: &glowcap::Error) -> bool {
 	error.kind() == ErrorKind::Closed
 }
 
-/// How an accepted partner's service ended when it did not simply end.
+/// How an accepted partner's service ended when it did not end.
 #[derive(Debug)]
 pub struct Ended {
 	/// Why serving stopped, when the partner did not merely leave.
@@ -191,9 +191,9 @@ impl fmt::Display for Ended {
 	}
 }
 
-/// Serve one accepted partner to its end. A partner that simply left, its
+/// Serve one accepted partner to its end. A partner that left, its
 /// session closed or its connection lost under it, is not an outcome anyone
-/// needs to hear; anything else is the partner's business, returned so the
+/// needs to hear. Anything else is the partner's business, returned so the
 /// peer can report it, and never the peer's own failure.
 pub async fn serve_partner(session: Session) -> Result<(), Ended> {
 	serve_partner_until(session, std::future::pending()).await
@@ -247,7 +247,7 @@ pub enum PartnerNotice {
 	Ended(Ended),
 	/// A task serving one accepted connection did not run to completion.
 	TaskFailed(tokio::task::JoinError),
-	/// The listener refused an accept for a passing reason; the peer asks again.
+	/// The listener refused an accept for a passing reason. The peer asks again.
 	AcceptRefused(TransportError),
 }
 

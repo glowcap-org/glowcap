@@ -14,7 +14,7 @@ fn greeter(verb: &str, args: &[Argument]) -> Result<Argument, String> {
 	let Some(Argument::String(name)) = args.first() else {
 		return Err("bad invocation".into());
 	};
-	Ok(Argument::String(format!("Hello, {name}").into()))
+	Ok(Argument::String(format!("Hello, {name}")))
 }
 
 async fn scene(relay_url: String, register_url: String) -> Result<(), String> {

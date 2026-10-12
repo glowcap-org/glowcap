@@ -3,7 +3,7 @@
  *
  * These helpers paint into a `Graphics`, which needs a WebGL
  * context this suite has no way to make. They take a `MarchCanvas`
- * instead — the five methods they actually call — so a recorder can
+ * instead, the five methods they call, so a recorder can
  * stand in and the geometry itself becomes ordinary testable
  * arithmetic.
  *
@@ -145,7 +145,7 @@ Deno.test("armed ring: stroke, gap, and dash are screen pixels at every zoom", (
 		// Dash: arc length on screen. A closed ring must hold a whole
 		// number of dashes, so the period is the circumference divided
 		// by a rounded count, and the dash inherits that rounding. The
-		// most it can cost is half a period spread over the count —
+		// most it can cost is half a period spread over the count,
 		// 6% at the eight-dash floor, under 1% by the time a ring is
 		// big enough on screen to look round.
 		const dashPx = (first.end - first.start) * first.radius * scale;

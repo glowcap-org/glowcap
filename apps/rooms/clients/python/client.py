@@ -12,8 +12,8 @@ The locator is transport-neutral: a ``host:port`` reaches a TCP room, an
 second argument is the room name (entering one that does not exist opens it). The
 last argument is the roster: a comma-separated list of the member nicks to
 expect (default: just you). The client posts only once every roster member is
-present — it learns who is present from the structured presence the room attaches
-to each membership line (the roster on arrival and each join) — and exits 0 once
+present, it learns who is present from the structured presence the room attaches
+to each membership line (the roster on arrival and each join), and exits 0 once
 it has seen a line from every roster member. Members outside the roster (people
 already chatting in an attached room, say) are printed but never counted, so a
 busy room cannot fake or break the assertion.

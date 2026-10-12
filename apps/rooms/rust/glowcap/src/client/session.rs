@@ -1,5 +1,5 @@
 //! Client of a Rooms session capability. The attached browser and native
-//! consumers use the same protocol; transport acquisition stays with Runtime.
+//! consumers use the same protocol. Transport acquisition stays with Runtime.
 use super::{Client, Deadline};
 use crate::{Value, routes::CheckpointRoutes};
 use glowcap::{Argument, Ref};
@@ -39,9 +39,9 @@ pub trait Observer {
 type Observed = RefCell<Box<dyn Observer>>;
 
 /// Holds the local observer and its connection. Dropping it releases callback
-/// captures immediately; a retained remote observer then refuses delivery.
+/// captures immediately. A retained remote observer then refuses delivery.
 /// The wire has no unwatch verb. The service retires a refused observer or its
-/// closed connection; this handle does not claim remote retirement on Drop.
+/// closed connection. This handle does not claim remote retirement on Drop.
 pub struct Watch<D> {
 	_client: Client<D>,
 	_observer: Ref,

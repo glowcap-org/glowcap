@@ -55,7 +55,7 @@ const Shared = struct {
 
     /// The hook under test: the *sender* connection's first deliver makes the
     /// loop enqueue a bootstrap fetch on the *quiet* connection's peer and arm
-    /// its outbound — mid-dispatch, from another connection's event.
+    /// its outbound, mid-dispatch, from another connection's event.
     fn serve(conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *engine.Event) anyerror!void {
         _ = peer;
         const entry: *Entry = @ptrCast(@alignCast(conn_ctx.?));
@@ -238,7 +238,7 @@ test "cross-arm: cross-armed bytes count into pending outbound and park the read
     defer loop.deinit();
 
     // Phase 1: the connection opens, its hello drains, its start-session
-    // applies, and its next read arms with nothing scripted behind it — the
+    // applies, and its next read arms with nothing scripted behind it, the
     // quiet-partner steady state.
     try std.testing.expectError(error.ScriptParked, loop.run(.{ .after_closed = 1 }));
     const conn = &loop.conns[0];
@@ -246,7 +246,7 @@ test "cross-arm: cross-armed bytes count into pending outbound and park the read
     try std.testing.expect(conn.read == .armed);
     try std.testing.expectEqual(@as(usize, 0), conn.front.items.len - conn.front_off + conn.back.items.len);
 
-    // Phase 2: cross-arm from outside the loop's own dispatch — enqueue a
+    // Phase 2: cross-arm from outside the loop's own dispatch, enqueue a
     // bootstrap fetch on the quiet connection's peer and arm it. The bytes
     // submit (held by the slow-reader backend) and count as pending outbound.
     const cross = try engine.fetch.prepareFetchSwissnum(allocator, &conn.peer.session_state, "beacon");
@@ -258,7 +258,7 @@ test "cross-arm: cross-armed bytes count into pending outbound and park the read
 
     // Phase 3: the partner sends its next frame while the cross-armed write is
     // still unread. Its reply queues behind the frozen front, and the read
-    // parks at the high-water mark — ADR-0042 holds for cross-armed bytes.
+    // parks at the high-water mark, ADR-0042 holds for cross-armed bytes.
     CrossArmBackend.hold_sends = true;
     CrossArmBackend.chunks = &.{ client_ss.items, fetch_bytes.items };
     try std.testing.expectError(error.ScriptParked, loop.run(.{ .after_closed = 1 }));
@@ -266,7 +266,7 @@ test "cross-arm: cross-armed bytes count into pending outbound and park the read
     try std.testing.expect(conn.front.items.len - conn.front_off + conn.back.items.len > high_water);
 
     // Phase 4: the slow reader drains and the script ends. The parked read
-    // resumes, meets the clean EOF, and the connection closes whole — every
+    // resumes, meets the clean EOF, and the connection closes whole, every
     // in-flight op retired, so `deinit`'s accounting stays green.
     CrossArmBackend.hold_sends = false;
     CrossArmBackend.eof_when_exhausted = true;
@@ -319,7 +319,7 @@ test "cross-arm: a partial write that drains under the mark clears the deadline"
     try std.testing.expectEqual(@as(usize, 1), loop.waiting_count);
 
     // The partner takes all but four bytes. Pending falls under the mark, so
-    // this connection is no longer the slow reader the deadline is about.
+    // this connection is not the slow reader the deadline is about.
     CrossArmBackend.partial_send_bytes = conn.front.items.len - 4;
     CrossArmBackend.hold_sends = false;
     try std.testing.expectError(error.ScriptParked, loop.run(.{ .after_closed = 1 }));
@@ -343,8 +343,8 @@ test "cross-arm: a terminal failure with a write in flight swaps its queued tail
 
     // `onSend`'s `.draining` arm is the only path that swaps a terminal
     // connection's back buffer into its emptied front. Reaching it needs three
-    // things at once — the connection draining, a write still in flight, and
-    // bytes queued behind it — and a connection normally has at most two of
+    // things at once, the connection draining, a write still in flight, and
+    // bytes queued behind it, and a connection normally has at most two of
     // them, which is why the arm went unexercised. Scripted, the overlap is
     // stated rather than waited for.
     var client = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
@@ -374,7 +374,7 @@ test "cross-arm: a terminal failure with a write in flight swaps its queued tail
         .max_conns = 4,
         .listen = 0,
         // Above the reply, so the connection does *not* park and its read
-        // re-arms — otherwise the refused frame never arrives and the overlap
+        // re-arms, otherwise the refused frame never arrives and the overlap
         // never forms.
         .outbound_high_water_bytes = 4096,
         .park_kill_ms = 60_000,
@@ -392,7 +392,7 @@ test "cross-arm: a terminal failure with a write in flight swaps its queued tail
     const tail_bytes = conn.back.items.len;
 
     // Release the held write. The arm empties the front, swaps the tail in, and
-    // submits it — so the abort the partner is owed actually goes out instead
+    // submits it, so the abort the partner is owed goes out instead
     // of being dropped with the connection.
     CrossArmBackend.hold_sends = false;
     CrossArmBackend.eof_when_exhausted = true;

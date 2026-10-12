@@ -5,7 +5,7 @@ import { MAX_ROOM_MESSAGE_BACKLOG } from "../limits.ts";
 
 /** Keep unread messages outside the platform stream queue so cancellation can
  * release their capability occurrences. A zero high-water mark means enqueue
- * only satisfies an outstanding read; the explicit queue owns everything else. */
+ * only satisfies an outstanding read, and the explicit queue owns the rest. */
 export class RoomMessageStream {
 	readonly #drop: (message: Message) => void;
 	readonly #queue: Array<Message | undefined> = [];

@@ -1,5 +1,5 @@
 //! Bounded application work on one continuously polled local executor. The
-//! stop signal bypasses admission; dropping a JS observation retains its job.
+//! stop signal bypasses admission. Dropping a JS observation retains its job.
 use super::{Environment, Result, TroubleReporter, js_error, rejected};
 use std::{
 	cell::{Cell, RefCell},
@@ -94,10 +94,18 @@ impl Driver {
 			Ok(())
 		}
 	}
-	pub fn start_managed(tab: String, report_trouble: js_sys::Function) -> Self {
-		Self::start_mode(tab, report_trouble)
+	pub fn start_managed(
+		tab: String,
+		report_trouble: js_sys::Function,
+		admission: rooms_application::admission::Settings,
+	) -> Self {
+		Self::start_mode(tab, report_trouble, admission)
 	}
-	fn start_mode(startup: String, report_trouble: js_sys::Function) -> Self {
+	fn start_mode(
+		startup: String,
+		report_trouble: js_sys::Function,
+		admission: rooms_application::admission::Settings,
+	) -> Self {
 		let (jobs, incoming) = mpsc::channel(MAX_TASKS);
 		let (stop, stopping) = watch::channel(false);
 		let (ended, outcome) = watch::channel(None);
@@ -129,6 +137,7 @@ impl Driver {
 						stopping,
 						owned_budget.clone(),
 						startup,
+						admission,
 						trouble,
 						pending_retirement.clone(),
 					)
@@ -260,6 +269,7 @@ async fn run(
 	mut stop: watch::Receiver<bool>,
 	budget: Rc<Budget>,
 	startup: String,
+	admission: rooms_application::admission::Settings,
 	trouble: TroubleReporter,
 	retiring: Rc<RefCell<Option<Retirement>>>,
 ) -> Result<()> {
@@ -277,7 +287,7 @@ async fn run(
 			return Ok(());
 		}
 	};
-	let environment = match Environment::open(platform, prepared, trouble).await {
+	let environment = match Environment::open(platform, prepared, trouble, admission).await {
 		Ok(environment) => Rc::new(environment),
 		Err(error) => {
 			incoming.close();

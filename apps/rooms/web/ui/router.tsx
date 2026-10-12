@@ -6,15 +6,15 @@
 // same history every other site's do. Two one-way flows keep that from
 // becoming two authorities: a route element translates the address into the
 // store's own idempotent intents (`showRoom`, `showDirectory`, `startDm`,
-// `store.showConv` — each already "show it, getting there if needed"), and one
+// `store.showConv`. Each already "show it, getting there if needed"), and one
 // store subscription writes the active conversation back onto the address when
 // they disagree.
 // Each flow stops where the other one starts, so a change converges in one
 // hop.
 //
 // Every route here files what it names as an act, with `link` for its source,
-// so a surface that ends up standing in for the conversation — the join card,
-// when the reader has no name on the directory yet — answers the link rather
+// so a surface that ends up standing in for the conversation (the join card,
+// when the reader has no name on the directory yet) answers the link rather
 // than whatever somebody typed last. The two routes that file nothing are the
 // front page and the address nothing answers, and that is the same rule from
 // the other side: landing there is where the application puts a reader when
@@ -23,15 +23,15 @@
 //
 // An address decides which conversation is open and nothing else. Whether
 // the rail is open, whether the phone is on its list screen, whether the
-// roster sheet is up — those are the reader's, not the link's, so every verb
+// roster sheet is up. Those are the reader's, not the link's, so every verb
 // used here is the selection-only half of its pair (`showRoom` beside
 // `pickRoom`, `store.showConv` beside `switchTo`, `store.clearConv` beside
 // `showJoinCard`). Following a link never rearranges the furniture.
 //
 // What an address says is only ever a place to stand, never authority: a
 // room link names a room the way typing its name into the join card would,
-// and a private room's unguessable key stays out of the address entirely —
-// its path carries the label under `?private=1`, which reopens the held
+// and a private room's unguessable key stays out of the address entirely.
+// Its path carries the label under `?private=1`, which reopens the held
 // conversation in this tab and degrades to the plain join card anywhere
 // else. The `dm` page-configuration parameter rides along on every
 // address the mirror writes, keeping `prefs.ts`'s bookmark contract.
@@ -75,11 +75,11 @@ function routing(): RoomsPageContext {
  * Called once the session UI loads, before anything navigates.
  *
  * The write-back half: when the active conversation *changes*, the address
- * follows. Only a transition writes — a deep link is an address standing
+ * follows. Only a transition writes: a deep link is an address standing
  * ahead of the conversation it names (the join it starts takes time), and a
  * mirror that wrote on every store tick would fold it back to the front
  * before the arrival could act. Opening somewhere new is a step the back
- * button can retrace, so it pushes; standing back at the front is where
+ * button can retrace, so it pushes. Standing back at the front is where
  * closures land, so it replaces rather than minting an entry that would only
  * lead forward to a conversation that just closed.
  *
@@ -263,7 +263,7 @@ function DmRoute() {
 		// A line with that person, already open here, is what this address asks
 		// for. Two introductions to one nick are two conversations and the
 		// address can name only the person, so the newest is the best it can do
-		// for a reader arriving cold — but it is the wrong answer for a reader
+		// for a reader arriving cold, but it is the wrong answer for a reader
 		// who just chose the older one. Standing on it and reading the newest
 		// back off the address would take them off the conversation they opened,
 		// and the mirror writes this address whenever a line with them is shown.
@@ -363,7 +363,7 @@ function DirectoryRoute() {
  * there is not an act at all: it is the address every tab starts at before
  * anything has said what is open, and what says so arrives after. A workspace
  * restores the conversation it was left on, and an attached session states the
- * one it is on for every tab sharing it — so clearing on the first arrival
+ * one it is on for every tab sharing it. So clearing on the first arrival
  * closes the conversation the page was in the middle of opening.
  *
  * `key` tells the two apart. Every navigation gets its own, and the entry a tab
@@ -375,7 +375,7 @@ function IndexRoute() {
 		if (arrival.done) return;
 		arrival.mark();
 		if (routed.key === "default") return;
-		routing().managedSession?.navigation.dismissAcquisition();
+		routing().managedSession?.openings.dismiss();
 		if (routing().projection.get().activeKey !== null) store.clearConv(routing().projection);
 	}, [arrival, routed.key]);
 	return null;
@@ -390,7 +390,7 @@ function ElsewhereRoute() {
 	return null;
 }
 
-/** The one screen, mounted once for every address; the matched child is
+/** The one screen, mounted once for every address. The matched child is
  * navigation logic with nothing to draw. */
 function Shell() {
 	return (

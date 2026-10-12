@@ -28,7 +28,7 @@ const binding_error_context_patterns = [_][]const u8{
 /// CapTP embedder pump (ADR-0072 / Pass-1 spine gate): each binding keeps a
 /// named `pump` module for the conn byte path, mid-turn conn_release parking
 /// in the session close path, and the C reference example that compiles the
-/// same choreography. Grep-level — catches silent deletes, not wrong order.
+/// same choreography. Grep-level: catches silent deletes, not wrong order.
 pub fn checkBindingEmbedderPump(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -82,7 +82,7 @@ pub fn checkBindingEmbedderPump(
             try appendViolation(gpa, violations, "{s}: pump missing post-feed action kick/drain (kickActions / kick_actions / drain-host-actions!)", .{path});
         }
         // Feed refusal must use the shared drain, not a private take_outbound
-        // flush — the same spine as a steady FLUSH (bindings/README checklist).
+        // flush: the same spine as a steady FLUSH (bindings/README checklist).
         const private_refusal_flush = [_][]const u8{
             "await flushOutbound(h)",
             "flush_outbound(shared).await",
@@ -147,7 +147,7 @@ pub fn checkBindingEmbedderPump(
         }
     }
 
-    // Handshake error string must not live in session files — pump owns the loop.
+    // Handshake error string must not live in session files, pump owns the loop.
     const handshake_msg = "connection closed during the OCapN handshake";
     const session_paths = [_][]const u8{
         "bindings/ts/runtime/session.ts",
@@ -248,7 +248,7 @@ pub fn checkBindingEmbedderPump(
         }
     }
 
-    // Zig-facing shared drain (ADR-0072 fifth amendment) — authority for the
+    // Zig-facing shared drain (ADR-0072 fifth amendment), authority for the
     // one-loop switch tests rewire onto; must not silently disappear.
     const zig_pump = "src/c_abi/host/embedder_pump.zig";
     root.access(io, zig_pump, .{}) catch {
@@ -268,7 +268,7 @@ pub fn checkBindingEmbedderPump(
 
     // The dlopen binding action modules drain via glowcap_host_pump_drain
     // (ADR-0072 sixth). Ban hand-rolled glowcap_host_next_action pop loops in
-    // those modules — the C symbol may still appear in FFI loaders and
+    // those modules: the C symbol may still appear in FFI loaders and
     // comments outside action/.
     const action_mods = [_][]const u8{
         "bindings/python/glowcap/_action.py",
@@ -314,9 +314,9 @@ pub fn checkBindingEmbedderPump(
 }
 
 /// Behavior trampoline spine (Pass 5): each binding keeps a named trampoline
-/// module, mid-turn latch, reply keep, and turn verbs; hop cap lives in the
+/// module, mid-turn latch, reply keep, and turn verbs, hop cap lives in the
 /// constant homes for bindings that still execute locally. Rust delegates all
-/// delivery to the native Host; actor-liveness tests hold that boundary.
+/// delivery to the native Host, actor-liveness tests hold that boundary.
 pub fn checkBindingEmbedderTrampoline(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -523,7 +523,7 @@ pub fn checkBindingEmbedderSpineDocs(
 }
 
 /// Reject numeric error-code literals in handwritten binding claims and raise
-/// sites. Generated constant files are the sole numeric mirrors of the C ABI;
+/// sites. Generated constant files are the sole numeric mirrors of the C ABI,
 /// binding code, tests, and docs must name those constants or typed errors.
 pub fn checkBindingMagicErrorCodes(
     io: std.Io,

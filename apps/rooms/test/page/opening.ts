@@ -8,8 +8,14 @@
 import type { Browser, Page } from "playwright";
 import { fail, openDirectoryCardFromSettings } from "./harness.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
-import { provePhoneSettingsTabs, proveSelectedTabContrast } from "./settings_tabs.ts";
+import {
+	proveActionRowsStayShort,
+	provePhoneSettingsTabs,
+	proveSelectedTabContrast,
+	proveSessionActsLieAsEntries,
+} from "./settings_tabs.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
+import { helpAboutCredit } from "../../lib/text/help.ts";
 import * as linked from "./linked.ts";
 import { proveLockupSurvivesHandoff, proveOpeningWithoutGpu, withoutOpeningGpu } from "./opening_mark.ts";
 import { proveOpeningWithoutMotion } from "./opening_motion.ts";
@@ -22,7 +28,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	// carries an explanation for when it never will. Three things have to hold,
 	// and the first of them is the one a reader complained about: the
 	// explanation is for a page that cannot run, so a page that can must never
-	// lay it out — not on mount, not for a frame before it.
+	// lay it out, not on mount, not for a frame before it.
 	//
 	// Watched from the first frame rather than looked at afterwards. Asking once
 	// the page is up would pass on the version that flashed the message and
@@ -88,7 +94,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	await proveOpeningWithoutMotion(browser, httpPort);
 
 	// The other two: a browser with scripting off is told why there is nothing
-	// here, and so is one whose bundle never arrived — the case nobody sees until
+	// here, and so is one whose bundle never arrived, the case nobody sees until
 	// it happens to them.
 	{
 		const off = await browser.newContext({ javaScriptEnabled: false });
@@ -235,7 +241,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	// The card answers whether anyone can message you here, which is the question
 	// a granted name raises next. That answer comes from a registration this
 	// directory can refuse, and a refusal leaves this window in every roster
-	// looking ordinary while nothing can arrive — so the healthy answer is worth
+	// looking ordinary while nothing can arrive, so the healthy answer is worth
 	// pinning: a fact that was never wired up reads exactly like one that is fine.
 	const dmFact = () =>
 		tab.evaluate(() => {
@@ -363,6 +369,19 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	if (await tab.locator("#helpTab").count() !== 0) {
 		fail("Help grew a tab after opening");
 	}
+	// The About tab ends by crediting what Rooms is built with. Each link leaves
+	// the page, so it opens beside the room rather than over it.
+	const creditHrefs = helpAboutCredit.flatMap((part) => typeof part === "string" ? [] : [part.href]);
+	if (creditHrefs.length === 0) fail("the Help credit names no links");
+	const creditLinks = await tab.evaluate(() =>
+		[...document.querySelectorAll<HTMLAnchorElement>("#helpAboutPanel a")]
+			.map((link) => ({ href: link.getAttribute("href"), target: link.target }))
+	);
+	for (const href of creditHrefs) {
+		const link = creditLinks.find((shown) => shown.href === href);
+		if (link === undefined) fail(`Help's About tab does not link ${href}`);
+		else if (link.target !== "_blank") fail(`Help's link to ${href} opens over the room`);
+	}
 	const buildField = 'dialog[aria-labelledby="helpTitle"] .copy-field';
 	const buildShown = (await tab.textContent(`${buildField} .copy-field-text`))?.trim() ?? "";
 	const buildServed = await tab.evaluate(async () => (await (await fetch("/ui-version")).text()).trim());
@@ -405,6 +424,8 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	if (catalog.chosen.length > 0) {
 		fail(`the parts catalog does not stand ${catalog.chosen.join(" and ")} beside the rest of the controls`);
 	}
+	await tab.waitForSelector("#kitchenBusyButton[data-busy=true]", { timeout: 5_000 });
+	await tab.waitForSelector("#kitchenBusyIcon[data-busy=true]", { timeout: 5_000 });
 	const waits = await tab.evaluate(() => {
 		const button = document.getElementById("kitchenBusyButton");
 		const icon = document.getElementById("kitchenBusyIcon");
@@ -517,6 +538,8 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	// the tab bar is only ever on screen with this dialog open, so it is measured
 	// here or nowhere.
 	await proveSelectedTabContrast(tab);
+	await proveSessionActsLieAsEntries(tab);
+	await proveActionRowsStayShort(tab);
 	const defaultDm = await tab.evaluate(() =>
 		(document.querySelector('input[name="dm"]:checked') as HTMLInputElement | null)?.value ?? ""
 	);
@@ -536,6 +559,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 		await relayTab.click("#settingsBtn");
 		await relayTab.waitForSelector("#settingsTitle");
 		await provePhoneSettingsTabs(relayTab);
+		await proveSessionActsLieAsEntries(relayTab);
 		await relayTab.click("#reachabilityTab");
 		const relayDm = await relayTab.evaluate(() =>
 			(document.querySelector('input[name="dm"]:checked') as HTMLInputElement | null)?.value ?? ""
@@ -550,7 +574,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 	await linked.run(tab);
 
 	// Join a room as a real peer: the name goes into the card, and the room
-	// into the rail's field, whose Enter submits the card — locator and name
+	// into the rail's field, whose Enter submits the card, locator and name
 	// included.
 	await tab.fill("#nick", "web-alice");
 	await tab.fill("#newRoomInput", "lobby");
@@ -580,7 +604,7 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 		{ timeout: 30_000 },
 	).catch(() => fail("the sent line never came back from the room over the capability stream"));
 
-	// And now that this directory has granted a name, the same row answers the
+	// And once this directory has granted a name, the same row answers the
 	// question that name raises. It is a registration this directory can refuse,
 	// and a refusal leaves this window in every roster looking ordinary while
 	// nothing can arrive, so the healthy answer is worth pinning: a fact nobody

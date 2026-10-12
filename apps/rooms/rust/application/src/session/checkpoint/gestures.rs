@@ -2,12 +2,15 @@
 //! The directory identity captured here is checked again before every retry.
 use super::{Checkpoint, fields::*, model::*};
 use crate::{directory::creation::RecoveryKey, room::policy::RoomPolicy};
-use alloc::{string::String, vec::Vec};
+use alloc::{
+	string::{String, ToString},
+	vec::Vec,
+};
 use serde::Serialize;
 mod direct;
 mod directory;
 mod sharing;
-pub use direct::DirectGesture;
+pub use direct::{DirectGesture, Invalid as DirectInvalid};
 pub use directory::Reach;
 pub use sharing::ShareRoom;
 
@@ -104,7 +107,7 @@ fn room(directory: &Directory, name: &str, id: &str, held: bool) -> Result<Room,
 		steward: None,
 		publication_id: None,
 		standing: Nullable::Null,
-		draft: Field::new("".into()).expect("empty draft"),
+		draft: Field::default(),
 		bridge_intent: Presence::Missing,
 	})
 }
@@ -278,7 +281,7 @@ pub fn private_name_available(
 	snapshot: &crate::session::snapshot::Snapshot,
 	directory: &str,
 	name: &str,
-) -> Result<(), String> {
+) -> Result<(), Invalid> {
 	let folded = crate::text::DocumentText::from(name).lowercase();
 	if snapshot
 		.directory_views
@@ -288,9 +291,47 @@ pub fn private_name_available(
 		.flat_map(|view| view.rooms.as_slice())
 		.any(|room| room.name.text().lowercase() == folded)
 	{
-		return Err(alloc::format!(
-			"#{name} is already live here. Turn off Private to open it, or choose another name for a new private room."
-		));
+		return Err(Invalid::NameLive { name: name.into() });
 	}
 	Ok(())
+}
+
+/// Why a private room cannot be opened under a name. `Display` is the exact
+/// line the member reads.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Invalid {
+	/// A room with this name is already live in the directory.
+	NameLive { name: String },
+}
+
+impl core::fmt::Display for Invalid {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		match self {
+			Self::NameLive { name } => write!(
+				f,
+				"#{name} is already live here. Turn off Private to open it, or choose another name for a new private room."
+			),
+		}
+	}
+}
+
+impl core::error::Error for Invalid {}
+
+impl From<Invalid> for String {
+	fn from(invalid: Invalid) -> Self {
+		invalid.to_string()
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn every_invalid_line_is_the_line_it_replaced() {
+		assert_eq!(
+			Invalid::NameLive { name: "x".into() }.to_string(),
+			"#x is already live here. Turn off Private to open it, or choose another name for a new private room."
+		);
+	}
 }

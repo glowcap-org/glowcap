@@ -1,34 +1,34 @@
-//! Idiomatic Rust API for glowcap — an OCapN/CapTP [`Host`] whose partners
+//! Idiomatic Rust API for glowcap: an OCapN/CapTP [`Host`] whose partners
 //! you hold as a [`Session`].
 //!
-//! The shared raw C ABI lives in the private `sys` module. The one deliberate
+//! The shared raw C ABI lives in the private `sys` module. The one
 //! exception is `webrtc`, whose public contract is the native companion
 //! archive's multiplexed readiness and try-I/O boundary.
-//! What you use is the application surface every glowcap binding speaks —
+//! What you use is the application surface every glowcap binding speaks,
 //! [`Runtime::connect`] plus transport-module `listen`, a [`Session`] with `fetch`/`send`/`tell`/
 //! `spawn`/`publish`, one opaque [`Ref`] capability type, a Rust [`Argument`]
-//! enum, and `Result` for fallible calls — over the symbol-disjoint
+//! enum, and `Result` for fallible calls, over the symbol-disjoint
 //! `libglowcap_host` and `libglowcap_driver` archives (ADR-0112). The Host
-//! archive owns `glowcap_host_*`; the driver exports only `glowcap_driver_*`
+//! archive owns `glowcap_host_*`. The driver exports only `glowcap_driver_*`
 //! and adopts a quiescent Host. Bounded `iroh`, `noise-tcp`, `keyed-tcp`, `tcp`, and routed relay dials and
-//! listeners ride the loop (`driver_loop`); a quiescent caller-supplied Host
+//! listeners ride the loop (`driver_loop`). A quiescent caller-supplied Host
 //! transfers to that same runtime before its first network operation. The
 //! byte-fed pump serves explicit externally supplied channels such as a bare
 //! relay locator's configured WebSocket fallback. The [`Host`] owns
-//! `engine.Node` (router) and every CapTP decision; Goblins' `mycapn` is two
-//! roles — product maps to Host, router tables map to `engine.Node` (ADR-0079). This
+//! `engine.Node` (router) and every CapTP decision. Goblins' `mycapn` is two
+//! roles: product maps to Host, router tables map to `engine.Node` (ADR-0079). This
 //! crate moves bytes and honors the host's action queue on the byte-fed
 //! path. This is the dogfood consumer `zig build rust-dogfood` runs, so the
-//! ergonomic surface stays honest.
+//! ergonomic surface covered.
 //!
 //! # Composable modules, à la carte
 //!
 //! glowcap's C ABI ships as a set of symbol-disjoint archives (ADR-0059), and
 //! this crate mirrors that shape: the core value/locator vocabulary and the
 //! Host ABI is always available at the crate root, and each optional transport
-//! is a module behind a Cargo feature that links exactly its archive — you pay
+//! is a module behind a Cargo feature that links exactly its archive: you pay
 //! (in linked archive and symbols) only for the transports you enable. The
-//! core stands alone; the transport modules build on it but never on each
+//! core stands alone. The transport modules build on it but never on each
 //! other.
 //!
 //! | Feature | Module | Archive linked | Default |
@@ -40,15 +40,15 @@
 //! | `iroh` | `iroh` | `libglowcap_net_transport_iroh` (dynamic) | no |
 //! | `relay` | `relay` | `libglowcap_net_transport_relay` | no |
 //! | `webrtc` | `webrtc` | `libglowcap_net_transport_webrtc` (dynamic) | no |
-//! | `async` | [`Session`], [`Host`], [`Runtime`] | (none — shared byte-fed execution) | no |
-//! | `browser` | `browser` (Wasm only) | (none — browser platform I/O) | no |
+//! | `async` | [`Session`], [`Host`], [`Runtime`] | (none, shared byte-fed execution) | no |
+//! | `browser` | `browser` (Wasm only) | (none, browser platform I/O) | no |
 //!
 //! `tcp` and `inproc` are on by default. `onion` is opt-in because it needs a Tor
-//! daemon the deployment runs; glowcap starts none. `iroh` is opt-in and implies `async`
-//! (the tokio driver it rides); it needs the companion library built by
+//! daemon the deployment runs. glowcap starts none. `iroh` is opt-in and implies `async`
+//! (the tokio driver it rides). It needs the companion library built by
 //! `zig build iroh-abi`. The `async` feature adds the tokio-driven
 //! [`Session`] over byte streams and links no transport archive of its own.
-//! Native targets add the socket reactor; Wasm targets use browser entropy and
+//! Native targets add the socket reactor. Wasm targets use browser entropy and
 //! timers while the embedder polls a Tokio LocalSet and supplies byte channels.
 
 #[cfg(feature = "loam")]
@@ -143,7 +143,7 @@ pub use runtime::{Runtime, RuntimeConfig};
 
 // Every glowcap archive keeps its own thread-local last-error slot (ADR-0059);
 // this macro mints each family's checker/reader pair over its archive's extern
-// reader — the ocapn core here at the root, the host in `host`, and each
+// reader: the ocapn core here at the root, the host in `host`, and each
 // transport in its module. Unconditional: the core pair below is its first user.
 mod error_slot;
 
@@ -184,7 +184,7 @@ pub use uri::{
 	format_peer_uri, format_sturdyref, parse_locator, parse_sturdyref,
 };
 
-/// OCapN transport / hint vocabulary; mirrors `model.transport.*`.
+/// OCapN transport / hint vocabulary. Mirrors `model.transport.*`.
 pub use abi_constants::{
 	HINT_ALT_LOCATORS, HINT_DIRECT_ADDRESSES, HINT_VIA, TRANSPORT_ID, TRANSPORT_INPROC, TRANSPORT_IROH,
 	TRANSPORT_KEYED_RELAY, TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_RELAY, TRANSPORT_NOISE_TCP, TRANSPORT_ONION,
@@ -347,6 +347,9 @@ mod tests {
 			secondary_message: secondary_message.as_ptr(),
 			secondary_message_len: secondary_message.len(),
 		};
+		// SAFETY: `context.inner.raw` is the handle of the live `Context` created above, released only by its `Drop`;
+		// `report` is a local `GlowcapFailureReport` whose text pointers borrow the local byte strings above, all live
+		// for the call, and the callee copies bounded prefixes and retains no report pointer.
 		check(unsafe { sys::glowcap_context_report_failure(context.inner.raw, &report) }).unwrap();
 
 		let failures = context.take_failures().unwrap();
@@ -455,8 +458,12 @@ mod tests {
 		take_runtime_failures();
 		let allocator: Box<dyn ContextAllocator> = Box::new(PanickingAllocator);
 		let user_data = &allocator as *const Box<dyn ContextAllocator> as *mut core::ffi::c_void;
+		// SAFETY: `user_data` points at the local `allocator` box, which lives to the end of the test and is the
+		// `Box<dyn ContextAllocator>` type the trampoline casts it back to; size and alignment are plain integers.
 		let allocated = unsafe { alloc_trampoline(user_data, 8, 8) };
 		assert!(allocated.is_null());
+		// SAFETY: `user_data` is the same live `allocator` box as above; `PanickingAllocator::free` panics without
+		// reading the dangling pointer, and the trampoline catches that panic.
 		unsafe { free_trampoline(user_data, core::ptr::NonNull::<u8>::dangling().as_ptr().cast(), 8, 8) };
 
 		let diagnostics = take_runtime_failures();
@@ -518,6 +525,8 @@ mod tests {
 		]);
 		let mut arena = SendArena::default();
 		let c = arena.one(&original).unwrap();
+		// SAFETY: `c` is the `GlowcapArgument` the local `arena` built from `original`, whose byte views borrow
+		// `original`; both stay live through the call, and `arg_from_sys` copies them into owned values.
 		let lifted = unsafe { arg_from_sys(&c) }.unwrap();
 		assert_eq!(lifted, original);
 	}
@@ -525,8 +534,12 @@ mod tests {
 	#[cfg(feature = "async")]
 	#[test]
 	fn unknown_native_argument_kind_is_a_returned_failure() {
+		// SAFETY: `GlowcapArgument` is a plain C struct of integers and null pointers; all-zero is a valid value, and
+		// the test sets `kind` before it is read.
 		let mut c = unsafe { core::mem::zeroed::<sys::GlowcapArgument>() };
 		c.kind = u32::MAX;
+		// SAFETY: `c` is a live local `GlowcapArgument` that is all zero but for `kind`; `arg_from_sys` rejects the
+		// unknown kind before it reads any view in it.
 		let error = unsafe { arg_from_sys(&c) }.expect_err("unknown argument kind must be rejected");
 		assert_eq!(error.code(), sys::ERR_INTERNAL);
 		assert!(error.message().unwrap_or_default().contains("unknown argument kind"));

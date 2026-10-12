@@ -57,7 +57,7 @@ export function SettingsHead(
 		closeLabel?: string;
 		closeRef?: Ref<HTMLButtonElement>;
 		onClose?: () => void;
-		/** Stable ids belong to the dialog that is actually the top layer. */
+		/** Stable ids belong to the dialog that is the top layer. */
 		named?: boolean;
 		children?: ReactNode;
 	},

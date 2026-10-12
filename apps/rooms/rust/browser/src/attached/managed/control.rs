@@ -5,8 +5,8 @@ use rooms_application::content::{permissions::Permission, session as content};
 use rooms_glowcap::client::access::{Issuance, Mutation};
 use serde::Deserialize;
 
-/// Management powers are independent choices. Missing powers remain absent;
-/// each ceiling is validated as a policy and checked by the held control.
+/// Management powers are independent choices. Missing powers remain absent.
+/// Each ceiling is validated as a policy and checked by the held control.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct Powers {
@@ -109,7 +109,7 @@ impl RoomsManagedControl {
 		})
 	}
 	/// Cursor bytes are descriptive paging data. They cannot address a control
-	/// or restore authority; every page uses this independently held control.
+	/// or restore authority. Every page uses this independently held control.
 	pub fn inventory(&self, cursor: Option<js_sys::Uint8Array>) -> js_sys::Promise {
 		let cursor = match cursor
 			.map(|cursor| {

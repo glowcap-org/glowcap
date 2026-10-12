@@ -8,7 +8,7 @@ pub const Read = struct { ticket: tx.Ticket, id: records.ObjectId, buffer: []u8 
 pub const ReadResult = union(enum) { found: struct { length: usize, metadata: tx.Metadata }, missing, failed: anyerror };
 pub const Acquisition = union(enum) { ready: Lease, read: Read };
 /// Byte custody has three exclusive states. A completed buffer and its checked
-/// envelope live together until eviction; pending work cannot expose a view.
+/// envelope live together until eviction. Pending work cannot expose a view.
 /// The fixed slot inventory owns descriptors, so view access allocates and
 /// copies no record bytes and never repeats checksum or edge validation. A resident
 /// snapshot may advance independently of the record and its historical leases.
@@ -113,7 +113,7 @@ pub const Cache = struct {
     }
 
     /// Carry proven unchanged resident bytes into the installed revision.
-    /// Leases keep their acquisition revision; pending reads still complete
+    /// Leases keep their acquisition revision. Pending reads still complete
     /// against their original snapshot. A sweep with deletions has no explicit
     /// mutation list, so it conservatively leaves every cached slot stale.
     pub fn install(self: *Cache, previous: tx.Metadata, current: tx.Metadata, changes: []const tx.Mutation, collecting: bool) void {

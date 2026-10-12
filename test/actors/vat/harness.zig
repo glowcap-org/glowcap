@@ -28,7 +28,7 @@ pub const Counter = struct {
 };
 
 /// A greeter whose reply is freshly built each turn, so it must allocate. It uses
-/// `turn.arena` — the per-turn allocator the vat reclaims — proving a handler can
+/// `turn.arena`, the per-turn allocator the vat reclaims, proving a handler can
 /// return heap-allocated storage without leaking and without freeing it itself.
 pub const Greeter = struct {
     pub fn handle(self: *Greeter, turn: *Turn, msg: Message) !model.Argument {
@@ -64,7 +64,7 @@ pub const PersistentCounter = struct {
     }
 };
 
-/// A mutable actor whose reply borrows its own heap label; `relabel` frees
+/// A mutable actor whose reply borrows its own heap label. `relabel` frees
 /// that label and installs a fresh same-size one, so a resolution that still
 /// borrowed the state would read freed (and likely reused) memory.
 pub const LabelHolder = struct {
@@ -88,7 +88,7 @@ pub const LabelHolder = struct {
     }
 };
 
-/// Stores the bytes it is sent, but first it deliberately scribbles over the
+/// Stores the bytes it is sent, but first it scribbles over the
 /// turn arena, so a message that (wrongly) still borrowed reset arena storage
 /// would arrive corrupted.
 pub const Sink = struct {
@@ -105,8 +105,8 @@ pub const Sink = struct {
     }
 };
 
-/// A listener that first drives the rest of the queue — running a turn that
-/// mutates the very state the resolution's value was borrowed from — and only
+/// A listener that first drives the rest of the queue, running a turn that
+/// mutates the very state the resolution's value was borrowed from, and only
 /// then reads the resolution bytes.
 pub const MutateThenRead = struct {
     vat: *actors.Vat,
@@ -135,7 +135,7 @@ pub const MutateThenRead = struct {
     }
 };
 
-/// Forwards its argument to a sink with a fresh payload built in `turn.arena` —
+/// Forwards its argument to a sink with a fresh payload built in `turn.arena`,
 /// the documented handler pattern for outgoing args. The queued send must
 /// survive the turn-arena reset that opens the sink's own turn.
 pub const Forwarder = struct {

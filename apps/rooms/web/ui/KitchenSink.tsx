@@ -448,7 +448,7 @@ export function KitchenSink() {
 			>
 				<div className="kitchen-stack" data-dir="home">
 					<JoinField>
-						<JoinPrefix className="join-prefix-dir" label="Choose a held directory">
+						<JoinPrefix className="join-prefix-dir" label="Choose one of your directories">
 							<Icon name="directory" size={18} />
 						</JoinPrefix>
 						<input readOnly placeholder={JOIN_LOCATOR_SHAPE} />

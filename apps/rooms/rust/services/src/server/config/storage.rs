@@ -60,7 +60,7 @@ impl Storage {
 	/// a command line, a process environment, or a container's inspectable
 	/// configuration. The URL then names user, host, and database only. A URL
 	/// that already carries a password beside a file is two authorities for
-	/// one fact and is refused; a file for a file destination is refused too,
+	/// one fact and is refused. A file for a file destination is refused too,
 	/// because nothing would read it. The file's trailing newline is not part
 	/// of the password.
 	pub fn with_password_file(self, path: &std::path::Path) -> Result<Self, Error> {

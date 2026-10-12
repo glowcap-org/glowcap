@@ -61,7 +61,7 @@ fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
 
 /** The rays are drawn in front of the mushroom, the way a drawing lays them
  * over the cap. Each beam's origin is its window pushed out along the eye's
- * own line to it, so it still projects exactly onto its dot; pushed straight
+ * own line to it, so it still projects exactly onto its dot. Pushed straight
  * toward the camera it would drift off the dot under perspective. The back
  * window goes the other way, behind the dome, so the dome hides the base of
  * its beam. The spill leaves from under the brim's front edge, in front of
@@ -87,7 +87,7 @@ fn placeLamps(ro: vec3f, ww: vec3f, fr: Frame) -> Lamps {
  * The pool is centred on the stalk's axis, where the base rim is, and
  * stretched toward the eye so it projects to the same ellipse as that rim.
  * The camera sees the floor at 6.7 degrees, where a circle projects at
- * 0.117 of its width; the rim is drawn at 0.206 (its true projection plus
+ * 0.117 of its width. The rim is drawn at 0.206 (its true projection plus
  * STEM_DIP), and 0.117 / 0.57 is 0.205. The two numbers move together, or
  * the viewer is in two places at once. */
 fn floorLight(p: vec3f, fr: Frame) -> vec3f {
@@ -107,7 +107,7 @@ fn floorLight(p: vec3f, fr: Frame) -> vec3f {
 /** The mushroom at a surface point: two flat tones and a line, with the
  * light on it.
  *
- * The drawing is flat on purpose. Everything a renderer is proud of, a
+ * The drawing is flat. Everything a renderer is proud of, a
  * gradient over the dome and a sheen and ridges, is texture at two hundred
  * pixels and mud at forty-eight. So the object is a dark flesh, a flat
  * highlight, the windows, and the outline, and the device spends itself on
@@ -231,8 +231,8 @@ fn shadeBody(p: vec3f, n: vec3f, rd: vec3f, fr: Frame) -> vec3f {
  * where it meets the mushroom or the mushroom's depth.
  *
  * Most rays cross only the faint edge of a beam, or nothing. Sixteen coarse
- * looks along the ray, without the mist, say how much any lamp reaches it;
- * a ray in the bright of a beam gets the fine march, and a faint one a
+ * looks along the ray, without the mist, say how much any lamp reaches it.
+ * A ray in the bright of a beam gets the fine march, and a faint one a
  * coarser march that no eye can tell apart at that brightness. Nothing is
  * ever skipped: the faintest tail still fades out on its own. The fine march
  * steps a good deal finer than a beam is wide, or a beam is a row of samples

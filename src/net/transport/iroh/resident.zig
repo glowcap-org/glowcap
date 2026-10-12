@@ -51,7 +51,7 @@ pub const Resident = struct {
     pub const InitError = error{EndpointBindFailed};
 
     /// One endpoint's configuration, the iroh mirror of the completion loop's
-    /// opt-in `Keepalive`: `reachability` is mandatory (no default — enabling
+    /// opt-in `Keepalive`: `reachability` is mandatory (no default, enabling
     /// relays or discovery is always the host's visible choice), and
     /// `connect_timeout_ms` is the per-endpoint stream-establishment deadline
     /// (0 keeps the sidecar's built-in default). A single config so a future
@@ -65,7 +65,7 @@ pub const Resident = struct {
         reachability: Reachability,
         connect_timeout_ms: u64 = 0,
         idle_timeout_ms: u64 = 0,
-        /// Worker threads for this endpoint's runtime; 0 takes the sidecar's
+        /// Worker threads for this endpoint's runtime. 0 takes the sidecar's
         /// default. A per-endpoint cost, so a process holding many endpoints is
         /// the caller that should name it.
         worker_threads: u32 = 0,
@@ -88,7 +88,7 @@ pub const Resident = struct {
     }
 
     /// Close the endpoint without freeing it: a blocked `accept` returns
-    /// `error.ConnectionLost` and subsequent dials fail. Idempotent; `deinit`
+    /// `error.ConnectionLost` and subsequent dials fail. Idempotent. `deinit`
     /// still releases the handle. The shutdown lever for a host whose accept
     /// loop parks on another thread.
     pub fn close(self: *Resident) void {
@@ -113,7 +113,7 @@ pub const Resident = struct {
     /// typed `InvalidAddress` before the network is touched. The dial itself
     /// projects the sidecar's classification onto the `DialError` retry axis
     /// through `dialErrorFromCode`. On failure the sidecar's own text for the
-    /// fault lands in `text` when the caller supplies one; the blocking
+    /// fault lands in `text` when the caller supplies one. The blocking
     /// netlayer vtable has nowhere to keep it and passes null. The returned
     /// `*CConn` is owned by the caller, freed with
     /// `sidecar.glowcap_iroh_sidecar_conn_free`.
@@ -141,9 +141,9 @@ pub const Resident = struct {
         return dialErrorFromCode(code);
     }
 
-    /// Write this endpoint's id — the dialable designator — into `out` and
+    /// Write this endpoint's id, the dialable designator, into `out` and
     /// return the written slice (`node_id_len` bytes). The buffer is exactly
-    /// id-sized, so a short buffer is unrepresentable; an empty return means
+    /// id-sized, so a short buffer is unrepresentable. An empty return means
     /// the sidecar faulted.
     pub fn nodeId(self: *const Resident, out: *[node_id_len]u8) []const u8 {
         const n = sidecar.glowcap_iroh_sidecar_endpoint_node_id(self.endpoint, out, out.len);
@@ -161,7 +161,7 @@ pub const Resident = struct {
     /// Write this endpoint's comma-separated direct socket addresses into
     /// `out` and return the written slice, the `hint_direct_addresses`
     /// value a partner dials with. An endpoint with no direct addresses
-    /// yields an empty slice; a short buffer reports the exact required size.
+    /// yields an empty slice. A short buffer reports the exact required size.
     pub fn directAddrs(self: *const Resident, out: []u8) DirectAddrsError!DirectAddrsResult {
         const n = sidecar.glowcap_iroh_sidecar_endpoint_direct_addrs(self.endpoint, out.ptr, out.len);
         if (n < 0) return error.SidecarFailed;
@@ -205,8 +205,8 @@ pub const Resident = struct {
 
     // ── The event-driven loop surface (ADR-0057) ────────────────────────────
     //
-    // These let a host that owns the loop — `iroh.Backend` here, or a language
-    // binding through the C ABI — drive many connections from one thread
+    // These let a host that owns the loop, `iroh.Backend` here, or a language
+    // binding through the C ABI, drive many connections from one thread
     // without a parked blocking read per connection. A connection handle is
     // the sidecar's opaque `*CConn`, surfaced as `*anyopaque` so callers
     // (the C ABI) hold it without naming the private type; pass it straight
@@ -253,7 +253,7 @@ pub const Resident = struct {
     }
 
     /// Admit one evented dial under a caller-owned request id. Accepted starts
-    /// produce exactly one `ev_connect`; rejected starts produce none.
+    /// produce exactly one `ev_connect`. Rejected starts produce none.
     pub fn loopStartConnectResolved(self: *Resident, request_id: usize, designator: []const u8, direct_addrs: []const u8) net.netlayer.DialError!void {
         if (request_id == 0) return error.InvalidAddress;
         if (direct_addrs.len == 0 and !locators.resolvesById(self.reachability)) return error.InvalidAddress;
@@ -280,7 +280,7 @@ pub const Resident = struct {
     /// readiness surface. The caller owns the returned handle. On failure the
     /// sidecar's own text for the fault lands in `text` when the caller
     /// supplies one, alongside the `DialError` classification
-    /// `dialErrorFromCode` projects; a caller with nowhere durable to keep the
+    /// `dialErrorFromCode` projects. A caller with nowhere durable to keep the
     /// bytes passes null. The sidecar's copy dies with the request's row on
     /// this call either way.
     pub fn loopFinishConnect(self: *Resident, request_id: usize, text: ?*DialText) net.netlayer.DialError!*anyopaque {
@@ -335,8 +335,8 @@ pub const Resident = struct {
         return sidecar.glowcap_iroh_sidecar_conn_try_write(@ptrCast(conn), buf.ptr, buf.len);
     }
 
-    /// Close and free a loop connection handle. After this the handle is dead;
-    /// any later readiness record naming it routes to nothing.
+    /// Close and free a loop connection handle. After this the handle is dead.
+    /// Any later readiness record naming it routes to nothing.
     pub fn loopConnClose(self: *Resident, conn: *anyopaque) void {
         _ = self;
         sidecar.glowcap_iroh_sidecar_conn_free(@ptrCast(conn));
@@ -357,7 +357,7 @@ pub const Resident = struct {
 
 /// The sidecar's three out-parameters for one dial's failure text, derived
 /// from an optional caller sink. A null sink declines the text and the sidecar
-/// copies nothing; a supplied one is reset so a success leaves it empty.
+/// copies nothing. A supplied one is reset so a success leaves it empty.
 const TextSink = struct {
     ptr: ?[*]u8,
     cap: usize,
@@ -378,7 +378,7 @@ const TextSink = struct {
 /// `ConnectionLost`. A closed endpoint is a permanent local fault, so it
 /// lands on the permanent `InvalidOptions` arm rather than on the transient
 /// path fault it once wore. A refused handshake is permanent on that axis
-/// too (`ConnectionRefused`); at the C surface it still projects to the I/O
+/// too (`ConnectionRefused`). At the C surface it still projects to the I/O
 /// code, so an embedder's own retry policy has only the last-error text to
 /// tell them apart, which is why the sidecar's text rides beside the code.
 fn dialErrorFromCode(code: i32) net.netlayer.DialError {

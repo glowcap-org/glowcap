@@ -1,7 +1,7 @@
 /* The controls that carry a choice: the two segmented rows, the switch, and
    the checkbox, with the rows that label the last two. They live together
-   because they answer the same kind of question with the same vocabulary —
-   the accent says "chosen", the field language says "act here" — wherever a
+   because they answer the same kind of question with the same vocabulary (
+   the accent says "chosen", the field language says "act here") wherever a
    card or panel uses them. */
 
 /* The tab bar: panels that take turns, with a pill sliding between them. Rooms
@@ -81,7 +81,7 @@
 	width: calc((100% - (2 * var(--tabs-pad)) - var(--tabs-gap)) / 2);
 	border-radius: var(--tabs-thumb-r);
 	/* The chosen cell wears the switch's own 28% accent wash in light, where
-	   a 15% tint sat too close to the recessed track's tone; dark keeps the
+	   a 15% tint sat too close to the recessed track's tone. Dark keeps the
 	   quieter wash that already stands apart from its deep track. */
 	background: color-mix(in srgb, var(--accent) 28%, var(--paper-raised));
 	/* Tinted edge plus the same lift the composer uses, so the pill reads as a
@@ -100,7 +100,7 @@
 .tabs[data-count="5"] .tabs-thumb {
 	width: calc((100% - (2 * var(--tabs-pad)) - (4 * var(--tabs-gap))) / 5);
 }
-/* No tab chosen — the operations page standing on a gate — hides the thumb
+/* No tab chosen, the operations page standing on a gate, hides the thumb
    where a parked one would claim a cell nobody picked. */
 .tabs[data-thumb="-1"] .tabs-thumb {
 	opacity: 0;
@@ -152,7 +152,7 @@
    the other candidate and fixes only light, where it measures 4.87. In syrup
    that token is the mid amber and lands at 3.25 over the deep ground, worse
    than what it replaced. The hue stays amber either way, and the browser proofs
-   measure both appearances where each word actually draws.
+   measure both appearances where each word draws.
 
    The same move the rail's selected row and its count badge make, for the same
    reason. */
@@ -163,7 +163,7 @@
 .tab[aria-selected="true"] {
 	font-weight: 800;
 }
-/* Hover lights the idle cell, never the chosen one — the thumb is already
+/* Hover lights the idle cell, never the chosen one: the thumb is already
    there, and a wash on top of it reads as the pill flickering. Touch sticks
    :hover, so the wash is pointer-only, the same lesson as the message acts. */
 @media (hover: hover) {
@@ -173,7 +173,7 @@
 	}
 }
 /* Four words across a phone's card leave no air between them at the chrome
-   size; one step down keeps every label whole and the cells apart. */
+   size. One step down keeps every label whole and the cells apart. */
 @media (max-width: 430px) {
 	.tab {
 		font-size: var(--type-caption);
@@ -200,7 +200,7 @@
    row and becomes a short stack of buttons, and staying on one line was the
    reason to reach for this over a column of checkboxes at all. Where the
    answers will not fit on one, that is the checkbox column asking for its job
-   back. Compact is not a size this control was given; it is the whole of what
+   back. Compact is not a size this control was given. It is the whole of what
    it is for, and `--segmented-h` is the one number a surface changes.
 
    Every line in it is drawn exactly once. The row has no outline of its own:
@@ -210,15 +210,15 @@
 
    That is what makes the highlight work without stacking two rings. A line
    between two cells belongs to both of them, so it should light when either one
-   is chosen, and a chosen cell simply rises above its neighbours and draws the
+   is chosen, and a chosen cell rises above its neighbours and draws the
    shared edge in the accent. The four sides then answer to different rules
    without being written as four rules: top and bottom are nobody else's, so
    they light with their own cell, while left and right are shared and light
    from whichever side of them was chosen.
 
    The ends belong to the cells that sit at them. Rounding the row by clipping
-   over the top of the cells would slice a chosen cell's ring at the corners;
-   it is only needed when a wrapping row moves which cells are visually first
+   over the top of the cells would slice a chosen cell's ring at the corners.
+   It is only needed when a wrapping row moves which cells are visually first
    and last. It cannot wrap, so they say so
    themselves and a chosen end cell closes its outline the whole way round. */
 .segmented {
@@ -231,8 +231,8 @@
 	min-width: 0;
 	isolation: isolate;
 }
-/* A cell at rest is the page's own paper inside one hairline. The recess used to
-   be drawn cell by cell, which made a row of separately sunk buttons and left
+/* A cell at rest is the page's own paper inside one hairline. A recess drawn
+   cell by cell would make a row of separately sunk buttons and leave
    the chosen one, drawing none, reading as the flattest thing in a control where
    chosen is the thing meant to stand out. */
 .segment {
@@ -330,7 +330,7 @@
 }
 
 /* A setting that is on or off, with the switch at the end of its name. The
-   name is the sentence; the switch is whether that sentence is true. */
+   name is the sentence. The switch is whether that sentence is true. */
 .switch-row {
 	display: flex;
 	align-items: center;
@@ -381,7 +381,7 @@
 	cursor: not-allowed;
 }
 /* A switch whose verb is in flight: the thumb pulses while the server is
-   asked, so a slow up or down reads as working rather than stuck — parked,
+   asked, so a slow up or down reads as working rather than stuck, parked,
    but not faded the way a press that is off the table is. */
 .switch[data-busy="true"] {
 	opacity: 1;
@@ -404,7 +404,7 @@
 		animation: none;
 	}
 
-	/* The chosen tab still moves the thumb; it just arrives without the slide. */
+	/* The chosen tab still moves the thumb. It just arrives without the slide. */
 	.tabs-thumb {
 		transition: none;
 	}
@@ -431,8 +431,8 @@
 	}
 }
 /* The checkbox: the yes-or-no mark, the switch's form-dwelling sibling. At
-   rest it speaks the field language — the field fill and lift under a
-   hairline — because it is a spot in a form to act on; chosen, it fills with
+   rest it speaks the field language, the field fill and lift under a
+   hairline, because it is a spot in a form to act on. Chosen, it fills with
    the accent and draws the check in the same on-accent ink the amber
    surfaces carry. A native input underneath, so forms, labels, and keyboards
    already know it. */

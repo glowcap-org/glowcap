@@ -1,5 +1,5 @@
 //! One connection to the existing browser archive schema. Closing stops new
-//! transactions and observes active ones; a late blocked open closes its result.
+//! transactions and observes active ones. A late blocked open closes its result.
 use super::Error;
 use std::{
 	cell::{Cell, RefCell},

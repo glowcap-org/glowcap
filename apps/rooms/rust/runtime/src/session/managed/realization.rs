@@ -1,5 +1,5 @@
 //! Live realization uses the exact source that acquired a row. The private
-//! owner restores that source only; public admission selects every target.
+//! owner restores that source only. Public admission selects every target.
 use super::Session;
 use glowcap::{Result, loam};
 use rooms_application::{
@@ -151,8 +151,8 @@ impl Selection {
 }
 impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 	/// Create one local callback owner before acquiring its occurrence and row
-	/// atomically. Only the row's exact initiating grant admits received work;
-	/// callbacks before installation or after replacement are refused. Retain and
+	/// atomically. Only the row's exact initiating grant admits received work.
+	/// Callbacks before installation or after replacement are refused. Retain and
 	/// close this owner through the worker lifecycle before closing the session.
 	pub async fn inbox(
 		&self,
@@ -169,7 +169,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 	}
 	/// Retain the delivering connection and raw capability occurrences across
 	/// original-source admission. The receiver returns the actual posted-line
-	/// result; cancellation breaks the outstanding answer before actor retirement.
+	/// result. Cancellation breaks the outstanding answer before actor retirement.
 	pub async fn direct_inbox(
 		&self,
 		selected: workspace::InboxSelection,
@@ -512,7 +512,7 @@ impl<P: Deadline + Clone> Source<P> {
 	}
 	/// The returned request owns one bounded candidate encoding and scalar
 	/// mapping/release spines through unknown outcome and exact replay. Capability
-	/// edges move inside Loam; no upstream actor is disclosed to the worker.
+	/// edges move inside Loam. No upstream actor is disclosed to the worker.
 	pub async fn acquire_registration(
 		&self,
 		command: &Operation<P>,

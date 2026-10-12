@@ -2,7 +2,7 @@
 //!
 //! A carrier reports where transport establishment or byte movement failed and
 //! the exact bounded causal chain. Operations and connections add lifecycle
-//! identity when projecting this fact; carrier code does not own process
+//! identity when projecting this fact. Carrier code does not own process
 //! policy or a diagnostic journal.
 
 const foundation = @import("foundation");

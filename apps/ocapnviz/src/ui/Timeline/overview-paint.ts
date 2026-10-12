@@ -1,6 +1,6 @@
 /**
  * Per-frame paint for the timeline Overview strip. The React surface
- * in `Overview.tsx` owns gestures and the Pixi scene; this module
+ * in `Overview.tsx` owns gestures and the Pixi scene. This module
  * owns what those pixels say: gutter, visible window, grips, ghost,
  * playhead.
  *
@@ -43,7 +43,7 @@ export function drawOverviewScene(
 	graphics.clear();
 	labelPool.beginFrame();
 
-	// 1) Gutter — all-rows eyeball (aligned to the Scrubber's
+	// 1) Gutter, all-rows eyeball (aligned to the Scrubber's
 	//    category-eyeball x so the column reads as one continuous
 	//    control stack) + "overview" label.
 	const gutterCY = height / 2 - 1;
@@ -59,7 +59,7 @@ export function drawOverviewScene(
 	}
 	const labelX = allVisMode !== undefined ? HEADER_EYEBALL_X + 8 : 6;
 	// Through the same fit the rows below use, so the whole column stops
-	// at the same edge — this strip heads the gutter the Scrubber's row
+	// at the same edge. This strip heads the gutter the Scrubber's row
 	// labels run down.
 	const gutterLabel = gutterLabelText("overview", labelX, gutterX);
 	if (gutterLabel) {
@@ -89,7 +89,7 @@ export function drawOverviewScene(
 	}
 
 	// 2) Visible-window rectangle. Anchored at `plotStartX`, NOT
-	// `gutterX` — matches the Scrubber's t-content origin so the
+	// `gutterX`, matches the Scrubber's t-content origin so the
 	// window's start grip lines up pixel-for-pixel with span left
 	// edges below. The left pad between gutter and plotStart is a
 	// breathing strip; window/playhead can't bleed into it.
@@ -116,7 +116,7 @@ export function drawOverviewScene(
 		.rect(Math.round(endPx) - 1, 4, 2, height - 8)
 		.fill({ color: colors.accent, alpha: 0.6 });
 
-	// 4) Hover ghost — Macromedia chisel line.
+	// 4) Hover ghost, Macromedia chisel line.
 	if (hoverT !== null && hoverT >= 0 && hoverT <= clock.duration) {
 		drawGhostPlayhead(
 			graphics,

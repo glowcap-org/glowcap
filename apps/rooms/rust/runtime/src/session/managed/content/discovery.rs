@@ -1,5 +1,5 @@
-//! Directory reads preserve the exact acquiring source and upstream target.
-//! Descriptive row IDs select held custody; they cannot substitute for it.
+//! Viewer reads retain their invoking grant and exact upstream target.
+//! Descriptive row IDs select held custody. They cannot substitute for it.
 use super::{MetadataRecord, records, refuse, text};
 use glowcap::{
 	Argument, Result,
@@ -92,7 +92,7 @@ pub(super) fn requirement(input: Invocation<'_>) -> Result<Requirement> {
 	}
 	Requirement::new(&[Permission::ObserveWorkspace.key()], &[])
 }
-fn locations(record: &MetadataRecord, input: Invocation<'_>) -> Result<[records::Location; 2]> {
+fn location(record: &MetadataRecord, input: Invocation<'_>) -> Result<records::Location> {
 	let id = text(&input.args[0])?;
 	let row = record
 		.intent
@@ -101,25 +101,14 @@ fn locations(record: &MetadataRecord, input: Invocation<'_>) -> Result<[records:
 		.iter()
 		.find(|row| row.id.text().as_str() == Some(id))
 		.ok_or_else(|| refuse("directory is not selected in this workspace"))?;
-	let source = row.source.ok_or_else(|| refuse("directory has no initiating source"))?;
-	let field = |role, slot, generation| -> Result<records::Location> {
-		let held = record
-			.custody
-			.get(custody::Coordinate {
-				role,
-				key: custody::FieldKey::new(slot, generation),
-			})
-			.ok_or_else(|| refuse("directory custody is absent"))?;
-		Ok(records::location(&held))
-	};
-	Ok([
-		field(custody::Role::SessionAccess, source.slot(), source.generation())?,
-		field(
-			custody::Role::DirectoryAccess,
-			row.access.slot(),
-			row.access.generation(),
-		)?,
-	])
+	let held = record
+		.custody
+		.get(custody::Coordinate {
+			role: custody::Role::DirectoryAccess,
+			key: custody::FieldKey::new(row.access.slot(), row.access.generation()),
+		})
+		.ok_or_else(|| refuse("directory custody is absent"))?;
+	Ok(records::location(&held))
 }
 pub(super) fn references(input: Invocation<'_>, record: &MetadataRecord) -> Result<Vec<ReferenceRequest>> {
 	// The facade already holds its exact source and target. Workspace edits
@@ -127,34 +116,26 @@ pub(super) fn references(input: Invocation<'_>, record: &MetadataRecord) -> Resu
 	if input.delivery == Delivery::Forwarding {
 		return Ok(Vec::new());
 	}
-	locations(record, input)?
-		.into_iter()
-		.map(|location| {
-			Ok(ReferenceRequest::RestorePage {
-				page: location
-					.page
-					.checked_sub(1)
-					.ok_or_else(|| refuse("invalid directory custody page"))?,
-				field: location.field,
-			})
-		})
-		.collect()
+	let location = location(record, input)?;
+	Ok(vec![ReferenceRequest::RestorePage {
+		page: location
+			.page
+			.checked_sub(1)
+			.ok_or_else(|| refuse("invalid directory custody page"))?,
+		field: location.field,
+	}])
 }
 pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argument> {
 	let record = records::metadata(input)?;
-	let [source, target] = locations(&record, input)?;
-	let mut held = |location: records::Location| {
-		let page = input
-			.graph
-			.and_then(|pages| pages.get(location.page.checked_sub(1)?))
-			.ok_or_else(|| refuse("invalid directory custody page"))?;
-		call.page_reference(page, location.field)
-	};
-	let source = held(source)?;
-	let target = held(target)?;
-	if source != call.source()? {
-		return Err(refuse("original directory source capability required"));
-	}
+	let location = location(&record, input)?;
+	let page = input
+		.graph
+		.and_then(|pages| pages.get(location.page.checked_sub(1)?))
+		.ok_or_else(|| refuse("invalid directory custody page"))?;
+	let target = call.page_reference(page, location.field)?;
+	// ObserveWorkspace admits this viewer's read. The scope below retains that
+	// exact invoking grant and rechecks it on every forwarded call. Directory
+	// workers separately authenticate their initiating source in check-discovery.
 	let methods = [
 		directory::LIST,
 		directory::creation::LOCATION,

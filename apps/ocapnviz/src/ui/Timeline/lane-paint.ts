@@ -1,10 +1,10 @@
 /**
- * Lane-paint helpers — the pill rendering, glyph stamping, and
+ * Lane-paint helpers. The pill rendering, glyph stamping, and
  * entity row-order resolution that the Scrubber's lane-stack paint
  * delegates to per lane. Pure paint code: no React, no state
  * mutation, no hit-test responsibility (that lives in `Scrubber.tsx`).
  * Callers thread `plotX` = the leftmost paintable content pixel
- * (`plotStartXOf(view)` in `state.ts`); the helpers clamp paint to
+ * (`plotStartXOf(view)` in `state.ts`). The helpers clamp paint to
  * `[plotX, plotX + plotWidth]` so spans / glyphs / labels stay
  * inside the t-content band and never bleed into the gutter or
  * the left/right pads.
@@ -25,7 +25,7 @@ export type LanePaintPalette = {
 };
 
 /** How much canvas the edge fade has laid over the pill by the time
- *  it reaches the clipped end. Short of 1 on purpose: a trace of the
+ *  it reaches the clipped end. Short of 1: a trace of the
  *  pill survives at the edge, so the span reads as continuing past
  *  the window rather than as stopping there. */
 const FADE_END_ALPHA = 0.8;
@@ -70,7 +70,7 @@ function fadeGradient(canvas: number, towardRight: boolean): FillGradient {
  * the bundle insertion order (which is first-event-t because
  * `buildLaneBundle` walks events in t-order). Stable + cheap.
  * Used inside `drawLaneStack` where the byEntity map is in
- * scope; the React-side equivalent is `applyRowOrder` which
+ * scope. The React-side equivalent is `applyRowOrder` which
  * takes a pre-flattened insertion-ordered list. */
 export function orderEntities(
 	byEntity: Map<string, { spans: LaneSpan[]; glyphs: LaneGlyph[] }>,
@@ -109,7 +109,7 @@ export function drawLaneSpans(
 	 * one predicate so this function doesn't need to know about
 	 * either selection regime. */
 	isSelected: (spanId: string) => boolean,
-	/** Anchor predicate — strict subset of `isSelected`. When
+	/** Anchor predicate, strict subset of `isSelected`. When
 	 * true the halo paints with a thicker stroke so the user can
 	 * tell WHICH selected span the Inspector is following under
 	 * multi-select. Defaults to "never" so callers that don't
@@ -152,12 +152,12 @@ export function drawLaneSpans(
 		const width = x1 - x0;
 		if (width < MIN_PILL_PX) {
 			// Bucket by LEFT anchor (x0), not midpoint. Lookup downstream
-			// re-buckets by `stamp.x` (also x0) — keying both passes off the
+			// re-buckets by `stamp.x` (also x0), keying both passes off the
 			// same value is what keeps a sub-pill span paintable through the
 			// entire (0, MIN_PILL_PX) width range. Bucketing here by xMid
 			// while looking up by x0 dropped stamps when xMid and x0 landed
 			// on opposite sides of a `BUCKET_PX` boundary, which is exactly
-			// the size of the transition zone — sessions/messages flashed
+			// the size of the transition zone, sessions/messages flashed
 			// invisible as a parent's effective range squeezed them through
 			// it during a drag-resize.
 			const bucket = Math.floor(x0 / BUCKET_PX);
@@ -178,7 +178,7 @@ export function drawLaneSpans(
 				// Anchor the stamp's LEFT edge at x0 (the span's start time)
 				// rather than centering on xMid. With midpoint-anchoring the
 				// visible left edge slides up to MIN_PILL_PX/2 px leftward as
-				// the span shrinks toward zero — the user-visible "shifts left
+				// the span shrinks toward zero. The user-visible "shifts left
 				// near zero" bug. Left-anchoring keeps the start pinned and
 				// grows the stamp out to its MIN_PILL_PX footprint to the
 				// right of the start.
@@ -219,7 +219,7 @@ export function drawLaneSpans(
 		// the rounded-corner notch at the boundary between a roundRect
 		// segment and its rect neighbor, the first segment extends RADIUS
 		// past its right edge (and the last extends RADIUS before its
-		// left edge) — the abutting rect overpaints the notch since it
+		// left edge). The abutting rect overpaints the notch since it
 		// has full corner coverage.
 		if (span.segments && span.segments.length > 0) {
 			const segs = span.segments;
@@ -286,7 +286,7 @@ export function drawLaneSpans(
 				});
 		}
 
-		// Edge fade — a gradient toward the canvas color at either end.
+		// Edge fade, a gradient toward the canvas color at either end.
 		// Visually a "trailing off" / "comes from off-screen" cue. It is
 		// one gradient-filled `roundRect` per faded end, sharing the
 		// pill's own `RADIUS`, so the cap the fade lands on stays as
@@ -297,10 +297,9 @@ export function drawLaneSpans(
 		// window in that direction, regardless of WHY:
 		//   right edge: x1 > plot's right edge  (open spans always
 		//     trigger because endT=Infinity; finite spans whose end
-		//     is past windowEnd also trigger now, which they didn't
-		//     when this was keyed on `span.open` alone).
+		//     is past windowEnd also trigger, not only `span.open`).
 		//   left edge:  x0 < plotX              (any span that
-		//     began before windowStart — covers normal scroll-out
+		//     began before windowStart, covers normal scroll-out
 		//     today, and a future "entity already present at
 		//     recording start" data shape gets the visual for free).
 		// Both conditions key on the true window edge: `x1 > plotX +
@@ -378,7 +377,7 @@ export function drawLaneSpans(
 	for (const stamp of stamps) {
 		// `stamp.x` is the span's true x0 (left edge), left-anchored to
 		// keep the visible start fixed as a span shrinks toward zero.
-		// Bucket key is derived from x0 here AND at insertion — keying
+		// Bucket key is derived from x0 here AND at insertion, keying
 		// both passes off the same value is what makes lookup stable for
 		// every sub-pill width, not just the fully-collapsed case.
 		const leftAnchor = stamp.x;
@@ -457,7 +456,7 @@ export function drawLaneSpans(
 						alpha: 0.95,
 					});
 			}
-			// Center-align via "left" anchor offset — counts are 1–3
+			// Center-align via "left" anchor offset, counts are 1–3
 			// chars so the visual centering error is negligible.
 			labelPool.acquire(
 				String(entry.count),
@@ -485,7 +484,7 @@ export function drawLaneGlyphs(
 	laneHeight: number,
 	plotX: number,
 	plotWidth: number,
-	/** Sub-selection focus — when a glyph's `eventId` matches, paint
+	/** Sub-selection focus. When a glyph's `eventId` matches, paint
 	 *  a stroke ring around it so the user can see the keyframe the
 	 *  Inspector / authoring focus is parked on. Independent of the
 	 *  entity-selection halo (a focused glyph sits inside an entity

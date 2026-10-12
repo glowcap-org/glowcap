@@ -36,7 +36,7 @@ pub fn retainMessage(self: *Session, message: model.Message) !void {
         .get => |get| try retainRef(self, get.receiver),
         .index => |index| try retainRef(self, index.receiver),
         .untag => |untag| try retainRef(self, untag.receiver),
-        // Exhaustive on purpose: a new sendable kind that can carry a `near`
+        // Exhaustive: a new sendable kind that can carry a `near`
         // export must declare the retain above.
         .gc_export, .gc_answer, .start_session, .abort => {},
     }
@@ -59,7 +59,9 @@ pub fn releaseMessage(self: *Session, message: model.Message) void {
             releaseRef(self, listen.listener);
         },
         // Retraction covers the far sends a turn makes and the listens they
-        // queue; another kind here is a caller bug.
+        // queue; another kind here is a caller bug. The guarantee is the
+        // callers' own shapes: `retractSend` only ever reads a `.deliver` and
+        // `retractPreparedListen` asserts `.listen` in the same dispatch.
         else => unreachable,
     }
 }
@@ -159,7 +161,7 @@ fn recordArg(
             if (depth + 1 > self.limits.max_nesting_depth) return Error.NestingTooDeep;
             for (entries) |entry| try recordArg(self, entry.value, depth + 1, wire_mention);
         },
-        // Exhaustive on purpose: a new Argument arm must decide whether it can
+        // Exhaustive: a new Argument arm must decide whether it can
         // name an export, see `session/validate/passable.zig`'s argument walk.
         .bytes, .symbol, .string, .keyword, .integer, .big_integer, .boolean, .float64, .void, .@"error", .handoff => {},
     }

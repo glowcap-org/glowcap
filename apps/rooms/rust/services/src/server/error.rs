@@ -1,5 +1,5 @@
 //! One failure vocabulary for the directory peer. Every tier below renders
-//! into it once; the operator reads it once.
+//! into it once. The operator reads it once.
 use rooms_application::server::document;
 use rooms_platform::storage::StorageError;
 use std::{borrow::Cow, fmt};
@@ -27,7 +27,7 @@ pub enum Error {
 	History(String),
 	Io(std::io::Error),
 	/// A cleanup that failed while the peer was already failing. The primary
-	/// cause stays first; the cleanup keeps its own name.
+	/// cause stays first. The cleanup keeps its own name.
 	Cleanup {
 		primary: Box<Error>,
 		cleanup: Box<Error>,

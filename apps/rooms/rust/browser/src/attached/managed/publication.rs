@@ -1,5 +1,5 @@
 //! Publication follows the established home of a held capability. Derivation
-//! preserves that home; the receiving Host never substitutes its own route.
+//! preserves that home. The receiving Host never substitutes its own route.
 use super::*;
 use rooms_glowcap::client::Deadline;
 use std::future::IntoFuture;
@@ -14,7 +14,7 @@ impl PublicationHome {
 		uri.map_or(Ok(Self::LocalOwner), |uri| Self::remote(driver, uri))
 	}
 	/// One original URI is retained under Driver's handle/byte budget. Derived
-	/// handles share that charge. Parsing is temporary publication scratch; no
+	/// handles share that charge. Parsing is temporary publication scratch. No
 	/// grant inventory, alternative authority map or route copy is retained.
 	pub(super) fn remote(driver: &Driver, uri: String) -> Result<Self> {
 		glowcap::parse_sturdyref(&uri, glowcap::CaptpVersion::V1_0).map_err(|e| e.to_string())?;

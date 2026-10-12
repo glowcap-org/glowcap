@@ -3,7 +3,7 @@ id: ADR-0143
 status: accepted
 date: 2026-09-04
 tags: [rooms, relay, retry, resilience, resources]
-decision: "A raw byte-relay request makes one transport dial; the Rooms directory lifecycle alone retries that request, with jitter inside a bounded automatic window before pausing, while the web relay separately limits live iroh endpoint runtimes and their creation rate."
+decision: "A raw byte-relay request makes one transport dial. The Rooms directory lifecycle alone retries that request, with jitter inside a bounded automatic window before pausing, while the web relay separately limits live iroh endpoint runtimes and their creation rate."
 supersedes: []
 superseded_by: []
 amends: [ADR-0082, ADR-0086, ADR-0138]
@@ -31,7 +31,7 @@ CapTP. General connection fronts without an outer owner keep using `DialRetry` a
 
 `DirectoryConnectionLifecycle` owns one reconnect state per held directory. It applies equal jitter to exponential
 delays from 500 milliseconds through five seconds. Automatic attempts stop after a sixty-second outage window. The
-directory remains held and reads as disconnected; its card offers an explicit retry, which starts a fresh window. A
+directory remains held and reads as disconnected. Its card offers an explicit retry, which starts a fresh window. A
 connection that survives ten seconds also clears the prior outage and gives a later loss a fresh window.
 
 The Rooms web relay admits iroh work separately from its file-descriptor limit. A raw relay endpoint uses one worker,
@@ -55,7 +55,7 @@ CapTP session state and wire behavior do not change.
 
 ## Consequences
 
-`DirectoryConnectionLifecycle` owns retry timing that previously lived partly on each live session. Relay-specific raw
+`DirectoryConnectionLifecycle` owns retry timing, which is not split across live sessions. Relay-specific raw
 channels make one attempt across the binding implementations while general connection fronts retain their existing
 continuity policy. The Rooms relay retains separate general, registration, and iroh endpoint admission because those
 limits pay for different resources.
@@ -64,5 +64,5 @@ limits pay for different resources.
 
 The directory lifecycle tests cover jitter bounds, the automatic-window transition, explicit retry, and stable reset.
 The Rooms web relay test covers live-work admission, creation-rate exhaustion, refill, and idempotent lease release.
-The relay-specific binding call sites keep the discovery retry executor out of those paths; the live relay matrix proves
+The relay-specific binding call sites keep the discovery retry executor out of those paths. The live relay matrix proves
 that every binding still carries a browser session after that separation. The repository check remains `zig build check`.

@@ -52,7 +52,7 @@ fn activeListenerErrorCode(err: ActiveListenerLookupError) i32 {
 }
 
 /// Begin listener construction under one stable identity. Bounded and staged
-/// providers both resolve through LISTENER_READY or LISTENER_FAILED; closing
+/// providers both resolve through LISTENER_READY or LISTENER_FAILED. Closing
 /// the identity cancels pending setup or closes the active listener.
 pub export fn glowcap_driver_listen(
     raw: ?*c.GlowcapDriverLoop,
@@ -275,7 +275,7 @@ pub export fn glowcap_driver_listener_select(raw: ?*c.GlowcapDriverLoop, listene
 
 /// Stop one listener and remove its advertised locator. Accepted sessions and
 /// already queued ACCEPTED events remain valid. If this listener supplied the
-/// selected acceptable location, the Host intentionally has no selection
+/// selected acceptable location, the Host has no selection
 /// until the caller selects another active listener.
 pub export fn glowcap_driver_listener_close(
     raw: ?*c.GlowcapDriverLoop,

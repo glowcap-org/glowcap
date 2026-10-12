@@ -89,7 +89,7 @@ export async function run(
 	}
 
 	// A name is one directory's grant, and the foot is the one place on screen
-	// that says who this reader is — so with two directories granting names it
+	// that says who this reader is, so with two directories granting names it
 	// has to stop reading as the page's own idea of who you are. The name wears
 	// the mark of the directory that granted it, the same colour that
 	// directory's rooms wear above, and the chip beside it counts the others in
@@ -153,7 +153,7 @@ export async function run(
 	// measuring because it is quiet to lose: the line is drawn as a caption,
 	// captions here are buttons, and a button takes its surroundings' font unless
 	// its own family is written to beat that. Nothing about the page looks broken
-	// when it does not — the words are all still there, in the wrong place in the
+	// when it does not, the words are all still there, in the wrong place in the
 	// reading order.
 	const scale = await tab.evaluate(() => {
 		const name = document.querySelector("#roomList li .rname");
@@ -272,7 +272,7 @@ export async function run(
 	if (priorViewport != null) await tab.setViewportSize(priorViewport);
 	// The dim around the card is the same press that leaves Settings and Help.
 	// Escape is the other half of that chain and is asked in opening.ts; this
-	// is the half a stacked directory card used to ignore.
+	// is the half a stacked directory card must honor.
 	const dim = await tab.evaluate(() => {
 		const layer = document.querySelector("dialog.modal:modal");
 		const card = layer?.querySelector(".modal-card");
@@ -286,7 +286,7 @@ export async function run(
 	}
 	// A reader selecting a line in the card and letting go past its edge has
 	// not asked for anything. The click that gesture reports names the dialog,
-	// which is the same thing the dim reports, so the card used to close and
+	// which is the same thing the dim reports, so the card would close and
 	// take their place with it. Pressed inside, released outside, and it stays.
 	await tab.mouse.move(dim.cardLeft + 24, dim.y);
 	await tab.mouse.down();
@@ -390,7 +390,7 @@ export async function run(
 	}
 	// Where you are here is a hanging menu, not more card. It is drawn at the end
 	// of the document and lifted into the browser's top layer, so it is found by
-	// what it is rather than by where it sits — and the card neither grows a
+	// what it is rather than by where it sits, and the card neither grows a
 	// scrollbar to hold it nor has to promise never to clip.
 	await tab.click("#dircardStanding");
 	const standingMenu = await tab.evaluate(() => {
@@ -541,7 +541,7 @@ export async function run(
 	// It takes a line open while two directories are held, which nothing before
 	// this point in the run produces: the second peer stepped out of the room
 	// several scenes ago, so it walks them back in, opens a line from the roster
-	// the way a reader does, and walks them out again — the state the scene after
+	// the way a reader does, and walks them out again, the state the scene after
 	// this one expects to find.
 	{
 		await second.fill("#room", "lobby");

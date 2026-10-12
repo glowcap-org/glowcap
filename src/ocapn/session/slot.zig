@@ -2,11 +2,11 @@
 //!
 //! Name plate: this file is the CapTP `Slot` **sum type** (mint × binding). It is
 //! not `slot_table.zig` (export/import rows: cell + wire-delta count). CapTP
-//! keeps export, import, and answer as separate position namespaces; the sum is
+//! keeps export, import, and answer as separate position namespaces. The sum is
 //! shared, the tables are not one map.
 //!
 //! A slot's identity is not a stored wire kind but a legal `(mint, binding)`
-//! variant. Impossible cells cannot be constructed — this is a sum, not a
+//! variant. Impossible cells cannot be constructed. This is a sum, not a
 //! validated product. The four CapTP `desc:*` tags are a **projection** of the
 //! variant onto `model.Reference` (and from there the real syrup codec emits
 //! bytes). This module does not reimplement Syrup encoding.
@@ -27,23 +27,23 @@ pub const Position = u64;
 /// validate: nonsense combinations are not constructible.
 ///
 /// `local_value` is object-only: a local promise *is* `local_unresolved` (one
-/// representation per wire tag). `remote_value` carries no kind field — far
+/// representation per wire tag). `remote_value` carries no kind field, far
 /// always encodes as `desc:export`.
 pub const Slot = union(enum) {
-    /// Local mint + unresolved — a promise this vat made (`desc:import-promise`).
+    /// Local mint + unresolved, a promise this vat made (`desc:import-promise`).
     local_unresolved: Position,
-    /// Remote mint + unresolved — an answer this vat awaits (`desc:answer`).
+    /// Remote mint + unresolved, an answer this vat awaits (`desc:answer`).
     remote_unresolved: Position,
-    /// Local mint + value — a near object export (`desc:import-object`).
+    /// Local mint + value, a near object export (`desc:import-object`).
     local_value: Position,
-    /// Remote mint + value — a far import (`desc:export`).
+    /// Remote mint + value, a far import (`desc:export`).
     remote_value: Position,
-    /// Either mint + broken — no `desc:*` position tag.
+    /// Either mint + broken, no `desc:*` position tag.
     broken: struct { mint: Mint, position: Position },
 };
 
 /// Project a slot onto the codec-neutral `model.Reference` the syrup encoder
-/// already knows how to render. This is the only projection seam — bytes come
+/// already knows how to render. This is the only projection seam, bytes come
 /// from the real codec, never from a second encoder here.
 pub fn toReference(slot: Slot) ?model.Reference {
     return switch (slot) {
@@ -82,8 +82,8 @@ pub const TransitionError = error{
 
 /// Unresolved becomes same-mint value, position preserved: the total
 /// unresolved→value transition over both mints. In this codebase only a remote
-/// answer binding is driven through it (`answers/store.zig`); a `local_unresolved`
-/// export is minted for a resolver callback and is terminal — glowcap never
+/// answer binding is driven through it (`answers/store.zig`). A `local_unresolved`
+/// export is minted for a resolver callback and is terminal, glowcap never
 /// settles a local promise export (ADR-0080, ADR-0007).
 pub fn fulfill(slot: Slot) TransitionError!Slot {
     return switch (slot) {
@@ -93,7 +93,7 @@ pub fn fulfill(slot: Slot) TransitionError!Slot {
     };
 }
 
-/// Unresolved becomes broken; mint and position preserved.
+/// Unresolved becomes broken. Mint and position preserved.
 pub fn breakSlot(slot: Slot) TransitionError!Slot {
     return switch (slot) {
         .local_unresolved => |p| .{ .broken = .{ .mint = .local, .position = p } },

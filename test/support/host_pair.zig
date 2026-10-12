@@ -22,7 +22,7 @@ fn acceptsInbound(session: *const HostSession) bool {
     };
 }
 
-/// Move every queued frame across the pair, both directions; a feed error
+/// Move every queued frame across the pair, both directions. A feed error
 /// surfaces to the caller (often the assertion under test).
 pub fn shuttle(pair: Pair) !bool {
     var moved = false;
@@ -89,7 +89,7 @@ pub fn publishAndOpenAcceptedOver(host: *Host, peer: *glowcap.ocapn.engine.Peer,
 }
 
 /// Open a dialed/accepted pair between two hosts and drive the keyed
-/// handshake open over fed bytes (shuttle-only; no host actions expected).
+/// handshake open over fed bytes (shuttle-only, no host actions expected).
 pub fn openPair(dialer: *Host, acceptor: *Host, designator: []const u8) !Pair {
     try dialer.ensureAdvertisedLocator("tcp");
     try acceptor.setAdvertisedLocator(tcpLocator(designator));

@@ -1,11 +1,11 @@
 /**
- * Clipboard payload — the unit of copy/paste/duplicate.
+ * Clipboard payload, the unit of copy/paste/duplicate.
  *
  * A `ClipboardPayload` is a closed subgraph of the source doc:
  * entities the user explicitly selected, plus every event that
  * references any of those entities. References to entities OUTSIDE
  * the selection (e.g. a session whose endpoint peer wasn't copied)
- * are *external* refs — recorded explicitly so paste can validate
+ * are *external* refs, recorded explicitly so paste can validate
  * them against the target doc.
  *
  * Closure rules:
@@ -44,12 +44,12 @@ export type ExternalRef = {
 export type ClipboardPayload = {
 	/** Entity definitions copied. Mirrors `doc.entities` shape. */
 	readonly entities: ClipboardEntities;
-	/** Events copied — every event that references at least one of
+	/** Events copied. Every event that references at least one of
 	 *  the selected entities via a class-1 edge. */
 	readonly events: ReadonlyArray<TimelineEvent>;
 	/** Ids referenced by the payload but not present in
 	 *  `payload.entities`. Paste validates each against the target
-	 *  doc; missing ones block the paste. */
+	 *  doc. Missing ones block the paste. */
 	readonly externalRefs: ReadonlyArray<ExternalRef>;
 	/** Earliest `t` in `events`, captured at extraction time so
 	 *  paste can offset to playhead without rescanning. `0` when

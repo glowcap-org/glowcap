@@ -3,7 +3,7 @@
  *
  * A dropdown that asks a person to choose a peer, a session, or a message
  * is read by someone who knows those things by name. "alice" is what they
- * are looking for; a sixty-four character key is not, and a list of keys
+ * are looking for. A sixty-four character key is not, and a list of keys
  * makes them read every row twice. So the name leads, and the id appears
  * only where the list cannot be read without it.
  *
@@ -16,7 +16,7 @@
  * different kind of thing.
  *
  * A leaf, like `../elide.ts` below it: no React, no engine, no document.
- * A picker that needs a label imports it; the panels do not go through
+ * A picker that needs a label imports it. The panels do not go through
  * a barrel to reach it.
  */
 

@@ -4,10 +4,10 @@
 Owns the connection byte path the embedder contract leaves to the binding:
 read raw bytes off the transport, hand them to the core's stream delimiter
 ``glowcap_host_session_feed_bytes`` (which owns framing), drain the host's
-action queue, and write what ``take_outbound`` drains — plus the keyed
+action queue, and write what ``take_outbound`` drains: plus the keyed
 handshake, the feed-refusal path (``last_abort``), and the EOF teardown that
 ``transport_closed`` reports to the core. Session methods wrap these through
-binding-internal seams (``raw`` / ``host`` / …); CapTP verbs stay
+binding-internal seams (``raw`` / ``host`` / …). CapTP verbs stay
 in :mod:`glowcap._session`.
 """
 
@@ -40,7 +40,7 @@ async def _run_handshake(session) -> None:
     # action queue, so the drain puts it on the wire first. The core stops
     # consuming at the frame that opens the session, so a fast partner's
     # application frames coalesced behind start-session stay buffered until
-    # the Host-owned resume step — otherwise a pipelined fetch would answer
+    # the Host-owned resume step: otherwise a pipelined fetch would answer
     # before the object it names exists. Abandonment on failure stays on
     # Session._establish.
     await session.host.kick_actions()
@@ -114,11 +114,11 @@ async def _serve_loop(session) -> None:
 
 async def _feed(session, chunk: bytes) -> None:
     # Feed inbound bytes to the core's stream delimiter: the session's
-    # codec splits each complete frame off the front — both codecs, both
-    # frame shapes, the frame cap enforced during the scan — and dispatches
+    # codec splits each complete frame off the front, both codecs, both
+    # frame shapes, the frame cap enforced during the scan, and dispatches
     # it, then the actions the dispatch queued drain. The library owns the
-    # unconsumed tail — a partial frame straddling two reads stays buffered
-    # in the session — so one borrowed call moves the whole chunk (c_char_p
+    # unconsumed tail, a partial frame straddling two reads stays buffered
+    # in the session, so one borrowed call moves the whole chunk (c_char_p
     # points at `chunk`'s own bytes, which the synchronous feed only reads).
     # The serve loop resumes any handshake-held tail through _resume_feed. A
     # mid-feed close parks its C release; it drains the moment the feed returns.
@@ -171,7 +171,7 @@ async def _raise_feed_refusal(session, rc: int) -> None:
     # Capture last_error / last_abort before another verb can clobber them,
     # then run the shared action drain so the projected op:abort (and any
     # CLOSE/FAIL queued with it) leave through the same spine as a steady
-    # FLUSH — not a private take_outbound path.
+    # FLUSH: not a private take_outbound path.
     message = _host_last_error()
     abort = last_abort(session)
     drain_failure: BaseException | None = None
@@ -188,7 +188,7 @@ async def _raise_feed_refusal(session, rc: int) -> None:
 def last_abort(session) -> Optional[AbortDetail]:
     """The typed cause of this CapTP session's most recent local dispatch
     failure, or ``None`` when none has been recorded. The flat per-feed
-    error code names the failure family; this names the member. Errors
+    error code names the failure family. This names the member. Errors
     raised by a refused feed carry it already as ``err.abort``."""
     if session.released:
         return None

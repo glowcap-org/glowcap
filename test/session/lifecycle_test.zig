@@ -183,7 +183,7 @@ test "owned and borrowed recv paths record the partner handshake identically" {
 
     // One shared apply body serves both paths, so the partner's session key
     // and location designator land regardless of which representation carried
-    // the handshake. The owned path used to skip both, the regression guard.
+    // the handshake. The owned path must set both.
     inline for (.{ &owned_path, &view_path }) |s| {
         try std.testing.expectEqualSlices(
             u8,

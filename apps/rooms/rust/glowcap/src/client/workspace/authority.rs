@@ -10,8 +10,8 @@ fn coordinate<K>(role: custody::Role, key: custody::FieldKey<K>) -> custody::Coo
 }
 impl<D: Deadline + Clone> Workspace<D> {
 	/// Learn presentation from the exact imported entrance before preparing the
-	/// atomic acquisition. The same reference is retained by that transaction;
-	/// a supplied caption cannot substitute for the room's own name.
+	/// atomic acquisition. The same reference is retained by that transaction.
+	/// A supplied caption cannot substitute for the room's own name.
 	pub async fn resolve_imported_room_names(&self, imports: &[Import], intent: &mut Intent) -> Result<(), Error> {
 		for conversation in intent.conversations.as_mut_slice() {
 			let workspace::Conversation::Room(room) = conversation else {

@@ -4,7 +4,7 @@
 ;; Goblins's CapTP reader loop expects `read-message` to return eof when the
 ;; transport closes. The Goblins 0.15 `read-write-procs` helper instead passes
 ;; that eof result to `syrup-decode`, which raises a contract error during an
-;; ordinary session close. Keep the netlayer boundary honest here: EOF is a
+;; ordinary session close. Keep the netlayer boundary accurate here: EOF is a
 ;; stream result, while only framed bytes reach the Syrup decoder.
 
 (require syrup)

@@ -5,7 +5,7 @@
 // `?rendezvous=` bridge; the keyed handshake runs end to end and the relay
 // parses nothing.
 //
-// Headless on purpose: `serveRendezvous` is runtime-neutral stack code over
+// Headless: `serveRendezvous` is runtime-neutral stack code over
 // the `WebSocket` global, so the same accept path a browser tab runs is proven
 // here without a browser. Run by `harness.ts` with the relay URL as argv;
 // prints `REGISTERED-PEER-READY <designator>` once the first registration is

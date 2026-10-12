@@ -3,14 +3,14 @@
    the room and directory cards, session setup, and every Operations pane
    draw from this one sheet, so a field, a row of actions, or a confirmation
    is the same drawing on all of them. plane.css owns the ground these stand
-   on (the card, the well, the group); this sheet owns what stands on it.
+   on (the card, the well, the group). This sheet owns what stands on it.
 
    Two heights run through everything here, and both come from page.css.
    `--field-h` (44px) is the touch-primary height: a single-line field, the
    button that sits beside one, and a card's commitment. `--control-h` (36px)
    is the in-row height: the buttons at the end of an entry, in a confirm, or
-   under a well's form. A field and the button beside it share the first; a
-   row of actions shares the second; nothing here tunes a height per call
+   under a well's form. A field and the button beside it share the first. A
+   row of actions shares the second. Nothing here tunes a height per call
    site, which is how three fields and three buttons came to stand at five
    different heights before this sheet existed.
 
@@ -22,7 +22,7 @@
 /* ── Fields ─────────────────────────────────────────────────────────────── */
 /* A single-line field is exactly `--field-h` tall, so the button beside it
    and the field agree without either knowing the other's padding. A textarea
-   grows; a file input keeps the platform's own control inside the same box. */
+   grows. A file input keeps the platform's own control inside the same box. */
 .card-plane .field {
 	box-sizing: border-box;
 	width: 100%;
@@ -120,7 +120,7 @@
    looser one. `Field.tsx` owns why the refusal is above and the sentence
    below. Inline lays the
    name to the left of the control for a short list of knobs that would read
-   as a form three times taller stacked; the name column is one width for the
+   as a form three times taller stacked. The name column is one width for the
    whole list so the fields line up down it. */
 .field-stack {
 	display: grid;
@@ -149,7 +149,7 @@
 /* Label, refusal, and control are one block at the stack's own gap: a refusal
    is the box's own state rather than a remark about it. The sentence is the one
    line here that is commentary, and at the same six pixels the four read as one
-   flat list; two more steps it back from the control it qualifies. */
+   flat list. Two more steps it back from the control it qualifies. */
 .field-stack > .hint {
 	margin-top: 2px;
 }
@@ -158,7 +158,7 @@
 
    Three widths, because two could not say what an address is: a port is
    short, prose is the whole line, and an address is neither. A listener's
-   bind and advertise knobs are the case — held to the line they were a wall
+   bind and advertise knobs are the case, held to the line they were a wall
    of boxes each wide enough for a sentence nobody was going to type. */
 .field-stack[data-width="short"] .field {
 	max-width: 20ch;
@@ -182,12 +182,43 @@
 .field-row > .select-wrap {
 	min-width: 0;
 }
-/* Beside a labelled question the button stands level with the control, not
-   with the label: one caption line and the stack's gap down. A number the
-   label's own metrics decide, which is why the label states its line height
-   above rather than leaving it to inherit. */
-.field-row:has(> .field-stack > .field-label) > .button {
-	margin-top: calc(var(--type-caption) * 1.5 + 6px);
+/* The field and its act share actual rows. A wrapped label or refusal must
+   move both controls together, without an offset that guesses text height. */
+@media (min-width: 521px) {
+	.field-row:has(> .field-stack) {
+		grid-template-rows: auto auto auto;
+		row-gap: var(--gap-tight);
+	}
+	.field-row > .field-stack {
+		grid-row: 1 / span 3;
+		grid-template-rows: subgrid;
+	}
+	.field-row > .field-stack > .field-label {
+		grid-row: 1;
+	}
+	.field-row > .field-stack > :not(.field-label, .said, .hint),
+	.field-row:has(> .field-stack) > .button {
+		grid-row: 2;
+	}
+	.field-row > .field-stack > .hint {
+		grid-row: 3;
+	}
+	.field-row:has(> .field-stack > .said) {
+		grid-template-rows: auto auto auto auto;
+	}
+	.field-row > .field-stack:has(> .said) {
+		grid-row: 1 / span 4;
+	}
+	.field-row > .field-stack > .said {
+		grid-row: 2;
+	}
+	.field-row > .field-stack:has(> .said) > :not(.field-label, .said, .hint),
+	.field-row:has(> .field-stack > .said) > .button {
+		grid-row: 3;
+	}
+	.field-row > .field-stack:has(> .said) > .hint {
+		grid-row: 4;
+	}
 }
 @media (max-width: 520px) {
 	/* The caps exist to stop a short value sprawling across a wide card. A
@@ -201,17 +232,15 @@
 	.field-row {
 		grid-template-columns: minmax(0, 1fr);
 	}
-	.field-row > .button,
-	.field-row:has(> .field-stack > .field-label) > .button {
+	.field-row > .button {
 		width: 100%;
-		margin-top: 0;
 	}
 }
 
 /* ── Acts ───────────────────────────────────────────────────────────────── */
 /* A fixed mark the field always carries, drawn inside the box so the pair
    reads as one control: a bridge's channel `#` before the part a reader types.
-   The wrapper wears the border and the focus ring; the input inside gives them
+   The wrapper wears the border and the focus ring. The input inside gives them
    up, so the mark and the value share one outline. */
 .card-plane .field-prefixed {
 	display: grid;
@@ -316,8 +345,8 @@
 
 /* The acts a surface offers, at the end of the line they belong to, the
    commitment last. Trailing rather than leading because every other control
-   on the plane already ends its line — the switch, the entry's buttons, the
-   copy mark — and an act that led would be the one control facing the other
+   on the plane already ends its line (the switch, the entry's buttons, the
+   copy mark) and an act that led would be the one control facing the other
    way. `data-fill` is the card's own foot: equal widths, because the card is
    about that act and a natural-width button under a full-width field reads
    as an afterthought. */
@@ -344,18 +373,9 @@
 .actions[data-align="start"] {
 	justify-content: flex-start;
 }
-@media (max-width: 520px) {
-	.actions[data-stack-narrow] {
-		flex-direction: column;
-		align-items: stretch;
-	}
-	.actions[data-stack-narrow] > .button {
-		width: 100%;
-	}
-}
 
 /* A second step inside the thing it acts on. The sentence says what will be
-   lost, in the reader's terms, before the act is offered; the acts then follow
+   lost, in the reader's terms, before the act is offered. The acts then follow
    the ordinary rule, the way out first and the commitment last. The rule at
    the left is the tone of the commitment, so a danger confirm is visibly not
    the ordinary row it interrupts and a plain one is. It stays inline rather
@@ -370,8 +390,8 @@
 	border-inline-start: 2px solid color-mix(in srgb, var(--danger) 65%, var(--rule));
 	/* It settles into place from a little above rather than appearing between
 	   two frames, so a reader sees where the question came from: the act they
-	   just pressed. Short and decelerating, the way something arriving moves;
-	   the page's reduced-motion rule takes the travel and keeps the fade. */
+	   just pressed. Short and decelerating, the way something arriving moves.
+	   The page's reduced-motion rule takes the travel and keeps the fade. */
 	animation: confirm-settle .16s ease-out backwards;
 }
 @keyframes confirm-settle {

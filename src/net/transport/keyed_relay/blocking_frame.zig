@@ -6,7 +6,7 @@ const protocol = @import("../../websocket.zig").client_protocol;
 pub const FrameError = protocol.ParseError || error{ Truncated, ReadFailed };
 
 /// Read one complete frame header. The resident is the only tier allowed to
-/// wait; completion code calls `protocol.parseHeaderBytes` on delivered bytes.
+/// wait. Completion code calls `protocol.parseHeaderBytes` on delivered bytes.
 pub fn readFrameHeader(reader: *std.Io.Reader) FrameError!protocol.FrameHeader {
     var header: [10]u8 = undefined;
     header[0] = try takeHeaderByte(reader);

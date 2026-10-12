@@ -1,6 +1,6 @@
 //! Managed local grants preserve issuance ceilings, selected authority paths,
-//! ancestor restrictions, and terminal revocation. These exercise model calls;
-//! they do not claim authenticated management, storage, or Host enforcement.
+//! ancestor restrictions, and terminal revocation. These exercise model calls.
+//! They do not claim authenticated management, storage, or Host enforcement.
 
 const structural_policy = @import("grant_fixture.zig").structural_policy;
 const std = @import("std");

@@ -1,17 +1,17 @@
 //! The socket binding of the sans-io serve core: `BlockingSession` composes a
 //! `driver_core.Served` with a `net.Connection`, the blocking,
-//! one-connection-per-thread embedding (ADR-0053). It folds I/O over the core —
+//! one-connection-per-thread embedding (ADR-0053). It folds I/O over the core:
 //! `step`/`serve`/`stepReadable` read and write the socket and drive the serve
 //! loop, and `call`/`fetch` block until a reply settles. A partner that streams
 //! without draining belongs on a loop that bounds outbound bytes and parks
-//! reads — `net.TcpLoop` at the byte tier, or `completion.Loop(iroh.Backend, iroh.DialResolver)`
+//! reads: `net.TcpLoop` at the byte tier, or `completion.Loop(iroh.Backend, iroh.DialResolver)`
 //! over the sidecar.
 //!
 //! The constructors bind a `BlockingSession` over a transport: `connectVia`,
 //! `acceptVia`, and `connectUri` dispatch on the locator's transport symbol against a
 //! `[]const net.netlayer.Netlayer`. The owning, one-call `Session`/`Server`
 //! surface lives in `session.zig`. The serve core and the shared vocabulary
-//! (`Error`, `Identity`, `Capability`, `Settled`) live in `driver_core`; the
+//! (`Error`, `Identity`, `Capability`, `Settled`) live in `driver_core`. The
 //! driver root re-exports them and adds the one I/O-boundary verb,
 //! `drawSessionSecret`.
 
@@ -39,11 +39,11 @@ const Budget = driver.Budget;
 /// A vat bound to a live `net.Connection`: a `Served` serve core plus an owned
 /// framed byte stream. The blocking, transport-neutral, one-fiber embedding
 /// (ADR-0053): it serves cooperative request/response, where each side drains
-/// the replies it asked for. The vat verbs delegate to the core; the socket
+/// the replies it asked for. The vat verbs delegate to the core. The socket
 /// verbs (`step`/`serve`/`flush`/`call`/`fetch`) fold I/O over it.
 pub const BlockingSession = struct {
     /// Wait policy for the two phases that can park this blocking embedding.
-    /// Neither field has a default: callers that intentionally run an
+    /// Neither field has a default: callers that run an
     /// in-process pair forever spell `.unbounded` for that phase.
     pub const Options = struct {
         handshake: Budget,
@@ -58,9 +58,9 @@ pub const BlockingSession = struct {
     /// Per-read deadline for the keyed handshake pump. When bounded,
     /// `startKeyedSession*` bounds each handshake read on `conn.waitReadable`
     /// and breaks with `Error.HandshakeTimedOut` if a partner finishes connect
-    /// and then goes silent — the slowloris a one-connection-per-thread accept
-    /// must not park on (ADR-0081). The value is the caller's policy. It binds
-    /// fd-backed transports (tcp, keyed-tcp); a userspace-multiplexed
+    /// and then goes silent (the slowloris a one-connection-per-thread accept
+    /// must not park on, ADR-0081). The value is the caller's policy. It binds
+    /// fd-backed transports (tcp, keyed-tcp). A userspace-multiplexed
     /// transport (iroh) has no pollable fd to bound here.
     handshake: Budget,
 
@@ -102,14 +102,14 @@ pub const BlockingSession = struct {
 
     /// One pump cycle: dispatch queued events, drive the connection one step (one
     /// read and/or one flush), then dispatch every event the peer surfaced. A
-    /// deliver runs its published actor and resolves the answer; a resolve fires
+    /// deliver runs its published actor and resolves the answer. A resolve fires
     /// a far vow's listener. Returns the connection's `Progress` so the caller's
     /// loop can act on `.closed`. I/O is visible here: the pump reads and writes
     /// the socket.
     ///
     /// When the pump reports `.closed`, every far vow still awaiting a partner's
-    /// resolution is broken — those resolutions ride the wire that just went
-    /// away — carrying the partner's retained abort diagnostic when one arrived.
+    /// resolution is broken, because those resolutions ride the wire that just went
+    /// away. The break carries the partner's retained abort diagnostic when one arrived.
     pub fn step(self: *BlockingSession) !net.Progress {
         try self.served.drainEvents(&self.vat);
         const progress = try self.conn.pump();
@@ -138,9 +138,8 @@ pub const BlockingSession = struct {
 
     /// Dispatch any queued events and flush the resulting outbound, without
     /// reading. `settle` runs it before parking on the socket, so a far
-    /// deliver leaves the wire before the blocking read — and a local-target
-    /// vow settles inside the flush's own drive without touching the socket
-    /// at all.
+    /// deliver leaves the wire before the blocking read, and a local-target
+    /// vow settles inside the flush's drive without touching the socket.
     pub fn flush(self: *BlockingSession) !void {
         try self.served.drainEvents(&self.vat);
         try self.conn.flush();
@@ -151,7 +150,7 @@ pub const BlockingSession = struct {
     /// socket to become readable. Returns the pump `Progress` once data is ready
     /// (or already buffered), or null on timeout. A poll failure on the fd means
     /// the transport is gone, so it surfaces as `error.ConnectionLost`. The
-    /// blocking `step` stays the primitive; `stepReadable` is the multiplexing
+    /// blocking `step` stays the primitive. `stepReadable` is the multiplexing
     /// convenience over it.
     pub fn stepReadable(self: *BlockingSession, timeout_ms: i32) !?net.Progress {
         try self.flush();
@@ -202,7 +201,7 @@ pub const BlockingSession = struct {
     // ── Vat verbs (delegate to the serve core) ───────────────────────────────
 
     /// Spawn a local actor and return its export-bound handle (see
-    /// `Served.spawn`; this borrowing tier speaks wire positions by choice).
+    /// `Served.spawn`. This borrowing tier speaks wire positions by choice).
     pub fn spawn(self: *BlockingSession, comptime Behavior: type, initial: Behavior) !Exported {
         return self.served.spawn(&self.vat, Behavior, initial);
     }
@@ -242,7 +241,7 @@ pub const BlockingSession = struct {
     // ── Blocking request/reply (fold I/O over the core) ──────────────────────
 
     /// Drive the connection until `vow` settles, materializing the outcome into
-    /// `arena` — the building block pipelining needs. `call` is this fused onto a
+    /// `arena`, the building block pipelining needs. `call` is this fused onto a
     /// single `send`. Returns `ConnectionClosed` if the partner leaves first.
     pub fn settleVow(self: *BlockingSession, vow: actors.Vow, arena: std.mem.Allocator) !Settled {
         var capture = driver.SettleCapture{ .arena = arena };
@@ -261,7 +260,7 @@ pub const BlockingSession = struct {
 
     /// Start a bootstrap fetch without driving the socket. The caller registers
     /// a listener (`on`) and pumps (`step` / `stepReadable`) until the vow
-    /// settles — the non-blocking twin of `fetch` / `fetchSettled` for a
+    /// settles. It is the non-blocking twin of `fetch` / `fetchSettled` for a
     /// multiplexed event loop (CapTP lab TUI).
     pub fn beginFetch(self: *BlockingSession, name: []const u8) !actors.Vow {
         return self.served.sendBootstrapFetch(&self.vat, name);
@@ -281,15 +280,15 @@ pub const BlockingSession = struct {
 
     /// Break every far vow still awaiting a partner answer (cancel / timeout /
     /// teardown). Stable `message` bytes are what listeners observe as the
-    /// broken reason; pass a string literal.
+    /// broken reason. Pass a string literal.
     pub fn breakFarVows(self: *BlockingSession, message: []const u8) void {
         self.served.port.breakFarVows(message);
     }
 
     /// Fetch a partner's published capability by `name`, returning a far `Ref`.
-    /// A fulfilled fetch yields a far ref; an unpublished name returns
+    /// A fulfilled fetch yields a far ref. An unpublished name returns
     /// `Error.FetchBroken`, and any other fulfill returns
-    /// `Error.FetchNotACapability`. Allocates nothing and retains no break reason;
+    /// `Error.FetchNotACapability`. Allocates nothing and retains no break reason.
     /// `fetchSettled` is the reason-bearing form.
     pub fn fetch(self: *BlockingSession, name: []const u8) !actors.Ref {
         var state = driver.FetchCapture{};
@@ -313,7 +312,7 @@ pub const BlockingSession = struct {
     }
 
     /// Listen on the promise `target` names and drive the connection until it
-    /// settles, materializing the outcome into `arena` — the blocking form of
+    /// settles, materializing the outcome into `arena`. It is the blocking form of
     /// `listenTo`, and how a promise received from a partner is waited on
     /// (ADR-0095).
     pub fn listenSettled(self: *BlockingSession, target: model.Reference, arena: std.mem.Allocator) !Settled {
@@ -324,14 +323,13 @@ pub const BlockingSession = struct {
     /// Drive the connection with `step` until `vow` settles into `listener`: the
     /// shared blocking tail of `call` and `fetch`.
     /// Map a fault on a blocking wait to the error to return, breaking the far
-    /// vows first — the one place the flush-catch and step-catch in `settle`
+    /// vows first. It is the one place the flush-catch and step-catch in `settle`
     /// share. A clean transport loss (`ConnectionLost` / `TruncatedFrame`) is
     /// the partner leaving: break with the close reason and report the typed
     /// `ConnectionClosed`. Any other fault (protocol abort, OOM) breaks with a
-    /// generic reason and propagates the raw error. `serve` deliberately does
-    /// NOT ride this: it returns void and does not break on the non-transport
-    /// arm — its caller's `deinit` breaks the vows — so its divergence stays
-    /// explicit inline.
+    /// generic reason and propagates the raw error. `serve` does not use this.
+    /// It returns void and does not break on the non-transport arm, because its
+    /// caller's `deinit` breaks the vows, so its divergence stays inline.
     fn faultToClosed(self: *BlockingSession, err: anyerror) anyerror {
         switch (err) {
             error.ConnectionLost, error.TruncatedFrame => {
@@ -350,7 +348,7 @@ pub const BlockingSession = struct {
         try self.served.port.on(&self.vat, vow, .{ .ctx = &settle_state, .func = driver.SettleFlag.fire });
         // Flush before blocking on a read: a far deliver goes on the wire one
         // syscall earlier, and a local-target vow settles in the flush's drive
-        // without touching the socket at all — a read would otherwise block
+        // without touching the socket at all, since a read would otherwise block
         // forever on a reply the partner was never asked for.
         self.flush() catch |err| return self.faultToClosed(err);
         if (settle_state.done) return;
@@ -389,8 +387,8 @@ pub const BlockingSession = struct {
                 // and report the close, rather than propagating the raw fault.
                 // A transport fault or any other step failure ends this call the
                 // same way (see `faultToClosed`): the stack-bound listener must come
-                // off the vat now — a later turn firing it would write into a dead
-                // frame — so the vows break while `settle_state` is still alive.
+                // off the vat now, because a later turn firing it would write into a dead
+                // frame. The vows break while `settle_state` is still alive.
                 const progress = self.step() catch |err| return self.faultToClosed(err);
                 // A partner may answer and close in the same step: a settled vow is
                 // a settled call, so the real resolution wins over the close.
@@ -416,9 +414,9 @@ fn sessionOpenPred(peer: *engine.Peer) bool {
 /// signing seam: `.ephemeral` draws a fresh random session key and signs the
 /// unreachable-client placeholder as its own designator, and `.keyed` signs
 /// with a caller-held key over the dialer's own designator. The caller owns
-/// `peer`, `read_buf`, and `write_buf`; `netlayers` must outlive the returned
+/// `peer`, `read_buf`, and `write_buf`. `netlayers` must outlive the returned
 /// vat.
-/// `options.handshake` bounds each handshake read; see `BlockingSession.handshake`
+/// `options.handshake` bounds each handshake read. See `BlockingSession.handshake`
 /// (ADR-0081).
 pub fn connectVia(
     allocator: std.mem.Allocator,
@@ -442,7 +440,7 @@ pub fn connectVia(
     if (admission.sealed_channel) return Error.SealedChannelRequiresHost;
     if (!nl.supportsBlockingDial()) return Error.UnknownTransport;
     // The dial-side identity demand: on a key-designator transport the dialed
-    // designator *is* the partner's durable identity, so record it before the
+    // designator is the partner's durable identity, so record it before the
     // handshake pump. A selected key route in the partner's hello must match;
     // an address route is independent of this channel (ADR-0109). Whether a
     // lower layer proved the target is the resident's fact to bind during
@@ -503,19 +501,19 @@ pub fn connectUri(
 /// complete the responder handshake signing with `identity`: the
 /// transport-neutral hosting counterpart of `connectVia`. A host is always
 /// reachable, so the signed designator
-/// names this listener; what that designator *is* follows the listener's
+/// names this listener. What that designator is follows the listener's
 /// scheme. On an `.address` listener it is the bound address, and `identity`
 /// chooses only the signing key (`.ephemeral` fresh random, `.keyed` a
 /// caller-held key). On a `.key` listener the designator derives from the
-/// signing secret itself — its public key's canonical hex, so designator and
-/// session key cannot disagree — with the listener's dial hint (keyed-tcp's
-/// bound `host:port`) riding as the locator's `direct-addresses` hint; an
+/// signing secret: its public key's canonical hex, so designator and
+/// session key cannot disagree. The listener's dial hint (keyed-tcp's
+/// bound `host:port`) rides as the locator's `direct-addresses` hint. An
 /// `.ephemeral` identity is refused there
 /// (`Error.EphemeralIdentityOnKeyedTransport`), because a throwaway key cannot
 /// produce the durable designator the transport advertises. The accept side is
-/// the slowloris target — a dialer that completes connect and then never speaks
-/// would park a one-connection-per-thread accepter for the connection's life —
-/// so `options.handshake` bounds each handshake read; `Server.accept` threads it from
+/// the slowloris target: a dialer that completes connect and then never speaks
+/// would park a one-connection-per-thread accepter for the connection's life,
+/// so `options.handshake` bounds each handshake read. `Server.accept` threads it from
 /// `SessionOptions.handshake` (ADR-0081).
 pub fn acceptVia(
     allocator: std.mem.Allocator,

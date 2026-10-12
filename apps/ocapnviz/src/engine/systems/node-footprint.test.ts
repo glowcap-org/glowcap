@@ -1,7 +1,7 @@
 /**
  * Gathering every node's box from the document, without going through the
- * solver. `separation.test.ts` proves the box matches what is drawn;
- * these prove which label the gatherer measures.
+ * solver. `separation.test.ts` proves the box matches what is drawn.
+ * These prove which label the gatherer measures.
  */
 
 import { assertEquals } from "@std/assert";

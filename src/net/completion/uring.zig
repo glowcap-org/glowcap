@@ -62,7 +62,7 @@ pub const Backend = struct {
     pub const ConnectTarget = std.Io.net.IpAddress;
     pub const ListenerAddress = socket_tcp.Ip4;
 
-    /// The one buffer group registered on the ring; group ids only need to be
+    /// The one buffer group registered on the ring. Group ids only need to be
     /// unique per ring.
     const buf_group_id: u16 = 0;
 
@@ -96,7 +96,7 @@ pub const Backend = struct {
     }
 
     /// Build a backend whose listener binds `listener_ip4`. The ordinary
-    /// constructor keeps the least-exposed default, `127.0.0.1`; a service
+    /// constructor keeps the least-exposed default, `127.0.0.1`. A service
     /// intended for other hosts can opt into an interface address or
     /// `0.0.0.0` before moving the backend into `Loop.initWithBackend`.
     pub fn initWithListenerIp4(
@@ -182,6 +182,12 @@ pub const Backend = struct {
 
     /// Nothing here waits on a timer: every completion arrives through the
     /// descriptor.
+    /// A platform listener is bound when `openListener` returns; nothing
+    /// pends.
+    pub fn listenerPending(_: *const Backend, _: Fd) bool {
+        return false;
+    }
+
     pub fn waitBoundMs(_: *const Backend, requested_ms: i32) i32 {
         return requested_ms;
     }
@@ -202,7 +208,7 @@ pub const Backend = struct {
     }
 
     /// Start an outbound TCP connect: open a socket, submit connect, return the
-    /// fd. On submit failure the socket is closed here — the Loop never sees it.
+    /// fd. On submit failure the socket is closed here, the Loop never sees it.
     pub fn startDial(self: *Backend, user_data: u64, target: ConnectTarget) !Fd {
         const fd = try openSocket();
         errdefer self.closeFd(fd);
@@ -273,7 +279,7 @@ pub const Backend = struct {
     }
 
     /// Return a recv completion's pool buffer to the kernel ring. This base
-    /// backend creates only receive borrows; richer wrapper-owned borrows are
+    /// backend creates only receive borrows. Richer wrapper-owned borrows are
     /// consumed by their wrapper before they can reach this seam.
     /// Sockets carry no lower-layer peer identity: the total Backend
     /// contract's `verifiedChannelKey` member (ADR-0097) always answers null.
@@ -307,7 +313,7 @@ pub const Backend = struct {
     /// Flush queued submissions, wait for completions, and copy up to `out.len`
     /// completions back to the server, surfacing each selected pool buffer as a
     /// borrowed view. A negative `timeout_ms` blocks until at least one
-    /// completion; a non-negative value waits at most that many milliseconds and
+    /// completion. A non-negative value waits at most that many milliseconds and
     /// returns 0 when nothing completes in time.
     pub fn poll(self: *Backend, out: []completion.Completion, timeout_ms: i32) !usize {
         if (self.listeners.close_ready.items.len != 0) {
@@ -398,7 +404,7 @@ pub const Backend = struct {
 
     const enobufs_res: i32 = -@as(i32, @backingInt(linux.E.NOBUFS));
 
-    /// The interface every listener binds; `openListener` chooses only the
+    /// The interface every listener binds. `openListener` chooses only the
     /// port.
     pub fn listenerIp4(self: *const Backend) [4]u8 {
         return self.listener_ip4;

@@ -63,7 +63,7 @@ pub const Store = struct {
     }
 
     /// Rewrite an existing block in place (pending → result/error). No-op if
-    /// `idx` is stale after trim; CapTP lab pending rows stay near the live end.
+    /// `idx` is stale after trim. CapTP lab pending rows stay near the live end.
     pub fn setLine(self: *Store, idx: usize, kind: Kind, line: []const u8) !void {
         if (idx >= self.items.items.len) return;
         const owned = try self.gpa.dupe(u8, line);

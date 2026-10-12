@@ -10,117 +10,111 @@ superseded_by: []
 
 # ADR-0070 Browser binding via WebAssembly
 
-> **Current standing.** The WebAssembly Host, WebSocket channel, browser and
-> native WebRTC DataChannel arms, capability-carried signaling, generic Host
-> adoption, and three-party redemption over WebRTC have landed (ADR-0089;
-> `webrtc-loop`, `webrtc-bridge-redeem`, `rooms-web-dm-webrtc`). ADR-0072 and
-> ADR-0079 replaced the `Peer` / `Node` binding names below with `Host` /
-> `Session`.
+> **Shipped state.** The WebAssembly Host, WebSocket channel, browser and native
+> WebRTC DataChannel arms, capability-carried signaling, generic Host adoption,
+> and three-party redemption over WebRTC ship (ADR-0089, `webrtc-loop`,
+> `webrtc-bridge-redeem`, `rooms-web-dm-webrtc`). ADR-0072 and ADR-0079 name the
+> binding surface `Host` / `Session`, where this record says `Peer` / `Node`.
 
 ## Context
 
-A browser cannot open a raw TCP socket or speak iroh's QUIC, so today a browser
-tab is not an OCapN peer at all. The rooms web demo works around this with a
-per-tab bridge (`apps/rooms/web/serve.ts`): the browser talks JSON over a
-WebSocket to a Deno process that holds the real glowcap connection through the C
-ABI and relays between the two. The bridge is honest about what it is, but the
-browser never holds a capability, never runs the session, and cannot be
-introduced to another browser directly. That is a gap in reach, not in the
-protocol.
+A browser cannot open a raw TCP socket or speak iroh's QUIC, so a browser tab
+without a peer of its own is not an OCapN peer. A per-tab bridge (the rooms web
+demo's `apps/rooms/web/serve.ts`) has the browser talk JSON over a WebSocket to
+a Deno process that holds the real glowcap connection through the C ABI and
+relays between the two. The browser then holds no capability, runs no session,
+and cannot be introduced to another browser directly. That is a gap in reach,
+not in the protocol.
 
-The gap is closable because of a decision the substrate already made: the core
-is sans-io. `src/ocapn/{model,codec,session,engine}` are deterministic, no-I/O
-Zig that turn frames into events and messages into frames and nothing else, and
-`zig build cross-check` already compiles that core for `wasm32`. This engages
-the [core-boundary First Principle](../../../AGENTS.md#first-principles): the
-same property that keeps sockets and schedulers out of the core is what lets the
-core run in a browser sandbox unchanged.
+The core is sans-io. `src/ocapn/{model,codec,session,engine}` are
+deterministic, no-I/O Zig that turn frames into events and messages into
+frames, and `zig build cross-check` compiles that core for `wasm32`. The
+[core-boundary First Principle](../../../AGENTS.md#first-principles) that keeps
+sockets and schedulers out of the core is what lets the core run in a browser
+sandbox unchanged.
 
 ## Decision
 
 A browser binding is the sans-io core compiled to WebAssembly, exposed through
-the **same** `Peer`/`Context`/`Node` API the other bindings present. The
-TypeScript binding is already layered for this: `bindings/ts/runtime/mod.ts` sits
+the same `Peer`/`Context`/`Node` API the other bindings present. The
+TypeScript binding is layered for this: `bindings/ts/runtime/mod.ts` sits
 on an FFI seam (`bindings/ts/runtime/internal/ffi/runtime.ts`, today `Deno.dlopen`
 against `libglowcap_ocapn`). A browser binding replaces that one seam with a
 WebAssembly instance: instantiate `glowcap_ocapn.wasm`, call its exports, and
-marshal frames across the WASM/JS boundary as `ptr + len` the same way the C ABI
-already does: leaving the public API shape intact.
+marshal frames across the WASM/JS boundary as `ptr + len` as the C ABI does.
+The public API shape is unchanged.
 
-What the browser still lacks is a transport, added in two milestones:
+The browser also needs a transport, added in two milestones:
 
-- **Milestone 1. WebSocket.** The browser holds a real peer and moves OCapN
-  frames over a WebSocket to a peer that accepts WebSocket connections. This
-  makes the browser a first-class OCapN peer and retires the per-tab bridge: the
-  rooms `serve.ts` becomes a static file server plus a WebSocket-accepting netlayer
-  in front of the room server, not a protocol translator.
+- **Milestone 1. WebSocket.** The browser holds a peer and moves OCapN frames
+  over a WebSocket to a peer that accepts WebSocket connections. This makes the
+  browser a first-class OCapN peer and retires the per-tab bridge: the rooms
+  `serve.ts` is a static file server plus a WebSocket-accepting netlayer in
+  front of the room server, with no protocol translation.
 - **Milestone 2. WebRTC DataChannel.** Two browsers speak OCapN directly over a
   reliable, ordered WebRTC DataChannel. The room introduces them and relays the
   WebRTC signaling (SDP/ICE) between them. The DataChannel is the message stream
-  framing needs; DTLS is the encryption; the room's introduction supplies the
+  framing needs. DTLS is the encryption. The room's introduction supplies the
   signaling path. Composing that path with generic Host handoff redemption is a
   separate step.
 
 ## Scope (what this does not decide)
 
-Milestone 1 has landed. `zig build wasm-driver` compiles the byte-fed
+Milestone 1: `zig build wasm-driver` compiles the byte-fed
 `c_abi_host` root and the shared `c_abi` vocabulary into one freestanding
-`wasm32` module, `glowcap_driver.wasm`; the native `libglowcap_driver` loop
-archive (ADR-0112) is a separate socket-owning artifact and is not in wasm.
+`wasm32` module, `glowcap_driver.wasm`. The native `libglowcap_driver` loop
+archive (ADR-0112) is a separate socket-owning artifact outside wasm.
 `zig build wasm-driver-test` drives a keyed handshake between two Hosts over an
-in-memory byte pipe; and `@glowcap/web` (`bindings/ts/web`) runs the full
+in-memory byte pipe, and `@glowcap/web` (`bindings/ts/web`) runs the full
 `@glowcap/runtime` surface over the module with a WebSocket byte channel,
 proved end to end by `zig build web-peer-test`.
 
-ADR-0089's DataChannel and signaling portions of Milestone 2 have also landed.
-The browser and native arms establish direct channels after signaling, and a
-shared native endpoint reports peer events through one readiness descriptor.
-Generic Host adoption and three-party redeem over WebRTC ship with that ADR
-(`webrtc-loop`, `webrtc-bridge-redeem`, `webrtc-driver-provider`). A bare
-WebRTC locator still needs configured signaling authority, as documented in
+Milestone 2: ADR-0089 ships the DataChannel and signaling portions. The browser
+and native arms establish direct channels after signaling, and a shared native
+endpoint reports peer events through one readiness descriptor. Generic Host
+adoption and three-party redeem over WebRTC ship with that ADR (`webrtc-loop`,
+`webrtc-bridge-redeem`, `webrtc-driver-provider`). A bare WebRTC locator needs
+configured signaling authority, as documented in
 [`docs/boundaries.md`](../../boundaries.md).
 
-The Decision above predates the byte-fed Host consolidation (ADR-0072,
-ADR-0079): the wasm root now forces the `glowcap_host_*` and `glowcap_*`
-families into one module rather than exposing the `glowcap_ocapn.wasm` it
-names, and a browser drives the `Host` / `Session` binding surface, not the
-retired `Peer` / `Node` shape. The seam it plugs into is unchanged: one
-byte-fed FFI boundary swapped for a WebAssembly instance.
+Following the byte-fed Host consolidation (ADR-0072, ADR-0079), the wasm root
+forces the `glowcap_host_*` and `glowcap_*` families into one module instead of
+exposing the `glowcap_ocapn.wasm` the Decision names, and a browser drives the
+`Host` / `Session` binding surface. The seam is the same: one byte-fed FFI
+boundary swapped for a WebAssembly instance.
 
 ## Alternatives Considered
 
-- **Keep the bridge.** Rejected: the browser stays a client of a peer rather than
-  a peer, so browser-to-browser introduction (the demo's whole point) can never
-  be direct.
+- **Keep the bridge.** Rejected: the browser stays a client of a peer instead of a
+  peer, so browser-to-browser introduction can never be direct.
 - **Reimplement the protocol in TypeScript.** Rejected: two codecs and two session
-  engines drift, and it discards the one-core property that makes conformance a
-  single authority. The core is already `wasm32`-clean; recompiling it is cheaper
-  and truer than rewriting it.
-- **WebTransport instead of WebRTC for Milestone 2.** Noted, not chosen: HTTP/3
+  engines drift, and conformance loses its single authority. The core is
+  `wasm32`-clean, so recompiling it is cheaper than rewriting it.
+- **WebTransport instead of WebRTC for Milestone 2.** Not chosen: HTTP/3
   WebTransport gives QUIC-like streams but only browser-to-server, so it does not
   reach the browser-to-browser handoff. It is a reasonable alternative transport
   for the Milestone 1 (server-facing) role.
 
 ## Consequences
 
-- A new binding target under `bindings/ts` (a `web`/wasm variant) that supplies a
+- A binding target under `bindings/ts` (a `web`/wasm variant) supplies a
   WebAssembly implementation of the FFI seam and reuses `mod.ts` above it.
-- The C ABI (`src/c_abi/ocapn`) must stay compilable to a freestanding `wasm32`
-  module with JS-callable exports and explicit linear-memory ownership: the same
-  `ptr + len` and explicit-release contract it exports for C today, now honored
-  across the WASM/JS boundary.
+- The C ABI (`src/c_abi/ocapn`) stays compilable to a freestanding `wasm32`
+  module with JS-callable exports and explicit linear-memory ownership: the
+  `ptr + len` and explicit-release contract it exports for C holds across the
+  WASM/JS boundary.
 - A browser transport pair: a WebSocket netlayer the room server can accept on
   (Milestone 1), and a WebRTC DataChannel netlayer with room-relayed signaling
   (Milestone 2), added as `net.netlayer.Netlayer` residents the way iroh was
   (ADR-0055), with no core or session edit.
-- At Milestone 1 the rooms `serve.ts` bridge retires. Milestone 2 supplies the
+- Milestone 1 retires the rooms `serve.ts` bridge. Milestone 2 supplies the
   direct keyed browser-to-browser session, signaling capability, and generic
   Host handoff redemption (ADR-0089).
 
 ## Forward compatibility
 
-The C ABI's export surface stays free of host assumptions (no Deno, no OS types
+The C ABI's export surface is free of host assumptions (no Deno, no OS types
 in signatures) so a single archive serves both `Deno.dlopen` and WASM
-instantiation. WebRTC's NAT traversal uses STUN, and TURN as a fallback relay;
+instantiation. WebRTC's NAT traversal uses STUN, and TURN as a fallback relay.
 TURN relays only encrypted DTLS bytes and sees no OCapN semantics, so the
-capability model holds even when the direct path fails.
+capability model holds when the direct path fails.

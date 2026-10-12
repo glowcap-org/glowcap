@@ -1,6 +1,6 @@
 // Where an address stands in the /ops namespace: not in it at all, on the
 // index, or on a segment. `App` reads this to decide what the content cell
-// draws; the route owns what standing there does.
+// draws. The route owns what standing there does.
 
 export function opsAddressOf(
 	pathname: string,

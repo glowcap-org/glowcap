@@ -373,7 +373,7 @@ async def _host_close_shuts_a_still_open_listener() -> None:
 async def _observe_session_retirement_without_serve_or_close() -> None:
     """``Session.closed()`` waits for retirement without requesting close or
     starting inbound delivery. Independent and late observers share the
-    terminal result; cancelling one waiter leaves the session live."""
+    terminal result. Cancelling one waiter leaves the session live."""
     from glowcap._session import Session
 
     class MemoryChannel:

@@ -1,6 +1,6 @@
 //! Why a session tore down.
 //!
-//! `AbortKind` is the closed set of reasons a peer ends a session; `AbortReason`
+//! `AbortKind` is the closed set of reasons a peer ends a session. `AbortReason`
 //! pairs one with a human-readable message. The V1.0 single-string wire form
 //! `"<Label>: <message>"` is the codec's vocabulary, not the model's, the
 //! Syrup encoder builds it from `kind.wireName()` and the decoder recovers the

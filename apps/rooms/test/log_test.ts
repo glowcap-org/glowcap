@@ -186,7 +186,7 @@ Deno.test("equal text cannot hide a named line while another send waits for its 
 	const sending: Item = { kind: "chat", id: 1, from: "ada", text: "hello", mine: true, at: 0, state: "sending" };
 	const echo: Item = { kind: "chat", id: 2, from: "ada", text: "hello", mine: true, at: 1, lineId: 7 };
 	assertEquals(drawnIds([sending, echo]), [1, 2]);
-	// A failed send no longer waits, so the room's copy shows beside it.
+	// A failed send does not wait, so the room's copy shows beside it.
 	assertEquals(drawnIds([{ ...sending, state: "failed" }, echo]), [1, 2]);
 	// Different words, another of this reader's lines, and somebody else's
 	// line with the same words all draw at once.

@@ -27,7 +27,7 @@ use crate::{ListenerIdentity, Result};
 use std::rc::Rc;
 
 /// A listening server, the host-side counterpart of [`crate::Runtime::connect`]. Call
-/// [`Server::accept`] for each partner; every accepted [`Session`] shares the
+/// [`Server::accept`] for each partner. Every accepted [`Session`] shares the
 /// server's one [`Host`] (its retained identity and handoff router), so
 /// the server is one Host serving many partners.
 ///
@@ -45,7 +45,7 @@ pub struct Server {
 /// Listener options shared by the `tcp`, `keyed-tcp`, and `noise-tcp`
 /// profiles. `advertised_host` is required for a wildcard bind. The identity
 /// is a sum rather than two optional fields, so conflicting seed and Host
-/// authority is unrepresentable; [`ListenerIdentity::Host`] shares an existing
+/// authority is unrepresentable. [`ListenerIdentity::Host`] shares an existing
 /// capability identity and session directory.
 #[cfg(feature = "tcp")]
 #[derive(Default)]
@@ -58,9 +58,9 @@ pub struct ListenOptions {
 #[cfg(feature = "tcp")]
 impl Server {
 	/// Accept the next partner as a ready [`Session`], sharing this server's
-	/// [`Host`]. The keyed handshake completes before this resolves; a partner
-	/// that fails it — a rude probe that connects and hangs up, or a stray port
-	/// scan — is that session's failure, never the listener's, so the accept
+	/// [`Host`]. The keyed handshake completes before this resolves. A partner
+	/// that fails it, a rude probe that connects and hangs up, or a stray port
+	/// scan, is that session's failure, never the listener's, so the accept
 	/// skips it and keeps serving. Must be called inside a `LocalSet` (the
 	/// handle graph is `!Send`).
 	///
@@ -106,7 +106,7 @@ impl Server {
 	}
 
 	/// Stop admitting partners. Sessions already returned by [`Server::accept`]
-	/// remain live; close them individually or close the shared [`Host`].
+	/// remain live. Close them individually or close the shared [`Host`].
 	pub async fn close(&self) -> Result<()> {
 		self.listener.close().await
 	}
@@ -163,7 +163,7 @@ fn advertised_direct_address(host: &str, port: u16) -> Result<String> {
 }
 
 /// Bind one TCP-provider profile. `transport` is the symbol the caller's
-/// `tcp::listen`, `tcp::keyed::listen`, or `tcp::noise::listen` names; the
+/// `tcp::listen`, `tcp::keyed::listen`, or `tcp::noise::listen` names. The
 /// bind, admission, and server lifecycle are the same for all three, and the
 /// shared [`crate::server::bind_loop_listener`] spine runs them. This module
 /// owns only the two TCP-shaped steps: the resolved bind address the listener
@@ -329,7 +329,7 @@ mod tests {
 			.await;
 	}
 
-	// A rude TCP probe — connect, say nothing, hang up — is that connection's
+	// A rude TCP probe, connect, say nothing, hang up, is that connection's
 	// failure, not the listener's: `accept` skips it internally and serves the
 	// next, real client. Without that isolation one port scan takes a
 	// long-lived server down.

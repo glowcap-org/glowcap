@@ -5,7 +5,7 @@ const AllocationBound = @import("call_memory.zig").AllocationBound;
 
 /// Values counts roots and every descendant, including struct values. Keys
 /// count separately in struct_entries. Bytes sums every copied leaf occurrence,
-/// including keys, tags, digits and error text; capabilities counts occurrences.
+/// including keys, tags, digits and error text. Capabilities counts occurrences.
 pub const Bounds = struct {
     values: usize = 0,
     struct_entries: usize = 0,
@@ -19,8 +19,8 @@ pub const Bounds = struct {
 };
 
 /// Every container element is one counted value or struct entry. Positive
-/// child-spine requests cannot exceed those totals. Root arrays are included;
-/// the owning C reply conversion uses one even for a scalar result.
+/// child-spine requests cannot exceed those totals. Root arrays are included.
+/// The owning C reply conversion uses one even for a scalar result.
 pub fn allocationBound(comptime To: type, shape: Bounds) !AllocationBound {
     try shape.validate();
     var bound: AllocationBound = .{};
@@ -31,9 +31,7 @@ pub fn allocationBound(comptime To: type, shape: Bounds) !AllocationBound {
     return bound;
 }
 
-pub fn copy(comptime To: type, allocator: std.mem.Allocator, value: anytype) anyerror!To {
-    return driver.copyValue(To, allocator, value) catch |err| switch (err) {
-        error.UnsupportedValue => error.NotDurable,
-        else => err,
-    };
+pub fn copy(comptime To: type, allocator: std.mem.Allocator, value: anytype) !To {
+    return driver.copyValue(To, allocator, value) catch |err|
+        if (err == error.UnsupportedValue) error.NotDurable else err;
 }

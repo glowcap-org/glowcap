@@ -1,5 +1,5 @@
 //! Bounded cold publication lookup on the existing attachment's storage lane.
-//! Names coalesce before I/O; only successful fetches create actor endpoints.
+//! Names coalesce before I/O. Only successful fetches create actor endpoints.
 const std = @import("std");
 const core = @import("loam_core");
 const driver = @import("driver_core");

@@ -12,7 +12,7 @@ export function parseArchiveShareKind(raw: unknown): ArchiveShareKind {
 }
 
 /** Archive conversation identity for one live conversation. Held rooms and every
- * direct line key on persistId; a public room keys on its lowercase name. */
+ * direct line key on persistId. A public room keys on its lowercase name. */
 export function archiveConversationIdentity(conversation: {
 	readonly type: "room" | "dm";
 	readonly persistId: string;

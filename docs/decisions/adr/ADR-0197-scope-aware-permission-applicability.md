@@ -3,7 +3,7 @@ id: ADR-0197
 status: accepted
 date: 2026-10-04
 tags: [loam, authority, persistence]
-decision: "Persist exact-object and future-subtree permission support by resource kind; validate scoped terms, exact effects, and containment at shared owners."
+decision: "Persist exact-object and future-subtree permission support by resource kind. Validate scoped terms, exact effects, and containment at shared owners."
 supersedes: []
 superseded_by: []
 amends: []
@@ -26,7 +26,7 @@ an exact-object permission mask and an owned-subtree mask covering future
 children. Both masks use the complete vocabulary's stable ordering, obey its
 permission dependencies, and keep exact support within subtree support.
 An empty table explicitly declares kind-independent policy. A nonempty table
-refuses unknown kinds. The owner record persists this contract; registration
+refuses unknown kinds. The owner record persists this contract. Registration
 callbacks cannot replace it.
 
 Terms validation uses exact support for one object, the union of exact support
@@ -39,15 +39,15 @@ operations on the room itself.
 
 Creation and reparenting require the child's subtree support to fit the parent's
 subtree support. This relation composes along containment without enumerating
-descendants. The structural Graph receives the policy as a synchronous borrow;
-the stored participants use their current owner descriptor. Validation precedes
+descendants. The structural Graph receives the policy as a synchronous borrow.
+The stored participants use their current owner descriptor. Validation precedes
 mutation, including a same-parent move. Application schemas still own semantic
 parent relations and committed content facts.
 
 The fixed-resource C/Rust factory grants the original endpoint its exact kind's
 supported permissions while retaining the complete descriptor. Rooms projects
 its declared session interface. Recursive Rooms kinds require their own content
-declarations; generic attenuation never translates conversation permissions into
+declarations. Generic attenuation never translates conversation permissions into
 independent exact-message permissions.
 
 ## Alternatives considered
@@ -69,7 +69,7 @@ Owner encoding adds at most 16 byte strings of 24 bytes, within its existing
 
 Old prerelease owner encodings without the kind list refuse decoding. Consumers
 rebuild against the generated C and Rust layouts. Operators explicitly create a
-fresh store and reissue authority; reopening refuses incompatible state.
+fresh store and reissue authority. Reopening refuses incompatible state.
 
 ## Scope
 

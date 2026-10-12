@@ -21,7 +21,7 @@ import {
 import { observationsOf } from "../engine/temporal/recording-access.ts";
 import type { TimelineEvent } from "../engine/timeline.ts";
 
-/** An Ed25519 public key in canonical hex — how every key netlayer spells a
+/** An Ed25519 public key in canonical hex, how every key netlayer spells a
  *  designator (ADR-0075). */
 const KEY_DESIGNATOR = /^[0-9a-f]{64}$/;
 
@@ -132,7 +132,7 @@ Deno.test("an attached end names a peer the recording declares, by the designato
 				assert(def !== undefined, `${doc.id}: no peer ${end.peer}`);
 				// `indexPeersByDesignator` matches a claim against a peer's
 				// DESIGNATOR, never its id, so a peer with none can never be
-				// what a claim names — on stage or in the layout.
+				// what a claim names, on stage or in the layout.
 				assertEquals(
 					def.designator,
 					end.designator,
@@ -147,7 +147,7 @@ Deno.test("a peer is identified by the name it answers to on the wire", () => {
 	// What `StageLedger` produces from a live feed, held for the authored
 	// recordings too. `ensurePeer` takes the peer's durable wire name as its
 	// key and mints the stage id from it, and the converter passes the
-	// designator as that key — so in a real recording a peer's id IS its
+	// designator as that key. So in a real recording a peer's id IS its
 	// designator, and `label` is display only, the friendly name a producer
 	// asked to be shown instead of its key.
 	//
@@ -219,7 +219,7 @@ Deno.test("between them the recordings show every attribution the schema declare
 
 Deno.test("no shipped message comes from a peer its session cannot name yet", () => {
 	// A message rides one session, so the two things it can have come from are
-	// the two ends of that session — and an end nobody has attributed is not a
+	// the two ends of that session, and an end nobody has attributed is not a
 	// peer. Naming one anyway is the recording claiming to know who sent
 	// something at a moment when the wire did not, which is the same overreach
 	// the endpoint vocabulary exists to refuse. It also shows: the stage draws

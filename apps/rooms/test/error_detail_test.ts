@@ -31,6 +31,25 @@ Deno.test("an unexpected failure keeps its diagnostic without inventing retry au
 	});
 });
 
+Deno.test("a native access denial explains permissions and keeps the exact diagnostic", () => {
+	const diagnostic = "glowcap error -12: Denied";
+	const view = failureView(new Error(diagnostic));
+	assertEquals(view.code, "access-denied");
+	assertEquals(view.retry, "after-state-change");
+	assertEquals(view.detail, diagnostic);
+	assertEquals(view.summary, "This access doesn't allow that action.");
+	assertEquals(view.action, "Ask whoever shared it to review the permissions.");
+	for (
+		const message of [
+			"transport: Denied",
+			"glowcap error -12: upstream: Denied",
+			"glowcap error -12: Denied: nick-taken",
+		]
+	) {
+		assertEquals(failureView(new Error(message)).code, "unexpected");
+	}
+});
+
 Deno.test("a short refusal stays beside the control", () => {
 	assertEquals(needsErrorDetail("That name is too long for this room (32 characters)."), false);
 	assertEquals(needsErrorDetail("Not sent"), false);

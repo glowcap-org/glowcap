@@ -1,6 +1,6 @@
 // Rooms direct-message-by-introduction demo (three-party handoff, gifter side),
-// over loopback TCP. This orchestrator starts the native Rust rooms-server;
-// the handoff choreography and its three proofs live in `runDmHandoff`.
+// over loopback TCP. This orchestrator starts the native Rust rooms-server.
+// The handoff choreography and its three proofs live in `runDmHandoff`.
 // Run by `zig build demo-rooms-dm`.
 
 import { startServer } from "../test/support/native_server.ts";

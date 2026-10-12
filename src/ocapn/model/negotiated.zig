@@ -1,26 +1,26 @@
 //! The words two peers settle on at handshake.
 //!
-//! None of these is a message; they are the vocabulary a handshake negotiates
+//! None of these is a message. They are the vocabulary a handshake negotiates
 //! over, which codec frames the bytes, which CapTP version is spoken, and which
 //! optional features both sides advertised. The negotiation itself is a pure
-//! function of two peers' offers in `engine.negotiation`; these are the types it
+//! function of two peers' offers in `engine.negotiation`. These are the types it
 //! reads and returns. They carry no codec, no allocation, and no authority.
 
 const std = @import("std");
 
 /// Which wire codec a direct session speaks. The two built-ins are `capnp` (the
 /// native word-aligned fast path) and `syrup` (the byte-record one everyone can
-/// fall back to); negotiation lists them best-first and breaks ties on that
+/// fall back to). Negotiation lists them best-first and breaks ties on that
 /// order.
 ///
-/// The enum is non-exhaustive on purpose: a consumer can mint their own codec id
+/// The enum is non-exhaustive: a consumer can mint their own codec id
 /// (`@enumFromInt` past the built-ins) and register it with `codec.registry`, so
 /// "bring your own codec" needs no fork of this type. The tag is a stable `u16`
 /// wire identity, built-in values never move.
 ///
-/// This lives in `model` rather than `codec`, and that's deliberate. The session
+/// This lives in `model` rather than `codec`. The session
 /// has to record which codec it picked, but it must not depend on a codec to do
-/// it; the choice stays the session's to make. So the id sits down here,
+/// it. The choice stays the session's to make. So the id sits down here,
 /// `codec.registry`/`codec.dispatch` resolve it to an implementation, and
 /// `engine.negotiation` is what settles it during the handshake.
 pub const CodecId = enum(u16) {
@@ -30,7 +30,7 @@ pub const CodecId = enum(u16) {
 };
 
 /// What one peer prefers for a session: one CapTP version, one codec, and the
-/// features it can do. Plain vocabulary, like everything else in this file —
+/// features it can do. Plain vocabulary, like everything else in this file,
 /// the session records each side's, and `engine.negotiation` settles them.
 ///
 /// Only the preference travels, never the accepted set, because a glowcap peer
@@ -59,9 +59,9 @@ pub const Preference = struct {
 };
 
 /// CapTP version spoken on a session. Two jobs, one axis:
-/// - `v1_0` / `"1.0"` — glowcap's current Goblins 0.18.0 and pinned-suite
+/// - `v1_0` / `"1.0"`: glowcap's current Goblins 0.18.0 and pinned-suite
 ///   interop floor. The wire token does not claim the draft is released.
-/// - `next` / `"glowcap-next"` — glowcap-forward private track for glowcap-to-glowcap.
+/// - `next` / `"glowcap-next"`: glowcap-forward private track for glowcap-to-glowcap.
 pub const CaptpVersion = enum {
     v1_0,
     next,
@@ -86,7 +86,7 @@ pub const CaptpVersion = enum {
     /// the exact string `wireString` emits, so the two directions cannot drift
     /// and a new version is covered the moment it has a `wireString` arm.
     /// Spellings `wireString` never emits (including the former lenient
-    /// `"ocapn-1.0"` alias) are refused — pinned by `test/model/model_test.zig`
+    /// `"ocapn-1.0"` alias) are refused, pinned by `test/model/model_test.zig`
     /// and the Syrup decode negative in `test/codec/syrup/decode_test.zig`.
     pub fn fromWireString(wire: []const u8) ?CaptpVersion {
         inline for (@typeInfo(CaptpVersion).@"enum".field_values) |field_value| {
@@ -98,7 +98,7 @@ pub const CaptpVersion = enum {
 };
 
 /// Optional CapTP capabilities a session may negotiate. Every field here is
-/// gated in `session.validate` when the matching ops run — do not add a bit
+/// gated in `session.validate` when the matching ops run, do not add a bit
 /// that nothing enforces.
 pub const FeatureSet = packed struct {
     pipelining: bool = false,
@@ -131,7 +131,7 @@ pub const FeatureSet = packed struct {
     }
 
     /// Capabilities an OCapN 1.0 peer can be assumed to support when it sends
-    /// no glowcap feature hint. This is intentionally not `full`: the pinned
+    /// no glowcap feature hint. This is not `full`: the pinned
     /// draft includes `op:untag`, but Goblins does not implement it.
     pub fn baseline() FeatureSet {
         return .{
@@ -179,7 +179,7 @@ pub const FeatureSet = packed struct {
     /// two peers' advertised sets, so neither side exercises a capability the
     /// other did not advertise. Pure and symmetric:
     /// `a.intersect(b) == b.intersect(a)`. The feature half of
-    /// `engine.negotiation.negotiate`; the codec half lives there.
+    /// `engine.negotiation.negotiate`. The codec half lives there.
     pub fn intersect(self: FeatureSet, other: FeatureSet) FeatureSet {
         var out: FeatureSet = .{};
         inline for (@typeInfo(FeatureSet).@"struct".field_names) |field_name| {
@@ -190,7 +190,7 @@ pub const FeatureSet = packed struct {
 
     /// Stable hint representation: enabled field names, comma-separated in
     /// declaration order. Callers omit the hint when the offered set is the
-    /// compatibility baseline; if the hint is present, the minimum set is the
+    /// compatibility baseline. If the hint is present, the minimum set is the
     /// empty string.
     pub fn toWireString(self: FeatureSet, buf: []u8) error{NoSpace}![]const u8 {
         var len: usize = 0;

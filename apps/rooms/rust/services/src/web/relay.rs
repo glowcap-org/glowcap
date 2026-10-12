@@ -61,6 +61,7 @@ impl Limits {
 	}
 }
 pub(super) struct Relay {
+	admission: Rc<super::admission::Admission>,
 	slots: Arc<Semaphore>,
 	registry: Rc<super::rendezvous::Registry>,
 	iroh: Arc<Semaphore>,
@@ -71,15 +72,39 @@ pub(super) struct Relay {
 	stop: watch::Receiver<bool>,
 }
 impl Relay {
+	#[cfg(test)]
 	pub fn new(
 		limits: Limits,
 		location: watch::Receiver<Option<Announcement>>,
 		jobs: mpsc::Sender<Job>,
 		stop: watch::Receiver<bool>,
 	) -> Rc<Self> {
+		Self::with_admission(
+			limits,
+			location,
+			jobs,
+			stop,
+			super::admission::Admission::new(super::admission::Config {
+				settings: rooms_application::admission::Settings::defaults(2048, 8),
+				per_address: false,
+			}),
+		)
+	}
+	pub fn with_admission(
+		limits: Limits,
+		location: watch::Receiver<Option<Announcement>>,
+		jobs: mpsc::Sender<Job>,
+		stop: watch::Receiver<bool>,
+		admission: Rc<super::admission::Admission>,
+	) -> Rc<Self> {
 		Rc::new(Self {
+			admission: admission.clone(),
 			slots: Arc::new(Semaphore::new(limits.sessions)),
-			registry: super::rendezvous::Registry::new(limits.registrations, limits.per_identity),
+			registry: super::rendezvous::Registry::with_profile(
+				limits.registrations,
+				limits.per_identity,
+				admission.settings().profile(),
+			),
 			iroh: Arc::new(Semaphore::new(limits.iroh)),
 			starts: Cell::new((limits.iroh as f64, Instant::now())),
 			limits,
@@ -90,7 +115,7 @@ impl Relay {
 	}
 	pub fn upgrade(&self, mut request: Request<Incoming>, target: &str, rendezvous: bool) -> super::http::Reply {
 		// A rendezvous dial is the one path a page from another deployment may
-		// take on purpose: a `keyed-relay` locator carries its relay route in
+		// take: a `keyed-relay` locator carries its relay route in
 		// its `rendezvous-relay` hint, and the redeemer follows that hint, so
 		// the Origin rule cannot apply. What bounds it instead is the registry's
 		// own per-identity claim rate.
@@ -143,6 +168,12 @@ impl Relay {
 			Ok(prepared) => prepared,
 			Err(reason) => return refusal(StatusCode::BAD_REQUEST, reason),
 		};
+		if let Err(refusal) = self.admission.start(
+			rooms_application::admission::Class::HttpStart,
+			request.extensions().get::<std::net::IpAddr>().copied(),
+		) {
+			return super::admission::reply(refusal);
+		}
 		if iroh_slot.is_some() {
 			let (tokens, at) = self.starts.get();
 			self.starts.set((tokens - 1.0, at));
@@ -179,6 +210,12 @@ impl Relay {
 			Ok(prepared) => prepared,
 			Err(reason) => return refusal(StatusCode::BAD_REQUEST, reason),
 		};
+		if let Err(refusal) = self.admission.start(
+			rooms_application::admission::Class::HttpStart,
+			request.extensions().get::<std::net::IpAddr>().copied(),
+		) {
+			return super::admission::reply(refusal);
+		}
 		let stop = self.stop.clone();
 		queue.send(Box::pin(async move {
 			let _slot = slot;
@@ -208,6 +245,12 @@ impl Relay {
 			Ok(prepared) => prepared,
 			Err(reason) => return refusal(StatusCode::BAD_REQUEST, reason),
 		};
+		if let Err(refusal) = self.admission.start(
+			rooms_application::admission::Class::Registration,
+			request.extensions().get::<std::net::IpAddr>().copied(),
+		) {
+			return super::admission::reply(refusal);
+		}
 		let registration = match self.registry.register(identity) {
 			Ok(registration) => registration,
 			Err(reason) => return refusal(StatusCode::SERVICE_UNAVAILABLE, reason),
@@ -397,10 +440,9 @@ pub(super) fn origin_allowed<B>(request: &Request<B>) -> bool {
 	matches!(origin.scheme(), "http" | "https") && &origin[url::Position::BeforeHost..url::Position::AfterPort] == host
 }
 pub(super) fn refusal(status: StatusCode, text: &'static str) -> super::http::Reply {
-	Response::builder()
-		.status(status)
-		.body(Full::new(Bytes::from_static(text.as_bytes())))
-		.expect("fixed status")
+	let mut reply = Response::new(Full::new(Bytes::from_static(text.as_bytes())));
+	*reply.status_mut() = status;
+	reply
 }
 async fn pump<A: AsyncRead + AsyncWrite + Unpin, B: AsyncRead + AsyncWrite + Unpin>(
 	near: &mut A,

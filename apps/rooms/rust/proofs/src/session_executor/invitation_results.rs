@@ -1,4 +1,4 @@
-//! Invitation entrances stay private; only the executor acquires membership.
+//! Invitation entrances stay private. Only the executor acquires membership.
 use super::membership_results::{self as membership, MEMBER};
 use super::publication_results::{coordinate, lifecycle};
 use super::*;

@@ -9,14 +9,16 @@ pub const Preparation = @import("preparation.zig").Preparation;
 /// is deterministic for the supplied inputs: no I/O or external effects. State
 /// replacement, transaction staging, and held local references are explicit.
 pub const Behavior = struct {
+    /// The application's call callbacks. Implementors are unknown at this
+    /// declaration, so `prepare` and `invoke` keep `anyerror` return sets.
     schema: u64,
     version: u32 = 1,
     context: ?*anyopaque = null,
-    /// Borrowed configuration; preparation state belongs to the retained call.
+    /// Borrowed configuration. Preparation state belongs to the retained call.
     prepare: ?*const fn (*Call, []const u8, []const driver.Value) anyerror!Preparation = null,
     /// Reply bytes and spines must remain valid and unchanged until the call
     /// releases, including storage recovery and settlement retries. Use the
-    /// supplied arena, retained inputs or prepared portrait; copy mutable
+    /// supplied arena, retained inputs or prepared portrait. Copy mutable
     /// callback-context data into that arena before returning it.
     invoke: *const fn (*Call, core.RecordView, []const u8, []const driver.Value) anyerror!driver.Value,
 };
@@ -38,9 +40,9 @@ pub const Call = struct {
     memory: *Memory,
     attachment: *hosting.Attachment,
     /// Borrowed only through this retained call's preparation. Child effects
-    /// remain admitted across Host finish; resident near calls own no lease.
-    /// One inline pointer per operation slot adds no allocation or owner;
-    /// the enclosing Operation keeps the actual lease stable until settlement.
+    /// remain admitted across Host finish. Resident near calls own no lease.
+    /// One inline pointer per operation slot adds no allocation or owner.
+    /// The enclosing Operation keeps the actual lease stable until settlement.
     work: ?*const driver.Host.PendingWorkLease = null,
     view: core.RecordView,
     context: ?*anyopaque = null,
@@ -48,8 +50,10 @@ pub const Call = struct {
     references: ?*@import("references.zig").Set = null,
     transaction: ?Transaction = null,
     /// Materialize at the top-level Host boundary after staging, before write
-    /// submission. Reserve custody here; expose no externally usable authority.
+    /// submission. Reserve custody here. Expose no externally usable authority.
     /// Returned data obeys the same retained lifetime as the invocation reply.
+    /// Implementors are unknown at this declaration, so `result` keeps an
+    /// `anyerror` return set.
     result: ?*const fn (*Call) anyerror!driver.Value = null,
     /// Infallible activation after confirmed commit, before reply projection.
     /// Runs once even if settlement needs retry. Read-only results activate at
@@ -65,9 +69,13 @@ pub const Call = struct {
     /// The operation retains its answer until ordinary resolver settlement.
     forward: ?struct { target: driver.Capability, verb: []const u8, args: []const driver.Value } = null,
     replacement: ?[]const u8 = null,
+    /// Application refusal copied into the bounded working arena. Only an
+    /// invocation that fails may publish it. Storage and activation failures
+    /// keep their own verdict. No successful call allocates refusal storage.
+    refusal: ?[]const u8 = null,
     /// A dependent projection enters through `view`'s endpoint authority but
     /// invokes the content behind this separately held durable capability.
-    /// The operation owns the retain; the call only borrows it.
+    /// The operation owns the retain. The call only borrows it.
     dependent_target: ?driver.Capability = null,
     held: std.ArrayList(driver.Capability) = .empty,
     disclosed_from: usize = unrestricted_reply,
@@ -76,13 +84,21 @@ pub const Call = struct {
     pub fn arena(self: *Call) std.mem.Allocator {
         return self.memory.working.allocator();
     }
+
+    pub fn refuseCopying(self: *Call, reason: []const u8) !void {
+        if (self.refusal != null) return error.WrongPhase;
+        if (reason.len == 0 or reason.len > 1024 or !std.unicode.utf8ValidateSlice(reason)) return error.InvalidArgument;
+        self.refusal = try self.arena().dupe(u8, reason);
+    }
     pub const Transaction = struct {
         context: *anyopaque,
-        /// Stage only into the attachment's open batch; never begin or commit.
+        /// Stage only into the attachment's open batch. Never begin or commit.
+        /// Implementors are unknown at this declaration, so `stage` keeps an
+        /// `anyerror` return set.
         stage: *const fn (*anyopaque, *core.Store) anyerror!void,
     };
 
-    /// Stages replacement payload; the actor's committed edges are unchanged.
+    /// Stages replacement payload. The actor's committed edges are unchanged.
     /// The caller's buffer must remain valid through invocation return.
     pub fn replace(self: *Call, payload: []const u8) void {
         self.replacement = payload;
@@ -138,7 +154,7 @@ pub const Call = struct {
     }
 
     /// Retain a same-attachment durable capability through settlement. This
-    /// is the custody seam for a reference-field replacement; capture proves
+    /// is the custody seam for a reference-field replacement. Capture proves
     /// its restoration recipe before the content delta records it.
     pub fn capture(self: *Call, ref: driver.Capability) !core.Edge {
         const captured = try self.attachment.capture(ref);
@@ -150,7 +166,7 @@ pub const Call = struct {
     }
 
     /// Mint a runtime facet that preserves both the invoking endpoint and a
-    /// stored target capability. It is deliberately not a durable record: its
+    /// stored target capability. It is not a durable record: its
     /// two held authorities are the only way to construct or keep it alive.
     pub fn projectDependent(self: *Call, target: driver.Capability) !driver.Capability {
         try self.held.ensureUnusedCapacity(self.arena(), 1);
@@ -160,8 +176,8 @@ pub const Call = struct {
     }
 
     /// Adopt one already-owned retain after reserving a held-list slot. Custody
-    /// alone never authorizes a reply. The prefix owns undisclosed references;
-    /// the suffix owns declared references. Insertion rotates one suffix entry
+    /// alone never authorizes a reply. The prefix owns undisclosed references.
+    /// The suffix owns declared references. Insertion rotates one suffix entry
     /// into the new slot, preserving that partition without another allocation.
     pub fn adoptRetain(self: *Call, ref: driver.Capability) void {
         self.held.appendAssumeCapacity(ref);

@@ -1,13 +1,14 @@
-// The lenient way into a room — a CLI convenience, not part of the OCapN layer.
+// The lenient way into a room, a CLI convenience that is not part of the OCapN
+// layer.
 //
 // The wire and the `Directory` wrapper stay strict: `open` errors if the room
-// exists, `enter` errors if it does not. That distinction is the capability
-// lesson, and a programmatic caller wants it. But a person at a terminal (or a
-// browser tab) just wants to "be in `general`" without first knowing whether
-// anyone has opened it. So the apps reach a room through `enterOrOpen`: try
-// `enter`, fall back to `open`, and on a creation race fall back to `enter` once
-// more. This leniency lives here, in the app layer, on top of the strict
-// `Directory` — never inside it.
+// exists, and `enter` errors if it does not. That distinction is the capability
+// lesson, and a programmatic caller wants it. A person at a terminal (or a
+// browser tab) wants to "be in `general`" without first knowing whether anyone
+// has opened it. So the apps reach a room through `enterOrOpen`: try `enter`,
+// fall back to `open`, and on a creation race fall back to `enter` once more.
+// This leniency lives here, in the app layer, on top of the strict
+// `Directory`, and never inside it.
 
 import { Directory, Room } from "./room/client.ts";
 import type { Ref } from "@glowcap/runtime";
@@ -16,7 +17,7 @@ import { roomsErrorOf } from "./errors.ts";
 import { dialDirectory, type RoomsRuntime } from "./locator.ts";
 
 /** Get a reference to `name` on `dir`, opening the room if it does not exist
- * yet. Composes the directory's strict `enter`/`open`; the leniency is here. */
+ * yet. Composes the directory's strict `enter`/`open`. The leniency is here. */
 export async function enterOrOpen(dir: Directory, name: string): Promise<Ref> {
 	return (await enterOrOpenResult(dir, name)).ref;
 }
@@ -38,12 +39,12 @@ export async function enterOrOpenResult(
 		return { ref: managed.room, opened: true, roomLink: managed.roomLink, managerLink: managed.managerLink };
 	} catch (err) {
 		const code = roomsErrorOf(err)?.code;
-		// A directory that publishes no room managers still opens rooms; it just
-		// has no authority to hand back, which is why the links above are
-		// optional. Asking for the managed open first and falling back keeps the
-		// authority wherever it exists without making it a condition of entry.
-		// The plain open races the same way the managed one does, so it loses
-		// the same way: somebody else's room is one to enter, not an error.
+		// A directory that publishes no room managers still opens rooms. It has
+		// no authority to hand back, which is why the links above are optional.
+		// Asking for the managed open first and falling back keeps the authority
+		// wherever it exists without making it a condition of entry. The plain
+		// open races as the managed one does, so it loses the same way:
+		// somebody else's room is one to enter, not an error.
 		if (code === NO_ROOM_MANAGERS) {
 			try {
 				return { ref: await dir.open(name), opened: true };
@@ -58,9 +59,9 @@ export async function enterOrOpenResult(
 }
 
 /** The one-call friendly entry for a single-room session: connect, enter the
- * named room (opening it if new), and subscribe as `nick`. Returns the directory
- * too, since it owns the connection, `room.leave()` drops the room and
- * `dir.close()` ends the session. */
+ * named room (opening it if new), and subscribe as `nick`. Returns the
+ * directory too, since it owns the connection: `room.leave()` drops the room
+ * and `dir.close()` ends the session. */
 export async function joinRoom(
 	locator: string,
 	room: string,

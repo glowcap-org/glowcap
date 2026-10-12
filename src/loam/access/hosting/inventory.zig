@@ -89,7 +89,7 @@ pub const Page = struct {
 };
 
 /// Each policy projects its selected permission scalars, bound containers and
-/// three bound scalars. Unsigned leaves use at most 39 decimal bytes; labels
+/// three bound scalars. Unsigned leaves use at most 39 decimal bytes. Labels
 /// and tags add their fixed UTF-8 allowance. The shared receipt writer derives
 /// scalar/container overhead. This bound admits pages before allocating rows.
 fn rowSizeBound(item: storage.GrantInventory.Item, schema: *const @import("loam_access_core").Policy) !usize {
@@ -108,7 +108,7 @@ fn rowSizeBound(item: storage.GrantInventory.Item, schema: *const @import("loam_
 
 /// One retained-call allocation per projected spine and copied descriptive
 /// leaf. Rows outlive disk reads and their decoded source leases, so borrowing
-/// those labels would dangle. Page limits bound this owner; no grant mirror or
+/// those labels would dangle. Page limits bound this owner. No grant mirror or
 /// capability retain is created, and all storage retires with the call arena.
 pub fn encode(arena: std.mem.Allocator, schema: *const @import("loam_access_core").Policy, item: storage.GrantInventory.Item) !driver.Value {
     const values = try arena.alloc(driver.Value, 9);

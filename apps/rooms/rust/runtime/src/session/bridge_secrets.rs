@@ -285,7 +285,7 @@ impl BridgeSecrets {
 	}
 
 	/// Resolve a staged row after startup against the checkpoint that storage
-	/// actually recovered. The previous and candidate answers remain together in
+	/// recovered. The previous and candidate answers remain together in
 	/// this document until that decision is durable.
 	pub async fn recover(&self, witnesses: &[(DocumentText, DocumentText, Option<DocumentText>)]) -> Result<(), Error> {
 		let mut owner = self.0.lock().await;

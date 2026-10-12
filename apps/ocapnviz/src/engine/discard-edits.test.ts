@@ -6,7 +6,7 @@
  * not carry would survive, and the composition would come back mostly
  * reset, with nothing on screen reporting the part that did not. So
  * every claim here is measured against the whole document, and one
- * test drives the failure directly — it takes a snapshot round trip
+ * test drives the failure directly, it takes a snapshot round trip
  * past a field outside the snapshot's list and watches the edit
  * survive, then watches the discard remove it.
  *
@@ -19,7 +19,7 @@
  * nothing to do while Undo still held every edit.
  *
  * It is the strong half of a pair. `Engine.undoAll` walks the history
- * back and keeps it, so a reader can walk forward again; this one goes
+ * back and keeps it, so a reader can walk forward again. This one goes
  * back to the whole document however long ago it arrived, and empties
  * the history because the steps in it lead through a document that is
  * gone. The cases below hold both halves of that split.
@@ -29,8 +29,8 @@
  * document without first taking the document's own keys off it, and
  * one that restores through `takeSnapshot` / `restoreSnapshotInto`.
  * The first escaped an earlier draft of this file, which only ever
- * edited a field the source already carried — a changed field and an
- * added one fail differently, so the case now drives both.
+ * edited a field the source already carried, a changed field and an
+ * added one fail differently, so the case drives both.
  */
 
 import { assert, assertEquals } from "@std/assert";
@@ -42,12 +42,12 @@ function engineTest(name: string, fn: () => void): void {
 	Deno.test({ name, sanitizeOps: false, sanitizeResources: false, fn });
 }
 
-/** Two peers on a session, plus a provenance claim — a document field
+/** Two peers on a session, plus a provenance claim. A document field
  *  `DocSnapshot` does not carry, which one test below needs.
  *
- *  It used to be `dct:description`, which moved under `metadata` and went INTO
- *  the snapshot when a document's own fields became editable. `provenance` and
- *  `layoutMode` are what is left outside it, so they are what the test can say
+ *  `provenance` and `layoutMode` sit outside the snapshot (the document's own
+ *  fields live under `metadata` and are inside it), so they are what the test
+ *  can say
  *  this about. */
 const source = {
 	id: "discard-edits",
@@ -86,8 +86,8 @@ function freshEngine(): Engine {
 	return new Engine(TimelineDocument.parse(structuredClone(source)));
 }
 
-/** The whole document as comparable text. Deliberately not
- *  `takeSnapshot` — see this file's header. */
+/** The whole document as comparable text. Not
+ *  `takeSnapshot`, see this file's header. */
 function docText(e: Engine): string {
 	return JSON.stringify(e.doc);
 }
@@ -137,7 +137,7 @@ engineTest(
 		// would not have saved it either.
 		const e = freshEngine();
 		// An ordinary edit first, so there is history for the command to
-		// be offered on — which is also the shape this arises in, a
+		// be offered on, which is also the shape this arises in, a
 		// document carrying both kinds of difference at once.
 		e.dispatch({
 			kind: "update-peer",
@@ -218,7 +218,7 @@ engineTest("undo all reaches the same place and keeps the way back", () => {
 
 	e.undoAll();
 	// The same document the discard reaches, while the history has not
-	// overflowed — which is what makes the two commands a pair rather
+	// overflowed, which is what makes the two commands a pair rather
 	// than two spellings of one.
 	assertEquals(docText(e), sourceText());
 

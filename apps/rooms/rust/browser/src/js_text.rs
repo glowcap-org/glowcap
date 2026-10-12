@@ -1,6 +1,6 @@
 //! One owner for reading a bounded JavaScript string into Rust. A crossing is
 //! refused when it is longer than its caller's limit, and otherwise copied once.
-//! `scalar` requires Unicode scalar text; `document` keeps isolated UTF-16
+//! `scalar` requires Unicode scalar text. `document` keeps isolated UTF-16
 //! surrogates by copying them a code unit at a time only when the string is not
 //! well formed. `String.prototype.isWellFormed` answers that in one call without
 //! building a second JavaScript string.
@@ -54,7 +54,7 @@ pub fn scalar(value: &js_sys::JsString, max_units: usize) -> Result<String, Refu
 }
 
 /// Read a bounded document, keeping isolated UTF-16 surrogates. Only a document
-/// that is not well formed takes the slow code-unit path; ordinary text takes
+/// that is not well formed takes the slow code-unit path. Ordinary text takes
 /// the one bulk transfer.
 pub fn document(value: &js_sys::JsString, max_units: usize) -> Result<DocumentText, Refusal> {
 	if value.length() as usize > max_units {

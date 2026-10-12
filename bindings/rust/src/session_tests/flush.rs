@@ -74,6 +74,10 @@ async fn cancelling_during_transport_flush_tears_the_stream() {
 			let pending = crate::Locator::bare(crate::abi_constants::TRANSPORT_TCP, "127.0.0.1:1");
 			let owned = crate::uri::OwnedLocator::new(&pending).unwrap();
 			let mut ptr = core::ptr::null_mut();
+			// SAFETY: `shared_host.raw()` is the `GlowcapHost` handle of the `Host` this test holds, live until the
+			// test ends; `owned.borrow_view()` is a view into the `OwnedLocator` local, which outlives the call, and
+			// `ptr` is a local out-parameter the callee fills with a host-owned session handle that
+			// `SessionShared::new` takes over below.
 			crate::host::check_host(unsafe {
 				ffi::glowcap_host_session_open_dialed_locator(shared_host.raw(), owned.borrow_view().unwrap(), &mut ptr)
 			})
@@ -106,6 +110,8 @@ async fn closing_cancels_a_backpressured_transport_flush() {
 			let pending = crate::Locator::bare(crate::abi_constants::TRANSPORT_TCP, "127.0.0.1:1");
 			let owned = crate::uri::OwnedLocator::new(&pending).unwrap();
 			let mut ptr = core::ptr::null_mut();
+			// SAFETY: as `cancelling_during_transport_flush_tears_the_stream` above, for the `Host` and `OwnedLocator`
+			// locals of this test.
 			crate::host::check_host(unsafe {
 				ffi::glowcap_host_session_open_dialed_locator(shared_host.raw(), owned.borrow_view().unwrap(), &mut ptr)
 			})
@@ -140,6 +146,8 @@ async fn an_empty_drain_does_not_flush_a_retired_transport() {
 			let locator = crate::Locator::bare(crate::abi_constants::TRANSPORT_TCP, "127.0.0.1:1");
 			let owned = crate::uri::OwnedLocator::new(&locator).unwrap();
 			let mut ptr = core::ptr::null_mut();
+			// SAFETY: as `cancelling_during_transport_flush_tears_the_stream` above, for the `Host` and `OwnedLocator`
+			// locals of this test.
 			crate::host::check_host(unsafe {
 				ffi::glowcap_host_session_open_dialed_locator(shared_host.raw(), owned.borrow_view().unwrap(), &mut ptr)
 			})

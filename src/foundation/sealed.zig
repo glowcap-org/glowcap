@@ -11,9 +11,9 @@
 //!
 //! The channel is byte-stream in, byte-stream out. What rides inside the
 //! sealed records is exactly the plaintext stream an unsealed byte pipe
-//! carries — outer Syrup framing included — so nothing above this layer
+//! carries, outer Syrup framing included, so nothing above this layer
 //! changes: the owner opens records and hands the plaintext to the same parse
-//! it runs today, and seals what the layer above encodes.
+//! it runs, and seals what the layer above encodes.
 //!
 //! Wire layout, both directions:
 //!
@@ -27,7 +27,7 @@
 //! - After the handshake, length-prefixed sealed records: a two-byte
 //!   big-endian ciphertext length, then that many bytes, at most
 //!   `foundation.noise.MAX_RECORD_BYTES` including the 16-byte tag. Record
-//!   boundaries carry no meaning above this layer; a CapTP frame larger than
+//!   boundaries carry no meaning above this layer. A CapTP frame larger than
 //!   one record's plaintext capacity spans several.
 //!
 //! Failure is refusal: any handshake or record that does not verify retires
@@ -44,14 +44,14 @@ const frame = @import("frame.zig");
 const identity_binding = @import("sealed_identity.zig");
 const stream_framing = @import("stream_framing.zig");
 
-/// Fixed wire sizes of the three handshake messages; see the module header.
+/// Fixed wire sizes of the three handshake messages. See the module header.
 const identity_proof_bytes: usize = identity_binding.proof_bytes;
 pub const msg1_wire_bytes: usize = noise.HandshakeState.MSG1_OVERHEAD;
 pub const msg2_wire_bytes: usize = noise.HandshakeState.MSG2_OVERHEAD + identity_proof_bytes;
 pub const msg3_wire_bytes: usize = noise.HandshakeState.MSG3_OVERHEAD + identity_proof_bytes;
 
 /// Steady capacity of the record-plaintext scratch, and the retained capacity
-/// of the inbound staging after a drain — the byte-fed tier's steady-queue
+/// of the inbound staging after a drain, the byte-fed tier's steady-queue
 /// posture. A record larger than this grows the scratch for its own open, and
 /// the next record at or under it shrinks the scratch back.
 const steady_plain_bytes: usize = 4096;
@@ -64,7 +64,7 @@ pub const SealedError = error{
     /// reach this refusal.
     InboundOverflow,
     /// An outbound slice's record count and overhead cannot be represented
-    /// in `usize`; no allocation or cipher advancement occurred.
+    /// in `usize`. No allocation or cipher advancement occurred.
     OutboundOverflow,
     /// A handshake identity payload did not prove the exact Ed25519 key,
     /// authenticated X25519 static, role, and initial transcript together.
@@ -78,15 +78,15 @@ pub const SealedError = error{
 
 /// One connection's sealed channel: the handshake while it runs, the two
 /// transport ciphers after `open`, the inbound wire staging, and the one
-/// pending outbound handshake message. Owned by exactly one shell — a
-/// `HostSession`'s nullable boxed pointer — and freed by `deinit`.
+/// pending outbound handshake message. Owned by exactly one shell, a
+/// `HostSession`'s nullable boxed pointer, and freed by `deinit`.
 ///
 /// Cost derivation (the memory rule's ledger points here): the struct is a
 /// few hundred bytes and exists only for sealed connections. Normal ingestion
 /// parses complete units directly from the owner's borrowed receive buffer and
 /// copies only an incomplete unit, bounded by one maximum Noise record. A
 /// byte-fed owner may explicitly park the unread suffix of its current chunk
-/// across a protocol pause; that allocation is bounded by the owner's read
+/// across a protocol pause. That allocation is bounded by the owner's read
 /// size, exactly like an unsealed stream tail. Completion owners retain their
 /// receive-buffer borrow instead and never park a complete unit. `plain` is the
 /// scratch one record opens into, at most
@@ -105,7 +105,7 @@ pub const SealedChannel = struct {
     remote_identity: ?crypto.PeerKey,
     /// This host's exact Ed25519 identity and its precomputed proof. The
     /// constructor borrows the signing key only long enough to produce this
-    /// payload; no Ed25519 secret is retained by the channel.
+    /// payload. No Ed25519 secret is retained by the channel.
     local_proof: [identity_proof_bytes]u8,
     /// Initial Noise transcript shared by both sides, retained solely to
     /// verify the far side's role-specific identity proof.
@@ -116,14 +116,14 @@ pub const SealedChannel = struct {
     pending: [msg3_wire_bytes]u8,
     pending_len: usize,
     /// Inbound wire bytes that do not yet form a whole handshake message or
-    /// record. Bounded; see the type header.
+    /// record. Bounded. See the type header.
     staged: spill.Spill,
-    /// The scratch one inbound record's plaintext is opened into; the
+    /// The scratch one inbound record's plaintext is opened into. The
     /// `Event.plaintext` slice borrows it until `releasePlaintext`. The explicit
     /// acknowledgement lets an owner retry upper-layer admission after memory
     /// pressure without replaying the Noise record or losing its plaintext.
     plain: []u8,
-    /// Zero means no outstanding borrow; otherwise plaintext length plus one.
+    /// Zero means no outstanding borrow. Otherwise plaintext length plus one.
     /// The encoding represents a pending empty record without adding another
     /// machine word to every sealed connection.
     pending_plain_len: usize = 0,
@@ -143,7 +143,7 @@ pub const SealedChannel = struct {
         /// it. The owner may continue with the unconsumed input suffix.
         handshake,
         /// The handshake completed on this consume. The owner binds `remote`
-        /// as the verified channel key before feeding another byte; for the
+        /// as the verified channel key before feeding another byte. For the
         /// initiator a pending message three also awaits `takeWire`.
         completed: crypto.PeerKey,
         /// One record's plaintext, borrowed until `releasePlaintext`.
@@ -151,9 +151,9 @@ pub const SealedChannel = struct {
     };
 
     /// One prefix-consumption step. `consumed` names exactly how much of the
-    /// caller's borrowed slice transferred or advanced; the caller retains the
+    /// caller's borrowed slice transferred or advanced. The caller retains the
     /// suffix. This makes coalesced reads independent of record boundaries and
-    /// keeps ownership explicit when an upper layer intentionally pauses.
+    /// keeps ownership explicit when an upper layer pauses.
     pub const Ingest = struct {
         consumed: usize,
         event: Event,
@@ -198,8 +198,8 @@ pub const SealedChannel = struct {
     }
 
     /// Start the answering side. The responder's prologue names its own
-    /// designator — the one a dialer must have dialed for the transcripts to
-    /// agree — and it learns the initiator's identity from message three.
+    /// designator, the one a dialer must have dialed for the transcripts to
+    /// agree, and it learns the initiator's identity from message three.
     pub fn initResponder(
         identity: *const crypto.SecretKey,
         ephemeral_seed: [crypto.SEED_BYTES]u8,
@@ -249,7 +249,7 @@ pub const SealedChannel = struct {
     }
 
     /// Acknowledge the current plaintext borrow. The bytes remain allocated but
-    /// become invalid to the owner; the next record wipe occurs before reuse.
+    /// become invalid to the owner. The next record wipe occurs before reuse.
     pub fn releasePlaintext(self: *SealedChannel) void {
         std.debug.assert(self.pending_plain_len != 0);
         self.pending_plain_len = 0;
@@ -262,7 +262,7 @@ pub const SealedChannel = struct {
 
     /// Consume at most one handshake message or sealed record from `bytes`.
     /// Complete units are read directly from the borrowed slice. Only a unit
-    /// split across calls enters `staged`; allocation pressure consumes no
+    /// split across calls enters `staged`. Allocation pressure consumes no
     /// caller bytes and leaves already-staged bytes retryable.
     pub fn ingest(self: *SealedChannel, gpa: std.mem.Allocator, bytes: []const u8) !Ingest {
         std.debug.assert(self.pending_plain_len == 0);
@@ -419,8 +419,8 @@ pub const SealedChannel = struct {
                 const plain_len = body_len -| noise.TAG_BYTES;
                 // Reserve the plaintext scratch before touching cipher state,
                 // so an allocation failure leaves the record staged and
-                // retryable. No borrow is live here — the previous record's
-                // plaintext expired when this call began — so a burst-grown
+                // retryable. No borrow is live here, the previous record's
+                // plaintext expired when this call began, so a burst-grown
                 // scratch may also shrink back to steady for a small record.
                 std.crypto.secureZero(u8, self.plain);
                 if (plain_len > self.plain.len) {
@@ -447,7 +447,7 @@ pub const SealedChannel = struct {
     }
 
     /// Retain an unread borrowed suffix across an upper-layer pause. This is a
-    /// deliberate ownership transfer for byte-fed hosts; completion adapters
+    /// deliberate ownership transfer for byte-fed hosts. Completion adapters
     /// retain the transport's receive-buffer borrow instead. Normal split-unit
     /// ingestion does not call this method.
     pub fn park(self: *SealedChannel, gpa: std.mem.Allocator, bytes: []const u8) !void {
@@ -548,7 +548,7 @@ pub const SealedChannel = struct {
 
     /// Retire the channel: wipe the handshake or transport keys and drop any
     /// pending handshake message, so nothing can be derived from or written
-    /// through it again. Idempotent; staged bytes are freed by `deinit`.
+    /// through it again. Idempotent. Staged bytes are freed by `deinit`.
     pub fn fail(self: *SealedChannel) void {
         switch (self.phase) {
             .handshake => |*hs| hs.deinit(),

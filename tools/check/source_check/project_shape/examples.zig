@@ -10,7 +10,7 @@ const collectBulletSpans = util.collectBulletSpans;
 
 /// Gate that every Zig example (`examples/zig/*.zig`) and every C example
 /// (`examples/c/*.c`) the build compiles has an index entry in
-/// `examples/README.md`. That README owns the complete inventory; the public
+/// `examples/README.md`. That README owns the complete inventory. The public
 /// site can recommend a shorter reader path without repeating it.
 pub fn checkExampleIndex(
     io: std.Io,
@@ -83,7 +83,7 @@ pub fn checkExampleIndex(
 
 /// `zig build examples` compiles every row of the hand-maintained `zig_examples`
 /// and `c_examples` tables in `tools/build/examples.zig`. An example dropped from a table still
-/// on disk never runs under `check`; a stale table row points at a missing file
+/// on disk never runs under `check`. A stale table row points at a missing file
 /// and fails at compile time with a less actionable error. Forward: every
 /// `examples/zig/*.zig` and `examples/c/*.c` basename appears as a `.path` in
 /// the matching table. Reverse: every table `.path` resolves on disk.

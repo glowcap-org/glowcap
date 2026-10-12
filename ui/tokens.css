@@ -1,4 +1,4 @@
-/* glowcap — shared UI core
+/* glowcap, shared UI core
    ────────────────────────────────────────────────────────────────────────────
    The one place the brand is defined. Two surfaces consume this file: the
    documentation site (site/) and the rooms app (apps/rooms/web/ui/). Neither
@@ -6,10 +6,10 @@
 
    The layering is deliberate and is the reason this file stays short:
 
-     core       this file — the palette, the type, the mark. Brand facts.
-     product    this file — ink, radii, cover, and frost both surfaces share.
-     semantic   each surface — a bubble, a syntax colour, a site rem type ramp.
-     component  each surface — the rules that draw its own widgets.
+     core       this file, the palette, the type, the mark. Brand facts.
+     product    this file, ink, radii, cover, and frost both surfaces share.
+     semantic   each surface, a bubble, a syntax colour, a site rem type ramp.
+     component  each surface, the rules that draw its own widgets.
 
    A surface may add surface-only tokens freely. It may not restate a core or
    product value: write `var(--accent)` and `var(--accent-ink)`, never the hex
@@ -31,7 +31,7 @@
    Served from this repository, never a font CDN. Cross-site font caching ended
    when browsers partitioned the HTTP cache, so a CDN now costs two extra
    connections and buys nothing, and it would announce every reader to a third
-   party — a poor look for a capability-security project.
+   party, a poor look for a capability-security project.
 
    Real italics ship for both families: the browser's synthesised oblique is a
    slanted roman and it shows at heading sizes and in code comments.
@@ -89,7 +89,7 @@
 	   and the steps match: dark lifts its raised surfaces about five
 	   lightness points off the ground, so light drops its ground the same
 	   five under near-white. Both themes then say "raised" with the same
-	   strength — a card, a bubble, a composer pops identically — where a
+	   strength, a card, a bubble, a composer pops identically, where a
 	   near-white ground had left light's raised surfaces flat. */
 	--ink: #3a3027;
 	--ink-soft: #6b5d4d;
@@ -114,7 +114,7 @@
 	   mushroom: the shader mark, whose geometry lives in
 	   apps/rooms/web/ui/mark_gpu_field.ts, traced in its settled pose with
 	   its lamps at zero. The shader is what a browser with a device to run it
-	   on draws, and it runs only where the mark performs; these are the still
+	   on draws, and it runs only where the mark performs. These are the still
 	   readings of it, and site/assets/mark.svg is the artwork they came from.
 
 	   The render is a cel drawing rather than a shaded one. Its luminance
@@ -186,7 +186,7 @@
 	   marks and backgrounds.
 
 	   Radii are the control, the card, and the pill. A surface may pick among
-	   these; it may not invent a fourth for the same job.
+	   these. It may not invent a fourth for the same job.
 
 	   Cover is a layer over the page (dialog backdrop, rooms scrim). It is
 	   darkness, not ink: in the dark theme the ink is cream, and a cream scrim
@@ -255,11 +255,11 @@
 	--cover-blur: 6px;
 	--frost: 10px;
 	/* Application chrome. A new size is a claim this ramp is wrong. Site
-	   article type stays in rem on that surface; rooms chrome uses these. */
+	   article type stays in rem on that surface. Rooms chrome uses these. */
 	--type-tiny: 10px;
 	/* The step between them. Nine rules in the chrome reached for eleven
-	   pixels on their own — a copy mark, an overline, a caption button, a
-	   badge, an initial — and four more landed either side of it at halves.
+	   pixels on their own, a copy mark, an overline, a caption button, a
+	   badge, an initial, and four more landed either side of it at halves.
 	   The ramp's own rule is that a new size is a claim it is wrong, and nine
 	   independent claims are the ramp being wrong rather than nine authors
 	   being careless. */

@@ -30,6 +30,10 @@ async fn ended_precedes_physical_retirement_without_taking_close_ownership() {
 			let locator = crate::Locator::bare(crate::abi_constants::TRANSPORT_TCP, "127.0.0.1:1");
 			let owned = crate::uri::OwnedLocator::new(&locator).unwrap();
 			let mut ptr = core::ptr::null_mut();
+			// SAFETY: `shared_host.raw()` is the live handle of the `Host` this test created, released only when `host`
+			// closes; `owned` is a live `OwnedLocator` made above, whose `borrow_view` result is valid until `owned` is
+			// dropped, and the callee copies it; `ptr` is a local out-parameter the callee fills with a host-owned
+			// session handle.
 			crate::host::check_host(unsafe {
 				ffi::glowcap_host_session_open_dialed_locator(shared_host.raw(), owned.borrow_view().unwrap(), &mut ptr)
 			})
@@ -84,6 +88,8 @@ async fn a_wire_failure_is_the_first_terminal_cause() {
 			let locator = crate::Locator::bare(crate::abi_constants::TRANSPORT_TCP, "127.0.0.1:1");
 			let owned = crate::uri::OwnedLocator::new(&locator).unwrap();
 			let mut ptr = core::ptr::null_mut();
+			// SAFETY: as the first `glowcap_host_session_open_dialed_locator` call in this file for the host handle,
+			// `owned.borrow_view()` and `ptr`.
 			crate::host::check_host(unsafe {
 				ffi::glowcap_host_session_open_dialed_locator(shared_host.raw(), owned.borrow_view().unwrap(), &mut ptr)
 			})
@@ -114,6 +120,8 @@ async fn cancelling_a_session_close_waiter_does_not_stop_the_shared_driver() {
 			let pending = crate::Locator::bare(crate::abi_constants::TRANSPORT_TCP, "127.0.0.1:1");
 			let owned = crate::uri::OwnedLocator::new(&pending).unwrap();
 			let mut ptr = core::ptr::null_mut();
+			// SAFETY: as the first `glowcap_host_session_open_dialed_locator` call in this file for the host handle,
+			// `owned.borrow_view()` and `ptr`.
 			check_host(unsafe {
 				ffi::glowcap_host_session_open_dialed_locator(shared_host.raw(), owned.borrow_view().unwrap(), &mut ptr)
 			})
@@ -182,6 +190,10 @@ async fn a_mid_turn_driving_verb_breaks_its_own_answer() {
 							// A driving verb inside the turn: the latch refuses
 							// it, and the error's words become the broken answer.
 							let mut vow: u64 = 0;
+							// SAFETY: `raw` is the handle of the accepted `session`, which this task still holds and so
+							// keeps unreleased while its behavior runs; the test expects the callee to refuse a driving
+							// verb inside a turn. `"nested"` is a static byte string of the six bytes passed, and `vow`
+							// is a local out-parameter.
 							let rc = unsafe { ffi::glowcap_host_session_fetch(raw, "nested".as_ptr(), 6, &mut vow) };
 							if rc == sys::OK {
 								return Err("a mid-turn fetch was NOT refused".to_string());
@@ -420,6 +432,8 @@ async fn a_session_dropped_outside_its_local_set_latches_the_refused_close() {
 			let pending = crate::Locator::bare(crate::abi_constants::TRANSPORT_TCP, "127.0.0.1:1");
 			let owned = crate::uri::OwnedLocator::new(&pending).unwrap();
 			let mut ptr = core::ptr::null_mut();
+			// SAFETY: as the first `glowcap_host_session_open_dialed_locator` call in this file for the host handle,
+			// `owned.borrow_view()` and `ptr`.
 			crate::host::check_host(unsafe {
 				ffi::glowcap_host_session_open_dialed_locator(shared_host.raw(), owned.borrow_view().unwrap(), &mut ptr)
 			})

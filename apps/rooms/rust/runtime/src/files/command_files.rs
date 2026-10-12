@@ -26,7 +26,7 @@ impl Frozen {
 	}
 }
 /// A source that stops answering before its declared bytes arrive is a
-/// closed source; a span the captured bytes cannot cover is a bad request.
+/// closed source. A span the captured bytes cannot cover is a bad request.
 pub async fn freeze(platform: &impl Deadline, sources: Vec<Source>) -> Result<Frozen, Error> {
 	let mut frozen = Frozen {
 		files: Vec::with_capacity(sources.len()),

@@ -117,7 +117,7 @@ class DriverLoop(
         settle_ms: int = _c.DRIVER_DEFAULT_SETTLE_MS,
     ) -> "DriverLoop":
         """Create the loop. ``seed`` is the host constructor's 64-byte
-        contract (durable identity, then a fresh session-key root); ``None``
+        contract (durable identity, then a fresh session-key root). ``None``
         draws both halves fresh."""
         options = _driver_options(
             wire_buffer_bytes,
@@ -189,7 +189,7 @@ class DriverLoop(
         """Transfer a byte-fed Host into a native driver transactionally.
 
         ``glowcap_driver_take_host`` is called before the Python Host changes
-        state. On failure the caller still owns the original Host; on success
+        state. On failure the caller still owns the original Host. On success
         this exact Host wrapper becomes the loop's application face and the
         loop becomes its sole native release authority.
         """
@@ -224,12 +224,12 @@ class DriverLoop(
     @property
     def host(self) -> ctypes.c_void_p:
         """The wrapped ``GlowcapHost`` handle for ``glowcap_host_*`` verbs.
-        Never release it separately; ``close`` releases the loop and the
+        Never release it separately. ``close`` releases the loop and the
         host together."""
         return self._host
 
     def schedule_step(self) -> None:
-        """Schedule one loop step soon, from the driving thread — how a
+        """Schedule one loop step soon, from the driving thread: how a
         wrapper verb's kick reaches the drain. A thread-driven loop (no
         :meth:`start`) pumps continuously and needs no nudge."""
         if self._released or self._terminal_failure is not None:
@@ -308,7 +308,7 @@ class DriverLoop(
     def serve_session(self, ptr: int):
         """Announce the embedder is serving the session at ``ptr``: post-open
         setup is done, so the loop may deliver its inbound (bytes that arrived
-        early replay in order). Idempotent; the loop tier's spelling of the
+        early replay in order). Idempotent. The loop tier's spelling of the
         byte-fed rule that ``serve`` resumes frames held behind the
         handshake. Returns the registered public Session wrapper."""
         if self._terminal_failure is not None:

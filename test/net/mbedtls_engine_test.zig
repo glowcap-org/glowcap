@@ -92,8 +92,7 @@ test "the public native relay module owns TLS beneath both profiles" {
     const summary = switch (provider.init(
         threaded.io(),
         std.testing.allocator,
-        "ws://127.0.0.1:1/relay",
-        null,
+        .{ .relay_url = "ws://127.0.0.1:1/relay" },
         .{ .copied_pem = root_pem },
     )) {
         .ready => |value| value,
@@ -124,8 +123,7 @@ test "native relay equivalence compares parsed trust rather than only routes" {
     }) |fixture| switch (fixture.provider.init(
         io,
         std.testing.allocator,
-        "ws://127.0.0.1:1/relay",
-        null,
+        .{ .relay_url = "ws://127.0.0.1:1/relay" },
         .{ .copied_pem = fixture.pem },
     )) {
         .ready => {},

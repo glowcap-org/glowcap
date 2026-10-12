@@ -2,7 +2,7 @@
 //! UTF-8, duplicate keys and elements, descending key order, byte-shaped,
 //! truncated, multi-segment, and over-long frames, single-byte corruption
 //! staying total, nesting-depth bounds, aliasing traversal budgets, and
-//! duplicated locator hints — every arm a typed refusal, never a panic.
+//! duplicated locator hints, every arm a typed refusal, never a panic.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -93,11 +93,11 @@ test "a Struct with duplicate keys is refused on the live view path" {
     const allocator = std.testing.allocator;
 
     // Encode a well-formed two-key struct, then patch the second key's bytes to
-    // repeat the first — the duplicate-key frame an untrusted peer would send,
+    // repeat the first, the duplicate-key frame an untrusted peer would send,
     // word-shaped like every Cap'n Proto frame. Each key must be non-Equal to
     // every other within a Struct (ADR-0046 / Model.md § Struct), so the codec
     // refuses the frame at the parse boundary, on the same projection the
-    // engine dispatches (`decodeBody`) — not only in an owned re-walk.
+    // engine dispatches (`decodeBody`), not only in an owned re-walk.
     const entries = [_]model.StructEntry{
         .{ .key = "k1", .value = .{ .integer = 1 } },
         .{ .key = "k2", .value = .{ .integer = 2 } },
@@ -118,7 +118,7 @@ test "a Struct with duplicate keys is refused on the live view path" {
     const view = glowcap.foundation.FrameView{ .bytes = buf, .shape = .word };
 
     // `decodeBody` runs the eager traversal-budget charge pass (the remote-DoS
-    // bound), which walks every argument once to spend the per-frame budget —
+    // bound), which walks every argument once to spend the per-frame budget,
     // and that walk reads each struct through the same `neutralStructBacking`
     // the lazy path uses, so the ascending-key rule is enforced at the parse
     // boundary. A duplicate key is thus refused the instant the frame decodes,
@@ -165,7 +165,7 @@ test "a Struct with descending keys is refused: decode requires the encoder's as
     const allocator = std.testing.allocator;
 
     // glowcap's capnp encoder emits struct keys sorted ascending by raw bytes
-    // (`canonicalStructOrder`), so decode requires strictly ascending keys —
+    // (`canonicalStructOrder`), so decode requires strictly ascending keys,
     // one comparison per key, not an all-pairs scan a peer could drive to
     // n². A distinct-but-descending pair is non-canonical and refused, exactly
     // as a duplicate is (equal is also not strictly ascending). Here the
@@ -224,8 +224,8 @@ test "decode rejects a multi-segment frame" {
 // pointer words, and list tags decode through bounded helpers, so a corrupted
 // frame must resolve to a typed `Error` (or a well-formed message) and never
 // trip illegal behavior (an out-of-range `@enumFromInt`, an unchecked slice).
-// This walks representative frames — every union arm, a promise reference, a handoff
-// — flipping each byte to boundary values and asserting both decode paths stay
+// This walks representative frames, every union arm, a promise reference, a handoff
+// and flipping each byte to boundary values and asserting both decode paths stay
 // total. A regression here (e.g. a raw `@enumFromInt` on a wire discriminant)
 // surfaces as a panic that aborts the test binary.
 test "corrupting any byte of a frame stays total: typed error or message, never a panic" {
@@ -366,7 +366,7 @@ test "an aliasing composite DAG exhausts the traversal budget instead of amplify
     // Hand-build the amplification shape the encoder can never emit: a chain of
     // D composite lists where BOTH elements of level i point at the ONE shared
     // level i+1 list. The frame holds only D+1 lists (~1.3 KB), but a naive
-    // walk visits 2^i nodes at level i — 2^31 total for D=30 — because Cap'n
+    // walk visits 2^i nodes at level i, 2^31 total for D=30, because Cap'n
     // Proto pointers may alias. The single-byte-flip corruption tests mutate
     // valid tree frames and can never synthesize these converging offsets, so
     // this construction is the only pressure on the traversal budget
@@ -437,7 +437,7 @@ test "an aliasing hint list is charged against the traversal budget" {
     // one blob, which Cap'n Proto pointers permit and every individual read
     // bounds-checks cleanly, so nothing but a budget can refuse it.
     //
-    // Every other field is deliberately valid and small, so the frame reaches
+    // Every other field is valid and small, so the frame reaches
     // hint materialization rather than being turned away for an unrelated
     // reason, and so the hints are the only pressure on the budget.
     //

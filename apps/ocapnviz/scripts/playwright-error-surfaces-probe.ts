@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-error-surfaces-probe.ts — End-to-end check that the
+ * playwright-error-surfaces-probe.ts: End-to-end check that the
  * error pipeline reaches the UI:
  *
  *   1. Engine emits → bus → ErrorToast renders.
@@ -10,7 +10,7 @@
  * for diagnostics. Injects a throwing subscriber so the next
  * `engine.#notify` produces an `internal` error on the bus.
  *
- * Doesn't exercise the boundary path or the import path — those
+ * Doesn't exercise the boundary path or the import path, those
  * need a component-throw fixture and a file-input drive respectively.
  * The infra they share with this probe (bus → modal/toast) is the
  * same, so this one probe asserts the contract end-to-end.
@@ -89,7 +89,7 @@ try {
 	}
 
 	// `internal`-coded errors render in the modal (role="alertdialog"),
-	// not the toast — internal failures need user acknowledgement, the
+	// not the toast, internal failures need user acknowledgement, the
 	// non-blocking toast surface is reserved for collision /
 	// validation / not-found codes.
 	const modal = page.getByRole("alertdialog").filter({
@@ -123,7 +123,7 @@ try {
 	}
 
 	if (consoleErrors.length > 0) {
-		// The throwing subscriber logs to console.error by design (see
+		// The throwing subscriber logs to console.error (see
 		// engine.#notify); filter that out before reporting unexpected
 		// pageerrors.
 		const unexpected = consoleErrors.filter((m) => !m.includes("probe-injected subscriber failure"));

@@ -12,6 +12,11 @@ publish.workspace = true
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 
+[lints.clippy]
+# Every unsafe block names the handle, owner, and pointer source it relies on.
+# `clippy.toml` lets one comment above a statement cover the blocks inside it.
+undocumented_unsafe_blocks = "deny"
+
 [features]
 async-host = ["glowcap/browser", "dep:rooms-glowcap", "dep:rooms-runtime", "dep:rooms-browser", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys", "dep:gloo-timers", "dep:tokio", "dep:web-sys", "dep:futures-util"]
 

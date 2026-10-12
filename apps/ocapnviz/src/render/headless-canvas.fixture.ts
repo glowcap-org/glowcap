@@ -9,7 +9,7 @@
  *
  * What it returns is a plausible size, not a real measurement, so nothing here
  * can settle a question about how wide a label draws. A test that cares about
- * pixels belongs in a browser; what this makes testable is everything ABOVE
+ * pixels belongs in a browser. What this makes testable is everything ABOVE
  * the measurement, such as which sprites a frame leaves on the stage.
  */
 

@@ -72,7 +72,7 @@ pub fn breakRecipient(self: *Node, recipient: *topology.Recipient) void {
 }
 
 /// Move one resolution into a recipient store. If validation or storage
-/// refuses it before commit, use the already-reserved terminal break; after
+/// refuses it before commit, use the already-reserved terminal break. After
 /// commit, only release the now-unneeded escrow.
 pub fn settleRecipient(self: *Node, recipient: *topology.Recipient, resolution: model.Resolution) void {
     const recip = self.peer(recipient.peer) orelse {
@@ -94,7 +94,7 @@ pub fn settleRecipient(self: *Node, recipient: *topology.Recipient, resolution: 
 }
 
 /// One recipient of a consumed proxy-listener fire. Host identity projection
-/// remains above Node; this handle exposes only recipient identity and one
+/// remains above Node. This handle exposes only recipient identity and one
 /// ownership-taking settlement operation.
 pub const RelayRecipient = struct {
     node: *Node,
@@ -202,7 +202,7 @@ pub fn consumeProjectedListenerFire(
 }
 
 /// Logical session close is the proxy authority boundary. A home closure
-/// spends every recipient's terminal escrow before removing the topology; a
+/// spends every recipient's terminal escrow before removing the topology. A
 /// recipient closure retires only that recipient and its reserved action.
 /// `removePeer` repeats this operation safely if an embedder skips close.
 pub fn sweepForPeer(self: *Node, peer_handle: PeerHandle) void {
@@ -237,7 +237,7 @@ pub fn sweepForPeer(self: *Node, peer_handle: PeerHandle) void {
 
 /// Node destruction breaks committed proxies while borrowed peers and their
 /// stores are still live, then retires the topology. Node-owned peers are
-/// subsequently destroyed; borrowed peers retain the terminal settlement.
+/// subsequently destroyed. Borrowed peers retain the terminal settlement.
 pub fn deinitAll(self: *Node) void {
     while (self.promise_proxies.count() != 0) {
         var it = self.promise_proxies.iterator();

@@ -94,7 +94,7 @@ export class NativeHandle {
 			resolveClosed = resolve;
 			rejectClosed = reject;
 		});
-		// `close` is intentionally usable from synchronous disposal. The release
+		// `close` is usable from synchronous disposal. The release
 		// still starts, and an explicit `waitClosed` observes any failure without an
 		// unhandled-rejection report when the caller only requests cancellation.
 		void this.#closed.catch(() => {});

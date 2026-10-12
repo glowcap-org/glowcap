@@ -1,20 +1,20 @@
 #lang racket/base
 ;; Internal: the bridge between the vat's local actors and the byte-fed host's
-;; wire hosting — one actor, two doors. An actor spawned through a session
+;; wire hosting: one actor, two doors. An actor spawned through a session
 ;; lives in the Racket vat as a closure cell; this module builds the
 ;; `GlowcapHostBehavior` trampoline the host invokes on each wire deliver, hosts
 ;; spawn/publish mint (`register-hosted-actor!`), and owns the ADR-0064 proxy
 ;; behavior constructors. The trampoline reads the actor's CURRENT closure out
 ;; of its cell per call (via `run-turn`), never capturing it, so `bcom` and
-;; `vat-restore!` retarget wire delivers with zero host verbs — the time-travel
-;; contract.
+;; `vat-restore!` retarget wire delivers with zero host verbs (the time-travel
+;; contract).
 ;;
 ;; Reply discipline: the host copies `out_reply`'s payload the instant the
 ;; trampoline returns, so the marshalled reply's buffers are retained in
-;; `last-reply-keep` across the return (overwritten by the next reply — the
+;; `last-reply-keep` across the return (overwritten by the next reply: the
 ;; previous one has long been copied). A raised error crosses the boundary
 ;; through `glowcap_host_turn_break`, which settles the answer broken with the
-;; actor's own words — a bare non-OK return would flatten "Revoked" into a
+;; actor's own words. A bare non-OK return would flatten "Revoked" into a
 ;; generic reason. A `forward` return maps onto `glowcap_host_turn_forward`
 ;; (the caretaker/attenuator primitive): a local target composes in Racket, a
 ;; far target defers the answer onto the forwarded send's vow.
@@ -52,7 +52,7 @@
 
 ;; The current turn pointer when it belongs to a Port on `c`'s Host, else #f.
 ;; A hosted actor may outlive the Port it was first projected through, and a
-;; turn-time spawn needs only the Host-owned turn, not that old Port handle.
+;; turn-time spawn needs only the Host-owned turn, not a Port handle.
 (define (current-turn-for c)
   (define t (current-turn))
   (and t
@@ -60,7 +60,7 @@
        (eq? (turn-context-host t) (session-host c))
        (turn-context-turn t)))
 
-;; Whether ANY hosted turn is running on this thread — the pump defers action
+;; Whether ANY hosted turn is running on this thread. The pump defers action
 ;; drains while one is (the host refuses the driving verbs inside a callback;
 ;; everything enqueued flushes when the enclosing call unwinds).
 (define (inside-turn?) (and (current-turn) #t))
@@ -88,7 +88,7 @@
 
 ;; An inbound deliver's wire verb as the Racket method symbol: a leading OCapN
 ;; symbol became the verb host-side, and a methodless positional deliver (a
-;; bare `(cap args…)` call, verb length zero) dispatches as 'call — a Racket
+;; bare `(cap args…)` call, verb length zero) dispatches as 'call, which is a Racket
 ;; symbol where the other bindings hand their handlers an empty verb string,
 ;; because a Racket behavior matches on symbols and '|| would be unwritable.
 (define (decode-verb verb-ptr verb-len)
@@ -99,8 +99,8 @@
 ;; Resolve a trampoline result into the turn's answer: a plain value marshals
 ;; into the reply; a `forward` composes locally or defers through the host's
 ;; turn-forward; a raise (handled by the caller) breaks with the message. The
-;; local chase is bounded by the hop cap — a caretaker forwarding to itself
-;; would spin this loop forever — so hop 257 breaks the answer with the cycle
+;; local chase is bounded by the hop cap (a caretaker forwarding to itself
+;; would spin this loop forever), so hop 257 breaks the answer with the cycle
 ;; message instead.
 (define (settle-turn-reply c v turn result out-reply)
   (define chased
@@ -108,7 +108,7 @@
      result
      (lambda (target method args) (run-turn target method args))
      ;; Wire path: map near-export positions to local actor-refs before the
-     ;; actor-ref? hop test. Host publication trampolines have no vat — identity.
+     ;; actor-ref? hop test. Host publication trampolines have no vat and use the identity.
      #:resolve-target (lambda (t) (if v (vat-resolve-target v t) t))))
   (cond
     [(forward-cycle? chased) (turn-break! turn FORWARD-CYCLE-MESSAGE)]
@@ -168,7 +168,7 @@
 
 ;; The GlowcapHostBehavior for a vat actor: each wire
 ;; deliver runs the actor's current cell through `run-turn` (so `bcom` and
-;; time-travel apply) with the vat current, exactly as a local `$` would.
+;; time-travel apply) with the vat current, as a local `$` would.
 (define (make-actor-trampoline v actor-id)
   (lambda (_ctx turn verb-ptr verb-len args-ptr args-len out-reply)
     (serve-foreign-call v turn verb-ptr verb-len args-ptr args-len out-reply
@@ -193,7 +193,7 @@
                              (become-result result)]
                             [else result])))))
 
-;; Spawn a hosted object at a fresh Host identity from INSIDE a turn — the
+;; Spawn a hosted object at a fresh Host identity from INSIDE a turn. This is the
 ;; turn-time form the host allows where the top-level spawn is latched. Returns
 ;; opaque capability.
 (define (turn-spawn-ref! turn trampoline)
@@ -202,8 +202,8 @@
   capability)
 
 ;; Observe a local vow to settlement and classify: register the listener, run
-;; the turn in `drive`, and — when a proxy forwarding to a far target deferred
-;; the settle onto a wire reply — pump until it lands. Returns the fulfilled
+;; the turn in `drive`, and (when a proxy forwarding to a far target deferred
+;; the settle onto a wire reply) pump until it lands. Returns the fulfilled
 ;; value; a broken vow raises the typed ERR-BROKEN. The one awaiting loop under
 ;; `session-send`'s local arm and `session-await`'s.
 (define (await-local-vow c vow who label)
@@ -295,10 +295,10 @@
           (error "Attenuated")))))
 
 ;; Host `actor` on session `c`: build the trampoline that runs the actor's
-;; current cell on each wire deliver, bind it at a fresh Host identity —
+;; current cell on each wire deliver, bind it at a fresh Host identity:
 ;; through the turn-time spawn when called from inside a hosted turn (a served
 ;; factory minting the capability it replies with), through the top-level
-;; publish/spawn otherwise — and record the identity in the vat so the opaque
+;; publish/spawn otherwise. Then record the identity in the vat so the opaque
 ;; reference resolves in process. Returns the capability. Session's
 ;; `session-spawn` / `session-publish` / proxy factories wrap this.
 (define (register-hosted-actor! c actor #:name [name #f])
@@ -340,8 +340,8 @@
   (define v (session-vat c))
   (define resolved (vat-resolve-target v target))
   (define live (box #t))
-  ;; An ordinary spawned actor whose behavior tail-forwards to the target — so
-  ;; the proxy answers a local call exactly as a partner's delivery does.
+  ;; An ordinary spawned actor whose behavior tail-forwards to the target, so
+  ;; the proxy answers a local call as a partner's delivery does.
   (define actor
     (with-vat v
       (spawn (caretaker-behavior live resolved))))

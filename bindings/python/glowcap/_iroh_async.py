@@ -78,7 +78,7 @@ _READ_CHUNK_BYTES = BINDING_IROH_READ_CHUNK_BYTES
 
 class _ConnWaiters:
     """Per-connection readiness state. A loop connection is single-owner (one task
-    drives it), so at most one task waits for readable and one for writable; a
+    drives it), so at most one task waits for readable and one for writable. A
     ``*_pending`` flag holds an edge that arrived before its waiter so no wakeup
     is lost."""
 
@@ -106,8 +106,8 @@ class _IrohLoop:
     It registers the netlayer's single readiness fd with the asyncio event loop
     (:meth:`asyncio.loop.add_reader`) and, when the fd signals, drains the pending
     readiness records and fans each out to the connection (or accept) waiting on
-    it. Everything runs on the one event-loop thread — no dedicated thread, no
-    cross-thread posting — and because the drain touches only the endpoint, never
+    it. Everything runs on the one event-loop thread, no dedicated thread, no
+    cross-thread posting, and because the drain touches only the endpoint, never
     a per-connection buffer, a connection can be released at any time without
     racing a read. ``close`` removes the fd reader and wakes every waiter, so the
     caller can then free the netlayer with no callback still touching it.
@@ -216,7 +216,7 @@ class _IrohLoop:
     def close(self, failure: "Optional[BaseException]" = None) -> None:
         """Remove the fd reader, wake every waiter, and release every connection
         still registered here (TS ``IrohLoop.close`` parity). The caller releases
-        the netlayer after this; each conn's own ``release`` is idempotent."""
+        the netlayer after this. Each conn's own ``release`` is idempotent."""
         if self._closed:
             return
         self._failure = failure
@@ -326,21 +326,21 @@ class _IrohTransport:
     """The iroh transport: a non-blocking :class:`IrohConnection` driven by an
     :class:`_IrohLoop` (ADR-0057), reshaped into the byte transport a
     :class:`glowcap.Session`'s serve loop reads. ``read`` sources raw
-    inbound bytes through the sidecar's non-blocking ``try_read`` — the
+    inbound bytes through the sidecar's non-blocking ``try_read``, the
     readiness loop, not a parked blocking read, decides when bytes are
-    available — and the host's stream delimiter frames them above. ``write``
+    available, and the host's stream delimiter frames them above. ``write``
     goes through the non-blocking ``try_write``, re-arming on the next writable
     record when the sidecar buffer is full (the serve loop's FLUSH drain
     serializes the writes, so the retry never interleaves frames). The write
-    contract every transport record shares: ``write()`` moves bytes only — it
+    contract every transport record shares: ``write()`` moves bytes only: it
     must not call host verbs or feed a connection, because it runs under the
     connection's ``_write_lock`` and a reentrant flush would deadlock or
     interleave frames.
 
     Lifetime: a server-accepted transport borrows the server's loop and
-    netlayer; a dialing transport minted its own netlayer and loop
-    (``owns_loop``) and tears both down on close, in the load-bearing order —
-    unregister, release the connection, close the loop, release the netlayer —
+    netlayer. A dialing transport minted its own netlayer and loop
+    (``owns_loop``) and tears both down on close, in this order,
+    unregister, release the connection, close the loop, release the netlayer,
     so no callback still touches the endpoint when it is freed. No call ever
     parks on this connection, so ``close`` cannot race a parked read."""
 
@@ -428,12 +428,12 @@ async def _dial_resolving(
     """Dial, retrying only under a propagating-discovery posture (``DISCOVERY`` and
     ``DISCOVERY_NO_RELAY``) while it resolves the partner by id. A dial-by-id can
     fail with "no addressing information" until the exporter's pkarr record
-    propagates to the n0 resolver (seconds, variable); every other posture dials
+    propagates to the n0 resolver (seconds, variable). Every other posture dials
     once (Direct's addresses are in hand, local_discovery resolves instantly).
     Mirrors the TS ``dialResolving`` and the Zig ``iroh-reachability`` driver.
 
-    ADR-0082: only transient dial faults (projected as ``ERR_IO``) are retried;
-    permanent faults (``ERR_INVALID_ARGUMENT``, ``ERR_INTERNAL``, …) surface
+    ADR-0082: only transient dial faults (projected as ``ERR_IO``) are retried.
+    Permanent faults (``ERR_INVALID_ARGUMENT``, ``ERR_INTERNAL``, …) surface
     immediately.
     """
     from ._errors import GlowcapError
@@ -489,14 +489,14 @@ async def dial_locator_for_relay(
     """Dial an iroh ``ocapn://`` locator to a raw byte channel for a
     byte-transparent relay: no CapTP handshake, since the relay only pipes bytes
     and the two ends key the session end to end. This is the Python parallel to
-    the TypeScript ``dialLocatorForRelay``; the iroh readiness compose lives in
-    each binding, over the same C-ABI conn and readiness primitives, exactly as
+    the TypeScript ``dialLocatorForRelay``. The iroh readiness compose lives in
+    each binding, over the same C-ABI conn and readiness primitives, as
     the iroh serve loop does.
 
     Returns an ``_IrohTransport`` (``async read() -> bytes | None``,
     ``async write(bytes)``, ``close()``). ``close`` unregisters the connection,
     stops the readiness loop, and releases the ephemeral netlayer it minted.
-    One call makes one transport attempt; the embedding application owns any
+    One call makes one transport attempt. The embedding application owns any
     reconnect policy around that relay request."""
     from ._locator import parse_locator
 
@@ -606,7 +606,7 @@ async def listen(
     for a stable endpoint id, or ``None`` for a fresh random one shared with
     the :class:`Host`. Pass ``host`` only when it was built from the same seed
     (one identity for netlayer and session). ``config`` carries the endpoint's
-    timeouts (see :class:`IrohConfig`); a server that treats a live session as
+    timeouts (see :class:`IrohConfig`). A server that treats a live session as
     presence should set ``idle_timeout_ms``, because that is what ends a
     connection whose peer was killed rather than closed. Needs the iroh ABI
     library (``zig build iroh-abi``)."""

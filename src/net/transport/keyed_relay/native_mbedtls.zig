@@ -62,17 +62,16 @@ pub const Provider = struct {
 
     /// Construct after `self` reaches its final address. All input bytes are
     /// borrowed only for this call. Refusal leaves no live state in `self`.
-    /// The ready outcome carries the trust-load result once; the provider
+    /// The ready outcome carries the trust-load result once. The provider
     /// retains no copy of it.
     pub fn init(
         self: *Provider,
         io: std.Io,
         allocator: std.mem.Allocator,
-        relay_url: []const u8,
-        register_url: ?[]const u8,
+        configuration: net.relay.Configuration,
         trust: Trust,
     ) InitOutcome {
-        net.relay.validateConfigurationUrls(relay_url, register_url orelse "") catch
+        configuration.validate() catch
             return .{ .failed = .{ .relay = .init(error.InvalidRelayUrl) } };
 
         const initialized = switch (native_tls.init(io, allocator, trust)) {
@@ -83,8 +82,7 @@ pub const Provider = struct {
         self.relay.initConfiguredWithTls(
             allocator,
             io,
-            relay_url,
-            register_url,
+            configuration,
             &tls,
         ) catch |err| {
             var failure = foundation.FailureChain.init(err);

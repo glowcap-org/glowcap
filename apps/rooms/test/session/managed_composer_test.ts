@@ -1,74 +1,14 @@
 // Composer gestures keep the originating draft through delayed admission and completion.
 /// <reference lib="dom" />
+import { snapshot as managedSnapshot } from "../support/managed_viewer.ts";
 import { assertEquals } from "../assert.ts";
 import type { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
-import { type ManagedOperation, TerminalObservationError } from "../../web/ui/session/managed/operation.ts";
-import type { CommandPowers } from "../../web/ui/commands.ts";
-Object.defineProperty(globalThis, "matchMedia", {
-	configurable: true,
-	value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-});
-const store = await import("../../web/ui/store.ts");
-const { RoomsPage } = await import("../../web/ui/page.ts");
-const { dirId } = await import("../../web/ui/types.ts");
-const { managedComposer } = await import("../../web/ui/session/managed/composer.ts");
-const tick = async () => {
-	for (let i = 0; i < 12; i++) await Promise.resolve();
-};
-function fixture(powers: Partial<CommandPowers> = {}) {
-	const page = new RoomsPage();
-	const directory = dirId("directory");
-	store.openDir(page.projection, directory, "directory");
-	const first = store.ensureRoom(page.projection, directory, "first", { persistId: "first" });
-	const second = store.ensureRoom(page.projection, directory, "second", { persistId: "second" });
-	store.setRoomMembership(page.projection, first.key, "joined", "");
-	store.switchTo(page.projection, first.key);
-	const completion = Promise.withResolvers<void>();
-	const drafts: [string, string][] = [];
-	const commands: [string, string[]][] = [];
-	let acquisitions = 0;
-	const session = {
-		pending: [],
-		drafts: { stage: (id: string, text: string) => drafts.push([id, text]), flush: () => Promise.resolve() },
-		command: (verb: string, args: string[]) => {
-			commands.push([verb, args]);
-			return Promise.resolve({ result: () => completion.promise } as unknown as ManagedOperation);
-		},
-		execute: async (
-			_id: string,
-			prepare: () => Promise<ManagedOperation>,
-			complete: (op: ManagedOperation) => Promise<void>,
-		) => complete(await prepare()),
-		finish() {},
-		actions: {
-			acquireLine: async (_id: string, op: ManagedOperation) => {
-				await op.result();
-				acquisitions++;
-			},
-		},
-	} as unknown as ManagedRoomsSession;
-	const actions = managedComposer(
-		page,
-		session,
-		{ you: () => "ada", standingHere: () => "", ...powers } as CommandPowers,
-	);
-	const close = () => {
-		for (const row of [...page.projection.get().convs.values()]) store.forgetConv(page.projection, row.key);
-	};
-	return {
-		page,
-		directory,
-		first,
-		second,
-		session,
-		actions,
-		completion,
-		drafts,
-		commands,
-		acquisitions: () => acquisitions,
-		close,
-	};
-}
+import {
+	type ManagedOperation,
+	ResultAcquisitionError,
+	TerminalObservationError,
+} from "../../web/ui/session/managed/operation.ts";
+import { fixture, store, tick } from "./managed_composer/fixture.ts";
 
 for (const outcome of ["committed", "refused", "unknown", "terminal"] as const) {
 	Deno.test(`managed send remains visible across pending admission and ${outcome} completion`, async () => {
@@ -455,7 +395,7 @@ Deno.test("managed composer preserves committed archive identity without claimin
 		const item = store.historyOf(f.page.projection, f.first.key).find((row) => row.kind === "chat");
 		assertEquals(item?.kind === "chat" ? [item.history, item.lineId, item.held, item.state] : null, [
 			history,
-			7,
+			undefined,
 			false,
 			undefined,
 		]);
@@ -468,7 +408,25 @@ Deno.test("a file submitted behind pending text owns its sources and leaves late
 	const f = fixture();
 	const file = new File(["queued bytes"], "queued.txt", { type: "text/plain" });
 	let upload: unknown;
-	f.session.refresh = () => Promise.resolve({ revision: "1" } as Awaited<ReturnType<typeof f.session.refresh>>);
+	const current = managedSnapshot();
+	current.intent.conversations.push({
+		kind: "room",
+		id: "first",
+		directory: "directory",
+		name: "first",
+		access: null,
+		seat: "seat",
+		control: null,
+		reconnect: "manual",
+		standing: null,
+		draft: "",
+	});
+	const reserved: unknown[] = [];
+	Object.defineProperty(f.session, "current", { value: current });
+	Object.defineProperty(f.session, "effects", {
+		value: { reserve: (...args: unknown[]) => reserved.push(args.slice(1)) },
+	});
+	f.session.refresh = () => Promise.resolve(current);
 	f.session.perform = async (_id, prepare) => await prepare() as unknown as ManagedOperation;
 	const workspace: Pick<ManagedRoomsSession["workspace"], "prepareUpload"> = {
 		prepareUpload: (_id, _revision, conversation, caption, _previews, sources) => {
@@ -495,6 +453,7 @@ Deno.test("a file submitted behind pending text owns its sources and leaves late
 		f.completion.resolve();
 		for (let i = 0; i < 5; i++) await tick();
 		assertEquals(upload, { conversation: "first", caption: "", sources: 1 });
+		assertEquals(reserved, [["say", ["first"]]]);
 		assertEquals(f.commands.map(([, args]) => args[1]), ["first text"]);
 		assertEquals(store.activeDraft(f.page.projection).text, "later typing");
 	} finally {
@@ -525,6 +484,113 @@ for (const retainedReceipt of [false, true]) {
 			assertEquals(f.commands.length, 1);
 			const line = store.historyOf(f.page.projection, f.first.key).find((item) => item.kind === "chat");
 			assertEquals(line?.kind === "chat" ? [line.state, line.retryable] : null, ["unconfirmed", retainedReceipt]);
+		} finally {
+			f.close();
+		}
+	});
+}
+
+Deno.test("a delayed send receipt cannot name a replacement membership's line before acquisition", async () => {
+	const f = fixture({}, { id: 7, line: "original-result" });
+	const acquisition = Promise.withResolvers<never>();
+	f.session.actions.acquireLine = () => acquisition.promise;
+	try {
+		f.actions.setDraft("original post");
+		f.actions.send();
+		await tick();
+		const original = store.historyOf(f.page.projection, f.first.key).find((row) => row.kind === "chat")!;
+		store.setRoomMembership(f.page.projection, f.first.key, "unavailable", "ended");
+		store.setRoomMembership(f.page.projection, f.first.key, "joined", "");
+		const newer = store.chatItem(f.page.projection, "ada", "new membership's post", true);
+		store.deliver(f.page.projection, f.first.key, { ...newer, lineId: 7, held: true });
+		f.completion.resolve();
+		await tick();
+		const lines = () => store.historyOf(f.page.projection, f.first.key).filter((row) => row.kind === "chat");
+		assertEquals(lines().map((row) => [row.id, row.text, row.lineId]), [
+			[original.id, "original post", undefined],
+			[newer.id, "new membership's post", 7],
+		]);
+		acquisition.reject(new Error("original line membership was replaced"));
+		await tick();
+		assertEquals(lines().map((row) => [row.id, row.text, row.lineId]), [
+			[original.id, "original post", undefined],
+			[newer.id, "new membership's post", 7],
+		]);
+	} finally {
+		acquisition.reject(new Error("test closed"));
+		await tick();
+		f.close();
+	}
+});
+
+for (const stage of ["admission observation", "acquisition"] as const) {
+	Deno.test(`confirmed delivery survives ${stage} failure and receipt release`, async () => {
+		const history = { source: "archive", generation: "original", id: "7" };
+		const f = fixture({}, { id: 7, line: "original-result", history });
+		let operation = "";
+		f.session.execute = async (id, prepare, complete) => {
+			operation = id;
+			(f.session.pending as string[]).push(id);
+			await complete(await prepare());
+		};
+		f.session.actions.acquireLine = async (_id, command) => {
+			throw new ResultAcquisitionError(await command.result(), new Error("original membership was replaced"));
+		};
+		if (stage === "admission observation") {
+			const command = f.session.command.bind(f.session);
+			f.session.command = async (...args) => {
+				const operation = await command(...args);
+				await operation.result();
+				throw new ResultAcquisitionError(undefined, new Error("snapshot unavailable after commit"));
+			};
+		}
+		try {
+			f.actions.setDraft("already delivered");
+			f.actions.send();
+			await tick();
+			f.actions.setDraft("later draft");
+			f.completion.resolve();
+			await tick();
+			const lines = () => store.historyOf(f.page.projection, f.first.key).filter((row) => row.kind === "chat");
+			assertEquals(lines().map((row) => [row.text, row.state, row.lineId, row.history, row.held]), [
+				["already delivered", undefined, undefined, stage === "acquisition" ? history : undefined, false],
+			]);
+			assertEquals(f.session.pending, [operation], "the original acquisition stays recoverable");
+			store.releaseSentLine(f.page.projection, operation);
+			assertEquals(lines()[0].state, undefined, "releasing editing authority cannot erase known delivery");
+			assertEquals(store.activeDraft(f.page.projection).text, "later draft");
+			assertEquals(f.commands.length, 1);
+		} finally {
+			f.close();
+		}
+	});
+}
+
+for (const outcome of ["commit", "refuse", "newerAccepted"] as const) {
+	Deno.test(`optimistic line edit preserves accepted content and newer input: ${outcome}`, async () => {
+		const { editLine } = await import("../../web/ui/session/managed/edit.ts");
+		const f = fixture();
+		const original = store.chatItem(f.page.projection, "ada", "before", true);
+		store.deliver(f.page.projection, f.first.key, { ...original, lineId: 7, held: true });
+		const task = editLine(f.page, f.session, f.first.key, original.id, "submitted");
+		const line = () => store.historyOf(f.page.projection, f.first.key).find((row) => row.id === original.id)!;
+		try {
+			const pending = line();
+			assertEquals(pending.kind === "chat" && [pending.text, pending.pendingEdit?.text], ["before", "submitted"]);
+			f.actions.setDraft("newer input");
+			if (outcome === "newerAccepted") {
+				store.updateItem(f.page.projection, f.first.key, original.id, { text: "newer accepted", edited: true });
+			}
+			if (outcome === "refuse") f.completion.reject(new Error("refused"));
+			else f.completion.resolve();
+			await task;
+			const settled = line();
+			assertEquals(settled.kind === "chat" && [settled.text, settled.pendingEdit, !!settled.editFailure], [
+				outcome === "refuse" ? "before" : outcome === "commit" ? "submitted" : "newer accepted",
+				undefined,
+				outcome === "refuse",
+			]);
+			assertEquals(store.activeDraft(f.page.projection).text, "newer input");
 		} finally {
 			f.close();
 		}

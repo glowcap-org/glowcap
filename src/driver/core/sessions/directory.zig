@@ -1,9 +1,9 @@
 //! Session directories for the byte-fed host core: the lookups that find a
-//! live session again — by the dial target this host chose, by a partner's
-//! proved durable key, or by a side index — and the duplicate refusals and
+//! live session again (by the dial target this host chose, by a partner's
+//! proved durable key, or by a side index) and the duplicate refusals and
 //! index upkeep those lookups power (ADR-0012, ADR-0068, ADR-0097). Split
-//! from `sessions.zig` by responsibility; the `Host` presents each verb as
-//! its own through decl aliases there and in `host.zig`.
+//! from `sessions.zig` by responsibility. The `Host` presents
+//! each verb through decl aliases there and in `host.zig`.
 
 const std = @import("std");
 
@@ -59,7 +59,7 @@ pub const DialTargetMap = std.HashMapUnmanaged(
 /// the claim, not ownership of a tcp `host:port`, so trusting it would let an
 /// inbound peer squat dial availability. Dedup against an accepted tcp session
 /// still runs after the newcomer's start-session via `refuseDuplicatePartnerKey`
-/// (verified key); an accepted session racing an in-flight dial stays legal
+/// (verified key). An accepted session racing an in-flight dial stays legal
 /// for crossed hellos until start-session (ADR-0068).
 pub fn liveSessionForDial(self: *const Host, transport: []const u8, partner_designator: []const u8) HostError!?*HostSession {
     if (liveIndexedSession(self, self.dialed_by_target.get(target(transport, partner_designator)))) |session| return session;
@@ -80,7 +80,7 @@ pub fn refuseDuplicateDial(self: *const Host, transport: []const u8, partner_des
 
 /// Refuse a new dial unless the caller is trying to prove a stricter durable
 /// identity than the live concrete session currently proves. Identity-routed
-/// pending dials may share a concrete route with an unverified session; the
+/// pending dials may share a concrete route with an unverified session. The
 /// demanded key, not the route string, is the authority the new session exists
 /// to establish.
 pub fn refuseDuplicateDialForDemand(
@@ -101,8 +101,8 @@ pub fn refuseDuplicateDialForDemand(
 /// the same CapTP partner key (dual-accept settlement, or a dial that
 /// slipped past pre-identity refuse). Survivor choice follows the ADR-0068
 /// / crossed-hellos key order (`CrossedHellos.checkInbound`): both peers
-/// independently keep the session the higher-keyed peer opened — dialed
-/// when we are higher, accepted when we are lower — so a crossed pair that
+/// independently keep the session the higher-keyed peer opened (dialed
+/// when we are higher, accepted when we are lower), so a crossed pair that
 /// missed the designator tiebreak still collapses to the same session
 /// on both ends rather than condemning by local arrival order. Same-role
 /// duplicates (dual-accept) keep the already-indexed session and condemn
@@ -119,7 +119,7 @@ pub fn refuseDuplicatePartnerKey(self: *Host, session: *HostSession, ss: model.v
     // session draws its own key (ADR-0097). A matching session key means
     // the same session incarnation, which is a duplicate of the narrowest
     // kind. A matching proved durable identity means the same peer reached
-    // twice, which is the duplicate ADR-0068 exists to collapse — and it is
+    // twice, which is the duplicate ADR-0068 exists to collapse. It is
     // the only one that survives fresh keys, because two sessions with one
     // peer no longer share a session key.
     //
@@ -147,8 +147,8 @@ pub fn refuseDuplicatePartnerKey(self: *Host, session: *HostSession, ss: model.v
         return;
     }
     // A side-name match must still be exact-key equality; a durable-peer
-    // match is deliberately across different session keys, so it skips the
-    // check that would reject precisely the case it is here to catch.
+    // match spans different session keys, so it skips the
+    // check that would reject the very case it exists to catch.
     if (durable_dup == null and (other.indexed_partner_key == null or
         !std.mem.eql(u8, &other.indexed_partner_key.?, &partner_key.bytes)))
     {
@@ -219,7 +219,7 @@ fn durablePeerName(session: *const HostSession) ?[]const u8 {
 /// The proved durable key `designator` names on `session`'s transport, or
 /// null when nothing proved it. Takes the designator explicitly so the
 /// pre-apply duplicate check can pass a borrowed hello's claim, and the
-/// post-apply teardown can pass the session's own retained bytes; both
+/// post-apply teardown can pass the session's own retained bytes. Both
 /// reach the identical row because a session's claim is written once.
 pub fn durablePeerKeyFor(session: *const HostSession, designator: []const u8) ?[crypto.PEER_KEY_BYTES]u8 {
     const peer = session.served.port.peer;

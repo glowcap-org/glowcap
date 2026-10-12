@@ -3,7 +3,7 @@ id: ADR-0122
 status: accepted
 date: 2026-08-24
 tags: [c-abi, memory, ownership, performance, bindings]
-decision: "GlowcapManagedFrame carries an owned foundation.Frame in fixed opaque caller-owned words. Producing or probing a managed frame performs no descriptor allocation and no byte copy; release destroys the inline owner and clears the descriptor. Native bindings reuse one metadata scratch set per serialized Session drain."
+decision: "GlowcapManagedFrame carries an owned foundation.Frame in fixed opaque caller-owned words. Producing or probing a managed frame performs no descriptor allocation and no byte copy. Release destroys the inline owner and clears the descriptor. Native bindings reuse one metadata scratch set per serialized Session drain."
 supersedes: []
 superseded_by: []
 amends: [ADR-0059]
@@ -15,53 +15,47 @@ amended_by: []
 ## Context
 
 The C ABI transfers already-owned outbound and transport frames through
-`GlowcapManagedFrame`. Its former implementation allocated a second heap box
-for every transferred frame merely to retain the `foundation.Frame` and its
-allocator. Host drains reserved that box before inspecting the queue, so even
-an empty nonblocking probe allocated and could fail. Blocking transport reads
-could likewise lose an otherwise successful frame to descriptor allocation.
-
-The payload bytes already had one complete owner. A second allocation did not
-extend their lifetime or make the C boundary safer; it was metadata churn on
-the wire path.
+`GlowcapManagedFrame`. A separate heap box per transferred frame, holding the
+`foundation.Frame` and its allocator, would make an empty nonblocking Host drain
+probe allocate and fail, and could lose an otherwise successful blocking
+transport read to descriptor allocation. The payload bytes have one complete
+owner, so a second allocation adds metadata churn on the wire path and no
+safety.
 
 ## Decision
 
 `GlowcapManagedFrame` reserves eight opaque `size_t` words in its public C
 layout. glowcap moves the native `foundation.Frame` value into those words and
 publishes the existing byte pointer, length, shape, and release callback.
-Compile-time assertions prove the native owner fits and is correctly aligned
-on every compiled target. The word count is target-independent, so the C
-declaration has one source shape while ordinary ABI size rules still follow
-the target's `size_t`.
+Compile-time assertions prove the native owner fits and is correctly aligned on
+every compiled target. The word count is target-independent, so the C
+declaration has one source shape and ordinary ABI size rules follow the target's
+`size_t`.
 
 The private words are glowcap storage, not a consumer extension point. A
 consumer reads only the documented frame fields and calls
 `glowcap_managed_frame_release`. Release destroys the inline owner, which
 returns allocator-owned or external storage through its original path, then
-zeroes the complete descriptor. Null and repeated public release remain
-no-ops because the public wrapper claims the callback before invoking it.
+zeroes the complete descriptor. Null and repeated public release are no-ops
+because the public wrapper claims the callback before invoking it.
 
-Host drains now inspect and pop their queue before constructing the infallible
+Host drains inspect and pop their queue before constructing the infallible
 descriptor. Blocking transport reads wrap a completed frame without another
 failure point. No frame bytes move or copy at the ABI boundary.
 
 TypeScript, Python, and Racket retain their named payload copy before an async
-host-runtime write; their FFI lifetimes cannot safely hold the native frame
-across suspension. Each Session now reuses one managed-frame, prefix, and
-length scratch set under its existing serialized write gate, so empty probes
-and steady drains do not allocate metadata per frame. Rust continues holding
-the native descriptor across its awaited write.
+host-runtime write. Their FFI lifetimes cannot safely hold the native frame
+across suspension. Each Session reuses one managed-frame, prefix, and length
+scratch set under its existing serialized write gate, so empty probes and steady
+drains do not allocate metadata per frame. Rust holds the native descriptor
+across its awaited write.
 
 ## Consequences
 
-- `GlowcapManagedFrame` is larger, but it is caller-owned bounded metadata and
-  eliminates one heap allocation and one allocator failure per transferred
-  frame.
-- The prerelease C layout and every hand-written language mirror changed
-  together; there is no released layout to migrate.
-- A successful transport read or Host dequeue can no longer fail solely while
-  wrapping its ownership for C.
+- `GlowcapManagedFrame` is caller-owned bounded metadata and removes one heap
+  allocation and one allocator failure per transferred frame.
+- A successful transport read or Host dequeue cannot fail while wrapping its
+  ownership for C.
 - The opaque word count is part of the ABI and is pinned by native and wasm32
   layout generation.
 

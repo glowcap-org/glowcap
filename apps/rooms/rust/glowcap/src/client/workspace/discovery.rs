@@ -8,7 +8,7 @@ pub struct DirectoryReader<D> {
 }
 impl<D: Deadline + Clone> Workspace<D> {
 	/// Request fresh directory snapshots after an activity gap. The owner retires
-	/// and drains existing discovery observers; membership admission is preserved.
+	/// and drains existing discovery observers. Membership admission is preserved.
 	pub async fn resynchronize_discovery(&self) -> Result<(), Error> {
 		let reply = self
 			.caller
@@ -25,15 +25,37 @@ impl<D: Deadline + Clone> Workspace<D> {
 		Ok(())
 	}
 	pub async fn check_discovery(&self, selected: &workspace::DiscoverySelection) -> Result<(), Error> {
+		self.check_discovery_at(selected, None).await
+	}
+	/// The private witness reserves admission for an already installed observer.
+	pub async fn owner_check_discovery(
+		&self,
+		owner: &Ref,
+		selected: &workspace::DiscoverySelection,
+	) -> Result<(), Error> {
+		self.check_discovery_at(selected, Some(owner)).await
+	}
+	async fn check_discovery_at(
+		&self,
+		selected: &workspace::DiscoverySelection,
+		owner: Option<&Ref>,
+	) -> Result<(), Error> {
 		let encoded = serde_json::to_string(selected).map_err(|_| loam::refusal("invalid discovery selection"))?;
+		let args = [
+			owner.map_or(Argument::Void, |owner| owner.clone().into()),
+			rooms_application::content::session::continuing::Method::CheckDiscovery
+				.wire()
+				.into(),
+			encoded.into(),
+		];
+		let (method, args) = if owner.is_some() {
+			("continue-workspace", &args[..])
+		} else {
+			("check-discovery", &args[2..])
+		};
 		let reply = self
 			.caller
-			.call(
-				&self.reference,
-				"check-discovery",
-				&[encoded.into()],
-				"discovery admission did not answer",
-			)
+			.call(&self.reference, method, args, "discovery admission did not answer")
 			.await?;
 		if reply != Argument::Void {
 			return Err(loam::refusal("invalid discovery admission acknowledgment").into());

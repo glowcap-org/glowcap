@@ -55,10 +55,7 @@ fn valid(state: &State, publication: &Publication, seat: &Rc<Seat>) -> Result<()
 			.get(&seat.connection)
 			.is_some_and(|held| Rc::ptr_eq(held, seat))
 	{
-		return Err(format!(
-			"{}: this IRC bridge membership has ended",
-			rooms_application::failure::FailureCode::NotRoomMember.wire()
-		));
+		return Err(rooms_application::failure::FailureCode::NotRoomMember.line("this IRC bridge membership has ended"));
 	}
 	Ok(())
 }
@@ -284,6 +281,26 @@ pub(super) fn behavior(
 			return Err(format!("IRC membership {verb} does not take capabilities"));
 		}
 		valid(&shared.borrow(), &publication, &seat)?;
+		if verb != POST {
+			let mut state = shared.borrow_mut();
+			let (caller, _) = super::super::rooms::caller(&mut state)?;
+			let class = match verb {
+				LEAVE => rooms_application::admission::Class::Cleanup,
+				AWAY => rooms_application::admission::Class::Transient,
+				rooms_application::room::invitation::MINT => rooms_application::admission::Class::Create,
+				_ => rooms_application::admission::Class::Read,
+			};
+			if verb != LEAVE {
+				state.ingress(caller)?;
+			}
+			if verb == AWAY {
+				let (subject, _, _) = state.admission_context(caller)?;
+				let now = state.now();
+				state.admission.transient(subject, &publication.id, now)?;
+			} else {
+				state.admit_work(caller, class, 1)?;
+			}
+		}
 		match verb {
 			rooms_application::room::invitation::MINT => invitation::mint(&shared, &publication, seat.kind, args),
 			KIND if args.is_empty() => Ok(seat.kind.as_str().into()),
@@ -317,7 +334,10 @@ pub(super) fn behavior(
 				if text.len() > 512 {
 					return Err("this IRC post exceeds the line limit".into());
 				}
-				let state = shared.borrow();
+				let mut state = shared.borrow_mut();
+				let (caller, _) = super::super::rooms::caller(&mut state)?;
+				state.ingress(caller)?;
+				state.admit_message(caller, text.len())?;
 				let post = state
 					.irc
 					.core
@@ -356,10 +376,8 @@ pub(super) fn behavior(
 			}
 			bridge::SUBMIT => {
 				if seat.kind != MembershipKind::Participant {
-					return Err(format!(
-						"{}: an observer has no IRC identity to change",
-						rooms_application::failure::FailureCode::ReadOnlyMembership.wire()
-					));
+					return Err(rooms_application::failure::FailureCode::ReadOnlyMembership
+						.line("an observer has no IRC identity to change"));
 				}
 				let [Argument::String(action), Argument::String(raw)] = args else {
 					return Err("submitBridgeForm needs an action and its answers".into());

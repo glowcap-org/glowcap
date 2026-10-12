@@ -97,12 +97,12 @@ pub fn register(
     // The outside-authority protocol baseline and shipped-page browser proofs,
     // in one release gate.
     //
-    // `check` is deliberately hermetic: it needs no network or live external
+    // `check` is hermetic: it needs no network or live external
     // authority. Its small host tool set is declared by `in_tree_runtimes` in
     // toolchain.zig; CLI tests link the trap-on-use iroh stub, so Cargo and its cache
     // stay outside this gate. A green `check` still proves only that glowcap
     // agrees with glowcap. These
-    // are the baseline that can contradict it — the upstream OCapN suite, a live
+    // are the baseline that can contradict it, the upstream OCapN suite, a live
     // Goblins vat in both handoff roles, the pinned-source finding checks, and
     // the upstream Syrup encoder re-deriving the committed corpus. Run this
     // before believing a protocol claim; the checks workflow runs

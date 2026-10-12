@@ -51,6 +51,7 @@ export const loopS = lazySymbols(() => libPath("glowcap_driver"), {
 	glowcap_driver_wake: { parameters: [P], result: I, nonblocking: true },
 	glowcap_driver_next_event: { parameters: [P, B], result: I, outBuffers: [1] },
 	glowcap_driver_claim_reference_exporter: { parameters: [P, B, B], result: I, outBuffers: [2] },
+	glowcap_driver_claim_exporter_session: { parameters: [P, P], result: I },
 	glowcap_driver_session_close: { parameters: [P, P, B], result: I, outBuffers: [] },
 	glowcap_driver_session_lifecycle_state: { parameters: [P, P, B], result: I, outBuffers: [2] },
 	glowcap_driver_session_serve: { parameters: [P, P], result: I },

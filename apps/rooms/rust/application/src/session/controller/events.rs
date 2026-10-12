@@ -1,5 +1,5 @@
 //! Ordered event admission and bounded initial custody. Adapters supply owned
-//! notices and their retained size; eviction drops their capability guards.
+//! notices and their retained size. Eviction drops their capability guards.
 use alloc::{collections::VecDeque, string::String};
 
 pub const MAX_EVENTS: usize = 256;

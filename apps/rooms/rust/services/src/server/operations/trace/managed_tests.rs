@@ -227,6 +227,7 @@ impl Drop for Temp {
 }
 fn tcp_config(state: std::path::PathBuf) -> Config {
 	Config {
+		admission: rooms_application::admission::Settings::defaults(4096, 8),
 		state,
 		transport: Transport::Tcp {
 			bind: "127.0.0.1".into(),
@@ -236,6 +237,7 @@ fn tcp_config(state: std::path::PathBuf) -> Config {
 		checkpoint: None,
 		readiness_file: None,
 		relay_url: None,
+		relay_alias_url: None,
 		dial_transports: vec!["tcp".into()],
 	}
 }

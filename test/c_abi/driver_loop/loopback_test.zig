@@ -1,7 +1,7 @@
 //! The headline loopback (ADR-0112): two stepping loops carry listen, dial,
-//! fetch, settle, and hangup over real TCP; one thread can step both ends of
-//! a nonblocking handshake; session handles outlive driver close until
-//! explicit release; callbacks may not re-enter a session release.
+//! fetch, settle, and hangup over real TCP. One thread can step both ends of
+//! a nonblocking handshake. Session handles outlive driver close until
+//! explicit release. Callbacks may not re-enter a session release.
 
 const std = @import("std");
 
@@ -413,13 +413,17 @@ test "loop-owned session release refuses callback reentry before dropping the wi
 
     client_seen.settle_ticket = 0;
     var call_vow: u64 = 0;
+    var callback: c.GlowcapReference = .{ .id = 0 };
+    try expectOk(cd.glowcap_host_spawn(owned_client.host, widgetBehavior, null, null, &callback));
+    defer _ = cd.glowcap_host_ref_release(owned_client.host, &callback, 1);
+    const args = [_]c.GlowcapArgument{@import("../../support/c_abi_args.zig").argRef(callback)};
     try expectOk(cd.glowcap_host_session_send(
         client_seen.dialed_session,
         &client_seen.settled_reference,
         "probe",
         "probe".len,
-        null,
-        0,
+        &args,
+        args.len,
         &call_vow,
     ));
     for (0..2_000) |_| {
@@ -431,6 +435,10 @@ test "loop-owned session release refuses callback reentry before dropping the wi
     }
 
     try std.testing.expect(release.ran);
+    try expectOk(release.exporter_result);
+    try expectOk(release.claim_result);
+    try expectOk(release.repeated_claim_result);
+    try std.testing.expectEqual(release.session, release.exporter);
     try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, release.result);
     try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, release.readiness_result);
     try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, release.restoration_result);

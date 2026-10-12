@@ -4,7 +4,7 @@
  *
  * `use-stage-scene.ts` mounts the graph and registers this as the ticker
  * callback. `render-frame.ts` is the world→sprite projection this frame
- * calls; this module is everything around that projection — visibility,
+ * calls. This module is everything around that projection, visibility,
  * hover halo, cursor, overlays, settle, cull.
  */
 
@@ -97,7 +97,7 @@ export function tickStageFrame(frame: StageFrame): void {
 	// `resolveGesture` with the current ctx, and show the
 	// ring iff the resolved verb would select that entity.
 	// The doctrine: render code never hard-codes tool /
-	// modifier policy — it asks the resolver. New tools and
+	// modifier policy. It asks the resolver. New tools and
 	// modifiers automatically propagate to affordances by
 	// virtue of `resolveGesture` returning a different verb.
 	const hovered = frame.hoverRef.current;
@@ -112,13 +112,13 @@ export function tickStageFrame(frame: StageFrame): void {
 				activeTool: frame.resolvedGestureCtxRef.current.activeTool,
 			});
 			// Hover halo fires for any verb that would, on click,
-			// act on the hovered entity — `select-or-drag-*` for
+			// act on the hovered entity, `select-or-drag-*` for
 			// the Select tool AND `two-click-pick` for Open
 			// Session / Send Message (the picked peer becomes
 			// endpoint A / message origin). Without the
 			// tool-create branch, the two-click tools lost their
 			// "this peer is the pickable target" feedback.
-			// And, mid-gesture, only when the tool would actually take this
+			// And, mid-gesture, only when the tool would take this
 			// node. The verb above answers from the tool and the surface
 			// alone, which is the whole answer for a first pick; a second
 			// pick also depends on the node already armed, and a ring on a
@@ -159,7 +159,7 @@ export function tickStageFrame(frame: StageFrame): void {
 		frame.cursorMachine(),
 		frame.willPick,
 	));
-	// Inverse of viewport zoom — applied to label containers
+	// Inverse of viewport zoom, applied to label containers
 	// so text stays at constant screen size while positions
 	// remain in world space. The zoom itself goes too, because a
 	// selection mark divides by it for the same reason and must
@@ -200,7 +200,7 @@ export function tickStageFrame(frame: StageFrame): void {
 		const color = armed.tool === "send-message" ? themed.messageInFlight : themed.accent;
 		// Armed ring is tool STATE ("I picked Alice; waiting for
 		// the second pick"). Persists across temporary
-		// overrides — the user may be panning briefly to see
+		// overrides. The user may be panning briefly to see
 		// their second-pick target. Always drawn when armed.
 		// Sized to the body it rings, the way the focus ring is: a claim
 		// is half a peer's width, so a ring drawn at a peer's radius would
@@ -214,13 +214,13 @@ export function tickStageFrame(frame: StageFrame): void {
 			color,
 			frame.viewport.scale.x,
 		);
-		// Wire preview is a PREVIEW — "if you click here, this
+		// Wire preview is a PREVIEW, "if you click here, this
 		// line becomes a session/message". When Space-pan or
 		// Hand tool takes over (the verb at the cursor is a
 		// pan), the click would NOT complete the pick; hide
 		// the preview. Doctrine: previews of what-would-happen-
 		// on-click derive from `resolveGesture`, not from raw
-		// tool/modifier state. Synthesize a stage-empty hit —
+		// tool/modifier state. Synthesize a stage-empty hit,
 		// pan-tier verbs (space-pan / hand-tool) override the
 		// hit anyway, so the specific surface doesn't matter.
 		const ctxNow = frame.resolvedGestureCtxRef.current;
@@ -244,7 +244,7 @@ export function tickStageFrame(frame: StageFrame): void {
 			// Over empty canvas, Open Session runs out to an end nothing has
 			// attributed, so the wire ends in the body that click would make.
 			// Over a node the click lands on that node instead, and there is
-			// nothing to mint — the wire simply reaches it.
+			// nothing to mint. The wire reaches it.
 			if (
 				armed.tool === "open-session" && frame.hoverRef.current === null
 			) {
@@ -274,7 +274,7 @@ export function tickStageFrame(frame: StageFrame): void {
 		frame.overlayDirty = false;
 	}
 	// PixiJS doesn't auto-install `CullerPlugin` (it'd cull
-	// against `renderer.screen` — the whole canvas, including
+	// against `renderer.screen`. The whole canvas, including
 	// under-panel area). Calling the shared culler ourselves
 	// lets us pass the marker rect as the view. Default ticker
 	// priority runs this before render (LOW).

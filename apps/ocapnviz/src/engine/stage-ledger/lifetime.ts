@@ -3,9 +3,9 @@
  * losing sight, or a whole epoch going dark.
  *
  * Ending is its own subject because the timeline has to say *why*.
- * `closed` is a protocol fact; `unobserved` is a fact about this
+ * `closed` is a protocol fact, `unobserved` is a fact about this
  * viewer. Mixing them invents a teardown out of a dropped socket.
- * The ledger still owns who is on stage; this class owns the refcount
+ * The ledger still owns who is on stage. This class owns the refcount
  * and the events that fire when the last reference goes.
  */
 
@@ -22,7 +22,7 @@ export class LedgerLifetime {
 		private readonly nextId: () => string,
 	) {}
 
-	/** Drop one wire reference; the peer's row ends when its last one
+	/** Drop one wire reference. The peer's row ends when its last one
 	 * goes (unless it is a live producer's own reporting host). `why`
 	 * carries the reason the wire went, because it is the peer's reason
 	 * too: a peer whose last conversation the viewer merely stopped
@@ -58,8 +58,8 @@ export class LedgerLifetime {
 
 	/** One producer's observation of a session ended. An explicit CapTP
 	 * close is a fact about the shared wire, so either endpoint retires
-	 * the whole row. Losing telemetry is only a fact about that observer;
-	 * the row then ends when its last observer disappears.
+	 * the whole row. Losing telemetry is only a fact about that observer.
+	 * The row then ends when its last observer disappears.
 	 *
 	 * `why` says which of those the caller is reporting, and it is the
 	 * difference between a claim about the network and a claim about
@@ -103,12 +103,12 @@ export class LedgerLifetime {
 
 	/** A producer left the feed, so the node it reported as its own
 	 * stops being a reporting host. It does not vanish while another
-	 * producer still shows a session to it — that peer is on stage
+	 * producer still shows a session to it. That peer is on stage
 	 * because someone is talking to it, and only the last of those
 	 * conversations ending takes it off.
 	 *
 	 * Its row ends as a loss of sight, not a departure. What actually
-	 * happened is that a PUBLISHING SOCKET closed; a peer that turned
+	 * happened is that a PUBLISHING SOCKET closed. A peer that turned
 	 * tracing off looks exactly like one that went away, and picking
 	 * the second is the inference this vocabulary exists to refuse. */
 	producerLeft(key: string, t: number, out: TimelineEvent[]): void {
@@ -119,7 +119,7 @@ export class LedgerLifetime {
 	}
 
 	/** An explicitly lifecycle-managed leave (generic sims own their
-	 * hosts' lifetimes; refcounting does not apply). */
+	 * hosts' lifetimes. Refcounting does not apply). */
 	forceLeavePeer(key: string, t: number, out: TimelineEvent[]): void {
 		const live = this.peers.get(key);
 		if (live === undefined) return;
@@ -137,8 +137,8 @@ export class LedgerLifetime {
 	 * ids stay unique across epochs.
 	 *
 	 * Every row ends `unobserved`, and none ends closed. Some of these
-	 * conversations really did die with the process — its own sessions
-	 * did — but a conversation it was merely REPORTING, two browser
+	 * conversations really did die with the process, its own sessions
+	 * did, but a conversation it was merely REPORTING, two browser
 	 * tabs talking directly, did not, and the reconnecting producers
 	 * will draw it again. From here the two are indistinguishable, so
 	 * the timeline says the one thing that is true of both: the viewer

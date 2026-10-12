@@ -47,8 +47,8 @@ test "the connect request is the bytes both reference clients write" {
 
 test "the port bytes are 9045 and the address length is 62" {
     // Both are literals in the reference clients, so they are asserted against
-    // literals here rather than recomputed from the same constants the module
-    // used to write them.
+    // literals here rather than recomputed from the constants the module
+    // writes them from.
     try std.testing.expectEqual(@as(u16, 9045), socks5.virtual_port);
     try std.testing.expectEqual(@as(usize, 62), socks5.address_len);
     try std.testing.expectEqual(@as(u8, 0x23), @as(u8, 9045 >> 8));

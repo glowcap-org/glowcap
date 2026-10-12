@@ -325,6 +325,12 @@ const FailingConnectBackend = struct {
         return port;
     }
 
+    /// A scripted listener binds at `openListener`; nothing pends here; a
+    /// wrapped adapter's pending setup reports through the adapter itself.
+    pub fn listenerPending(_: *@This(), _: Fd) bool {
+        return false;
+    }
+
     pub fn openListener(self: *@This(), port: u16) !Fd {
         _ = self;
         _ = port;

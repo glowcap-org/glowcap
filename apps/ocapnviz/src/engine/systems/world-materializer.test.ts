@@ -1,9 +1,9 @@
 /**
  * The world materializer is the state reconciler: at any t the ECS
  * world must hold exactly the entities alive then, carrying the
- * values they had then. These tests cover the reconcile half — what
+ * values they had then. These tests cover the reconcile half, what
  * happens to an entity the world ALREADY holds when the doc's view
- * of time moves — because that is the half a live feed exercises
+ * of time moves, because that is the half a live feed exercises
  * every tick and a fresh seek hides.
  */
 
@@ -50,7 +50,7 @@ Deno.test("a peer already on stage takes the name its label track states", () =>
 	assert(before !== undefined, "the peer is alive at t=10");
 	assertEquals(before.peer.label, "127.0.0.1:0");
 
-	// The same entity, no reset in between — this is the live path:
+	// The same entity, no reset in between. This is the live path:
 	// an annotation lands, the projection writes the keyframe, and
 	// the next tick materializes over the world it already built.
 	materializeWorldAt(world, doc, 60);
@@ -87,7 +87,7 @@ Deno.test("a peer with no label track keeps the name it joined under", () => {
 Deno.test("a peer already on stage takes the profile its track says", () => {
 	// The sibling of the label case: a live feed can learn what a
 	// partner runs after the session opened, and the stage colors the
-	// peer by its profile — so the change has to reach the entity the
+	// peer by its profile. So the change has to reach the entity the
 	// world already holds.
 	const doc = docWithPeer({ profile: [{ t: 50, value: "goblins" }] });
 	const world = createWorld();
@@ -264,7 +264,7 @@ function contentsOf(world: GameWorld): string[] {
  *
  * It is the only check that covers every field at once, and it is the shape
  * the app actually diverges on. Live never rebuilds the world, so it only ever
- * takes the reconcile arm; replay resets and only ever takes the create arm. A
+ * takes the reconcile arm. Replay resets and only ever takes the create arm. A
  * value written where an entity is created and never written again is
  * therefore right in one of the two and stale in the other, and no test of one
  * arm alone can see it.

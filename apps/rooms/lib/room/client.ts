@@ -1,11 +1,11 @@
-// A small, friendly client for the rooms chat, built on glowcap actors.
+// A small client for the rooms chat, built on glowcap actors.
 //
-// This is the layer that knows about OCapN, and on the connection API it is
-// barely a layer at all: connect, fetch the directory by name, ask it to open or
-// enter a room (which hands back an entrance reference), spawn an inbox the
-// room can call back, subscribe by handing it that capability, and surface
-// the room's callbacks as a stream. Everything above it — the terminal client,
-// the web UI — reads like an app, not like a protocol.
+// This layer knows about OCapN, and on the connection API it is barely a
+// layer: connect, fetch the directory by name, ask it to open or enter a room
+// (which hands back an entrance reference), spawn an inbox the room can call
+// back, subscribe by handing it that capability, and surface the room's
+// callbacks as a stream. Everything above it, the terminal client and the web
+// UI, reads like an app and not like a protocol.
 //
 //   const dir = await Directory.connect("127.0.0.1:9099", dial);
 //   const room = await Room.subscribe(dir.session, await dir.enter("general"), "alice");
@@ -14,11 +14,11 @@
 //   await room.leave();   // drop this room (keeps the connection)
 //   await dir.close();    // end the session
 //
-// `Directory.open` and `enter` mirror the wire one-to-one — strict, each errors
-// on the wrong precondition. The friendly "enter, opening it if new" behavior is
-// a CLI convenience and lives in the apps (`enter_room.ts`), not here. The room
-// name is the directory's lookup key; the entrance is the capability the
-// directory returns, and the subscription answer carries the live membership.
+// `Directory.open` and `enter` mirror the wire one-to-one and are strict: each
+// errors on the wrong precondition. The "enter, opening it if new" behavior is
+// a CLI convenience and lives in the apps (`enter_room.ts`). The room name is
+// the directory's lookup key. The entrance is the capability the directory
+// returns, and the subscription answer carries the live membership.
 
 import { Ref, retainCleanupFailures, retainSecondaryFailure } from "@glowcap/runtime";
 import type { BridgeAnswers, BridgeForm } from "../bridge/form.ts";
@@ -59,8 +59,8 @@ import { REQUEST_TIMEOUT_MS } from "../limits.ts";
 import { RoomInvitation } from "./invitation.ts";
 import { parseRoomPolicy, type RoomPolicy } from "./policy.ts";
 
-// Everything this client is remains reachable through this one name. The
-// implementation below owns Room, while the barrel owns its sibling clients.
+// The client's public names are reachable through this module. This file owns
+// Room, and the exports module owns its sibling clients.
 export * from "./client_exports.ts";
 
 import { ask } from "../ask.ts";
@@ -75,14 +75,14 @@ export async function roomCalledAs(session: Session, room: Ref): Promise<string>
 	return typeof said === "string" ? said : "";
 }
 
-/** Mint or recover a durable link from a raw room capability without joining it. */
+/** Create or recover a durable link from a raw room capability without joining it. */
 export async function linkRoomReference(session: Session, room: Ref): Promise<string> {
 	return await new RoomStewardship(session, room).link();
 }
 
 /** Whether an entrance reference names an unlisted room. A public room's link
- * is still that public room; guessing from the name would open a listed room
- * that merely shares a private room's label. */
+ * is still that public room. Guessing from the name would open a listed room
+ * that shares a private room's label. */
 export async function roomIsPrivate(session: Session, room: Ref): Promise<boolean> {
 	const said = await ask(session, room, PRIVATE, [], "the room did not say whether it is listed");
 	if (said === true || said === "private") return true;
@@ -156,7 +156,7 @@ export class Room {
 	/** Subscribe to a room you already hold a reference to, on an open connection.
 	 * Publishes the inbox, hands the room that capability, and surfaces the
 	 * room's callbacks on `messages`. `onTyping`, if given, fires with each
-	 * other member's ephemeral typing flag; those signals never reach `messages`. */
+	 * other member's ephemeral typing flag. Those signals never reach `messages`. */
 	static async subscribe(
 		session: Session,
 		roomRef: Ref,
@@ -183,8 +183,8 @@ export class Room {
 			authorityStatus: () => {},
 			policyChanged: (policy) => options.onPolicyChanged?.(self, policy),
 		}));
-		// This local occurrence remains owned by the membership until leave or
-		// replacement. The room owns the wire occurrence it adopted independently.
+		// The membership owns this local occurrence until leave or replacement.
+		// The room owns the wire occurrence it adopted independently.
 		self.#inbox = inbox;
 
 		// The session owner reports why a shared connection ended. Each room only
@@ -193,13 +193,13 @@ export class Room {
 		void session.serve().then(endStream, endStream);
 
 		// Subscribe, handing the room a capability to our inbox. The answer carries
-		// the membership seat, kind, and optional topic authority; the room delivers
-		// the welcome and roster as `notify` calls. A rejected claim (e.g. the nickname is taken)
-		// propagates; the connection stays open, the directory owns it, and the caller
-		// may try another room or close the session itself.
-		// Topic authority is optional: holding one is the question a client asks
-		// rather than inferring authority from a role or protocol version.
-		// The voucher rides only when the caller has one to present: a subscribe
+		// the membership seat, kind, and optional topic authority. The room delivers
+		// the welcome and roster as `notify` calls. A rejected claim (for example, a
+		// taken nickname) propagates, and the connection stays open: the directory
+		// owns it, and the caller may try another room or close the session itself.
+		// Topic authority is optional, and holding one is the question a client asks
+		// instead of inferring authority from a role or protocol version.
+		// The voucher rides only when the caller has one to present. A subscribe
 		// arriving on a connection that is not the name's registrar proves itself
 		// with it, and every other subscribe needs nothing.
 		try {
@@ -231,35 +231,35 @@ export class Room {
 	 *
 	 * An ordinary room reference returns an existing link. Creating or reissuing
 	 * one requires the separate room manager capability retained by this client.
-	 * What comes back is data, so it travels over any channel at all, including
-	 * one this application knows nothing about. Whoever holds the string can
-	 * redeem it and pass it on.
+	 * What comes back is data, so it travels over any channel, including one
+	 * this application knows nothing about. Whoever holds the string can redeem
+	 * it and pass it on.
 	 *
-	 * It works for a private room precisely as it does for a public one. A
-	 * private room's durable name is its own unguessable key rather than its
-	 * label, so nothing about what the room is called is in the link, and
-	 * nothing about the link is guessable from the label.
+	 * It works for a private room as it does for a public one. A private room's
+	 * durable name is its unguessable key, not its label, so nothing about what
+	 * the room is called is in the link, and nothing about the link is guessable
+	 * from the label.
 	 *
-	 * Asking makes the room durable, and that is a cost as well as a feature:
-	 * the server records the room's durable name for good, against a bounded
-	 * registry. Mint one when an invitation must outlive its sessions; the
-	 * ordinary hand-over is the room itself (`handRoom`), which costs the
-	 * server nothing. A link preserves the room's identity, not its history
-	 * policy: retention is still the Rooms operator's explicit choice. */
+	 * Asking makes the room durable, which is a cost as well as a feature: the
+	 * server records the room's durable name for good, against a bounded
+	 * registry. Ask for one when an invitation must outlive its sessions. The
+	 * ordinary hand-over is the room itself (`handRoom`), which costs the server
+	 * nothing. A link preserves the room's identity, not its history policy.
+	 * Retention is the Rooms operator's choice. */
 	async link(): Promise<string> {
 		return await this.#stewardship.link();
 	}
 
 	/** What this room calls itself, or "" when it has no label to give.
 	 *
-	 * A link does not carry a name. This is how `/join` of that locator still
-	 * sits in the place that minted it rather than under an invented one. */
+	 * A link does not carry a name. This lets `/join` of that locator sit in
+	 * the place that created it instead of under an invented name. */
 	async called(): Promise<string> {
 		return await roomCalledAs(this.#session, this.#room);
 	}
 
 	/** Whether this room is unlisted. A link to a public room is still that
-	 * public room; a link to a private one is not a name on the directory. */
+	 * public room, and a link to a private one is not a name on the directory. */
 	async isPrivate(): Promise<boolean> {
 		return await roomIsPrivate(this.#session, this.#room);
 	}
@@ -270,9 +270,9 @@ export class Room {
 
 	/** The reference this room is, for handing on.
 	 *
-	 * Holding it is being in reach of the room, so passing it to somebody is
-	 * the whole of inviting them — the runtime carries it across sessions as a
-	 * handoff, and nothing is asked of the room or the directory. */
+	 * Holding it puts you in reach of the room, so passing it to somebody
+	 * invites them. The runtime carries it across sessions as a handoff, and
+	 * nothing is asked of the room or the directory. */
 	get reference(): Ref {
 		return this.#room;
 	}
@@ -283,9 +283,9 @@ export class Room {
 
 	/** Whether this occupancy is a directory name, when subscribe said so.
 	 *
-	 * Undefined against a room that did not state it — an older room, or one
-	 * that is not this protocol. `/join` of a locator seats from this rather
-	 * than asking a method first. */
+	 * Undefined against a room that did not state it, such as an older room or
+	 * one that is not this protocol. `/join` of a locator seats from this
+	 * instead of asking a method first. */
 	get listed(): boolean | undefined {
 		return this.#listed;
 	}
@@ -332,20 +332,20 @@ export class Room {
 
 	/** Say this membership has stepped away, or `""` to say it is back.
 	 *
-	 * Nobody hands this over: a member's own standing is theirs to state, and
-	 * the room writes it against the membership that called. */
+	 * Nobody hands this over. A member's standing is theirs to state, and the
+	 * room writes it against the membership that called. */
 	async away(reason: string): Promise<void> {
 		await ask(this.#session, this.#membershipRef(), AWAY, [reason], "the membership did not answer stepping away");
 	}
 
-	/** Try to mint the room's durable steward authority. Only the exact typed
-	 * `not-steward` answer means this membership does not hold it; transport,
+	/** Try to create the room's durable steward authority. Only the typed
+	 * `not-steward` answer means this membership does not hold it. Transport,
 	 * parser, runtime, and publication failures remain failures. */
 	async claimSteward(): Promise<boolean> {
 		return await this.#stewardship.claim();
 	}
 
-	/** Take a steward sturdyref for this exact room. The imported capability
+	/** Take a steward sturdyref for this room. The imported capability
 	 * identifies the room publication it governs before replacing any authority
 	 * already held, so pasting a valid steward for another room fails closed. */
 	async takeSteward(stewardLink: string): Promise<void> {
@@ -410,7 +410,7 @@ export class Room {
 	 * after. An empty string takes the topic down.
 	 *
 	 * Throws when this membership holds no topic capability. A room that does
-	 * not offer one leaves the membership in that state; ask `canSetTopic` first. */
+	 * not offer one leaves the membership in that state. Ask `canSetTopic` first. */
 	async setTopic(text: string): Promise<void> {
 		if (this.#topic === null) throw new Error("this room did not offer a topic to set");
 		await ask(this.#session, this.#topic, SET_TOPIC, [text], "the room did not answer setting its topic");
@@ -418,8 +418,8 @@ export class Room {
 
 	/** What the room kept of its own conversation, oldest first, when this
 	 * server keeps history at all. A server that keeps none refuses the optional
-	 * verb; callers can therefore distinguish unavailable retention from an
-	 * enabled room whose retained tail is empty. */
+	 * verb. Callers can therefore tell unavailable retention from an enabled
+	 * room whose retained tail is empty. */
 	async history(): Promise<{ from: string; text: string; at: number }[]> {
 		const raw = await ask(
 			this.#session,
@@ -447,7 +447,7 @@ export class Room {
 	}
 
 	/** Press one of that form's actions with what the reader typed. The answer is
-	 * the bridge's own sentence about what happened. */
+	 * the bridge's sentence about what happened. */
 	submitBridgeForm(action: string, answers: BridgeAnswers): Promise<string> {
 		return answerBridgeForm(this.#session, this.#membershipRef(), action, answers);
 	}
@@ -461,9 +461,9 @@ export class Room {
 			[text],
 			"the membership did not answer the line",
 		);
-		// A room that answers with a reference is one that will let this line be
-		// changed or taken back. A room may accept the line without granting that
-		// authority, so absence is an explicit result rather than a failure.
+		// A room that answers with a reference will let this line be changed or
+		// taken back. A room may accept the line without granting that authority,
+		// so absence is an explicit result and not a failure.
 		return postedLineResult(this.#session, line);
 	}
 
@@ -471,7 +471,7 @@ export class Room {
 	 * that holds it: post first, then fill it, or `discard` before posting.
 	 *
 	 * The room holds the bytes, so a posted file stays viewable after this
-	 * client closes — and a client nothing on the network can dial, such as a
+	 * client closes, and a client nothing on the network can dial, such as a
 	 * browser tab, can post one at all. */
 	stage(source: AttachmentSource): Promise<Ref> {
 		return beginUpload(this.#session, this.#filesRef(), source);
@@ -496,9 +496,9 @@ export class Room {
 	/** Send everything staged on this connection as one message, captioned
 	 * with `text`, and answer the line it made.
 	 *
-	 * A room that answers with a reference is one that will let this file line be
-	 * captioned again, have its files changed, or be taken back. A room may grant
-	 * no such authority; absence is returned exactly as `say` returns it. */
+	 * A room that answers with a reference will let this file line be captioned
+	 * again, have its files changed, or be taken back. A room may grant no such
+	 * authority, and absence is returned as `say` returns it. */
 	async postFiles(text = ""): Promise<PostedLine | null> {
 		const line = await postStagedFiles(this.#session, this.#filesRef(), text);
 		return postedLineResult(this.#session, line);
@@ -540,7 +540,7 @@ export class Room {
 		return this.#session.tell(this.#membershipRef(), TYPING, [on]).catch(() => {});
 	}
 
-	/** Leave this room — drop the membership and end the `messages` stream —
+	/** Leave this room: drop the membership and end the `messages` stream
 	 * without closing the connection, so the same connection can enter another
 	 * room. Close the session itself with `Directory.close`. */
 	leave(): Promise<void> {
@@ -554,12 +554,11 @@ export class Room {
 	async #leave(): Promise<void> {
 		let failure: unknown | null = null;
 		try {
-			// Bounded like every other request, and for a reason particular to
-			// this one: the cleanup below is in the `finally`, so a room that
-			// stays connected and never answers the goodbye holds this
-			// membership's references and its stream for the life of the tab.
-			// Leaving is something this side does; telling the room is a
-			// courtesy, and a courtesy must not hold the leaving hostage.
+			// Bounded like every other request. The cleanup below is in the
+			// `finally`, so a room that stays connected and never answers the
+			// goodbye would hold this membership's references and its stream for
+			// the life of the tab. Leaving is something this side does, and
+			// telling the room is a courtesy that must not hold the leave hostage.
 			await answerWithin(
 				this.#session.send(this.#membershipRef(), LEAVE, []),
 				"the room did not answer the goodbye",
@@ -580,12 +579,11 @@ export class Room {
 	/** Stop reading this membership without telling the room, because a newer
 	 * claim on the same connection has already replaced it.
 	 *
-	 * `leave` is the wrong verb there and not merely a wasteful one: the room
-	 * keys a departure by connection, so a leave sent after re-entering would
-	 * take back the place the re-entry had just made, leaving a member who
-	 * believes they are in a room the room no longer has them in. Re-entry
-	 * already replaced the record on the room's side; what is left is this
-	 * side's stream. */
+	 * `leave` is the wrong verb there, and more than wasteful. The room keys a
+	 * departure by connection, so a leave sent after re-entering would take back
+	 * the place the re-entry just made and leave a member who believes they are
+	 * in a room that no longer has them. Re-entry already replaced the record on
+	 * the room's side, and what is left is this side's stream. */
 	replaced(): void {
 		if (this.#retired) return;
 		this.#retired = true;

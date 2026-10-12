@@ -9,7 +9,7 @@ const driver = common.driver;
 const hosting = common.hosting;
 
 /// C child spines have an independently bounded representation. Byte leaves
-/// borrow the core result; successful projections grant independent occurrence
+/// borrow the core result. Successful projections grant independent occurrence
 /// retains to the consumer, never to this scratch arena.
 pub const Observer = struct {
     owner: *attached.Attachment,

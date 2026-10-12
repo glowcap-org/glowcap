@@ -3,7 +3,7 @@ import { spawnWeb } from "../support/web_front.ts";
 // a wasm browser peer drives the real room-directory capabilities through
 // serve.ts's `/relay` byte pipe, with no native dlopen anywhere in this process.
 //
-// This is the load-bearing slice — it retires the one real risk in
+// This slice retires the one real risk in
 // moving the browser onto the runtime. Like `bindings/ts/web/test/web_peer_test.ts`,
 // it is its own process so the wasm adapter and any native runtime never share a
 // module graph: this process loads ONLY `@glowcap/web`; the room server and
@@ -55,7 +55,7 @@ try {
 		const session = await runtime.connect(tcp.locator("127.0.0.1", roomPort));
 		const serving = session.serve().catch(() => {});
 		try {
-			// The real room vocabulary, as a capability call from the wasm peer —
+			// The real room vocabulary, as a capability call from the wasm peer,
 			// no JSON bridge in the path.
 			const directory = await session.fetch("directory");
 			const rooms = await session.send(directory, "list", []);

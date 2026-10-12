@@ -60,7 +60,7 @@ pub fn checkPlanningDocRoles(
     }
 }
 
-/// The living-state registry (`living_state.surfaces`) is held honest in both
+/// The living-state registry (`living_state.surfaces`) is held accurate in both
 /// directions. Forward: a registered non-glob path must exist, since an entry
 /// naming a deleted file is a broken promise. Reverse: every top-level
 /// `docs/*.md` file, every `docs/` subdirectory doc that declares itself a

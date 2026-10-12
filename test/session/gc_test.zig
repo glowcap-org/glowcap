@@ -50,7 +50,7 @@ test "wire-delta GC decrements export and import refcounts by direction" {
     // Outbound op:gc-exports releases our refs to the partner's exports →
     // decrements the import table, and may remove the row (an import carries
     // no local baseline). Inbound op:gc-exports is the partner releasing refs
-    // to our exports → decrements the export table down to — never past — the
+    // to our exports → decrements the export table down to, never past, the
     // local baseline, so the row survives for re-export.
     try s.recordSend(.{ .gc_export = .{ .positions = &.{3}, .deltas = &.{1} } });
     try s.recordRecv(.{ .gc_export = .{ .positions = &.{7}, .deltas = &.{1} } });
@@ -175,7 +175,7 @@ test "re-sending an export retains its wire-delta so a matching gc-exports does 
     try std.testing.expectEqual(baseline + 2, s.exportRefcount(.from(7)));
 
     // A conformant partner that received export 7 twice releases with delta 2.
-    // It must decrement cleanly — never underflow — and the export survives at
+    // It must decrement cleanly, never underflow, and the export survives at
     // its pre-mention count for re-export.
     try s.recordRecv(.{ .gc_export = .{ .positions = &.{7}, .deltas = &.{2} } });
     try std.testing.expectEqual(baseline, s.exportRefcount(.from(7)));
@@ -201,7 +201,7 @@ test "inbound gc-exports can never release an export's local baseline" {
 
     // An untrusted release of one more than the wire ever granted is refused
     // loudly. Validated against the raw refcount instead of the wire-held
-    // share, it would have driven the row to zero and deleted it — a partner
+    // share, it would have driven the row to zero and deleted it, a partner
     // killing our own live capability.
     const over_release = [_]u64{s.exportRefcount(.from(7))};
     try std.testing.expectError(session.Error.GcUnderflow, s.recordRecv(.{
@@ -293,7 +293,7 @@ test "mentioning the bootstrap export then receiving its gc never underflows" {
     try s.registerImport(.from(3));
 
     // Mention our bootstrap export as a deliver argument: send-side export accounting
-    // deliberately never counts position 0, so the partner's accounting and
+    // never counts position 0, so the partner's accounting and
     // ours disagree about wire references to it, which is exactly why an
     // inbound release of position 0 must be a pinned no-op, never arithmetic.
     try s.recordSend(.{ .deliver = .{
@@ -328,7 +328,7 @@ test "gc validation scratch reports host OOM as itself, not GcUnderflow" {
     var s = session.Session.init(allocator);
     defer s.deinit();
     // Nine distinct live exports so the fold spills past the stack threshold
-    // into the heap map — the path that can surface a host OutOfMemory.
+    // into the heap map, the path that can surface a host OutOfMemory.
     var positions: [9]u64 = undefined;
     var deltas: [9]u64 = undefined;
     var i: u64 = 0;

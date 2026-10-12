@@ -96,9 +96,7 @@ impl<D: Deadline> Workspace<D> {
 	/// Check this exact held use without registering an observation or reading
 	/// workspace content. Shared wakes convey no authority to this source.
 	pub async fn describe_access(&self) -> Result<super::access::UseState, Error> {
-		let reply = self.call("describe-access", &[]).await?;
-		loam::UseDescription::read(&reply)?;
-		Ok(super::access::UseState(reply))
+		super::access::UseState::validated(self.call("describe-access", &[]).await?)
 	}
 	pub async fn mutation_sequence(&self) -> Result<u32, Error> {
 		self.call("mutation-sequence", &[])
@@ -109,7 +107,24 @@ impl<D: Deadline> Workspace<D> {
 			.ok_or_else(|| loam::refusal("invalid session mutation sequence").into())
 	}
 	pub async fn snapshot(&self) -> Result<Snapshot, Error> {
-		let reply = self.call("snapshot", &[]).await?;
+		self.snapshot_at("snapshot", &[]).await
+	}
+	/// Only the managed owner holds this private witness. Grant admission and
+	/// live authority still apply. Public query debt cannot block retirement.
+	pub async fn owner_snapshot(&self, owner: &Ref) -> Result<Snapshot, Error> {
+		self.snapshot_at(
+			"continue-workspace",
+			&[
+				owner.clone().into(),
+				rooms_application::content::session::continuing::Method::Snapshot
+					.wire()
+					.into(),
+			],
+		)
+		.await
+	}
+	async fn snapshot_at(&self, method: &'static str, args: &[Argument]) -> Result<Snapshot, Error> {
+		let reply = self.call(method, args).await?;
 		let Some([revision, intent]) = reply.as_list() else {
 			return Err(loam::refusal("invalid managed workspace snapshot").into());
 		};
@@ -224,16 +239,42 @@ impl<D: Deadline + Clone> Workspace<D> {
 	/// Recording intent comes from the same canonical invocation that admits
 	/// this exact callback. Consumers use it only during synchronous delivery.
 	pub async fn inbox_recording(&self, selected: &workspace::InboxSelection, inbox: &Ref) -> Result<bool, Error> {
+		self.inbox_recording_at(selected, inbox, None).await
+	}
+	/// Fresh callback authorization for the private owner, independent of public
+	/// query debt. The original grant and exact installed callback are checked.
+	pub async fn owner_check_inbox(
+		&self,
+		owner: &Ref,
+		selected: &workspace::InboxSelection,
+		inbox: &Ref,
+	) -> Result<(), Error> {
+		self.inbox_recording_at(selected, inbox, Some(owner)).await.map(|_| ())
+	}
+	async fn inbox_recording_at(
+		&self,
+		selected: &workspace::InboxSelection,
+		inbox: &Ref,
+		owner: Option<&Ref>,
+	) -> Result<bool, Error> {
 		let selected = serde_json::to_string(selected)
 			.map_err(|_| Error::Unsent(Box::new(loam::refusal("invalid inbox selection"))))?;
+		let args = [
+			owner.map_or(Argument::Void, |owner| owner.clone().into()),
+			rooms_application::content::session::continuing::Method::CheckInbox
+				.wire()
+				.into(),
+			selected.into(),
+			inbox.clone().into(),
+		];
+		let (method, args) = if owner.is_some() {
+			("continue-workspace", &args[..])
+		} else {
+			("check-inbox", &args[2..])
+		};
 		let reply = self
 			.caller
-			.call(
-				&self.reference,
-				"check-inbox",
-				&[selected.into(), inbox.clone().into()],
-				"the inbox admission did not answer",
-			)
+			.call(&self.reference, method, args, "the inbox admission did not answer")
 			.await?;
 		match reply {
 			Argument::Boolean(keep) => Ok(keep),
@@ -349,8 +390,8 @@ impl<D: Deadline> Command<D> {
 		results::receive(&self.caller, &self.source, &self.operation, &self.canonical).await
 	}
 	/// Committed data is encoded JSON text, optionally paired with exact
-	/// returned custody. An unsettled receipt returns its status instead;
-	/// a terminal failed observation returns its retained diagnostic error.
+	/// returned custody. An unsettled receipt returns its status instead.
+	/// A terminal failed observation returns its retained diagnostic error.
 	pub async fn result(&self) -> Result<Argument, Error> {
 		self.caller
 			.call(

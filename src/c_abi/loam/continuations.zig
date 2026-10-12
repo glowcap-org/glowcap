@@ -1,4 +1,4 @@
-//! Confirmation transfers one preallocated observer; no foreign callback runs.
+//! Confirmation transfers one preallocated observer. No foreign callback runs.
 const std = @import("std");
 const common = @import("common.zig");
 const attached = @import("attachment.zig");
@@ -8,7 +8,7 @@ const shared = common.shared;
 const hosting = common.hosting;
 
 /// The caller and kernel confirmation own independent references. Canceled
-/// observers may outlive kernel custody; their small metadata allocation and
+/// observers may outlive kernel custody. Their small metadata allocation and
 /// attachment borrow remain until release. Kernel limits bound active intent,
 /// not application-held inert handles.
 pub const Control = struct {

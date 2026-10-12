@@ -63,8 +63,8 @@ interface DialWaiter {
 
 /** The per-netlayer readiness dispatcher for the iroh loop surface (ADR-0057).
  *
- * It parks the event loop on the netlayer's single readiness fd — a `node:net`
- * socket over a dup of it — and, when the fd signals, drains the pending records
+ * It parks the event loop on the netlayer's single readiness fd (a `node:net`
+ * socket over a dup of it) and, when the fd signals, drains the pending records
  * and fans each out to the connection (or accept) waiting on it. The drain
  * touches only the endpoint, never a per-connection buffer, so a connection can
  * be released at any time without racing a read. `close` destroys the socket
@@ -173,12 +173,12 @@ export class IrohLoop {
 	/** Stop the loop (destroying its readiness socket, closing the dup), wake every
 	 * waiter so parked pumps unwind, and release the sidecar handle of every
 	 * connection still registered here. The caller releases the netlayer after this
-	 * returns — and the C ABI requires every connection released before its
+	 * returns. The C ABI requires every connection released before its
 	 * netlayer (`destroyConn` dereferences the netlayer). A dialing pump
 	 * unregisters and releases its one connection before it calls this, so the
 	 * release below is a no-op for it; a server's shared loop still holds every
 	 * accepted connection that no per-connection close reached, so releasing them
-	 * here — while the netlayer is still alive — is what keeps the server's
+	 * here, while the netlayer is still alive, keeps the server's
 	 * `netlayer.release()` from freeing memory those connections still point at.
 	 * Each connection's own `close` is idempotent with this. */
 	close(): void {
@@ -300,8 +300,8 @@ export class IrohLoop {
 /** The iroh transport: a non-blocking `IrohConnection` driven by an `IrohLoop`
  * (ADR-0057), reshaped into the byte transport a `Session`'s serve loop
  * reads. `read` sources raw inbound bytes through the sidecar's non-blocking
- * `try_read` — the readiness loop, not a parked blocking read, decides when
- * bytes are available — and the host's stream delimiter frames them above.
+ * `try_read`: the readiness loop, not a parked blocking read, decides when
+ * bytes are available, and the host's stream delimiter frames them above.
  * `write` goes through the non-blocking `try_write`, re-arming on the next
  * writable record when the sidecar buffer is full (the serve loop's FLUSH
  * drain serializes the writes, so the retry never interleaves frames).
@@ -309,8 +309,8 @@ export class IrohLoop {
  * Lifetime: a server-accepted transport borrows the server's loop and
  * netlayer; a dialing transport minted its own netlayer and loop (`ownsLoop`)
  * and tears both down on close. No call ever parks on this connection, so
- * `close` cannot race a parked read — the teardown hazard a blocking pump
- * would have. */
+ * `close` cannot race a parked read (the teardown hazard a blocking pump
+ * would have). */
 export class IrohChannel implements Channel {
 	#conn: IrohConnection;
 	#loop: IrohLoop;
@@ -404,8 +404,8 @@ function join(chunks: Uint8Array[]): Uint8Array {
 // iroh discovery resolves a peer by node id alone, but the exporter's pkarr
 // record takes seconds to propagate after it binds, so a dial-by-id can fail with
 // "no addressing information" until it lands. Every posture that resolves by id
-// through a propagating service — `Discovery` (n0 relays + DNS/pkarr) and
-// `DiscoveryNoRelay` (DNS/pkarr, no relay) — therefore retries on the
+// through a propagating service (`Discovery` (n0 relays + DNS/pkarr) and
+// `DiscoveryNoRelay` (DNS/pkarr, no relay) therefore retries on the
 // `GLOWCAP_DISCOVERY_DIAL_*` budget (ADR-0082). `Direct` and `LocalDiscovery`
 // dial once. Only transient dial faults (projected as IO) are retried.
 /** Whether a posture resolves the partner by id through a propagating discovery

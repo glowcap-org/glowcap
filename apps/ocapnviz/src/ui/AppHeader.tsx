@@ -1,7 +1,7 @@
 /**
  * The top bar: wordmark, mode, document commands, and chrome.
  *
- * AppView owns the handlers; this module owns the header those
+ * AppView owns the handlers. This module owns the header those
  * handlers fill. Save/Open/New sit here in every mode because they
  * act on the buffer, not on the stage.
  */
@@ -68,7 +68,7 @@ export function AppHeader({
 				/>
 			)}
 			{
-				/* New/Save/Open available in all modes — Save persists the
+				/* New/Save/Open available in all modes, Save persists the
           buffer (recording / fixture / file), and New and Open both
           replace it. */
 			}

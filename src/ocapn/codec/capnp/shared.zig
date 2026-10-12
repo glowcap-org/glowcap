@@ -11,8 +11,8 @@ const model = @import("model");
 pub const wire = @import("wire.zig");
 
 /// The structural decode error set. The borrowed decode path never allocates,
-/// so this set carries no allocator error; encode, which does allocate, uses
-/// `EncodeError` — the same Error/WalkError split the Syrup codec makes.
+/// so this set carries no allocator error. Encode, which does allocate, uses
+/// `EncodeError`, the same Error/WalkError split the Syrup codec makes.
 pub const Error = error{
     InvalidFrameShape,
     Truncated,
@@ -29,7 +29,7 @@ pub const Error = error{
 pub const EncodeError = Error || std.mem.Allocator.Error;
 
 /// Union discriminant for the `model.Message` body. The explicit values are the
-/// Cap'n Proto wire ids and must stay stable; the comptime mirror below binds
+/// Cap'n Proto wire ids and must stay stable. The comptime mirror below binds
 /// the *set* to `model.Message` so a new arm cannot land without a wire id,
 /// while leaving the id itself an explicit wire-contract choice.
 pub const Kind = enum(u16) {
@@ -132,7 +132,7 @@ pub fn readerFromFrame(bytes: []const u8) Error!Reader {
 
 /// Refuse bytes past the length a frame's own header declares.
 ///
-/// `readerFromFrame` is deliberately lenient about this: the framing layer
+/// `readerFromFrame` is lenient about this: the framing layer
 /// hands it a buffer that may hold several frames back to back and expects it
 /// to read the first. A caller that has already been given one delimited frame
 /// wants the strict rule, and calls this.
@@ -150,10 +150,10 @@ pub fn expectExactFrameLength(bytes: []const u8) Error!void {
 /// segment words partition into node data/pointer sections and list bodies, and
 /// the decode walk visits each node once, so it reads each segment word a small
 /// constant number of times (locate + discriminant + payload). 32× that count
-/// leaves generous headroom for a tree while an aliasing DAG — composite-list
-/// pointers that resolve to a shared child re-read the same words K^D times —
+/// leaves generous headroom for a tree while an aliasing DAG, composite-list
+/// pointers that resolve to a shared child re-read the same words K^D times,
 /// exhausts it within a few thousand node visits for a 2 KB frame. This is the
-/// glowcap sibling of Cap'n Proto's `traversalLimitInWords`; the tighter,
+/// glowcap sibling of Cap'n Proto's `traversalLimitInWords`. The tighter,
 /// per-frame bound is chosen over a fixed cap because a real frame's read count
 /// scales with its own size, not the deployment's `max_frame_bytes`.
 pub const traversal_budget_words_per_segment_word: usize = 32;
@@ -200,10 +200,10 @@ pub const Reader = struct {
     /// Spend `words` from the traversal budget, if one is attached. Returns
     /// `MalformedFrame` when the budget cannot cover the read: a glowcap frame
     /// is a tree, so a walk that outruns a size-derived budget is reading an
-    /// aliasing DAG glowcap never emits — a structural refusal, the same
+    /// aliasing DAG glowcap never emits, a structural refusal, the same
     /// verdict `InvalidPointer`/`Truncated` carry (a distinct codec error would
-    /// fall through `engine.abort_projection.classify` to `.foreign`; the
-    /// tree-shape refusal is honestly `malformed_frame`).
+    /// fall through `engine.abort_projection.classify` to `.foreign`. The
+    /// tree-shape refusal is `malformed_frame`).
     pub fn spend(self: Reader, words: usize) Error!void {
         const budget = self.budget orelse return;
         if (budget.* < words) {
@@ -221,7 +221,7 @@ pub const Reader = struct {
 
     /// Resolve a pointer at segment index `ptr_idx` with signed `offset`. Empty
     /// aggregates legitimately point one word past the segment end, so this
-    /// rejects only indices strictly past it; each real read is checked by `word`.
+    /// rejects only indices strictly past it. Each real read is checked by `word`.
     pub fn target(self: Reader, ptr_idx: usize, offset: i32) Error!usize {
         const resolved = @as(i64, @intCast(ptr_idx)) + 1 + offset;
         if (resolved < 0) return Error.InvalidPointer;
@@ -231,7 +231,7 @@ pub const Reader = struct {
     }
 
     /// Borrowed byte slice of `len` bytes starting at segment word `seg_idx`.
-    /// Points directly into the frame; copies nothing.
+    /// Points directly into the frame. Copies nothing.
     pub fn byteSlice(self: Reader, seg_idx: usize, len: usize) Error![]const u8 {
         if (len == 0) return &.{};
         // `seg_idx` and `len` both derive from a peer-supplied list
@@ -293,7 +293,7 @@ pub fn followList(reader: Reader, loc: StructLoc, i: u16) Error!ListLoc {
 /// behavior (a panic in a safe build, undefined behavior otherwise).
 pub fn enumFromWire(comptime E: type, raw: u64) Error!E {
     // The discriminant occupies the low sixteen bits and `data0_flag` sits
-    // directly above it, so bit 16 is dropped on purpose. Nothing writes any
+    // directly above it, so bit 16 is dropped. Nothing writes any
     // bit above that, and silently ignoring them would let two different words
     // spell the same message.
     if (raw >> 17 != 0) return Error.MalformedFrame;
@@ -309,7 +309,7 @@ pub fn enumFromWire(comptime E: type, raw: u64) Error!E {
 /// before a caller allocates `element_count` rows or stride-walks the elements
 /// this proves the tag is consistent with the words the list pointer reserved.
 pub const CompositeList = struct {
-    /// Segment index of the list's tag word; element `n`'s data section begins
+    /// Segment index of the list's tag word. Element `n`'s data section begins
     /// at `tag_idx + 1 + n * stride`.
     tag_idx: usize,
     element_count: usize,

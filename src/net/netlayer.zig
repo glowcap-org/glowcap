@@ -1,7 +1,7 @@
 //! The netlayer contract: a transport the driver dials and hosts against, never
 //! a privileged built-in.
 //!
-//! OCapN addresses a peer by a locator — a value with three parts: a `transport`
+//! OCapN addresses a peer by a locator, a value with three parts: a `transport`
 //! symbol that selects how to reach it (`"tcp"`, `"iroh"`, etc.), a `designator`
 //! that names the specific peer (a `host:port` string for TCP, a hex-encoded
 //! Ed25519 key for keyed-TCP and iroh), and optional `hints` for transport-specific
@@ -14,13 +14,13 @@
 //! transport funnels through the same `Connection` (a `*std.Io.Reader` /
 //! `*std.Io.Writer` pair plus a close handle), so a resident reuses the one
 //! framing core in `pumpOver` rather than reframing bytes. `tcp`, `inproc`,
-//! and the sidecar-backed `iroh` resident all live behind this contract; each
+//! and the sidecar-backed `iroh` resident all live behind this contract. Each
 //! registers as new files without touching the driver or the core.
 //!
 //! Dispatch is a runtime vtable, not a comptime parameter, because the transport
 //! symbol is a runtime value parsed from a URI or read off an inbound
 //! `op:start-session`. A comptime contract would re-privilege whichever
-//! transports were known at build time — the boundary this contract exists to
+//! transports were known at build time, the boundary this contract exists to
 //! remove.
 //!
 //! A multiplexed transport with one readiness descriptor and many
@@ -28,7 +28,7 @@
 //! listener lifecycle and accept-claim operations preserve the same ownership
 //! guarantees without pretending it is a per-connection stream vtable.
 //! High-fan-out completion backends are a third I/O realization under
-//! `completion.Loop`; they share transport and locator semantics without
+//! `completion.Loop`. They share transport and locator semantics without
 //! pretending these ownership models are one vtable.
 
 const std = @import("std");
@@ -45,7 +45,7 @@ pub const Connection = connection.Connection;
 /// Caller-owned read/write buffers handed to a dial/accept.
 pub const Buffers = support.Buffers;
 
-/// Borrowed provider configuration; the selected provider owns validation.
+/// Borrowed provider configuration. The selected provider owns validation.
 pub const OperationOptions = support.OperationOptions;
 
 /// Pinned shim reader/writer storage for userspace byte transports.
@@ -70,16 +70,16 @@ pub const ListenConfig = support.ListenConfig;
 /// ride the `hint_direct_addresses` hint, and the signed designator derives
 /// from the identity key, never the socket. That is what lets a partner
 /// re-dial the same designator across a process restart. A dial records that
-/// target key; a partner that selects a key-designator acceptable route must
+/// target key. A partner that selects a key-designator acceptable route must
 /// claim the same key. An address route is independent of the current channel
-/// (ADR-0109). This is target matching, not authentication; each connection's
+/// (ADR-0109). This is target matching, not authentication. Each connection's
 /// `session_pubkey` is a separate identity.
 pub const DesignatorScheme = support.DesignatorScheme;
 
 /// The locator hint carrying a partner's comma-separated direct socket
-/// addresses — the transport-neutral dial-address channel a `key`-scheme
+/// addresses, the transport-neutral dial-address channel a `key`-scheme
 /// designator needs, since the designator itself no longer says where to dial.
-/// The iroh resident re-exports this name; keyed TCP requires the hint on every
+/// The iroh resident re-exports this name. Keyed TCP requires the hint on every
 /// dial (TCP has no discovery).
 pub const hint_direct_addresses = support.hint_direct_addresses;
 
@@ -88,7 +88,7 @@ pub const hint_direct_addresses = support.hint_direct_addresses;
 pub const directAddrHint = support.directAddrHint;
 
 /// Size-query/copy contract shared by listener restoration-state callbacks. The return
-/// value is always the complete byte count; `out` is written only when it can
+/// value is always the complete byte count. `out` is written only when it can
 /// hold the whole value. An empty buffer therefore asks for the exact size
 /// without allocating or accepting a truncated locator component.
 pub const writeListenerRestorationState = support.writeListenerRestorationState;
@@ -170,7 +170,7 @@ pub const DialFinishOutcome = union(enum) {
 };
 
 /// Exactly one execution form for a stream netlayer dial. A blocking
-/// implementation receives the peer and final wire buffers immediately; a
+/// implementation receives the peer and final wire buffers immediately. A
 /// staged implementation returns a pollable attempt and receives them only
 /// when completion is claimed. The tagged shape prevents one transport from
 /// publishing two divergent dial authorities.
@@ -190,7 +190,7 @@ pub const DialOperation = union(enum) {
 };
 
 /// A stream-provider listener setup that may wait on external progress. The
-/// transport owns the task and readiness descriptor; the driver owns exactly
+/// transport owns the task and readiness descriptor. The driver owns exactly
 /// one finish-or-cancel edge. Bounded listener setup uses `Netlayer.listen`
 /// directly and allocates no attempt.
 pub const ListenAttempt = struct {
@@ -242,7 +242,7 @@ pub const ListenResult = union(enum) {
     ready: Listener,
     pending: ListenAttempt,
 
-    /// Consume an immediate listener for an embedding that deliberately does
+    /// Consume an immediate listener for an embedding that does
     /// not drive asynchronous setup. A pending attempt is canceled before the
     /// refusal returns, so narrowing the sum cannot leak provider work.
     pub fn requireReady(self: *ListenResult) ListenFinishOutcome {
@@ -304,8 +304,8 @@ pub const Listener = struct {
         /// The transport this listener hosts, the symbol signed into the
         /// responder's `op:start-session`, matching its netlayer's name.
         transport_name: []const u8,
-        /// What this listener's designator is (see `DesignatorScheme`);
-        /// matches its netlayer's declaration.
+        /// What this listener's designator is (see `DesignatorScheme`).
+        /// Matches its netlayer's declaration.
         designator_scheme: DesignatorScheme = .address,
         /// Whether the Host must seal this listener's byte channel before any
         /// CapTP bytes move. Kept beside the listener execution callbacks so
@@ -331,12 +331,12 @@ pub const Listener = struct {
         ) ListenerLocatorOutcome,
         /// Write opaque transport-owned bytes sufficient to restore this
         /// listener's local address, when the transport has such state. The
-        /// return value is the complete size; a short `out` is not modified.
+        /// return value is the complete size. A short `out` is not modified.
         restoration_state: ?*const fn (ctx: *anyopaque, out: []u8) ListenerRestorationOutcome = null,
         /// The listener's OS-pollable accept descriptor, borrowed, for a
         /// host face that mirrors accept readiness into an aggregate set
         /// (ADR-0112). Left null by a transport whose accept has no single
-        /// descriptor; `waitAcceptable` then stays the only readiness verb.
+        /// descriptor. `waitAcceptable` then stays the only readiness verb.
         readiness_fd: ?*const fn (ctx: *anyopaque) i32 = null,
         close: *const fn (ctx: *anyopaque) ?ListenerCloseFailure,
     };
@@ -426,11 +426,11 @@ pub fn canonicalizeFixedLocator(
     return support.canonicalizeFixedLocator(allocator, locator, expected_transport, expected_designator);
 }
 
-/// One transport, behind a runtime vtable — a netlayer, reached as
-/// `net.netlayer.Netlayer`. `dial` turns a locator into a live `Connection`;
+/// One transport, behind a runtime vtable, a netlayer, reached as
+/// `net.netlayer.Netlayer`. `dial` turns a locator into a live `Connection`.
 /// `listen` binds a `Listener`. `profile.symbol` is both the dispatch key
 /// (`resolve` matches on it) and the symbol signed into the locator (so it must
-/// match what the partner matches on — Goblins' `^tcp-netlayer` keys on `tcp`).
+/// match what the partner matches on, Goblins' `^tcp-netlayer` keys on `tcp`).
 /// `ctx` is the resident's own state (its `std.Io`, or a userspace endpoint),
 /// which the caller keeps alive for as long as the transport slice holds the
 /// netlayer.
@@ -448,7 +448,7 @@ pub const Netlayer = struct {
         /// implementations of the same fact.
         dial: ?DialOperation,
         /// Begin listener construction without parking the caller. Bounded
-        /// implementations return `.ready`; externally paced implementations
+        /// implementations return `.ready`. Externally paced implementations
         /// return a pollable `.pending` attempt.
         listen: ?*const fn (ctx: *anyopaque, allocator: std.mem.Allocator, config: ListenConfig) ListenStartOutcome,
         /// The host `std.Io` this resident runs on, or null for a resident

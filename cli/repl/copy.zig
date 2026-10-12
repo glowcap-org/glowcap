@@ -7,7 +7,7 @@ pub const workbench_ready =
     \\Workbench ready. CapTP verbs at the prompt · help · guide (optional walkthrough).
 ;
 
-/// Full coach body — shown only after `guide` (or `?` while guided).
+/// Full coach body, shown only after `guide` (or `?` while guided).
 pub const coach_guide =
     \\CapTP walkthrough — dial an ocapn:// locator (listen --publish greeter is argv-only).
     \\Then: fetch greeter → call greeter greet world

@@ -2,13 +2,13 @@
 //!
 //! The source gate is one build step (`tools/check/source_check.zig` orchestrates)
 //! whose check families live in sibling modules under this directory, each
-//! owning one named surface. What they all share — today the one violation
-//! sink — lives here, so a module never reaches back into the driver.
+//! owning one named surface. What they all share, today the one violation
+//! sink, lives here, so a module never reaches back into the driver.
 
 const std = @import("std");
 
 /// Record one violation. The driver prints the collected list and fails the
-/// step when it is non-empty; a check never fails the step directly, so one
+/// step when it is non-empty. A check never fails the step directly, so one
 /// run reports every violation at once.
 pub fn appendViolation(
     gpa: std.mem.Allocator,
@@ -282,8 +282,8 @@ test "collectSourceFiles never enters generated trees" {
 
 /// Read one source file, or concatenate every regular file beneath a package
 /// directory when `path` ends in `/`. Directory subjects keep ownership bans
-/// honest after a module becomes a package: a new leaf cannot evade a rule
-/// that used to scan the single monolith.
+/// valid after a module becomes a package: a new leaf cannot evade a rule
+/// written for the single file.
 pub fn readSourceSubject(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -494,7 +494,7 @@ pub fn collectBulletSpans(gpa: std.mem.Allocator, section: []const u8, out: *std
 /// composed step-registration module beneath `tools/build/`, concatenated into
 /// one owned buffer so a textual step scan sees the whole graph the root
 /// composes. The recursive walk matters because a subject that outgrows one
-/// file becomes a package; nesting must not make its steps invisible to the
+/// file becomes a package, nesting must not make its steps invisible to the
 /// documentation and check-membership ratchets. Callers free the result.
 pub fn readBuildStepSources(
     io: std.Io,

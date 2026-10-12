@@ -1,7 +1,7 @@
 //! Shared C vocabulary for glowcap's composable archives: allocation contexts,
 //! frames, values, locators, URI grammar, and return codes. CapTP application
-//! work enters through `libglowcap_host`; the protocol engine remains a native
-//! Zig surface.
+//! work enters through `libglowcap_host`. The protocol engine stays a Zig
+//! surface.
 //!
 //! This file is the crate root: it owns the shared vocabulary (return codes,
 //! discriminants, the C-visible types) and the per-thread last-error boundary,
@@ -11,7 +11,7 @@
 //! This archive is sans-io: the transports
 //! (`libglowcap_net_transport_*`) carry the netlayer handles in their own
 //! companion modules (ADR-0059). Each family `@import`s this root for the shared
-//! types and codes; this root re-exports their `export fn`s so the header
+//! types and codes. This root re-exports their `export fn`s so the header
 //! generator, which reflects over the `c_abi` namespace, sees the full ABI in
 //! one place.
 //! The allocator behind a context may be called from transport threads, so a
@@ -32,13 +32,13 @@ const uri = @import("uri.zig");
 const uri_record = @import("uri/record.zig");
 
 /// ABI version the library implements. While `major` is 0 the ABI is unstable
-/// (see `glowcap_ocapn.h`); the shared library's soname tracks `major`.
+/// (see `glowcap_ocapn.h`). The shared library's soname tracks `major`.
 pub const GLOWCAP_VERSION_MAJOR: u32 = 0;
 pub const GLOWCAP_VERSION_MINOR: u32 = 1;
 pub const GLOWCAP_VERSION_PATCH: u32 = 0;
 
 /// The annotated symbol inventory (crossing semantics per export) the
-/// binding FFI-table generators reflect from — see `symbols.zig`.
+/// binding FFI-table generators reflect from. See `symbols.zig`.
 pub const symbols = @import("symbols.zig");
 pub const contract_layouts = abi.contract_layouts;
 
@@ -213,10 +213,10 @@ pub const setLastError = abi.setLastError;
 
 /// Copy the calling thread's last error message into `out_buf`. Copies at most
 /// `cap - 1` bytes and always NUL-terminates when `cap > 0`. Returns the full
-/// message length; to receive the whole message pass a buffer of that length
+/// message length. To receive the whole message pass a buffer of that length
 /// plus one. `out_buf == NULL` or `cap == 0` queries the length. errno-style:
 /// meaningful only right after a call that returned a cause-bearing code
-/// (`_IO`, or the address-parse `_INVALID_ARGUMENT`); a later success does not
+/// (`_IO`, or the address-parse `_INVALID_ARGUMENT`). A later success does not
 /// clear it. Returns 0 when none is set.
 pub export fn glowcap_last_error(out_buf: ?[*]u8, cap: usize) usize {
     return abi.lastErrorRead(out_buf, cap);
@@ -275,7 +275,7 @@ pub const glowcap_locator_record_bytes_release = uri_record.glowcap_locator_reco
 
 comptime {
     // Force the family files' `export fn`s into the compilation even if the
-    // re-exports above are ever pruned; a plain reference is enough.
+    // re-exports above are ever pruned. A plain reference is enough.
     _ = context;
     _ = frame;
     _ = uri;

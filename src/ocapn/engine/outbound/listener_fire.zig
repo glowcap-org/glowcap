@@ -1,8 +1,8 @@
 //! Listener-fire carriers queued by the outbound path.
 //!
 //! A fire carrier is POD over a payload owner. Answer-backed carriers retain
-//! their exact answer payload box; imported-promise carriers carry a row stamp;
-//! live-object fires rebuild `fulfill(near)` from the export position.
+//! their exact answer payload box. Imported-promise carriers carry a row stamp.
+//! Live-object fires rebuild `fulfill(near)` from the export position.
 
 const model = @import("model");
 const session = @import("session");

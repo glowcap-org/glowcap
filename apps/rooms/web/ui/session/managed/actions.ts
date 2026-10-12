@@ -7,13 +7,17 @@ import type {
 } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import type { ManagedRoomsSession } from "./session.ts";
 import type { ManagedOperation } from "./operation.ts";
-import { WorkspaceConflict } from "./operation.ts";
+import type { ConversationOpening } from "./openings.ts";
+import { acquireDirect } from "./direct.ts";
+import { createManagedRoom } from "./create_room.ts";
 import { type ActivityPage, type Coordinate, fieldKey, type WorkspaceIntent, type WorkspaceSnapshot } from "./model.ts";
 import type { JoinNicknameIntent } from "../../controller/session.ts";
 import type { RoomPolicy } from "../../room_policy.ts";
 import { applicationModule } from "../../application.ts";
-import { AcquisitionConflict, submitAcquisition } from "./acquisition.ts";
+import { AcquisitionConflict, MAX_CONFLICT_REPREPARATIONS, submitAcquisition } from "./acquisition.ts";
+import { retainedIntentConversation } from "./admission.ts";
 import type { OpsCap } from "../../types.ts";
+import { CompletedLine } from "./completed_line.ts";
 
 export class OperationsAcquisitionRefused extends Error {
 	constructor(readonly failures: readonly { capability: OpsCap; reason: string; advice: string | null }[]) {
@@ -21,14 +25,37 @@ export class OperationsAcquisitionRefused extends Error {
 	}
 }
 
+import { LOCAL_LIMITS } from "./local_gestures.ts";
+import { gestureScope } from "./gestures.ts";
+import { SESSION_CONTENT } from "../../../../lib/session_content_data.ts";
+import { OperationLifecycle } from "./lifecycle.ts";
+import { CancellationRecovery } from "./cancellation.ts";
+
+interface AcquisitionRecord {
+	intent: string;
+	result?: string;
+	lifecycle: OperationLifecycle;
+	request?: Acquisition;
+	task?: Promise<void>;
+	completed?: () => Promise<void>;
+	signal?: AbortSignal;
+	cancellation?: CancellationRecovery;
+}
+
 type Acquisition = RoomsManagedAcquisition | RoomsManagedDirectoryAcquisition | RoomsManagedOperationsAcquisition;
+
+/** Only some prepared acquisitions retain their target for re-preparation after a proved conflict. */
+function isRepreparable(
+	request: Acquisition,
+): request is Acquisition & { reprepare(): Promise<Acquisition> } {
+	return "reprepare" in request;
+}
 export class ManagedActions {
 	readonly #session: ManagedRoomsSession;
-	readonly #acquisitions = new Map<string, Acquisition>();
-	readonly #preparing = new Set<string>();
+	readonly #acquisitions = new Map<string, AcquisitionRecord>();
 	readonly #running = new Set<Promise<unknown>>();
-	readonly #submitting = new Map<string, Promise<void>>();
 	#stopped = false;
+	readonly #gestures = new Map<string, { task: Promise<unknown>; signal?: AbortSignal }>();
 	// The activity reader presents one cursor at a time. Keep its completed
 	// arrival through projection retry, even after custody acquisition is settled.
 	#receivedArrival: string | null = null;
@@ -37,92 +64,223 @@ export class ManagedActions {
 	constructor(session: ManagedRoomsSession) {
 		this.#session = session;
 	}
+	get diagnostics() {
+		return [...this.#acquisitions.values()].map((record) => record.lifecycle.inspect());
+	}
+	get resources() {
+		return { acquisitions: this.#acquisitions.size, workers: this.#running.size, gestures: this.#gestures.size };
+	}
 	get pending(): readonly string[] {
-		return [...this.#acquisitions.keys()];
+		return [...this.#acquisitions].filter((
+			[, record],
+		) => (record.request != null || record.lifecycle.outcome === "committed")).map(([id]) => id);
 	}
 	get recoverable(): readonly string[] {
-		return this.pending.filter((id) => !this.#submitting.has(id));
+		return [...this.#acquisitions].filter(([, record]) =>
+			(record.request != null || record.lifecycle.outcome === "committed") && record.lifecycle.needsDecision &&
+			!record.cancellation?.pending
+		)
+			.map(([id]) => id);
 	}
-	#acquire(id: string, prepare: () => Promise<Acquisition>): Promise<void> {
-		const task = this.#prepareAcquisition(id, prepare).finally(() => this.#running.delete(task));
-		this.#running.add(task);
-		return task;
+	/** Only new conversations belong to acquisitions. Keep cancelled results
+	 * out of presentation until this owner proves non-admission or departure. */
+	get cancelledConversations(): readonly string[] {
+		return [...this.#acquisitions.values()].flatMap((record) =>
+			record.signal?.aborted && record.result != null ? [record.result] : []
+		);
 	}
-	async #prepareAcquisition(id: string, prepare: () => Promise<Acquisition>): Promise<void> {
-		if (this.#stopped) throw new Error("This workspace is closed");
-		if (this.#acquisitions.has(id) || this.#preparing.has(id)) {
-			throw new Error("Recover the original acquisition before preparing another one");
+	#acquire(
+		id: string,
+		prepare: () => Promise<Acquisition>,
+		intent = id,
+		result?: string,
+		signal?: AbortSignal,
+		completed?: () => Promise<void>,
+	): Promise<void> {
+		if (this.#stopped) return Promise.reject(new Error("This workspace is closed"));
+		const existing = this.#acquisitions.get(id);
+		if (existing != null) {
+			if (existing.intent !== intent) {
+				return Promise.reject(new Error("Recover the original acquisition before changing its contents"));
+			}
+			return existing.task ?? this.recoverAcquisition(id);
 		}
-		if (this.#acquisitions.size + this.#preparing.size >= 32) {
-			throw new Error("Recover pending acquisitions before preparing another one");
+		if (this.#acquisitions.size >= LOCAL_LIMITS.acquisitions) {
+			return Promise.reject(new Error("Recover pending acquisitions before preparing another one"));
 		}
-		this.#preparing.add(id);
-		let request: Acquisition;
-		try {
-			request = await prepare();
+		const record: AcquisitionRecord = {
+			intent,
+			result,
+			completed,
+			signal,
+			lifecycle: new OperationLifecycle(id, () => this.#session.acquisitionChanged()),
+		};
+		this.#acquisitions.set(id, record);
+		record.cancellation = new CancellationRecovery(
+			signal,
+			() =>
+				!this.#stopped && record.task == null && this.#acquisitions.get(id) === record &&
+				(record.request != null || record.lifecycle.outcome === "committed"),
+			() => this.recoverAcquisition(id),
+			() => this.#session.acquisitionChanged(),
+		);
+		const task = record.lifecycle.own("preparing", async () => {
+			signal?.throwIfAborted();
+			const request = await prepare();
+			if (signal?.aborted) {
+				request.free();
+				signal.throwIfAborted();
+			}
 			if (this.#stopped) {
 				request.free();
 				throw new Error("This workspace is closed");
 			}
-		} finally {
-			this.#preparing.delete(id);
-		}
-		this.#acquisitions.set(id, request);
-		await this.recoverAcquisition(id);
-	}
-	recoverAcquisition(id: string): Promise<void> {
-		if (this.#stopped) return Promise.reject(new Error("This workspace is closed"));
-		const existing = this.#submitting.get(id);
-		if (existing != null) return existing;
-		const task = this.#submitAcquisition(id).finally(() => {
-			this.#submitting.delete(id);
-			this.#session.acquisitionChanged();
+			record.request = request;
+			record.lifecycle.phase = "admitting";
+			record.lifecycle.outcome = "unknown";
+			await this.#submitAcquisition(id);
+		}).finally(async () => {
+			record.task = undefined;
+			if (record.request == null && record.lifecycle.outcome !== "committed") this.#forget(id);
+			try {
+				await record.cancellation?.idle();
+			} finally {
+				this.#running.delete(task);
+			}
+		}).catch((error: unknown) => {
+			if (!this.#acquisitions.has(id)) signal?.throwIfAborted();
+			throw error;
 		});
-		this.#submitting.set(id, task);
+		record.task = task;
+		this.#running.add(task);
 		this.#session.acquisitionChanged();
 		return task;
 	}
+	#forget(id: string): void {
+		this.#acquisitions.get(id)?.cancellation?.dispose();
+		this.#acquisitions.delete(id);
+	}
+	recoverAcquisition(id: string): Promise<void> {
+		if (this.#stopped) return Promise.reject(new Error("This workspace is closed"));
+		const record = this.#acquisitions.get(id);
+		if (record == null) return Promise.reject(new Error("This acquisition is no longer held"));
+		if (record.task != null) return record.task;
+		const task = record.lifecycle.own("acquiring", () => this.#submitAcquisition(id)).finally(() => {
+			record.task = undefined;
+			this.#running.delete(task);
+		});
+		record.task = task;
+		this.#running.add(task);
+		this.#session.acquisitionChanged();
+		return task;
+	}
+
+	/** An acquisition whose press was cancelled keeps its result until this
+	 * owner proves non-admission or completes its recovery. Wait for that
+	 * proof, then say the caller may retry its work. A held acquisition that
+	 * was not cancelled is left exactly where it stands. */
+	async #recoveredIfAborted(acquisition: string): Promise<boolean> {
+		const held = this.#acquisitions.get(acquisition);
+		if (held == null || !held.signal?.aborted) return false;
+		await this.recoverAcquisition(acquisition);
+		return true;
+	}
 	async #submitAcquisition(id: string): Promise<void> {
-		const original = this.#acquisitions.get(id);
+		const record = this.#acquisitions.get(id)!;
+		if (record.lifecycle.outcome === "committed") {
+			await this.#session.refresh();
+			await record.completed?.();
+			this.#forget(id);
+			this.#session.acquisitionChanged();
+			return;
+		}
+		const original = record.request;
 		if (original == null) throw new Error("This acquisition is no longer held");
 		let request: Acquisition = original;
 		let outcome;
-		for (let attempt = 0;; attempt++) {
+		for (let attempt = 0; attempt < MAX_CONFLICT_REPREPARATIONS; attempt++) {
 			outcome = await submitAcquisition(request);
-			if (outcome !== "conflict" || !("reprepare" in request) || attempt === 3 || this.#stopped) break;
+			if (
+				outcome !== "conflict" || !isRepreparable(request) || this.#stopped ||
+				attempt + 1 === MAX_CONFLICT_REPREPARATIONS || record.signal?.aborted === true
+			) break;
 			// Only a proved refusal permits a new revision. Rust re-preparation
 			// retains the exact acquired target, source, coordinates and recipe.
 			// Failure leaves the original held; uncertainty never enters this path.
 			const replacement: Acquisition = await request.reprepare();
-			this.#acquisitions.set(id, replacement);
+			record.request = replacement;
 			request.free();
 			request = replacement;
+			if (record.signal?.aborted) break;
 		}
 		if (outcome === "committed" && id.startsWith("arrival:")) this.#receivedArrival = id;
+		record.lifecycle.outcome = outcome === "committed" ? "committed" : "notAdmitted";
 		request.free();
-		this.#acquisitions.delete(id);
+		record.request = undefined;
+		if (outcome !== "committed") this.#forget(id);
 		this.#session.acquisitionChanged();
 		if (id === "workspace-import" && this.#importing == null) this.#importState = null;
 		await this.#session.refresh();
-		if (outcome === "conflict") throw new AcquisitionConflict();
+		if (outcome === "committed") await record.completed?.();
+		this.#forget(id);
+		if (outcome === "conflict") {
+			record.signal?.throwIfAborted();
+			throw new AcquisitionConflict();
+		}
 	}
-	async directory(id: string, route: string, nick: JoinNicknameIntent, home: boolean): Promise<void> {
-		await this.#acquire(`directory:${id}`, () =>
-			this.#session.workspace.prepareDirectory(
-				id,
-				route,
-				nick.kind === "exact" ? nick.name : nick.base,
-				home,
-				nick.kind === "exact",
-			));
+	async directory(
+		id: string,
+		route: string,
+		nick: JoinNicknameIntent,
+		home: boolean,
+		signal?: AbortSignal,
+	): Promise<void> {
+		await this.#share(
+			JSON.stringify(["directory", id, route, nick, home]),
+			() =>
+				this.#acquire(
+					`directory:${id}`,
+					() =>
+						this.#session.workspace.prepareDirectory(
+							id,
+							route,
+							nick.kind === "exact" ? nick.name : nick.base,
+							home,
+							nick.kind === "exact",
+						),
+					JSON.stringify([route, nick, home]),
+					undefined,
+					signal,
+				),
+			signal,
+		);
 	}
-	async publicRoom(directory: string, name: string, publication: string): Promise<string> {
-		const id = crypto.randomUUID();
+	publicRoom(directory: string, name: string, publication: string, opening?: ConversationOpening): Promise<string> {
+		return this.#share(
+			JSON.stringify(["publicRoom", directory, name, publication]),
+			() => this.#publicRoom(directory, name, publication, opening),
+			opening?.signal,
+		);
+	}
+	async #publicRoom(
+		directory: string,
+		name: string,
+		publication: string,
+		opening?: ConversationOpening,
+	): Promise<string> {
+		const signal = opening?.signal;
+		const acquisition = JSON.stringify(["publicRoom", directory, publication]);
+		if (await this.#recoveredIfAborted(acquisition)) {
+			return this.#publicRoom(directory, name, publication, opening);
+		}
+		const id = this.#acquisitions.get(acquisition)?.result ?? crypto.randomUUID();
 		const selection = JSON.stringify({ id, directory, name, publication, source: fieldKey() });
+		const accepted = this.#session.current;
 		const initial = await this.#session.candidate();
-		const original = initial.intent.directories.find((row) => row.id === directory);
+		const original = (accepted ?? initial).intent.directories.find((row) => row.id === directory);
 		if (original == null) throw new Error("The original directory was removed");
-		for (let attempt = 0;; attempt++) {
+		for (let attempt = 0; attempt < MAX_CONFLICT_REPREPARATIONS; attempt++) {
+			signal?.throwIfAborted();
 			const snapshot = attempt === 0 ? initial : await this.#session.candidate();
 			const current = snapshot.intent.directories.find((row) => row.id === directory);
 			if (current == null || current.access !== original.access || current.source !== original.source) {
@@ -131,135 +289,91 @@ export class ManagedActions {
 			const held = snapshot.intent.conversations.find((row) =>
 				row.kind === "room" && row.directory === directory && row.publication === publication
 			);
-			if (held != null) return held.id;
+			if (held != null) {
+				if (this.#acquisitions.has(acquisition)) await this.recoverAcquisition(acquisition);
+				return held.id;
+			}
 			try {
-				await this.#acquire(`room:${id}`, async () => {
-					const request = await this.#session.workspace.preparePublicRoom(snapshot.revision, selection);
-					if (request == null) throw new AcquisitionConflict();
-					return request;
-				});
+				await this.#acquire(
+					acquisition,
+					async () => {
+						const request = await this.#session.workspace.preparePublicRoom(snapshot.revision, selection);
+						if (request == null) throw new AcquisitionConflict();
+						return request;
+					},
+					JSON.stringify([directory, publication, name]),
+					id,
+					signal,
+					opening == null ? undefined : () => opening.acquired(id),
+				);
 				return id;
 			} catch (error) {
 				// Only a proved conflict permits preparation at a newer revision.
 				// An uncertain submission remains held by the acquisition owner.
-				if (!(error instanceof AcquisitionConflict) || attempt === 3) throw error;
+				if (!(error instanceof AcquisitionConflict) || attempt + 1 === MAX_CONFLICT_REPREPARATIONS) {
+					throw error;
+				}
 			}
 		}
+		throw new Error("Room join exceeded conflict re-preparation attempts.");
 	}
-	async createRoom(directory: string, name: string, policy: RoomPolicy): Promise<string> {
-		const original = (await this.#session.refresh()).intent.directories.find((row) => row.id === directory);
-		if (original == null) throw new Error("The original directory was removed");
-		const access = original.access;
-		const source = original.source;
-		const operation = crypto.randomUUID();
-		const args = [
-			directory,
-			name,
-			policy.visibility,
-			policy.entry,
-			policy.speaking,
-			`~${fieldKey()}`,
-		];
-		for (let attempt = 0;; attempt++) {
-			let command: ManagedOperation;
-			try {
-				command = await this.#session.command("openManagedRoom", args, operation, (snapshot) => {
-					const current = snapshot.intent.directories.find((row) => row.id === directory);
-					if (current == null || current.access !== access || current.source !== source) {
-						throw new Error("The selected directory authority changed. Review it before creating a room.");
-					}
-				});
-			} catch (error) {
-				// Conflict proves that no receipt or upstream effect was installed.
-				// Every preparation rechecks the same directory/source; uncertain
-				// admissions stay at command's existing original receipt owner.
-				if (!(error instanceof WorkspaceConflict) || attempt === 3) throw error;
-				continue;
-			}
-			await this.#session.completeResult(command);
-			return command.id;
-		}
+	createRoom(directory: string, name: string, policy: RoomPolicy, opening?: ConversationOpening): Promise<string> {
+		return this.#share(
+			JSON.stringify(["createRoom", directory, name, policy]),
+			() => createManagedRoom(this.#session, directory, name, policy, opening),
+			opening?.signal,
+		);
 	}
 
-	async direct(directory: string, peer: string, select: boolean, expectedRegistration?: string): Promise<string> {
-		const initial = await this.#session.refresh();
-		const original = initial.intent.directories.find((row) => row.id === directory);
-		if (original?.name == null || original.inbox == null) {
-			throw new Error("The initiating registration was retired");
-		}
-		const reader = await this.#session.workspace.directoryReader(directory);
-		let registration: string;
-		try {
-			registration = await reader.memberRegistration(peer);
-		} finally {
-			reader.free();
-		}
-		if (expectedRegistration != null && registration !== expectedRegistration) {
-			throw new Error(
-				"That name now has a different registration. Start a separate conversation from the directory.",
-			);
-		}
-		const checkOrigin = (snapshot: WorkspaceSnapshot) => {
-			const origin = snapshot.intent.directories.find((row) => row.id === directory);
-			if (origin?.name == null || origin.inbox == null) {
-				throw new Error("The initiating registration was retired");
-			}
-			if (
-				origin.access !== original.access || origin.source !== original.source ||
-				origin.name !== original.name || origin.inbox !== original.inbox
-			) {
-				throw new Error("The initiating registration changed while selecting the peer");
-			}
-			return origin;
-		};
-		const current = await this.#session.refresh();
-		const origin = checkOrigin(current);
-		const existing = current.intent.conversations.find((row) =>
-			row.kind === "direct" && row.directory === directory && row.peer === peer && !row.closed &&
-			row.introduction?.access === origin.access && row.introduction.name === origin.name &&
-			row.introduction.callback === origin.inbox && row.introduction.registration === registration
+	async direct(
+		directory: string,
+		peer: string,
+		select: boolean,
+		expectedRegistration?: string,
+		opening?: ConversationOpening,
+	): Promise<string> {
+		const id = await this.#share(
+			JSON.stringify(["direct", directory, peer, expectedRegistration]),
+			() => acquireDirect(this.#session, directory, peer, expectedRegistration, opening),
+			opening?.signal,
 		);
-		if (existing != null) {
-			if (select) await this.#session.navigation.select(existing.id);
-			return existing.id;
-		}
-		const opening = crypto.randomUUID();
-		// Install the scalar readiness waiter before asking for an introduction.
-		// Only the original directory and exact registration can wake it.
-		const readiness = this.#session.waitNotice((event) =>
-			event.target.kind === "directory" && event.target.id === directory &&
-			event.notice.kind === "introducible" && event.notice.registration === registration &&
-			event.notice.opening === opening
-		);
-		try {
-			const introduce = () =>
-				this.#session.command("startDirect", [directory, peer, registration, opening], undefined, checkOrigin);
-			let command = await introduce();
-			let result = await command.result() as { status: "ready" | "pending"; inbox?: string };
-			if (result.status === "pending") {
-				this.#session.finish(command);
-				await readiness.ready;
-				command = await introduce();
-				result = await command.result() as typeof result;
-			}
-			if (result.status !== "ready" || result.inbox == null) {
-				throw new Error("The original direct introduction has no ready route");
-			}
-			await this.#session.completeResult(command);
-			const adopted = (await this.#session.refresh()).intent.conversations.find((row) =>
-				row.kind === "direct" && row.directory === directory && !row.closed &&
-				row.introduction?.registration === registration && row.introduction.opening === opening
-			);
-			if (adopted == null) throw new Error("The original direct introduction is no longer held");
-			if (select) await this.#session.navigation.select(adopted.id);
-			return adopted.id;
-		} finally {
-			readiness.cancel();
-		}
+		if (select) await this.#session.navigation.select(id);
+		return id;
 	}
-	async run(name: string, args: string[] = []): Promise<unknown> {
-		const command = await this.#session.command(name, args);
-		return await this.#session.completeResult(command);
+	#share<T>(key: string, work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+		const previous = this.#gestures.get(key);
+		if (previous != null) {
+			if (!previous.signal?.aborted) return previous.task as Promise<T>;
+			// A new press waits for the cancelled attempt's cleanup. Only proved
+			// non-admission or completed cleanup permits a fresh acquisition.
+			return previous.task.then(() => this.#share(key, work, signal), (error: unknown) => {
+				if (error instanceof DOMException && error.name === "AbortError") return this.#share(key, work, signal);
+				throw error;
+			});
+		}
+		if (this.#stopped) return Promise.reject(new Error("This workspace is closed"));
+		if (this.#gestures.size >= SESSION_CONTENT.limits.effects) {
+			return Promise.reject(new Error("Finish pending actions before starting another one"));
+		}
+		let start!: () => void;
+		const task = new Promise<T>((resolve, reject) => {
+			start = () => {
+				try {
+					resolve(work());
+				} catch (error) {
+					reject(error);
+				}
+			};
+		}).finally(() => this.#gestures.delete(key));
+		this.#gestures.set(key, { task, signal });
+		// Install deduplication first, then capture the selected authority on the
+		// press. Deferring work to a microtask would capture a later selection.
+		start();
+		return task;
+	}
+	run(name: string, args: string[] = []): Promise<unknown> {
+		const work = async () => this.#session.completeResult(await this.#session.command(name, args));
+		return gestureScope(name, args) == null ? work() : this.#share(JSON.stringify([name, args]), work);
 	}
 	async clear(): Promise<void> {
 		await this.run("clearWorkspace");
@@ -268,11 +382,12 @@ export class ManagedActions {
 		const command = await this.#session.command("say", [conversation, text]);
 		await this.acquireLine(conversation, command);
 	}
-	async acquireLine(conversation: string, command: ManagedOperation): Promise<void> {
-		const original = command.request.originalIntent();
-		const target = Array.isArray(original) ? original[3][0] : original.conversation;
+	async acquireLine(conversation: string, command: ManagedOperation): Promise<CompletedLine> {
+		const target = retainedIntentConversation(command.request.originalIntent());
 		if (target !== conversation) throw new Error("The line receipt belongs to another conversation");
-		await this.#session.completeResult(command);
+		const completed = await this.#session.completeResult(command);
+		if (!(completed instanceof CompletedLine)) throw new Error("The receipt is not a posted line");
+		return completed;
 	}
 
 	async replace(
@@ -281,21 +396,21 @@ export class ManagedActions {
 		imports: { coordinate: Coordinate; uri: string }[] = [],
 		source?: string,
 	): Promise<void> {
-		await this.#acquire(crypto.randomUUID(), () =>
+		await this.#acquire("workspace-acquisition", () =>
 			this.#session.workspace.prepareAcquisition(
 				snapshot.revision,
 				JSON.stringify(imports),
 				JSON.stringify(releases),
 				JSON.stringify(snapshot.intent),
 				source == null ? undefined : JSON.stringify({ role: "sessionAccess", key: source }),
-			));
+			), JSON.stringify([snapshot.intent, releases, imports, source]));
 	}
 	async operations(
 		original: Pick<WorkspaceIntent, "operators" | "operations">,
 		replacement: Pick<WorkspaceIntent, "operators" | "operations">,
 		imports: { coordinate: Coordinate; uri: string }[],
 	): Promise<void> {
-		await this.#acquire(crypto.randomUUID(), async () => {
+		await this.#acquire("operations-acquisition", async () => {
 			const result = await this.#session.workspace.prepareOperationsAcquisition(
 				JSON.stringify(imports),
 				JSON.stringify(original),
@@ -303,7 +418,7 @@ export class ManagedActions {
 			);
 			if (result.status === "refused") throw new OperationsAcquisitionRefused(result.failures);
 			return result;
-		});
+		}, JSON.stringify([original, replacement, imports]));
 	}
 	importState(raw: string, presentation = false): Promise<void> {
 		// One gesture retains its original request after an uncertain reply.
@@ -331,7 +446,10 @@ export class ManagedActions {
 			if (!this.#acquisitions.has(id)) this.#importState = null;
 		});
 	}
-	async acceptInvitation(id: string): Promise<void> {
+	acceptInvitation(id: string): Promise<void> {
+		return this.#share(JSON.stringify(["acceptInvitation", id]), () => this.#acceptInvitation(id));
+	}
+	async #acceptInvitation(id: string): Promise<void> {
 		const offered = this.#session.current?.intent.invitations.find((row) => row.id === id);
 		if (offered?.authority.role === "roomAccess") {
 			const snapshot = await this.#session.candidate();
@@ -372,25 +490,26 @@ export class ManagedActions {
 		const snapshot = await this.#session.candidate();
 		const conversation = snapshot.intent.conversations.find((row) => row.id === event.target.id);
 		if (conversation?.kind !== "direct") throw new Error("The initiating direct conversation is no longer held");
+		const notice = event.notice;
 		const source = fieldKey();
 		const key = fieldKey();
 		let destination: Coordinate;
-		if (event.notice.kind === "line" && event.route != null) {
+		if (notice?.kind === "line" && event.route != null) {
 			destination = { role: "directAccess", key };
 			conversation.access = key;
 			conversation.source = source;
-		} else if (event.notice.kind === "handRoom" || event.notice.kind === "offerRoom") {
+		} else if (notice?.kind === "handRoom" || notice?.kind === "offerRoom") {
 			destination = { role: "roomAccess", key };
 			snapshot.intent.invitations.push({
 				id,
 				directory: conversation.directory,
-				label: String(event.notice.label ?? ""),
+				label: notice.label ?? "",
 				from: conversation.peer,
 				authority: { role: "roomAccess", key },
 				source,
 			});
-		} else if (event.notice.kind === "handArchive" || event.notice.kind === "offerArchive") {
-			const kind = event.notice.scope;
+		} else if (notice?.kind === "handArchive" || notice?.kind === "offerArchive") {
+			const kind = notice.scope;
 			if (kind !== "room" && kind !== "direct" && kind !== "standing") {
 				throw new Error("Invalid received archive scope");
 			}
@@ -398,13 +517,13 @@ export class ManagedActions {
 			snapshot.intent.archiveShares = [...(snapshot.intent.archiveShares ?? []), {
 				id,
 				channel: conversation.id,
-				directory: String(event.notice.directory),
+				directory: notice.directory ?? "",
 				kind,
-				conversation: event.notice.conversation == null ? null : String(event.notice.conversation),
+				conversation: notice.conversation ?? null,
 				from: conversation.peer,
 				access: key,
 				source,
-				durable: event.notice.kind === "offerArchive",
+				durable: notice.kind === "offerArchive",
 			}];
 		} else {
 			throw new Error("This incoming authority has no acquisition owner");
@@ -421,12 +540,40 @@ export class ManagedActions {
 				),
 		);
 	}
-	async roomLink(
+	roomLink(
 		directory: string,
 		uri: string,
 		name: string,
 		selection: { route: string; nick: JoinNicknameIntent; home: boolean },
+		opening?: ConversationOpening,
 	): Promise<string> {
+		return this.#share(
+			JSON.stringify(["roomLink", directory, uri, name, selection]),
+			() => this.#roomLink(directory, uri, name, selection, opening),
+			opening?.signal,
+		);
+	}
+	async #roomLink(
+		directory: string,
+		uri: string,
+		name: string,
+		selection: { route: string; nick: JoinNicknameIntent; home: boolean },
+		opening?: ConversationOpening,
+	): Promise<string> {
+		const signal = opening?.signal;
+		const acquisition = `room-link:${directory}`;
+		const intent = JSON.stringify([uri, name, selection]);
+		if (await this.#recoveredIfAborted(acquisition)) {
+			return this.#roomLink(directory, uri, name, selection, opening);
+		}
+		const held = this.#acquisitions.get(acquisition);
+		if (held != null) {
+			if (held.intent !== intent) {
+				throw new Error("Recover the original room link before opening a different one");
+			}
+			await this.recoverAcquisition(acquisition);
+			return held.result!;
+		}
 		const snapshot = await this.#session.candidate();
 		const id = crypto.randomUUID();
 		const access = fieldKey();
@@ -471,8 +618,21 @@ export class ManagedActions {
 			standing: null,
 			draft: "",
 		});
-		snapshot.intent.active = id;
-		await this.replace(snapshot, [], imports, source);
+		await this.#acquire(
+			acquisition,
+			() =>
+				this.#session.workspace.prepareAcquisition(
+					snapshot.revision,
+					JSON.stringify(imports),
+					"[]",
+					JSON.stringify(snapshot.intent),
+					JSON.stringify({ role: "sessionAccess", key: source }),
+				),
+			intent,
+			id,
+			signal,
+			opening == null ? undefined : () => opening.acquired(id),
+		);
 		return id;
 	}
 	stop(): void {
@@ -480,8 +640,11 @@ export class ManagedActions {
 	}
 	async close(): Promise<void> {
 		this.stop();
-		await Promise.allSettled([...this.#running, ...this.#submitting.values()]);
-		for (const request of this.#acquisitions.values()) request.free();
+		await Promise.allSettled([...this.#running, ...[...this.#gestures.values()].map((row) => row.task)]);
+		for (const record of this.#acquisitions.values()) {
+			record.cancellation?.dispose();
+			record.request?.free();
+		}
 		this.#acquisitions.clear();
 	}
 }

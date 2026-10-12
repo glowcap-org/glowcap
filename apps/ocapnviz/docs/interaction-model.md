@@ -17,7 +17,7 @@ All three paths share:
 - `cursorFor`, so the offered cursor and the next pointer-down use the same
   decision
 
-`ScrubInput` is a native DOM control. Its click-to-type and drag-to-adjust behavior is deliberately outside the canvas
+`ScrubInput` is a native DOM control. Its click-to-type and drag-to-adjust behavior is outside the canvas
 gesture vocabulary.
 
 ## 1. Principles
@@ -130,11 +130,11 @@ narrows Stage-only tools to Select and calls the same resolver for both Overview
 
 | Tool         | stage-empty       | stage-peer        | stage-endpoint    | other surfaces    |
 | ------------ | ----------------- | ----------------- | ----------------- | ----------------- |
-| Select       | —                 | —                 | —                 | —                 |
+| Select       | none              | none              | none              | none              |
 | Hand         | navigation rung 2 | navigation rung 2 | navigation rung 2 | navigation rung 2 |
-| Add Peer     | `create-peer-at`  | —                 | —                 | —                 |
-| Open Session | —                 | `two-click-pick`  | refuses           | —                 |
-| Send Message | —                 | `two-click-pick`  | `two-click-pick`  | —                 |
+| Add Peer     | `create-peer-at`  | none              | none              | none              |
+| Open Session | none              | `two-click-pick`  | refuses           | none              |
+| Send Message | none              | `two-click-pick`  | `two-click-pick`  | none              |
 
 Open Session refuses an existing session end because a new session mints its own two ends. Send Message accepts a peer
 or an unattributed end. `toolAcceptsNode` is the one statement read by resolution, cursor, hover, and the two-click
@@ -224,7 +224,7 @@ carries its pointer-up hit, so no second hit test is needed.
 
 ## 6. Selection store
 
-`selectionReducer` is pure. The action union is deliberately small:
+`selectionReducer` is pure. The action union is small:
 
 | Action                  | Meaning                                                  |
 | ----------------------- | -------------------------------------------------------- |
@@ -345,7 +345,7 @@ iterable throw if hit testing scans it after the index has been built.
 ## 13. Deliberate boundaries
 
 The generic pointer machine is not a goal by itself. It owns the common threshold and Space-interruption lifecycle where
-that lifecycle is actually shared. Timeline drags retain typed local state because resizing a view window, retiming an
+that lifecycle is shared. Timeline drags retain typed local state because resizing a view window, retiming an
 observation transaction, reordering a row, and sweeping a marquee have different commit and teardown requirements.
 `timeline-gesture.ts` is the shared controller that prevents those adapters from inventing precedence.
 

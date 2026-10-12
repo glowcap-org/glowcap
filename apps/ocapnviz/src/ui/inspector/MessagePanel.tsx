@@ -1,5 +1,5 @@
 /**
- * Message inspector panel — Details + Timing (`MessageFields`) and
+ * Message inspector panel, Details + Timing (`MessageFields`) and
  * the Connections sub-panel showing from-peer, to-peer, and the
  * carrying session (`MessageConnections`). Messages are transient
  * (only live between `message-sent` and `message-delivered`), but
@@ -101,13 +101,13 @@ export function MessageFields(
 	const from = live?.from ?? def?.from ?? "?";
 	const to = live?.to ?? def?.to ?? "?";
 
-	// Containment: a message lives inside its session — can't be sent
+	// Containment: a message lives inside its session, can't be sent
 	// before session opens, can't arrive after session closes. Bounds
 	// read from the carrying session's entity.timing via
-	// engine.effectiveStart/End — the authoring source of truth.
+	// engine.effectiveStart/End, the authoring source of truth.
 	const carryingSessionId = live?.sessionId ?? def?.sessionId;
 	const sessionId = live?.sessionId ?? def?.sessionId ?? "?";
-	// Arrival reads through the EFFECTIVE span — the same authority
+	// Arrival reads through the EFFECTIVE span. The same authority
 	// the world materializer paints from. The raw event's arrivalT
 	// can differ: a live feed stamps arrivalT === t as its
 	// "flight unobserved" sentinel and the projection substitutes
@@ -300,7 +300,7 @@ export function MessageFields(
 											)}
 										label="Message duration"
 										{...durationScrub}
-										// The one timing row with no ✕ beside it — a message
+										// The one timing row with no ✕ beside it, a message
 										// always has a flight. It still fills the value column,
 										// so its digits sit where every other row's time does.
 										style={{ width: "100%" }}
@@ -338,8 +338,8 @@ export function MessageConnections(
 ) {
 	// From / to / carrier-session ids come through `messageInfo` so
 	// every Connections sub-panel resolves identities through the
-	// same `entity-info` shim — same as `peerInfo` / `sessionInfo`
-	// — instead of reaching into the doc directly here.
+	// same `entity-info` shim, same as `peerInfo` / `sessionInfo`,
+	// instead of reaching into the doc directly here.
 	const info = messageInfo(engine, id);
 	if (!info) return null;
 	const { fromId, toId, sessionId } = info;
@@ -389,10 +389,10 @@ export function MessageConnections(
 							codec={session.codec}
 							captpVersion={session.captpVersion}
 							// The pair the session joins, from the one place that
-							// derives it. This row used to build the pair itself out
-							// of the message's sender and the peer on the far end,
-							// which read the same most of the time and differed
-							// whenever an end was loose.
+							// derives it. Building the pair from the message's
+							// sender and the peer on the far end reads the same
+							// most of the time and differs whenever an end is
+							// loose.
 							name={sessionPairName(
 								engine.doc,
 								sessionId,

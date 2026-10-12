@@ -134,7 +134,7 @@ fn failValueProjection(
 
 /// Retire an unexposed borrowed value without materializing its representation.
 /// This uses the same bounded reference walk and terminal cleanup as a failed
-/// projection; the caller retains no reference from the value afterward.
+/// projection. The caller retains no reference from the value afterward.
 pub fn discardValueObservation(self: *Host, session: *HostSession, arg: model.Argument) void {
     const lifts = CapabilityLiftReceipts{};
     failValueProjection(self, session, arg, &lifts);
@@ -163,6 +163,10 @@ pub fn ownValue(self: *Host, session: *HostSession, arena: std.mem.Allocator, ar
     return value;
 }
 
+/// The lift walk keeps `anyerror`: `liftValueInner` and `liftValuesInner` are
+/// mutually recursive, which this toolchain refuses to resolve as inferred
+/// sets, and the walk's true set mirrors the actor-turn error vocabulary
+/// reached through `liftCapabilityTracked`.
 fn liftValueInner(
     self: *Host,
     session: *HostSession,
@@ -236,7 +240,7 @@ fn liftValuesInner(
 
 /// Lift one wire-shaped argument into the owning tier's `Value`: every
 /// reference becomes an opaque Host capability through the canonical identity
-/// owner. Spine containers are allocated in `arena`; leaf bytes stay borrowed.
+/// owner. Spine containers are allocated in `arena`. Leaf bytes stay borrowed.
 /// Any failure retires completed and unvisited observations as one transaction.
 pub fn liftValue(
     self: *Host,

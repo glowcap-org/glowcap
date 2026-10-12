@@ -32,7 +32,7 @@ pub const OutgoingOpcode = enum(u4) {
     pong = 0xa,
 };
 
-/// One parsed frame header. `len` is the payload length; the payload itself is
+/// One parsed frame header. `len` is the payload length. The payload itself is
 /// streamed by the caller, never materialized from this length.
 pub const FrameHeader = struct {
     opcode: Opcode,
@@ -48,7 +48,7 @@ pub const ParseError = error{
     ProtocolViolation,
 };
 
-/// Control frames carry at most 125 payload bytes (RFC 6455 §5.5); the
+/// Control frames carry at most 125 payload bytes (RFC 6455 §5.5). The
 /// parked-listener wait and the reader's ping handling size their stack
 /// buffers from this.
 pub const max_control_payload = 125;
@@ -57,7 +57,7 @@ pub const max_control_payload = 125;
 /// 4 mask bytes.
 pub const max_header_len = 14;
 
-/// Build a client frame header into `buf` (masked — every client frame is) and
+/// Build a client frame header into `buf` (masked, every client frame is) and
 /// return the written prefix.
 pub fn writeFrameHeader(
     buf: *[max_header_len]u8,
@@ -100,7 +100,7 @@ pub fn acceptKey(out: *[28]u8, request_key: []const u8) void {
 }
 
 /// The cap on the relay's HTTP upgrade response. A response still growing past
-/// this is refused — the relay is not fully trusted, so the handshake reader
+/// this is refused, the relay is not fully trusted, so the handshake reader
 /// is bounded like any inbound parser.
 pub const max_upgrade_response_bytes = 4096;
 pub const upgrade_request_fmt =
@@ -112,7 +112,7 @@ pub const upgrade_request_fmt =
     "Sec-WebSocket-Version: 13\r\n\r\n";
 
 /// Validate the optional status code and UTF-8 reason in a close payload.
-/// The one-byte shape is rejected by the header parser; this owns the semantic
+/// The one-byte shape is rejected by the header parser. This owns the semantic
 /// checks that require the complete, bounded payload.
 pub fn validateClosePayload(payload: []const u8) ParseError!void {
     if (payload.len == 0) return;
@@ -144,7 +144,7 @@ pub const ParsedHeader = struct {
 };
 
 /// Number of payload bytes that must be buffered before a parsed frame can be
-/// admitted. Data payload streams through the caller; bounded control payload
+/// admitted. Data payload streams through the caller. Bounded control payload
 /// is part of the protocol decision and must be available in full.
 pub fn controlPayloadLen(header: FrameHeader) usize {
     return switch (header.opcode) {
@@ -156,7 +156,7 @@ pub fn controlPayloadLen(header: FrameHeader) usize {
 
 /// Parse one completely buffered server-frame header. This is the sole RFC
 /// 6455 header authority shared by the blocking resident and completion
-/// adapter; null means only that more header bytes are required.
+/// adapter. Null means only that more header bytes are required.
 pub fn parseHeaderBytes(buffered: []const u8) ParseError!?ParsedHeader {
     const need = headerLenOf(buffered) orelse return null;
     if (buffered.len < need) return null;
@@ -275,7 +275,7 @@ fn headerHasToken(value: []const u8, expected: []const u8) bool {
 }
 
 /// Validate the complete HTTP header block of an RFC 6455 server upgrade.
-/// `bytes` excludes the terminating blank line; header names and token values
+/// `bytes` excludes the terminating blank line. Header names and token values
 /// are case-insensitive, while `Sec-WebSocket-Accept` must match exactly.
 pub fn validUpgradeResponse(bytes: []const u8, expected_accept: *const [28]u8) bool {
     var lines = std.mem.splitSequence(u8, bytes, "\r\n");
@@ -286,7 +286,7 @@ pub fn validUpgradeResponse(bytes: []const u8, expected_accept: *const [28]u8) b
 }
 
 /// The protocol meaning of one complete frame. Adapters own byte acquisition
-/// and reply submission; this is the single authority for fragmentation,
+/// and reply submission. This is the single authority for fragmentation,
 /// control/data classification, and close-payload validation.
 pub const FrameEffect = enum { data, ping, pong, close };
 

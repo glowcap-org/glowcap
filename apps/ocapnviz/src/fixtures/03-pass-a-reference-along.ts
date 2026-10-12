@@ -2,7 +2,7 @@ import { TimelineDocument } from "../engine/timeline.ts";
 import { payloadOf, wireFrames } from "./wire-frames.ts";
 
 /**
- * Chapter 03 — Pass a reference along.
+ * Chapter 03, Pass a reference along.
  *
  * The laptop calls `print(document)` on the printer, handing the document
  * reference itself across as an argument. The printer reads the document
@@ -10,11 +10,11 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  *
  * On the wire: the laptop is at `127.0.0.1:9301` and the printer at
  * `127.0.0.1:9302`, over plain `tcp`, and each end carries what backed
- * it — the laptop's own report, and for the printer the two hosts'
+ * it, the laptop's own report, and for the printer the two hosts'
  * traces agreeing on one OCapN Session ID.
  * Both peers run glowcap, so this session settles on Cap'n Proto over
  * glowcap-next. That is the pairing a glowcap fleet configures
- * (`HostRuntime.Options.codec` / `.captp_version` in `src/driver/host_runtime.zig`); the
+ * (`HostRuntime.Options.codec` / `.captp_version` in `src/driver/host_runtime.zig`). The
  * Syrup / OCapN 1.0 baseline is what a session settles on the moment a peer
  * at either end cannot follow.
  */

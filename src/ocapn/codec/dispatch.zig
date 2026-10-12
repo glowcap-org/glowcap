@@ -2,14 +2,14 @@
 //!
 //! The codec is chosen once per direct session, and the session remembers which
 //! one as a `model.CodecId`. This boundary resolves that id against
-//! `codec.registry` — at `comptime`, so the lookup unrolls to the same jump
-//! table a hand-written switch would, with no runtime indirection — and that's
+//! `codec.registry`, at `comptime`, so the lookup unrolls to the same jump
+//! table a hand-written switch would, with no runtime indirection, and that's
 //! what lets the engine stay codec-neutral for the bytes it puts on the wire.
 //! Whichever codec runs, decode hands back the same `model.view.Body` and
 //! encode hands back an equivalent `Frame`, so the state machine above never
 //! has to care which codec is underneath.
 //!
-//! One class of bytes deliberately does not come through here: the ones a
+//! One class of bytes does not come through here: the ones a
 //! signature is defined over. Those are Syrup whatever the session negotiated,
 //! because a give signed on one session is verified on another that negotiated
 //! independently. They live behind `codec.signed`, which states that reason,
@@ -17,7 +17,7 @@
 //! codec layer.
 //!
 //! The `*With` variants take an explicit registry so a test (or a consumer) can
-//! drive dispatch over a custom codec set; the public functions use
+//! drive dispatch over a custom codec set. The public functions use
 //! `registry.active`, the built-ins plus whatever the root file added.
 
 const std = @import("std");
@@ -107,7 +107,7 @@ pub fn decodePrefixForProfile(
 ///   position is void and it is reset.
 ///
 /// `scan` is per stream, not per buffer: successive calls must describe the
-/// same stream front. The buffer may grow or move storage — a partial frame
+/// same stream front. The buffer may grow or move storage, a partial frame
 /// spilling into its own storage keeps the cursor, because what the scan holds
 /// is how far into this frame it walked, not where the bytes live. A consumer
 /// that re-points at a different stream calls `scan.reset()` first.
@@ -126,7 +126,7 @@ pub fn framePrefix(
 /// prefix that has reached it. `done` names the tag `decode` answers with when
 /// a frame is complete. Keep this the only place that asks the scan, because
 /// a second copy is how the two engine entry points once came to differ by a
-/// single byte on the cap check; `zig build source-check` holds that.
+/// single byte on the cap check. `zig build source-check` holds that.
 fn withScan(
     comptime T: type,
     comptime done: @TypeOf(.enum_literal),
@@ -175,9 +175,9 @@ pub fn framePrefixForProfile(
 
 /// Whether it is worth asking `decodePrefix` yet, for a codec that can answer
 /// more cheaply than by decoding. `framePrefix` above is what a stream consumer
-/// calls; this is the step it runs first, public for the codec tests that drive
+/// calls. This is the step it runs first, public for the codec tests that drive
 /// the scan directly. A codec that declares its frame length up
-/// front already answers in constant time and says `ready` always; one with a
+/// front already answers in constant time and says `ready` always. One with a
 /// self-delimiting grammar carries `scan` across the retries so a frame
 /// arriving in pieces is walked once rather than once per piece.
 pub fn scanStream(
@@ -225,8 +225,8 @@ pub fn decodePrefixWith(
 /// The wire frame shape `codec` produces and consumes: Syrup is a byte stream,
 /// Cap'n Proto is word-aligned. A byte-stream framer needs this to materialize
 /// the owned frame it retains from a decoded prefix. Returns `null` for an
-/// unregistered codec — the same open-set input `decodeBody` rejects with
-/// `UnknownCodec` — so a caller resolves the shape and a missing codec in one step.
+/// unregistered codec, the same open-set input `decodeBody` rejects with
+/// `UnknownCodec`, so a caller resolves the shape and a missing codec in one step.
 pub fn frameShape(codec: model.CodecId) ?foundation.FrameShape {
     inline for (registry.active) |spec| {
         if (codec == spec.id) return spec.frame_shape;

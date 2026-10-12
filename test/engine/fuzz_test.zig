@@ -8,8 +8,8 @@
 //! What makes it worth more than a decode fuzzer is the state underneath. A
 //! cold peer has empty tables, so untrusted bytes meet almost no code: they are
 //! refused for being out of order and the run ends. The interesting bugs live
-//! where a message is *plausible* — an answer position that exists, an import
-//! that was just released, a promise with listeners already queued on it — and
+//! where a message is *plausible*, an answer position that exists, an import
+//! that was just released, a promise with listeners already queued on it, and
 //! none of those states exist until real traffic has built them.
 //!
 //! So the fuzzer drives a program rather than a buffer. Each step it chooses
@@ -31,7 +31,7 @@
 //! And every table the session declares a bound for stays inside it. This is
 //! the property worth the most here. A partner's whole goal is to make the
 //! process hold memory it should not, and a table that grows past its declared
-//! cap does exactly that without ever crashing — a "no crash" fuzzer will run
+//! cap does exactly that without ever crashing, a "no crash" fuzzer will run
 //! past it forever. `test/support/session_bounds.zig` owns both the caps and
 //! the check, and this reads the counts back after every step.
 
@@ -69,7 +69,7 @@ const regression_seeds = [_][]const u8{
 
 /// A program written out draw by draw, for a state the search is not owed to
 /// find on its own. `step` opens one loop iteration (an empty chunk, then
-/// "not the end"); the draws after it are the iteration's own, in the order
+/// "not the end"). The draws after it are the iteration's own, in the order
 /// `programOne` and `legitimateOp` make them.
 const Program = struct {
     bytes: [512]u8 = undefined,
@@ -104,7 +104,7 @@ const Program = struct {
 ///
 /// The listener's retain has the same shape and the same fix, but its fire is
 /// refused with a typed `InvalidReference` rather than a crash, which this
-/// target's properties cannot see; `test/engine/listener_fire_budget_test.zig`
+/// target's properties cannot see. `test/engine/listener_fire_budget_test.zig`
 /// pins that case directly.
 fn resolverRetainReleasedProgram() []const u8 {
     const entry = comptime blk: {
@@ -144,7 +144,7 @@ fn resolverRetainReleasedProgram() []const u8 {
 
 /// Upper bound on one injected chunk.
 const max_chunk = 1024;
-/// How many operations one program runs. Enough to build real tables; bounded so
+/// How many operations one program runs. Enough to build real tables. Bounded so
 /// a single input cannot spend the whole budget.
 const max_steps = 48;
 
@@ -157,7 +157,7 @@ const damaged_draw: u8 = 4;
 ///
 /// A seed is read as the draws the loop makes, in order, so it has to carry all
 /// of them. Handing over only the frame leaves nothing for the draws after it,
-/// and the end-of-input check answers "stop" — a seed that looks like a frame
+/// and the end-of-input check answers "stop", a seed that looks like a frame
 /// and runs no steps at all.
 fn programSeed(comptime frame: []const u8) []const u8 {
     const entry = comptime blk: {
@@ -196,15 +196,15 @@ const program_seeds = blk: {
 
 /// Which end of the import table a release addresses. The table iterates in
 /// hash order, so "the first row" would name a different import from one
-/// build to the next; the lowest and highest positions are the same rows every
+/// build to the next. The lowest and highest positions are the same rows every
 /// time, and a program that needs one of them can say which.
 const ImportPick = enum { lowest, highest };
 
 /// The position of some import this peer currently holds, or null when it holds
 /// none. A release for a position nobody holds is refused before it reaches any
 /// of the accounting worth exercising. With `releasable_only`, a row the
-/// session holds entirely for a release of its own — a pending listener's — is
-/// skipped, so the release lands where a caller's may; without it, that row
+/// session holds entirely for a release of its own, a pending listener's, is
+/// skipped, so the release lands where a caller's may. Without it, that row
 /// is exactly the one a release has to be refused on.
 fn heldImport(peer: *engine.Peer, releasable_only: bool, pick: ImportPick) ?u64 {
     const Found = struct {
@@ -269,7 +269,7 @@ fn stepBounded(peer: *engine.Peer) !void {
 }
 
 /// Collect everything the application side owes a release on. A real embedder
-/// polls events and drains outbound after every read; skipping it would report a
+/// polls events and drains outbound after every read. Skipping it would report a
 /// leak the contract does not have.
 fn drainApplication(peer: *engine.Peer) !void {
     while (peer.pollEvent()) |event_in| {
@@ -325,8 +325,8 @@ fn inject(peer: *engine.Peer, bytes: []const u8) !void {
 
 /// A frame the session really would have accepted, with a few bytes broken.
 ///
-/// This is the only way past validation. The corpus names fixed positions —
-/// export seven, answer eleven — and a live session holds whatever it happened
+/// This is the only way past validation. The corpus names fixed positions,
+/// export seven, answer eleven, and a live session holds whatever it happened
 /// to mint, so a corpus frame is refused for naming a table row that does not
 /// exist, every time, however the bytes are mutated around it. Blind mutation
 /// will not build a valid frame naming a live position either: the search space
@@ -411,7 +411,7 @@ fn legitimateOp(smith: *std.testing.Smith, actor: *engine.Peer, partner: *engine
             const answer = smith.valueRangeAtMost(u8, 1, 40);
             // Allocating a position only reserves it. The partner cannot be
             // handed a reference to it until the export row exists, so grant it
-            // here — otherwise every send below is refused as an unknown
+            // here, otherwise every send below is refused as an unknown
             // reference and the import table never grows at all.
             const position = actor.exportNextObject() catch return;
             actor.session_state.registerExport(model.ExportPosition.from(position)) catch return;
@@ -492,7 +492,7 @@ fn programOne(_: void, smith: *std.testing.Smith) anyerror!void {
         // The two injection draws are the top of the range, not the bottom.
         // When a draw runs past the input the generator falls back to the low
         // end, so putting injection at zero would have made the fallback
-        // inject — the opposite of what the weighting is for.
+        // inject, the opposite of what the weighting is for.
         switch (smith.valueRangeAtMost(u8, 0, 4)) {
             damaged_draw => try injectDamagedFrame(smith, actor, partner),
             inject_draw => try inject(actor, chunk[0..len]),
@@ -533,7 +533,7 @@ test "fuzz: no program of operations and untrusted bytes crashes or leaks a sess
 
     // The operations have to do what their comments claim. Handing the partner
     // a reference is the only one that grows an import table, and the release
-    // after it is refused as an underflow unless that worked — which is how it
+    // after it is refused as an underflow unless that worked, which is how it
     // behaved before, silently, on every single step.
     {
         var pair = try pairing.pairedWithLimits(std.testing.allocator, .syrup, bounds.tight);
@@ -595,7 +595,7 @@ test "fuzz: no program of operations and untrusted bytes crashes or leaks a sess
     // real loop head instead, and require a step out of every seed.
     // Replayed through the real loop head, in the order `programOne` draws it.
     // A guard that names the draws by hand goes stale the moment one is added
-    // above it, which has now happened twice.
+    // above it.
     for (&program_seeds, 0..) |entry, i| {
         var reader: std.testing.Smith = .{ .in = entry };
         var probe: [max_chunk]u8 = undefined;

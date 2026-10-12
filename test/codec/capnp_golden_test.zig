@@ -24,7 +24,7 @@ const Fixture = struct {
 /// argument list built from function calls is not comptime-known, so a literal
 /// there would be a temporary in that function's frame and the returned slice
 /// would dangle. Nothing about the deposit shape asks for the separate
-/// declaration; the lifetime does.
+/// declaration. The lifetime does.
 const deposit_gift_args = [_]model.Argument{
     .{ .symbol = "deposit-gift" },
     .{ .bytes = "gift-1" },

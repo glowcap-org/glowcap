@@ -9,7 +9,7 @@
     <!--
       Apply persisted theme BEFORE CSS parses so the boot screen and
       the eventual app share one background. Storage key mirrors
-      src/App.tsx (useTheme) — keep them in sync if either moves.
+      src/App.tsx (useTheme). Keep them in sync if either moves.
     -->
     <script>
       (function () {
@@ -91,7 +91,7 @@
           stroke-dashoffset: -4.4;
         }
       }
-      /* Each vat pulses in handoff order — gifter (amber), then
+      /* Each vat pulses in handoff order: gifter (amber), then
          the two receivers (purple, slate). One full cycle = the
          three-vat introduction completing. */
       .ocv-boot-mark circle {
@@ -158,7 +158,7 @@
   </head>
   <body>
     <!-- Skeleton inside #root so React.createRoot replaces it
-         atomically on first commit — single visual transition. -->
+         atomically on first commit, one visual transition. -->
     <div id="root">
       <div class="ocv-boot" aria-hidden="true">
         <div class="ocv-boot-card">

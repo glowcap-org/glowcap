@@ -10,7 +10,7 @@ export { dirAddress, directoryId } from "./page_bootstrap.ts";
 export { addFiles } from "./composer/files.ts";
 
 /** Pick a room a cold address names, once there is a nickname to enter it
- * with; the session owner handles the selection. Answers false when there is
+ * with. The session owner handles the selection. Answers false when there is
  * not, and files nothing: the caller says where the reader landed instead, and
  * the card's own route reads that address and files the act. One route files
  * acts, so an address and the card under it cannot say two different things. */
@@ -27,7 +27,7 @@ export function showRoom(
 }
 
 export function reachFor(page: RoomsPageContext, act: Reach): void {
-	page.managedSession?.navigation.dismissAcquisition();
+	page.managedSession?.openings.dismiss();
 	// The card is all that opens. On a phone a press steps back from the list
 	// screen to the conversation column the card fills; on a wide layout the
 	// rail is a column beside it and closing it would take the rooms away at the
@@ -42,7 +42,7 @@ export function aboutDirectory(page: RoomsPageContext, dir: DirId | null, asking
 export function showDirectory(page: RoomsPageContext, dir: DirId): void {
 	const projection = page.projection;
 	if (!projection.get().dirs.has(dir)) return;
-	page.managedSession?.navigation.dismissAcquisition();
+	page.managedSession?.openings.dismiss();
 	const conv = store.ensureDirectory(projection, dir);
 	store.switchTo(projection, conv.key);
 	store.showAboutDir(projection, null);

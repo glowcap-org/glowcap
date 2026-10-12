@@ -24,7 +24,7 @@ pub const zero_pubkey = @as([32]u8, @splat(0));
 pub const zero_sig = @as([64]u8, @splat(0));
 
 /// The unsigned loopback `op:start-session`. The receiving peer must run
-/// with `verify_partner_handshake = false`; a verifying peer refuses it.
+/// with `verify_partner_handshake = false`. A verifying peer refuses it.
 pub fn startSession(transport: []const u8, designator: []const u8) model.Message {
     return .{ .start_session = .{
         .captp_version = .v1_0,

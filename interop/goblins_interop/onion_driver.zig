@@ -177,7 +177,7 @@ fn callEcho(
 }
 
 /// Fetch the vat's echo cap and require the payload back. The echo actor is
-/// `(lambda args args)`, so it answers with its argument list; Goblins
+/// `(lambda args args)`, so it answers with its argument list, Goblins
 /// invokes a cap positionally, so the call carries no verb.
 fn expectEchoAnswer(cv: *driver.BlockingSession, allocator: std.mem.Allocator, swiss: []const u8) !void {
     const echo = try cv.fetch(swiss);
@@ -206,7 +206,7 @@ fn expectEchoAnswer(cv: *driver.BlockingSession, allocator: std.mem.Allocator, s
 }
 
 /// Dial the vat as though someone handed us the glowcap form of its address
-/// — a hinted onion locator naming a partner that is actually Goblins — and
+/// (a hinted onion locator naming a partner that is Goblins) and
 /// require the full baseline conversation on the session that opens. The
 /// dial mints partner knowledge from the handed form exactly as a real one
 /// would, and the send path refuses a hello whose hints fail to state the

@@ -23,8 +23,8 @@ const charLen = argv.characterLen;
 
 /// How many cells the terminal draws a character in.
 ///
-/// `ctx` is whatever the measurement needs — the live screen whose width method
-/// vaxis honors, or a test's fixed table — and is null for a measurement that
+/// `ctx` is whatever the measurement needs (the live screen whose width method
+/// vaxis honors, or a test's fixed table) and is null for a measurement that
 /// needs nothing.
 pub const CellWidth = struct {
     ctx: ?*const anyopaque = null,
@@ -96,7 +96,7 @@ pub fn cellCount(line: []const u8, width: CellWidth) usize {
     return cells;
 }
 
-/// A drag that crosses a row whole has no end column of its own; the line's own
+/// A drag that crosses a row whole has no end column of its own. The line's own
 /// end stops it.
 const to_line_end = std.math.maxInt(usize);
 
@@ -187,8 +187,8 @@ pub fn contentSpan(
 /// Where the character `line` draws at column `col` begins, or null when that
 /// column is past the end of the line.
 ///
-/// Anything that has to line a screen column up with an offset into the line —
-/// hit-testing the link the paint underlined — reads the column through here, so
+/// Anything that has to line a screen column up with an offset into the line
+/// (hit-testing the link the paint underlined) reads the column through here, so
 /// the pointer lands on the character the reader sees under it.
 pub fn byteAtCell(line: []const u8, col: usize, width: CellWidth) ?usize {
     const c = covered(line, col, col + 1, width) orelse return null;
@@ -375,7 +375,7 @@ test "a character the terminal draws wide spends two columns" {
     try std.testing.expectEqualStrings("漢", sliceLine(line, 1, 3, table));
     try std.testing.expectEqualStrings("b", sliceLine(line, 5, 6, table));
     // Column 3 is the second cell of 字; measured one column per character it
-    // was "b", which is how the highlight used to slide left of the glyph.
+    // would be "b", which slides the highlight left of the glyph.
     try std.testing.expectEqualStrings("字", sliceLine(line, 3, 4, table));
     try std.testing.expectEqualStrings("b", sliceLine(line, 3, 4, mono));
 }

@@ -1,7 +1,6 @@
 // What the page says about itself: a part that broke, a copy that was
 // refused, a file being chosen or loaded, a change about to be lost, and the
-// small notices a shared session raises, kept here so the product's voice can
-// be read in one place.
+// small notices a shared session raises.
 
 /** A part of the page failed, and the rest did not. */
 export const crashTitle = "The page ran into a problem";
@@ -33,7 +32,7 @@ export const unsavedLead = "Your unsaved changes will be lost. Keep editing, or 
 export const unsavedKeep = "Keep editing";
 export const unsavedDiscard = "Discard changes";
 
-/** The two notices a shared session can raise over the page. */
+/** The notices a shared session can raise over the page. */
 export const sessionEffectOne = "A session operation needs your decision.";
 export function sessionEffectMany(count: number): string {
 	return `${count} session operations need your decision.`;
@@ -78,8 +77,8 @@ export function richTextImageLabel(alt: string, destination: string | null): str
 	return `Image: ${alt || destination || "attachment"}`;
 }
 
-/** The message stream. A dropped file joins the message being written, the
- * same as the clip button's act; nothing is sent until the reader sends. */
+/** The message stream. A dropped file joins the message being written, as the
+ * clip button does. Nothing is sent until the reader sends. */
 export const dropToAttach = "Drop to attach";
 export const latestMessages = "Latest messages";
 

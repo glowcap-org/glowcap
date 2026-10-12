@@ -195,6 +195,12 @@ pub const Backend = union(Selection) {
         };
     }
 
+    /// A platform listener is bound when `openListener` returns; nothing
+    /// pends.
+    pub fn listenerPending(_: *const Backend, _: Fd) bool {
+        return false;
+    }
+
     pub fn waitBoundMs(self: *const Backend, requested_ms: i32) i32 {
         return switch (self.*) {
             inline else => |*backend| backend.waitBoundMs(requested_ms),

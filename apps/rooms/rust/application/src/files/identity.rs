@@ -1,5 +1,5 @@
 //! Identity of immutable attachment content. Metadata alone cannot distinguish
-//! two uploads with the same name and length; adapters hash the bytes they send.
+//! two uploads with the same name and length. Adapters hash the bytes they send.
 use super::FileDescription;
 use serde::{Serialize, Serializer};
 

@@ -2,8 +2,8 @@
 
 ``Runtime`` is the public composition boundary. It owns one Host and either a
 native DriverLoop with installed providers or a byte-fed connector set. The
-per-operation path only selects the already-retained authority for a locator;
-transport configuration never re-enters the dial call.
+per-operation path only selects the already-retained authority for a locator.
+Transport configuration never re-enters the dial call.
 """
 
 from __future__ import annotations
@@ -145,7 +145,7 @@ class Runtime:
         codec: Optional[str] = None,
         handshake_timeout_ms: Optional[int] = _abi.HANDSHAKE_TIMEOUT_MS,
     ) -> "Runtime":
-        """Construct a runtime; native setup is completed on first await/use.
+        """Construct a runtime. Native setup is completed on first await/use.
 
         Singular ``provider=`` and ``connector=`` are the idiomatic Python
         spelling. The plural aliases allow one runtime to compose several
@@ -236,7 +236,8 @@ class Runtime:
                 else:
                     loop = DriverLoop.take_host(
                         host,
-                        handshake_ms=0 if self._handshake_timeout_ms is None else self._handshake_timeout_ms,
+                        # No caller deadline: the C ABI's unbounded-wait sentinel.
+                        handshake_ms=_abi.DRIVER_WAIT_UNBOUNDED if self._handshake_timeout_ms is None else self._handshake_timeout_ms,
                     )
                     # A caller-supplied Host keeps this valid loop if later
                     # provider setup fails, so the caller can repair and retry.
@@ -244,7 +245,7 @@ class Runtime:
                 for provider in self._providers:
                     await provider.install(loop)
                 managed_host = loop.wrapper_host()
-                # The native provider registry is now the lifetime authority;
+                # The native provider registry is the lifetime authority;
                 # Runtime keeps no parallel provider table.
                 self._host = managed_host
                 self._loop = loop

@@ -63,7 +63,7 @@ pub(in crate::server::irc::members) async fn change(
 			let mut core = state.irc.core.borrow_mut();
 			let claimed = core
 				.identity_mut(seat.connection, &network)
-				.expect("current incarnation");
+				.ok_or("this IRC identity ended")?;
 			claimed.enabled = replacement.is_some();
 			claimed.sasl = replacement.as_ref().and_then(|replacement| replacement.sasl.clone());
 			if let Some(replacement) = &replacement {
@@ -84,7 +84,10 @@ pub(in crate::server::irc::members) async fn change(
 		if !current(&shared.borrow(), seat.connection, &network, prior.incarnation) {
 			return Err("this IRC identity ended".into());
 		}
-		return Ok(seat::linked_said(&network, replacement.as_ref().expect("linking")));
+		let linked = replacement
+			.as_ref()
+			.ok_or("this IRC identity change names no replacement")?;
+		return Ok(seat::linked_said(&network, linked));
 	};
 	let failed = {
 		let mut state = shared.borrow_mut();
@@ -107,7 +110,7 @@ pub(in crate::server::irc::members) async fn change(
 			let mut core = state.irc.core.borrow_mut();
 			let claimed = core
 				.identity_mut(seat.connection, &network)
-				.expect("current incarnation");
+				.ok_or("this IRC identity ended")?;
 			claimed.irc_nick = prior.irc_nick.clone();
 			claimed.sasl = prior.sasl;
 			claimed.enabled = prior.enabled;

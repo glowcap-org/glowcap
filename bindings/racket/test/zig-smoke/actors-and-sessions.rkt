@@ -55,7 +55,7 @@
 ;; with `$`, then eventual-send with `<-` and observe the vow with `on`.
 (define demo-vat (make-vat))
 (with-vat demo-vat
-  ;; Near-call: `$` runs the behavior synchronously, here and now.
+  ;; Near-call: `$` runs the behavior synchronously.
   (define counter (spawn ^counter 10))
   (expect (= 10 ($ counter 'get)) "actor: spawned counter starts at 10")
   (expect (= 15 ($ counter 'add 5)) "actor: ($ counter 'add 5) returns 15")
@@ -75,7 +75,7 @@
 ;; Hosting a behavior for a partner is the session's job (`session-spawn` /
 ;; `session-publish`). The vat still records which export id names which local
 ;; actor so a near reference resolves in-process (`vat-resolve-target`) instead
-;; of going out on the wire to its own export — the same self-routing the
+;; of going out on the wire to its own export. This is the same self-routing the
 ;; sibling bindings perform through their hosted tables.
 (define lv (make-vat))
 (define lv-counter (with-vat lv (spawn ^counter 10)))
@@ -90,7 +90,7 @@
 (printf "racket zig-smoke OK: bind-export! + vat-resolve-target self-route a Host ref\n")
 
 ;; ── The local|far seam: `<-` and `on` across a live session ────────────────
-;; A host publishes a counter; the client reaches it through the vat verbs —
+;; A host publishes a counter; the client reaches it through the vat verbs:
 ;; `(<- svc 'add 5)` through the session's vat is the same
 ;; location-transparent eventual-send a local actor gets, and `on` observes the
 ;; far vow. `session-await` pumps the wire until the partner's resolution fires it.
@@ -157,9 +157,9 @@
 
 ;; ── Cross-thread send: session-flush! puts another thread's bytes on the wire ────
 ;; A `<-` only enqueues; the bytes leave when something pumps. Work queued by a
-;; green thread that is NOT the connection's pumping thread — a server pushing
-;; a broadcast to a subscriber parked reading — must call `session-flush!` to put
-;; the bytes on the wire now. The client's inbox capability travels to the
+;; green thread that is NOT the connection's pumping thread (a server pushing
+;; a broadcast to a subscriber parked reading) must call `session-flush!` to put
+;; the bytes on the wire. The client's inbox capability travels to the
 ;; server as an argument; a separate server thread tells it and flushes.
 (define xf-server (listen "127.0.0.1" 0))
 (define xf-ready (make-semaphore 0))
@@ -175,7 +175,7 @@
                        (methods
                         [(register cap)
                          ;; Hand the far inbox to a DIFFERENT green thread, which
-                         ;; tells it and flushes — the cross-thread send seam.
+                         ;; tells it and flushes (the cross-thread send seam).
                          (thread
                           (lambda ()
                             (define c (unbox xf-session-box))
@@ -267,7 +267,7 @@
 ;; ── Hosting: high-level listen/accept against connect ─────────────────────────
 ;; A host thread listens on an ephemeral port, accepts one partner on the
 ;; high-level surface, publishes `svc`, and serves. The main thread `connect`s,
-;; fetches `svc`, and calls it — a keyed op:start-session handshake on both
+;; fetches `svc`, and calls it. Both ends run a keyed op:start-session handshake on both
 ;; ends, no peer or vat wired by hand.
 (define hl-server (listen "127.0.0.1" 0))
 (define hl-ready (make-semaphore 0))
@@ -310,7 +310,7 @@
 
 ;; ── The live timeline producer ────────────────────────────────────────────────
 ;; The veneer stamps and forwards the native tap's facts, one flat record per
-;; fact — session-opened with the codec the handshake actually negotiated,
+;; fact: session-opened with the codec the handshake negotiated,
 ;; the same verb outbound at the client and inbound at the server, and
 ;; session-closed. Endpoint labeling belongs to the consumer, so the records
 ;; carry only the session and direction.
@@ -368,9 +368,9 @@
   ;; arrived, so a glowcap host says so in words.
   (expect (andmap (lambda (ev) (equal? (hash-ref ev 'a_profile #f) "glowcap")) opened)
           "trace: an open states the implementation this producer runs")
-  ;; Identity and label are two facts. `a` is the host's own key designator —
+  ;; Identity and label are two facts. `a` is the host's own key designator,
   ;; the name a partner knows it by, and so the only name two producers can
-  ;; agree on — and the label never stands in for it.
+  ;; agree on. The label never stands in for it.
   (expect (andmap (lambda (ev) (regexp-match? #px"^[0-9a-f]{64}$" (hash-ref ev 'a "")))
                   opened)
           "trace: an open's `a` endpoint is the reporting host's key designator")
@@ -541,7 +541,7 @@
 (expect (equal? en-again en-cap) "enliven: a repeat enliven hits the cache")
 (expect (equal? (sym "alive") (session-send en-session en-again 'hello)) "enliven: the cached capability answers hello")
 ;; Listen (CapTP op:listen): a held capability's resolution comes back through
-;; the vow — a listen on an already-settled capability answers at once.
+;; the vow. A listen on an already-settled capability answers at once.
 (define en-observation (session-listen en-session en-cap))
 (define en-observer-refusal
   (with-handlers ([exn:fail:glowcap? values])

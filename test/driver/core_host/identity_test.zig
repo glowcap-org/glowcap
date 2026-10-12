@@ -169,7 +169,7 @@ test "session identity: an old handoff certificate cannot resolve against a sess
     // key per session the names are a function of the session, and the
     // old certificate resolves against nothing.
     //
-    // Liveness is deliberately not what makes this pass: a live session
+    // Liveness is not what makes this pass: a live session
     // between the same durable peers exists throughout the final assertions.
     // The sibling test above already covers "the session closed"; this one
     // covers "a different session is open in its place", which is the case
@@ -227,8 +227,8 @@ test "session identity: an old handoff certificate cannot resolve against a sess
 
     // This is also the whole of "and must not consume a new deposit with the
     // same gift id" (ADR-0097 item 10). A withdrawal reaches a gift registry
-    // only through this resolver — it is what hands back the `gifts` a
-    // consuming withdraw operates on — so a certificate whose names resolve to
+    // only through this resolver. It is what hands back the `gifts` a
+    // consuming withdraw operates on, so a certificate whose names resolve to
     // nothing never reaches any registry, and a gift deposited on the
     // replacement session under a reused id is unreachable by it rather than
     // defended against after the fact.
@@ -481,8 +481,8 @@ test "partner identity: keyed-tcp reports its claimed designator without authent
 
 test "session identity: a host signs each session with that session's own key" {
     // ADR-0097 step 4's structural half. Which key signs a session comes from
-    // the Host's required session root, and every consumer — the keyed hello
-    // and the handoff records naming the session — reads it through the
+    // the Host's required session root, and every consumer, the keyed hello
+    // and the handoff records naming the session, reads it through the
     // session rather than reaching for the node's durable key. Pointing the
     // source at distinct per-session seeds is the whole of the fresh-key
     // switch, so this drives it to prove the seam actually carries.
@@ -498,7 +498,7 @@ test "session identity: a host signs each session with that session's own key" {
     const first = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7301", &.{});
     const second = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7301", &.{});
 
-    // Two sessions in one host, two different signing keys — and neither is
+    // Two sessions in one host, two different signing keys, and neither is
     // the host's durable key, which stays the node's own identity.
     const durable = crypto.SecretKey.fromSeed(durable_seed).publicKey();
     const first_key = first.sessionSecret().publicKey();
@@ -535,7 +535,7 @@ test "session identity: a give is signed by its session's key, not the host's du
     // from that session's key. While every session reuses its host's durable
     // key the two are the same bytes and a durable-key signature looks
     // correct; under distinct per-session keys they diverge, and only a
-    // genuinely session-scoped signer still names the side the exporter
+    // session-scoped signer still names the side the exporter
     // derives from the key it verified.
     const allocator = std.testing.allocator;
 

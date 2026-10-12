@@ -2,8 +2,8 @@
 //! registries, the swiss minting behind a durable name, and the resolver the
 //! node consults when a fetch names one.
 //!
-//! One of `host.zig`'s responsibilities, kept beside it rather than in it.
-//! The `Host` still owns the registries and presents every publish verb as
+//! One of `host.zig`'s responsibilities.
+//! The `Host` owns the registries and presents every publish verb as
 //! its own through decl aliases.
 
 const std = @import("std");
@@ -24,13 +24,13 @@ const foundation = @import("foundation");
 const crypto = foundation.crypto;
 
 /// One host-wide publication: a swiss name discovers one Host-Vat actor. The
-/// actor is the identity; a Port projection is minted only when that Port
+/// actor is the identity. A Port projection is minted only when that Port
 /// fetches the name (or an embedder explicitly asks for its position). A fetch
 /// never leaves a per-session copy of the alias behind, so replacing or
 /// removing the name changes every later fetch on every session, while the
 /// Port's reverse row keeps a repeated fetch on one session reusing its
 /// existing export. A session also has its own bootstrap table, which answers
-/// only its partner; `publication_lookup.resolveFetch` consults this registry
+/// only its partner. `publication_lookup.resolveFetch` consults this registry
 /// first.
 pub const Publication = struct {
     name: []const u8,
@@ -47,15 +47,9 @@ pub fn resolvePublishedTarget(ctx: ?*anyopaque, scope: engine.PeerHandle, swissn
     return (try session.served.port.projectActor(&host.vat, row.actor)).export_position;
 }
 
-/// Wire a minted session into the host: the before-serve hook offers
-/// every inbound resolve to the node before the vat sees it (and
-/// auto-redeems gives), and the resolve interceptor turns a served reply
-/// that fulfills with a foreign-homed capability into a signed give.
-/// Infallible: `mint` reserved the session map slot and, for dialed
-/// sessions, the designator-index slot. Dialed sessions join the
-/// designator index here (key borrows `role.dialed`).
-/// Bind a freshly Host-spawned actor. Private so an unscoped `actors.Ref`
-/// from another Vat can never enter this Host's publication namespace.
+/// Bind a freshly Host-spawned actor. Internal to this file's publish verbs,
+/// so an unscoped `actors.Ref` from another Vat can never enter this Host's
+/// publication namespace.
 /// The alias row adopts the fresh actor's spawn root (ADR-0101): binding
 /// takes no extra retain, replacement releases the displaced actor's
 /// adopted root, and `unpublish` releases the row's. A caller-chosen
@@ -78,7 +72,7 @@ pub fn bindPublication(self: *Host, name: []const u8, actor: actors.Ref) !void {
 }
 
 /// Spawn `initial` in this Host's Vat and bind `name` as a Host-wide alias.
-/// Replacement changes discovery only; existing capabilities keep reaching
+/// Replacement changes discovery only. Existing capabilities keep reaching
 /// the displaced actor until Host teardown.
 pub fn publish(self: *Host, name: []const u8, comptime Behavior: type, initial: Behavior) !actors.Ref {
     try self.refuseReentry();
@@ -155,7 +149,7 @@ pub const DurableSwiss = struct {
 
 /// Mint a durable swiss name from caller-supplied entropy: the reserved
 /// prefix plus the hex spelling of `entropy`. Entropy stays an explicit
-/// input because this core is sans-io; the driver tier draws it at the
+/// input because this core is sans-io. The driver tier draws it at the
 /// I/O boundary (ADR-0098).
 pub fn mintDurableSwiss(entropy: [engine.durable_swiss_entropy_len]u8) DurableSwiss {
     var out: DurableSwiss = undefined;
@@ -170,13 +164,13 @@ pub fn mintDurableSwiss(entropy: [engine.durable_swiss_entropy_len]u8) DurableSw
 
 /// Publish `initial` under a freshly minted durable swiss name
 /// (ADR-0098): unpredictable, never minted twice by the Host (an embedder that
-/// republishes removed entropy rebinds the name on purpose), removable only through
+/// republishes removed entropy rebinds the name), removable only through
 /// `removeDurable`, and structurally disjoint from every mutable alias.
 /// The active table is still checked before insertion, so even an
 /// entropy-collision fails loud instead of retargeting. The row adopts
 /// the spawn root (ADR-0101). Persistence stays above this sans-I/O core:
 /// an embedder retains the entropy and publication identity, then republishes
-/// them during startup. A fresh Host intentionally begins with an empty
+/// them during startup. A fresh Host begins with an empty
 /// registry, so an old sturdyref fails closed until that replay occurs.
 pub fn publishDurable(
     self: *Host,
@@ -220,7 +214,7 @@ pub fn bindDurable(self: *Host, entropy: [engine.durable_swiss_entropy_len]u8, a
 }
 
 /// Publish already-held local authority under a durable name. The publication
-/// takes its own root; failure leaves the caller's capability unchanged.
+/// takes its own root. Failure leaves the caller's capability unchanged.
 pub fn publishDurableCapability(self: *Host, entropy: [engine.durable_swiss_entropy_len]u8, ref: @import("capability.zig").Ref) !DurableSwiss {
     try self.refuseReentry();
     try self.admitApplicationOperation();
@@ -231,7 +225,7 @@ pub fn publishDurableCapability(self: *Host, entropy: [engine.durable_swiss_entr
 }
 
 /// Owns a hidden registry row and Host pending-work lease until commit/cancel.
-/// Move this value; copying it does not create another reservation.
+/// Move this value. Copying it does not create another reservation.
 pub const DurableReservation = struct {
     host: ?*Host,
     swiss: DurableSwiss,
@@ -258,7 +252,7 @@ pub const DurableReservation = struct {
 };
 
 /// Reserve exact held authority without exposing its name to fetch. All fallible
-/// allocation occurs here; confirmed storage can activate the row infallibly.
+/// allocation occurs here. Confirmed storage can activate the row infallibly.
 pub fn reserveDurableCapability(self: *Host, entropy: DurableSwiss.Entropy, ref: capability.Ref) !DurableReservation {
     try self.refuseReentry();
     try self.admitApplicationOperation();
@@ -280,9 +274,9 @@ pub fn reserveDurableCapability(self: *Host, entropy: DurableSwiss.Entropy, ref:
 
 /// Remove a minted durable publication (ADR-0098): its live row is
 /// reclaimed, future enlivenment of the old sturdyref misses, and a
-/// later mint never deliberately reuses the bytes. Alias-only like
-/// `unpublish` — issued capabilities and deposited gifts keep the exact
-/// actor — and it releases the row's adopted root (ADR-0101). A name
+/// later mint never reuses the bytes. Alias-only like
+/// `unpublish`: issued capabilities and deposited gifts keep the exact
+/// actor. It releases the row's adopted root (ADR-0101). A name
 /// outside the durable namespace is refused: mutable aliases leave
 /// through `unpublish`.
 pub fn removeDurable(
@@ -324,7 +318,7 @@ pub fn publishedPosition(self: *Host, session: *HostSession, name: []const u8) !
 
 /// Return the Host-scoped capability published under `name` for `session`.
 /// Publication lookup and capability retention are one core operation, while
-/// the Port position remains lazy until the capability is actually marshalled.
+/// the Port position remains lazy until the capability is marshalled.
 pub fn publishedCapability(self: *Host, session: *HostSession, name: []const u8) !?capability.Ref {
     try self.refuseReentry();
     try self.admitApplicationOperation();

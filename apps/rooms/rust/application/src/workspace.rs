@@ -1,5 +1,5 @@
 //! Durable browser choices, admitted before opening a network runtime. The
-//! shared checkpoint owns session policy; this envelope adds controller choice
+//! shared checkpoint owns session policy. This envelope adds controller choice
 //! and presentation preferences without acquiring any live authority.
 use crate::{
 	fields::{self, Text},
@@ -139,7 +139,7 @@ impl Workspace {
 					if !quoted || escaped {
 						return Err(Refusal::Schema);
 					}
-					write!(json, "\\u{:04x}", error.unpaired_surrogate()).expect("String write");
+					let _ = write!(json, "\\u{:04x}", error.unpaired_surrogate());
 				}
 			}
 		}
@@ -207,7 +207,7 @@ impl Workspace {
 		Ok((self, checkpoint.is_some() || fork))
 	}
 	/// A portable export keeps intent and preferences but carries no bearer
-	/// authority. The checkpoint lends its existing facet projection; secrets
+	/// authority. The checkpoint lends its existing facet projection. Secrets
 	/// are neither cloned nor included in an intermediate JSON value.
 	pub fn export(&self, include_capabilities: bool) -> Result<String, Refusal> {
 		if include_capabilities {

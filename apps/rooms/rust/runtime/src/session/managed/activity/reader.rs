@@ -7,7 +7,7 @@ use serde_json::json;
 use std::future::Future;
 
 /// One fixed file actor state shares event metadata and its live byte charge.
-/// The ring holds the actor root; returned facades can retain it after eviction.
+/// The ring holds the actor root. Returned facades can retain it after eviction.
 /// Its weak Activity link cannot keep session retirement alive.
 struct File<P: Tasks> {
 	activity: Weak<Activity<P>>,
@@ -107,7 +107,9 @@ impl<P: Tasks + Deadline + Clone + 'static> Activity<P> {
 				}
 				let result = host
 					.send(
-						reader.as_ref().unwrap(),
+						reader
+							.as_ref()
+							.ok_or_else(|| loam::refusal("file reader is not held"))?,
 						rooms_application::protocol_data::READ,
 						&[(offset as i64).into(), (maximum as i64).into()],
 					)
@@ -196,7 +198,7 @@ async fn next<P: Tasks + Deadline + Clone + 'static>(
 		})
 		.collect::<Vec<_>>();
 	Ok(
-		json!({"cursor":token,"data":event.data,"files":files,"history":event.history().map(projection::history_data),
+		json!({"cursor":token,"data":event.data,"files":files,"history":event.history().map(rooms_application::archive::history_data),
 		"incoming":event.incoming.as_ref().map(super::Incoming::role)})
 		.to_string()
 		.into(),

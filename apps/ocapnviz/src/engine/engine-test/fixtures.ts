@@ -1,6 +1,6 @@
 import { TimelineDocument } from "../timeline.ts";
 
-/** Two peers, one session, one message — the ordinary playback document. */
+/** Two peers, one session, one message. The ordinary playback document. */
 export const doc = TimelineDocument.parse({
 	id: "test",
 	duration: 5000,
@@ -57,7 +57,7 @@ export const doc = TimelineDocument.parse({
 });
 
 /**
- * Empty authored-mode doc — a builder starting point with no
+ * Empty authored-mode doc. A builder starting point with no
  * force layout in play. Tests below build up state from here so
  * the "before" state of each undo round-trip is explicit and easy
  * to verify.

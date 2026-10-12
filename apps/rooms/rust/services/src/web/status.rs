@@ -17,6 +17,19 @@ pub struct StatusQuery {
 	field: Field,
 }
 impl StatusQuery {
+	/// Routing metadata contains no trace capability. Private state supplies
+	/// authority separately, while this read follows the current incarnation.
+	pub(crate) async fn trace_locator(address: &str) -> Result<Option<glowcap::Locator>, String> {
+		let args = [format!("--locator={address}")];
+		let query = Self::parse(&args, |_| None)?.ok_or("web status named no query for the locator")?;
+		let text = tokio::time::timeout(Duration::from_secs(5), query.read_optional("/trace/locator"))
+			.await
+			.map_err(|_| "trace discovery timed out")??;
+		text.map(|text| {
+			glowcap::parse_locator(&text).map_err(|e| format!("web answered an invalid trace locator: {e}"))
+		})
+		.transpose()
+	}
 	pub fn parse(args: &[String], env: impl Fn(&str) -> Option<String>) -> Result<Option<Self>, String> {
 		let Some(first) = args.first() else { return Ok(None) };
 		let (name, address) = first
@@ -87,13 +100,22 @@ impl StatusQuery {
 		Ok(text)
 	}
 	async fn read(&self, path: &str) -> Result<String, String> {
+		self.read_optional(path)
+			.await?
+			.ok_or_else(|| format!("web {path} is unavailable"))
+	}
+	async fn read_optional(&self, path: &str) -> Result<Option<String>, String> {
 		let host = self
 			.base
 			.host_str()
-			.expect("validated HTTP host")
+			.ok_or("web status address names no host")?
 			.trim_start_matches('[')
 			.trim_end_matches(']');
-		let socket = TcpStream::connect((host, self.base.port_or_known_default().unwrap()))
+		let port = self
+			.base
+			.port_or_known_default()
+			.ok_or("web status address names no port")?;
+		let socket = TcpStream::connect((host, port))
 			.await
 			.map_err(|e| format!("connecting to web status failed: {e}"))?;
 		let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(socket))
@@ -107,6 +129,9 @@ impl StatusQuery {
 				.body(Empty::<Bytes>::new())
 				.map_err(|e| e.to_string())?;
 			let response = sender.send_request(request).await.map_err(|e| e.to_string())?;
+			if response.status() == hyper::StatusCode::NO_CONTENT {
+				return Ok(None);
+			}
 			if response.status() != hyper::StatusCode::OK {
 				return Err(format!("web {path} answered {}", response.status().as_u16()));
 			}
@@ -116,7 +141,7 @@ impl StatusQuery {
 				.map_err(|_| format!("web {path} answer is incomplete or exceeds 4096 bytes"))?
 				.to_bytes();
 			let text = std::str::from_utf8(&body).map_err(|_| format!("web {path} answer is not Unicode"))?;
-			Ok(text.trim().to_owned())
+			Ok(Some(text.trim().to_owned()))
 		};
 		tokio::pin!(exchange, connection);
 		tokio::select! {

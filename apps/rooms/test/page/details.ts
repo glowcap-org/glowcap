@@ -1,8 +1,8 @@
 // The conversation card, and the rest of a long refusal.
 //
 // The title is the way into what this tab knows about the room or line on
-// screen; `/details` opens the same card. The directory named there opens that
-// directory's conversation; its title opens the directory card. A room's card
+// screen. `/details` opens the same card. The directory named there opens that
+// directory's conversation. Its title opens the directory card. A room's card
 // is where you stand in it and where you leave it. The title's close mark
 // asks to leave in this same card. A long error stays two lines
 // where it appeared, and Show is the way into the rest. Both cards are native

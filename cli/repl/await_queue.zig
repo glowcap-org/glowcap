@@ -1,10 +1,10 @@
 //! Cooperative CapTP turn queue for the lab TUI (UI-thread only).
 //!
-//! Host ownership forbids a worker thread; waits use `send` / `beginFetch` +
+//! Host ownership forbids a worker thread. Waits use `send` / `beginFetch` +
 //! `on` + `stepReadable` while the event loop keeps painting and accepting input.
 //!
 //! Rendering contract: drain with non-blocking `stepReadable(0)` until idle or
-//! blocked on I/O; the TUI wakes on the session socket (or a frame timeout) —
+//! blocked on I/O. The TUI wakes on the session socket (or a frame timeout),
 //! never a blind sleep while CapTP is busy. Spinner glyphs appear only after
 //! `spinner_show_after_ms` so same-turn settlement never flashes a wait.
 const std = @import("std");
@@ -59,7 +59,7 @@ const Active = struct {
     started_ms: i64,
     timeout_ms: i32,
     /// The driver's cooperative fetch-then-deliver context, armed only for a
-    /// name-target call/tell (`composed`); the driver owns the chaining, so
+    /// name-target call/tell (`composed`). The driver owns the chaining, so
     /// this queue keeps no continuation state of its own.
     pending: driver.PendingSend = undefined,
     composed: bool = false,
@@ -308,7 +308,7 @@ pub const Queue = struct {
     }
 
     /// One `stepReadable` for both the TUI wake path and `pump`. A clean
-    /// `.closed` is success from the stepper; an unfinished wait still dies
+    /// `.closed` is success from the stepper. An unfinished wait still dies
     /// with that close instead of sitting until `WaitTimedOut`. Idle sampling
     /// does not write the transcript.
     pub fn advanceSession(
@@ -474,7 +474,7 @@ pub const Queue = struct {
 };
 
 /// Lift a fetch settlement's reference into the session's opaque capability
-/// id — the number the fetch result line shows and `#N` feeds back.
+/// id: the number the fetch result line shows and `#N` feeds back.
 fn capIdFromFetch(session_opt: ?*driver.Session, settled: driver.Settled) !u64 {
     const session = session_opt orelse return driver.Error.ConnectionClosed;
     return switch (settled) {

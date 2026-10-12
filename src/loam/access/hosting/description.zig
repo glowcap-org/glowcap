@@ -5,7 +5,7 @@ const storage = @import("loam_access_storage");
 const driver = @import("driver_core");
 
 /// Every slice belongs to the bounded retained-call arena. Inactive access
-/// has only a status; fresh ancestor policies cannot leak after revocation.
+/// has only a status. Fresh ancestor policies cannot leak after revocation.
 pub fn encode(arena: std.mem.Allocator, snapshot: storage.Operation.Description) !driver.Value {
     const fields = try arena.alloc(driver.Value, if (snapshot.access == .active) 6 else 1);
     fields[0] = .{ .symbol = @tagName(snapshot.access) };

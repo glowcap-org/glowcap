@@ -29,7 +29,7 @@ pub fn reply(input: Invocation<'_>) -> Argument {
 // in the library's shared test fixture. snapshot checks mutable revisions.
 pub type Stamp = ([u8; 16], u32, u64, u64, Vec<u8>, Vec<u8>);
 pub async fn snapshot(session: &Session, resource: &Ref) -> Stamp {
-	// Peer-controlled lookalike metadata is deliberately ignored by this method.
+	// Peer-controlled lookalike metadata is ignored by this method.
 	let result = session
 		.send(resource, "context", &[Argument::Bytes(vec![0; 33])])
 		.await

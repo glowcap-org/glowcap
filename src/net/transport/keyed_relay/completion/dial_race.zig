@@ -1,6 +1,6 @@
 //! Bounded parallel TCP acquisition for one completion-backed relay dial.
 //!
-//! DNS runs through `resolver.zig`; every returned address is attempted by the
+//! DNS runs through `resolver.zig`. Every returned address is attempted by the
 //! wrapped completion platform. A synthetic relay handle owns at most eight
 //! physical descriptors, publishes nothing until every loser has retired, and
 //! retains the first address failure plus later cleanup/attempt consequences.

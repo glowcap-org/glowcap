@@ -1,5 +1,5 @@
 //! Private command front behind the Zig argv catalog. This composes local
-//! requests and session startup; the shared application owns Rooms effects.
+//! requests and session startup. The shared application owns Rooms effects.
 mod acquisition;
 mod admission;
 use admission::command;
@@ -97,13 +97,20 @@ async fn execute(options: &Options) -> Result<Value, Failure> {
 		}
 		"reply" => {
 			let target = workspace::target(options).await?;
-			let sent = command(options, "say", vec![target, options.get("text").unwrap().into()]).await?;
-			if let Some(id) = options.get("id")
-				&& let Err(error) = request(
-					&options.state,
-					json!({"verb":"ack", "ids":[id.parse::<u64>().unwrap()]}),
-				)
-				.await
+			let text = options
+				.get("text")
+				.ok_or_else(|| Failure::invalid("reply needs --text"))?;
+			// Refuse an unreadable event number before the reply is sent.
+			let acknowledged = options
+				.get("id")
+				.map(|id| {
+					id.parse::<u64>()
+						.map_err(|_| Failure::invalid("--id needs an unsigned integer"))
+				})
+				.transpose()?;
+			let sent = command(options, "say", vec![target, text.into()]).await?;
+			if let Some(id) = acknowledged
+				&& let Err(error) = request(&options.state, json!({"verb":"ack", "ids":[id]})).await
 			{
 				return Err(Failure::uncertain(format!(
 					"reply completed (operation {}), but acknowledgment failed: {error}; dismiss the event, do not resend",
@@ -114,11 +121,13 @@ async fn execute(options: &Options) -> Result<Value, Failure> {
 		}
 		"leave" => command(options, "leaveConversation", vec![workspace::target(options).await?]).await,
 		"dismiss" => {
-			request(
-				&options.state,
-				json!({"verb":"ack", "ids":options.values("id").iter().map(|s|s.parse::<u64>().unwrap()).collect::<Vec<_>>()}),
-			)
-			.await
+			let ids = options
+				.values("id")
+				.iter()
+				.map(|id| id.parse::<u64>())
+				.collect::<Result<Vec<_>, _>>()
+				.map_err(|_| Failure::invalid("--id needs an unsigned integer"))?;
+			request(&options.state, json!({"verb":"ack", "ids":ids})).await
 		}
 		"resume" => request(&options.state, json!({"verb":"resume"})).await,
 		"command" => command(options, &options.arguments[0], options.arguments[1..].to_vec()).await,

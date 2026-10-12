@@ -1,6 +1,6 @@
 //! Host transport semantics and advertised-route configuration.
 //!
-//! The Host retains the state; this internal owner validates immutable
+//! The Host retains the state. This internal owner validates immutable
 //! transport profiles and projects/selects the complete locators its sessions
 //! advertise. The supported verbs remain direct aliases on `Host`.
 
@@ -34,8 +34,8 @@ pub fn prepareAdvertisedLocator(
 }
 
 /// Internal preparation borrows input bytes and caller-owned hint scratch
-/// through Node retention. No input is used after the Node replaces its row;
-/// its single deep copy therefore also protects aliased catalog input.
+/// through Node retention. No input is used after the Node replaces its row.
+/// Its single deep copy therefore also protects aliased catalog input.
 /// Public owned preparation copies because its result outlives both borrows.
 pub fn borrowPreparedAdvertisedLocator(
     self: *Host,
@@ -55,7 +55,7 @@ pub fn borrowPreparedAdvertisedLocator(
 }
 
 /// Retain an already prepared locator without changing acceptable-location
-/// policy. The caller retains ownership; the node deep-copies it.
+/// policy. The caller retains ownership. The node deep-copies it.
 pub fn retainPreparedAdvertisedLocator(self: *Host, locator: model.PeerLocator) !void {
     try admission.admitConfigurationMutation(self);
     try self.node.retainAdvertisedLocator(locator);
@@ -84,7 +84,7 @@ pub fn setAdvertisedLocator(self: *Host, locator: model.PeerLocator) !void {
 /// acceptable location already selected for another transport. It becomes
 /// the selection only when the node has none. Key transports use this
 /// node's public key. Address transports use the unreachable-client
-/// placeholder; a reachable adapter must publish its complete locator.
+/// placeholder. A reachable adapter must publish its complete locator.
 pub fn ensureAdvertisedLocator(self: *Host, transport: []const u8) !void {
     try admission.admitConfigurationMutation(self);
     if ((try self.transportProfile(transport)).dial_shape == .route_bundle)
@@ -112,8 +112,8 @@ pub fn ensureAdvertisedLocator(self: *Host, transport: []const u8) !void {
 }
 
 /// Stop retaining a locator for `transport`. If it was selected, the node
-/// has no acceptable location until one is explicitly set or ensured;
-/// another retained route is never selected by map iteration order.
+/// has no acceptable location until one is explicitly set or ensured.
+/// Another retained route is never selected by map iteration order.
 /// Already-open sessions keep the hello snapshot they signed when opened.
 pub fn removeAdvertisedLocator(self: *Host, transport: []const u8) error{ ReenteredHost, WrongThread, HostClosing }!void {
     try admission.admitConfigurationMutation(self);
@@ -142,7 +142,7 @@ pub fn advertisedLocator(self: *const Host, transport: []const u8) ?model.PeerLo
 }
 
 /// Define the complete semantics of a transport for this Host. Definitions
-/// are immutable and live until Host teardown; provider occupancy belongs
+/// are immutable and live until Host teardown. Provider occupancy belongs
 /// to the I/O-owning driver, so removing a provider cannot erase semantics
 /// from a still-live session. Repeating the same definition is idempotent.
 pub fn defineTransport(
@@ -156,7 +156,7 @@ pub fn defineTransport(
 
 /// Define a package's transport semantics as one transaction. Validation,
 /// map capacity, and owned symbol bytes are complete before the first
-/// profile becomes visible; `canonical` receives Host-owned names.
+/// profile becomes visible. `canonical` receives Host-owned names.
 pub fn defineTransports(
     self: *Host,
     profiles: []const model.transport.Metadata,

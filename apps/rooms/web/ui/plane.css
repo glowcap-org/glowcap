@@ -2,7 +2,7 @@
    stands on. It began as the modal's own planes, and then the Operations page
    and session setup stood their cards on the same treatment, so the system
    moved here and surfaces opt in by wearing `card-plane` beside their own
-   card class — every modal card, the /ops pane and gate cards, and the setup
+   card class. Every modal card, the /ops pane and gate cards, and the setup
    page. One class and one authority: a group, a well, or a choice reads
    identically wherever the plane is worn, and forms.css and entries.css draw
    what stands on it in the same way. */
@@ -32,7 +32,7 @@
 /* The quiet well every plane wearer shares: a hairline and a breath of ink
    over whatever the plane stands on, so a panel reads as a few labeled
    clusters rather than one undifferentiated column. One class and one
-   authority — Settings groups, the directory card's clusters, the take form,
+   authority, Settings groups, the directory card's clusters, the take form,
    and the Operations panes all wear `well` rather than each restating the
    treatment, on a card and on the page ground alike, so the same cluster is
    the same drawing wherever a reader meets it. Recessed rather than raised in
@@ -48,7 +48,7 @@
 /* What a directory says about itself: a question on the left, its answer on the
    right, in the order the questions occur to a reader. Two columns rather than
    stacked pairs, because the answers are short and a column of them can be
-   compared down the page — and because the left column is then a list of what
+   compared down the page, and because the left column is then a list of what
    can be asked, which is the shape of the surface as much as its content.
 
    The label column is sized to its own text so a longer question moves both
@@ -65,8 +65,8 @@
    a sentence. At the list's own row rhythm the first line of it reads as one
    more question whose answer went missing, so the end of the list gets a beat
    the eye can see. Said here, on the list, rather than on what follows it,
-   because what follows varies — a bare label in one well, a whole `Field` with
-   its own wrapper in the next — and only the list is in every case. */
+   because what follows varies (a bare label in one well, a whole `Field` with
+   its own wrapper in the next) and only the list is in every case. */
 .card-plane .dirfacts:not(:last-child) {
 	margin-bottom: 6px;
 }
@@ -91,7 +91,7 @@
 }
 /* A section's title stands outside its well so a heading cannot be mistaken
    for a row label inside the box. Its type is the shared caption voice,
-   `.overline` beside it in the markup; this rule only tucks the title toward
+   `.overline` beside it in the markup. This rule only tucks the title toward
    the well it names against the card's row gap. */
 .card-plane .well-title {
 	margin: 4px 2px -8px;
@@ -107,8 +107,8 @@
 	color: var(--ink-soft);
 }
 /* A question with more than one answer: its name, and under it the answers,
-   each a choice row of its own. Two surfaces ask one this way — which access
-   a session link grants, and what to hand out of an archive — so the shape
+   each a choice row of its own. Two surfaces ask one this way (which access
+   a session link grants, and what to hand out of an archive) so the shape
    lives beside the row it is made of rather than in either of them. */
 .card-plane .question {
 	display: flex;
@@ -218,7 +218,7 @@
 .card-plane .entry-name {
 	text-wrap: balance;
 }
-/* Fields, labels, hints, action rows, and confirms are forms.css's; entry
+/* Fields, labels, hints, action rows, and confirms are forms.css's. Entry
    lists and launch rows are entries.css's. This sheet ends at the ground. */
 
 /* A link inside plane content speaks accent ink, not the browser's blue:

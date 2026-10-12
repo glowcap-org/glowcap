@@ -1,8 +1,8 @@
 #lang racket/base
 ;; glowcap backend for the bench suite. Wraps the Racket binding's high-level TCP
 ;; lifecycle behind the suite's substrate-blind API. The binding's `session-send` and
-;; `session-fetch` already are the run-to-quiescence driver — they issue an
-;; eventual-send and pump the sans-io peer until the reply settles — so they are
+;; `session-fetch` already are the run-to-quiescence driver, they issue an
+;; eventual-send and pump the sans-io peer until the reply settles, so they are
 ;; the fair, idiomatic glowcap analog of Goblins' vat loop. No application logic
 ;; lives here.
 (require "../../bindings/racket/glowcap.rkt"
@@ -13,7 +13,7 @@
 ;; Serve forever: accept each connection, publish the app root (built with a
 ;; connection-scoped mint-cap that exports + publishes any capability a handler
 ;; returns), and serve it on its own thread. build-root : mint-cap -> root-ctor.
-;; Do not swallow serve faults — `session-serve` closes the transport on error;
+;; Do not swallow serve faults, `session-serve` closes the transport on error;
 ;; a swallowed exception left partners hung on a half-open TCP.
 (define (server-run name host port build-root)
   (define srv (listen host port))

@@ -46,6 +46,30 @@ pub(super) async fn run(
 	let token = reply["cursor"].as_str().unwrap();
 	assert!(reply["data"].as_str().unwrap().contains("Retained activity"));
 	assert_eq!(reply["files"][0]["name"], "retained.bin");
+	let policy = rooms_glowcap::policy::descriptor().unwrap();
+	let terms = policy
+		.value_for_kind(
+			session::KIND,
+			&[rooms_application::content::permissions::Permission::ObserveWorkspace.key()],
+			&[],
+		)
+		.unwrap();
+	let (observer, _) = owner.derive(terms, 1, ControlPowers::default()).await.unwrap();
+	let observing = Workspace::local(host.clone(), platform.clone(), observer);
+	let observed = observing.activity_reader().await.unwrap();
+	let delivery: serde_json::Value = serde_json::from_str(&observed.read("", false).await.unwrap()).unwrap();
+	assert!(delivery["data"].as_str().unwrap().contains("Retained activity"));
+	assert!(
+		observing
+			.activity_file(delivery["cursor"].as_str().unwrap(), 0)
+			.await
+			.is_err(),
+		"an observer needs ReadFile to acquire byte access"
+	);
+	assert!(
+		observed.read(token, false).await.is_ok(),
+		"unreadable files do not stop activity"
+	);
 	let file = remote.activity_file(token, 0).await.unwrap();
 	assert_eq!(
 		viewer

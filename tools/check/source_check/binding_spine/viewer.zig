@@ -99,7 +99,7 @@ pub fn checkTraceViewerVocabulary(
     // was added there by whoever remembered. The failure that costs is not a
     // missing word but a silent one. `attributionForProvenance` maps anything it
     // does not recognize to no attribution, so a third verdict would reach the
-    // viewer and draw as "nothing proved this" — a wrong picture rather than an
+    // viewer and draw as "nothing proved this", a wrong picture rather than an
     // absent feature, and the one outcome nobody reviewing either side would
     // see.
     //
@@ -114,7 +114,7 @@ pub fn checkTraceViewerVocabulary(
 /// session's verdict, and `driver_core.vocab` aliases it so the byte-fed tier,
 /// the trace, and the C ABI all read the same one. The viewer is the far end of
 /// that chain and links no glowcap package, so a copy is the only shape
-/// available; what this refuses is the copy going quiet.
+/// available. What this refuses is the copy going quiet.
 fn checkViewerProvenanceMirror(
     io: std.Io,
     gpa: std.mem.Allocator,

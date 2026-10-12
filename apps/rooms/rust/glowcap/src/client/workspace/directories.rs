@@ -4,8 +4,8 @@ use super::*;
 use std::cell::Cell;
 
 /// An immutable directory candidate also owns its rejected-addition recipe.
-/// Re-preparation uses the original acquired endpoint, source and coordinates;
-/// it never fetches the display route again or edits an existing directory row.
+/// Re-preparation uses the original acquired endpoint, source and coordinates.
+/// It never fetches the display route again or edits an existing directory row.
 pub struct DirectoryAcquisition<D> {
 	row: workspace::Directory,
 	acquisition: Acquisition<D>,
@@ -72,7 +72,7 @@ pub struct DirectoryImport {
 }
 impl<D: Deadline + Clone> Workspace<D> {
 	/// Prepare one immutable candidate over a supplied snapshot. The caller
-	/// chooses fresh coordinates; this client supplies the actual source occurrence.
+	/// chooses fresh coordinates. This client supplies the actual source occurrence.
 	/// A replay retains both capabilities and never fetches either again.
 	pub fn prepare_directory(
 		&self,

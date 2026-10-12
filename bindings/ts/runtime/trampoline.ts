@@ -1,6 +1,6 @@
 // The behavior trampoline: the ONE native callback in the whole binding. Every
-// hosted object — a `Session.spawn`/`publish` actor, a caretaker or
-// attenuator proxy, a Host publication — registers here and shares a single
+// hosted object (a `Session.spawn`/`publish` actor, a caretaker or
+// attenuator proxy, a Host publication) registers here and shares a single
 // process-lifetime `GlowcapHostBehavior` whose ctx is the entry's registry id
 // packed as a pointer-sized integer. Host-wide publications also pass the one
 // shared context-free callback, so the native Vat retires their JS ownership
@@ -9,10 +9,10 @@
 //
 // Reply discipline: the vat copies `out_reply`'s payload the instant the
 // trampoline returns, so the encoded reply's buffers are retained in the
-// module's one keep slot across the return (overwritten by the next reply —
+// module's one keep slot across the return (overwritten by the next reply:
 // the previous one has long been copied). A thrown error crosses the boundary
 // through `glowcap_host_turn_break`, which settles the answer broken with the
-// actor's own words — a bare non-OK return would flatten "Revoked" into a
+// actor's own words. A bare non-OK return would flatten "Revoked" into a
 // generic reason. A `Forward` return maps onto `glowcap_host_turn_forward`
 // (the caretaker/attenuator primitive): a target hosted by the same Host
 // composes in process, a far target defers the answer onto the forwarded
@@ -45,7 +45,7 @@ const utf8Decoder = new TextDecoder();
 // Chase a behavior's result through the locally hosted `Forward` prefix:
 // while it forwards to a near target the current entry's Host
 // hosts, run that behavior in the same turn (a caretaker over an attenuator
-// composes exactly as it does over the wire). Returns the terminal — a plain
+// composes as it does over the wire). Returns the terminal: a plain
 // value (or void), or the first `Forward` whose target is not hosted here
 // (far, promise, or an unknown near id). `runHosted` is the public face.
 /** A behavior result carried between dispatch and settle: a plain value, a
@@ -81,7 +81,7 @@ function chaseLocalForwards(
 }
 
 /** Run the hosted object registered under `id` for `(verb, args)` and chase
- * its result through the locally hosted `Forward` prefix — the shared prefix
+ * its result through the locally hosted `Forward` prefix. This is the shared prefix
  * of every local dispatch (the trampoline, a local `send`, a local `tell`),
  * the Rust binding's `run_hosted`. A non-null `turn` runs the behavior and
  * the chase under that turn's context, so a turn-time `spawn` works and the
@@ -149,7 +149,7 @@ export function sendLocal(
 				return await forwardFar(result.target, result.verb, result.args);
 			}
 			if (isThenable(result)) {
-				// A local send to an async behavior simply awaits it; the
+				// A local send to an async behavior awaits it. The
 				// resolver machinery is only for wire-served turns.
 				const value = await result;
 				return value === undefined ? null : value;
@@ -312,7 +312,7 @@ export function currentTurnFor(hostOwner: object): Ptr | null {
 	return currentTurn !== null && currentTurn.hostOwner === hostOwner ? currentTurn.turn : null;
 }
 
-/** Whether ANY hosted turn is running — the drain defers while one is (the
+/** Whether ANY hosted turn is running: the drain defers while one is (the
  * host refuses the driving verbs inside a callback; everything enqueued pumps
  * when the enclosing call unwinds). */
 export function insideTurn(): boolean {
@@ -575,7 +575,7 @@ export function publishHosted(
 	return refFromId(refId);
 }
 
-/** Spawn a hosted object from INSIDE a turn — the turn-time form the host
+/** Spawn a hosted object from INSIDE a turn. This is the turn-time form the host
  * allows where the top-level spawn is refused. Returns its opaque Host id. */
 export function turnSpawn(turn: Ptr, ctxId: bigint): bigint {
 	const out = new Uint8Array(8);

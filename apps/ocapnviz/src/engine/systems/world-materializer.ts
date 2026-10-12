@@ -10,8 +10,8 @@
  * Pure consequence of `doc.entities` + their `timing` + their
  * `keyframes` at the requested t. No event walks.
  *
- * Called by the engine on every seek. Positions are NOT set here
- * — KeyframeLayoutSystem owns positions and runs after.
+ * Called by the engine on every seek. Positions are NOT set here,
+ * KeyframeLayoutSystem owns positions and runs after.
  */
 
 import type { SessionState } from "../../schema/topology.ts";
@@ -102,7 +102,7 @@ export function materializeWorldAt(
 			// durable name a peer answers to (`authoring/peer.ts`) writes the
 			// definition, and a peer whose world entity kept the old name is a peer
 			// no session end's claim can match. It is read off the definition
-			// rather than at `t` because it does not change while the peer lives —
+			// rather than at `t` because it does not change while the peer lives,
 			// a peer that turns out to be someone else is that other peer, not a
 			// rename.
 			const next = {

@@ -3,10 +3,10 @@
 // takeover live in serve_supervision_test.ts so each process keeps a meaningful
 // deterministic deadline.
 //
-// The page itself is a browser peer now — its end-to-end proof is
+// The page itself is a browser peer, and its end-to-end proof is
 // `zig build rooms-web-page` (a real headless Chromium joining a room and
 // round-tripping a line over the room capability). There is no JSON bridge
-// left to test here; reachability is checked the way the page reaches the
+// left to test here. Reachability is checked the way the page reaches the
 // room: a keyed OCapN session established over `/relay`.
 
 import { parseOpsBundle } from "../../web/ui/ops/bundle.ts";
@@ -131,7 +131,7 @@ Deno.test("page assets revalidate and the script carries its deployment version"
 });
 
 /** HTTP status of a WebSocket upgrade to `path`, sending a browser Origin.
- * Native clients omit Origin and already pass; this is the header a second
+ * Native clients omit Origin and already pass. This is the header a second
  * browser sends when Attach follows a tab-hosted session sturdyref. */
 async function relayUpgradeStatus(port: number, path: string, origin: string): Promise<number> {
 	const conn = await Deno.connect({ hostname: "127.0.0.1", port });

@@ -29,7 +29,7 @@ export class ReadinessNotices {
 		};
 		let ready: Promise<void> | undefined;
 		return {
-			// Start the deadline when the introduction actually reports pending.
+			// Start the deadline when the introduction reports pending.
 			// Until then the outcome is data, so closing an unused waiter cannot
 			// create an unhandled rejection while the command is still in flight.
 			get ready() {

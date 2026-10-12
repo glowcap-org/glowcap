@@ -2,7 +2,8 @@
 import * as store from "../../store.ts";
 import type { RoomsPageContext } from "../../page.ts";
 import type { RoomsBrowserController } from "../../controller/browser.ts";
-import type { JoinNicknameIntent, RoomsSessionController } from "../../controller/session.ts";
+import type { JoinNicknameIntent, JoinOutcome, RoomsSessionController } from "../../controller/session.ts";
+import type { ConversationOpening } from "./openings.ts";
 import type { ManagedRoomsSession } from "./session.ts";
 import type { AttachedSessionFiles } from "../attached_files.ts";
 import type { PresentedFile } from "./files.ts";
@@ -10,6 +11,14 @@ import { directoryId } from "../../application.ts";
 import { type DirId, dirId, type RoomDestination } from "../../types.ts";
 import { refusalText } from "../../../../lib/text/failure.ts";
 import { roomsErrorInMessage } from "../../../../lib/error_codes.ts";
+import {
+	activeRefusal,
+	admissionRefusal,
+	clearRefusal,
+	joinRefusalKeys,
+	remaining,
+	rememberJoinRefusal,
+} from "../../admission_feedback.ts";
 import { managedComposer } from "./composer.ts";
 import { managedRoomActions } from "./rooms.ts";
 import { managedWorkspaceActions } from "./workspace.ts";
@@ -36,8 +45,10 @@ export function createManagedController(
 	const failure = (error: unknown) => store.toast(projection, "failure", refusalText(error));
 	// A verb settles when its work does and never rejects: the toast is where
 	// its failure is told, so a control awaiting it only learns it is done.
-	const act = (work: Promise<unknown>): Promise<void> =>
+	const act = (work: Promise<unknown>, inlineJoin = false): Promise<void> =>
 		work.then(() => undefined, (error: unknown) => {
+			if (error instanceof DOMException && error.name === "AbortError") return;
+			if (inlineJoin && admissionRefusal(error) != null) return;
 			failure(error);
 		});
 	const current = () => store.activeConv(projection);
@@ -45,29 +56,29 @@ export function createManagedController(
 	const directory = () =>
 		current()?.dir ?? dirId(session.current?.intent.directories.find((row) => row.home)?.id ?? "");
 	const roomActions = managedRoomActions(page, session);
-	const powers = managedCommandPowers(page, browser, session, roomActions, (id, name) => pick(id, name));
+	const powers = managedCommandPowers(page, browser, session, roomActions, (id, name) => pick(id, name), select);
 	const composer = managedComposer(page, session, powers);
 	async function select(id: string): Promise<void> {
+		session.openings.dismiss();
 		const row = store.convByPersistId(projection, id);
 		if (row != null) store.switchTo(projection, row.key);
 		if (session.permits("interactWorkspace")) await session.navigation.select(id);
 	}
 	async function pick(id: DirId, name: string): Promise<void> {
-		await namedRoom(id, name, policyForRoomPreset("open"));
+		await session.openings.run((opening) => namedRoom(id, name, policyForRoomPreset("open"), opening), {
+			kind: "room",
+			directory: id,
+			name,
+		});
 	}
-	async function namedRoom(
+	async function enterNamedRoom(
 		id: DirId,
 		name: string,
 		policy: RoomPolicy,
-		signal?: AbortSignal,
-		isCurrent?: () => boolean,
+		opening: ConversationOpening,
 	): Promise<void> {
-		if (isCurrent == null) {
-			return await session.navigation.acquire((current) => namedRoom(id, name, policy, signal, current));
-		}
-		const selected = async (id: string) => {
-			if (isCurrent() && !signal?.aborted) await select(id);
-		};
+		const signal = opening.signal;
+		const selected = (id: string) => opening.select(id);
 		// A created or imported entrance already names exact held authority. Open
 		// that saved conversation; public discovery cannot replace its entrance
 		// or require another admission. Public memberships still match their
@@ -79,7 +90,7 @@ export function createManagedController(
 				row.publication != null || row.access == null
 			) continue;
 			if (saved != null) {
-				throw new Error("This name matches several saved rooms. Select the conversation from the rail.");
+				throw new Error("This name matches several saved rooms. Select the conversation from the sidebar.");
 			}
 			saved = row.id;
 		}
@@ -90,27 +101,40 @@ export function createManagedController(
 		const reader = await session.workspace.directoryReader(id);
 		let matches: RoomInfo[];
 		try {
+			if (signal.aborted) return;
 			matches = await reader.namedRooms(name);
 		} finally {
 			reader.free();
 		}
-		if (signal?.aborted || !isCurrent()) return;
+		if (signal.aborted) return;
 		const snapshot = await session.refresh();
-		if (signal?.aborted || !isCurrent()) return;
+		if (signal.aborted) return;
 		const current = snapshot.intent.directories.find((row) => row.id === id);
 		if (original == null || current?.access !== original.access || current.source !== original.source) {
 			throw new Error("The selected directory authority changed. Review it before joining.");
 		}
 		if (matches.length > 1) throw new Error("This room name is ambiguous. Select an exact publication.");
 		const listed = matches[0];
-		if (listed == null) await selected(await session.actions.createRoom(id, name, policy));
+		if (listed == null) await selected(await session.actions.createRoom(id, name, policy, opening));
 		else {
 			const held = snapshot.intent.conversations.find((row) =>
 				row.kind === "room" && row.directory === id && row.publication === listed.id
 			);
 			if (held != null) return await selected(held.id);
 			if (listed.offers == null) throw new Error("This room needs an invitation.");
-			await selected(await session.actions.publicRoom(id, listed.name, listed.id));
+			await selected(await session.actions.publicRoom(id, listed.name, listed.id, opening));
+		}
+	}
+	async function namedRoom(id: DirId, name: string, policy: RoomPolicy, opening: ConversationOpening): Promise<void> {
+		const keys = joinRefusalKeys(id, name);
+		const refusal = activeRefusal(projection.get().actionRefusals, keys);
+		if (remaining(refusal) > 0) throw refusal!.failure;
+		for (const key of keys) clearRefusal(projection, key);
+		try {
+			await enterNamedRoom(id, name, policy, opening);
+		} catch (error) {
+			rememberJoinRefusal(projection, id, name, error);
+			throw error;
 		}
 	}
 	async function reach(locator: string, nick: JoinNicknameIntent, signal?: AbortSignal): Promise<DirId> {
@@ -120,13 +144,15 @@ export function createManagedController(
 		const name = nick.kind === "exact" ? nick.name : nick.base;
 		const allocation = nick.kind === "exact" ? "exact" : "automatic";
 		const row = session.current?.intent.directories.find((row) => row.id === id);
-		if (row == null) await session.actions.directory(id, route, nick, route === defaultDirectory);
+		if (row == null) await session.actions.directory(id, route, nick, route === defaultDirectory, signal);
 		else if (row.nick !== name || row.nickAllocation !== allocation) {
 			await run("chooseDirectoryNickname", id, name, allocation);
 		}
+		if (signal?.aborted) return id;
 		store.openDir(projection, id, route);
 		if (name !== "" && !signal?.aborted) {
 			const selected = (await session.refresh()).intent.directories.find((row) => row.id === id);
+			if (signal?.aborted) return id;
 			if (selected == null) throw new Error("The original directory was removed");
 			await session.directoryRegistered(selected, signal);
 		}
@@ -141,26 +167,29 @@ export function createManagedController(
 		directoryReady: Promise.resolve(),
 		pickRoom: (id, name, key) => {
 			const row = key == null ? null : store.getConv(projection, key);
-			return act(row != null && row.type !== "directory" ? select(row.persistId) : pick(id, name));
+			return act(row != null && row.type !== "directory" ? select(row.persistId) : pick(id, name), row == null);
 		},
 		openManagedRoom: (id, name, policy) =>
-			act(session.navigation.acquire(async (current) => {
-				const room = await session.actions.createRoom(id, name, policy);
-				if (current()) await select(room);
-			})),
+			act(session.openings.run(async (opening) => {
+				const room = await session.actions.createRoom(id, name, policy, opening);
+				await opening.select(room);
+			}, { kind: "room", directory: id, name })),
 		acceptInvite: (id) => act(session.actions.acceptInvitation(id)),
 		declineInvite: (id) => act(run("dismissInvitation", id)),
 		leaveRoom: (key) => {
 			const row = store.getConv(projection, key);
-			return row?.type === "room" ? act(run("leaveConversation", row.persistId)) : Promise.resolve();
+			return row?.type === "room"
+				? run("leaveConversation", row.persistId).then(() => undefined)
+				: Promise.resolve();
 		},
-		leaveDirectory: (id) => act(run("leaveDirectory", id)),
+		leaveDirectory: (id) => run("leaveDirectory", id).then(() => undefined),
 		openConv: (key) => {
 			const row = store.getConv(projection, key);
 			if (row?.type === "directory") store.switchTo(projection, key);
-			return row != null && row.type !== "directory" ? act(select(row.persistId)) : Promise.resolve();
+			return row != null && row.type !== "directory" ? select(row.persistId) : Promise.resolve();
 		},
-		closeDm: (row) => act(run(row.line === "closed" ? "leaveConversation" : "closeDirect", row.persistId)),
+		closeDm: (row) =>
+			run(row.line === "closed" ? "leaveConversation" : "closeDirect", row.persistId).then(() => undefined),
 		endConv: () => {
 			const row = current();
 			if (row?.type === "directory") store.dismissDirectoryView(projection, row.key);
@@ -181,8 +210,9 @@ export function createManagedController(
 		dirAddress: (id) => projection.get().dirs.get(id)?.locator || id,
 		directoryId,
 		join: (destination: RoomDestination, nick, signal) =>
-			session.navigation.acquire(async (current) => {
-				try {
+			session.openings.run(
+				async (opening): Promise<JoinOutcome> => {
+					const signal = opening.signal;
 					if (signal?.aborted) return { ok: true };
 					const plan = planJoinDestination(destination);
 					const id = plan.kind === "room-link" ? plan.directory : await reach(plan.locator, nick, signal);
@@ -192,11 +222,12 @@ export function createManagedController(
 								route: plan.address,
 								nick,
 								home: plan.address === defaultDirectory,
-							});
-							if (current() && !signal?.aborted) await select(room);
+							}, opening);
+							await opening.select(room);
+							if (signal.aborted) return { ok: true };
 							store.openDir(projection, id, plan.address);
 						} else {
-							await namedRoom(id, plan.room, plan.policy, signal, current);
+							await namedRoom(id, plan.room, plan.policy, opening);
 							if (signal?.aborted) return { ok: true };
 						}
 						if (plan.kind !== "room-link") {
@@ -208,22 +239,42 @@ export function createManagedController(
 						}
 					}
 					return { ok: true };
-				} catch (error) {
-					return { ok: false, code: roomsErrorInMessage(error)?.code ?? null, text: refusalText(error) };
+				},
+				null,
+				signal,
+			).catch((error): JoinOutcome => {
+				if (signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+					return { ok: true };
 				}
+				const plan = planJoinDestination(destination);
+				const id = plan.kind === "room-link"
+					? plan.directory
+					: directoryId(plan.locator || defaultDirectory) ?? "";
+				rememberJoinRefusal(projection, id, destination.room, error);
+				return {
+					ok: false,
+					code: roomsErrorInMessage(error)?.code ?? null,
+					failure: roomsErrorInMessage(error) ?? undefined,
+					text: refusalText(error),
+				};
 			}),
 		reachDirectory: async (locator, nick, signal) => {
 			if (signal?.aborted) return "";
 			try {
-				await reach(locator, nick, signal);
+				await session.openings.run((opening) => reach(locator, nick, opening.signal), null, signal);
 				return "";
 			} catch (error) {
+				rememberJoinRefusal(projection, directoryId(locator || defaultDirectory) ?? "", "", error);
 				return refusalText(error);
 			}
 		},
-		startDm: (peer) => act(session.navigation.openDirect(directory(), peer)),
+		startDm: (peer) =>
+			act(session.openings.run(async (opening) => {
+				const id = await session.actions.direct(directory(), peer, false, undefined, opening);
+				await opening.select(id);
+			}, { kind: "direct", peer })),
 		recoverDm: (key) =>
-			session.navigation.acquire(async (current) => {
+			session.openings.run(async (opening) => {
 				try {
 					const row = store.getConv(projection, key);
 					if (row?.type !== "dm" || row.peerRegistrationId === "") {
@@ -232,14 +283,15 @@ export function createManagedController(
 					const { dir, id: peer, peerRegistrationId: registration } = row;
 					const directory = session.current?.intent.directories.find((held) => held.id === dir);
 					if (directory == null) return directDirectoryUnavailable;
-					await session.directoryRegistered(directory);
-					const next = await session.actions.direct(dir, peer, false, registration);
-					if (current()) await select(next);
+					await session.directoryRegistered(directory, opening.signal);
+					opening.signal.throwIfAborted();
+					const next = await session.actions.direct(dir, peer, false, registration, opening);
+					await opening.select(next);
 					return "";
 				} catch (error) {
 					return refusalText(error);
 				}
-			}),
+			}).catch((error) => error instanceof DOMException && error.name === "AbortError" ? "" : refusalText(error)),
 		openFile: (key, id) => files.open(key, id),
 		openViewer: (key, id) => files.openViewer(key, id),
 		stepViewer: (direction) => files.stepViewer(direction),
@@ -253,17 +305,21 @@ export function createManagedController(
 				? coordinate("directAccess", intent.access)
 				: null;
 			if (selected == null) return;
-			void session.typing.set(row.persistId, selected, on).catch(failure);
+			void session.typing.set(row.persistId, selected, on).catch((error: unknown) => {
+				store.noteTrouble(projection, "typing", refusalText(error));
+			});
 		},
-		setStanding: (value) => act(run("setStanding", value)),
+		setStanding: (value) => run("setStanding", value).then(() => undefined),
 		setDirStanding: (id, value) =>
-			act(value == null ? run("setDirectoryStanding", id) : run("setDirectoryStanding", id, value)),
+			(value == null ? run("setDirectoryStanding", id) : run("setDirectoryStanding", id, value)).then(() =>
+				undefined
+			),
 		setRoomStanding: (key, value) => {
 			const row = store.getConv(projection, key);
 			if (row?.type !== "room") return Promise.resolve();
-			return act(
-				value == null ? run("setRoomStanding", row.persistId) : run("setRoomStanding", row.persistId, value),
-			);
+			return (value == null
+				? run("setRoomStanding", row.persistId)
+				: run("setRoomStanding", row.persistId, value)).then(() => undefined);
 		},
 	};
 }

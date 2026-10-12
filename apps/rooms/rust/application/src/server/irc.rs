@@ -18,7 +18,7 @@ pub mod wire;
 /// How many channels one directory bridges at once.
 pub const MAX_BRIDGED_ROOMS: usize = 16;
 /// How many members one bridged channel seats on IRC at once. Past it a
-/// member still reads; their posts are refused with the reason.
+/// member still reads. Their posts are refused with the reason.
 pub const MAX_READERS_PER_CHANNEL: usize = 32;
 /// How many Rooms members one bridged room admits.
 pub const VIEWER_LIMIT: usize = 256;

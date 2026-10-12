@@ -155,7 +155,7 @@ export async function run(browser: Browser, httpPort: number): Promise<void> {
 		// This is an uncommitted form value, never acquired authority. Exercise
 		// the current complete-URI grammar while the discard checks retain it.
 		await page.fill(
-			"#capabilityValueSwiss",
+			"#capabilityValueUri",
 			"ocapn://127.0.0.1%3A1234.tcp/s/ZGlzY2FyZC10aGlzLWNhcGFiaWxpdHktZHJhZnQ",
 		);
 		await page.getByRole("button", { name: "Save to capability set" }).click();
@@ -200,7 +200,7 @@ export async function run(browser: Browser, httpPort: number): Promise<void> {
 		await page.waitForSelector("#settingsTitle", { state: "visible" });
 		await page.click("#holdingsTab");
 		await page.click("#opsListenersToggle");
-		await page.fill("#capabilityValueSwiss", "ocapn://127.0.0.1%3A1234.tcp/s/ZGlzY2FyZC1iZWZvcmUtcmVsb2Fk");
+		await page.fill("#capabilityValueUri", "ocapn://127.0.0.1%3A1234.tcp/s/ZGlzY2FyZC1iZWZvcmUtcmVsb2Fk");
 		await page.getByRole("button", { name: "Save to capability set" }).click();
 		await page.waitForSelector("#capabilityValueTitle", { state: "detached" });
 		await page.click("#reachabilityTab");

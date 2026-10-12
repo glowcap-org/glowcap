@@ -1,7 +1,7 @@
 //! The operator's IRC gateway, described as an ordinary bridge gateway: the
 //! networks it retains, the channel bridges beneath them, each member's one
 //! identity per network, and the description Rooms draws without knowing
-//! IRC. The forms are IRC's own words; the answer readers read a submission
+//! IRC. The forms are IRC's own words. The answer readers read a submission
 //! back against the form this file declared, so the field ids are the one
 //! contract between the two halves.
 mod feed;

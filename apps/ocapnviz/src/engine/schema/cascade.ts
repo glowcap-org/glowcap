@@ -3,19 +3,19 @@
  * the schema's reference graph to delete or rewrite an entity and all
  * its references.
  *
- * `cascadeDelete` uses a worklist algorithm — removing a peer queues
+ * `cascadeDelete` uses a worklist algorithm, removing a peer queues
  * any session that referenced it for cascade-delete, which in turn
  * queues its messages, etc. A `visited` set guards against cycles
  * (which the current schema can't produce but cheap insurance for
  * future schema changes).
  *
- * `cascadeRewrite` is a single-pass rewrite — every reference to
+ * `cascadeRewrite` is a single-pass rewrite, every reference to
  * `oldId` becomes `newId`, including the entity definition's own key.
  *
- * Both functions return new documents; the input is not mutated.
+ * Both functions return new documents. The input is not mutated.
  * The engine wraps a snapshot/rollback transaction around the call.
  * `deletePeer` / `deleteSession` / `deleteMessage` dispatch through
- * `cascadeDelete`; `rekeyEntity` through `cascadeRewrite`.
+ * `cascadeDelete`, `rekeyEntity` through `cascadeRewrite`.
  *
  * See `docs/schema-driven-transactions.md`.
  */
@@ -57,10 +57,10 @@ function removeEntity(
 	};
 }
 
-/** Whether one observation belongs to the entity being deleted —
+/** Whether one observation belongs to the entity being deleted,
  *  its creation, its end, or its per-entity keyframes. References
  *  FROM other entities' observations (a message naming a session)
- *  are not matched here; the cascade queue visits those entities
+ *  are not matched here. The cascade queue visits those entities
  *  and each purges its own. */
 function observationBelongsTo(
 	ev: { kind: string } & Record<string, unknown>,
@@ -72,8 +72,8 @@ function observationBelongsTo(
 			return (ev.kind === "peer-joined" || ev.kind === "peer-updated" ||
 				ev.kind === "peer-left") && ev.peerId === id;
 		case "session":
-			// Every moment on the session's own trajectory belongs to it —
-			// the state changes and the ends attaching alike — so a deleted
+			// Every moment on the session's own trajectory belongs to it,
+			// the state changes and the ends attaching alike, so a deleted
 			// session takes its whole row rather than stranding half of it.
 			return (ev.kind === "session-opened" ||
 				ev.kind === "session-closed" ||
@@ -87,14 +87,14 @@ function observationBelongsTo(
 	}
 }
 
-/** Rewrite every observation field that names the entity — its own
+/** Rewrite every observation field that names the entity, its own
  *  id field, and the cross-references other kinds' observations
  *  carry (a session's endpoints, a message's endpoints and
  *  session). The observation log is the authored document, and the
  *  projection synthesizes a definition for any id a creation
  *  observation mentions: an observation left on the old id would
- *  resurrect a ghost there, while the renamed entity — matching no
- *  observations — would lose its derived timing.
+ *  resurrect a ghost there, while the renamed entity, matching no
+ *  observations, would lose its derived timing.
  *
  *  Reads the reference sites out of `EVENT_EDGES` rather than
  *  listing field names, because a reference can sit INSIDE a field: a
@@ -136,7 +136,7 @@ function rewriteObservationIds(
 }
 
 /** Strip the entity's own observations from every recording source.
- *  Pure; returns the input doc when nothing matched. */
+ *  Pure. Returns the input doc when nothing matched. */
 function removeObservations(
 	doc: TimelineDocument,
 	kind: EntityKind,
@@ -171,8 +171,8 @@ function removeObservations(
  *   3. Purge the id from every doc-level index (class-3).
  *
  * Observations are purged along with each visited entity. In Build
- * the observation log IS the document being authored — gestures
- * already move event times and identity edits rewrite payloads —
+ * the observation log IS the document being authored, gestures
+ * already move event times and identity edits rewrite payloads,
  * and the projection re-synthesizes a definition for any id a
  * creation observation still mentions, so a delete that spared the
  * observations would resurrect its ghost on the next re-projection.
@@ -223,7 +223,7 @@ export function cascadeDelete(
 }
 
 /** Cascade-rewrite every reference to `oldId` so it points at `newId`,
- *  including the entity definition's own key. Single-pass; no cascade
+ *  including the entity definition's own key. Single-pass. No cascade
  *  recursion (the entity graph is the same shape afterwards, just with
  *  one key renamed).
  *

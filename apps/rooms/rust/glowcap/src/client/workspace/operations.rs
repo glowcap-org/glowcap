@@ -89,8 +89,8 @@ impl OperationsSelection {
 	fn compose(&self, intent: &Intent) -> glowcap::Result<Intent> {
 		self.validate_replacement()?;
 		let mut candidate = intent.clone();
-		candidate.operators = List::new(self.operators.as_slice().to_vec()).unwrap();
-		candidate.operations = List::new(self.operations.as_slice().to_vec()).unwrap();
+		candidate.operators = self.operators.clone();
+		candidate.operations = self.operations.clone();
 		for row in intent.operations.as_slice() {
 			if row.connection.as_ref().is_some_and(|connection| {
 				self.operations
@@ -113,8 +113,8 @@ impl OperationsSelection {
 }
 
 /// Two bounded scalar selections survive alongside one immutable envelope.
-/// Recomposition clones only a proved-rejected candidate's original imports;
-/// capability guards share exact custody, and no recipe is fetched again.
+/// Recomposition clones only a proved-rejected candidate's original imports.
+/// Capability guards share exact custody, and no recipe is fetched again.
 pub struct OperationsAcquisition<D> {
 	original: OperationsSelection,
 	replacement: OperationsSelection,

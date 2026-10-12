@@ -34,6 +34,8 @@ pub const FlagValue = union(FlagKind) {
 
 pub const Parsed = struct {
     gpa: std.mem.Allocator,
+    /// Borrowed original arguments for exact command replay after preparation.
+    argv: []const []const u8 = &.{},
     flags: std.StringHashMapUnmanaged(FlagValue) = .empty,
     repeated: std.StringHashMapUnmanaged(std.ArrayList([]const u8)) = .empty,
     positionals: []const []const u8 = &.{},
@@ -90,7 +92,7 @@ pub const Command = struct {
     /// Whether ancestor flags configure this subtree. False starts an
     /// independent scope, refusing ancestor flags even when supplied earlier.
     inherit_flags: bool = true,
-    /// Omit from argv help "Commands:" and shell completion; the leaf remains callable.
+    /// Omit from argv help "Commands:" and shell completion. The leaf remains callable.
     hidden_from_help: bool = false,
     /// Leaf runner. Parents leave this null.
     run: ?*const fn (*Ctx, *Parsed) anyerror!u8 = null,

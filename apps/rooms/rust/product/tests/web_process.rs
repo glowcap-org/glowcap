@@ -1,4 +1,5 @@
 //! Exercise the executable's HTTP/upgrade boundary and retirement together.
+#![cfg(test)]
 use futures_util::{SinkExt, StreamExt};
 use std::{os::unix::process::CommandExt, path::Path, process::Stdio, time::Duration};
 use tokio::{
@@ -12,6 +13,7 @@ struct Web {
 	child: Child,
 	group: i32,
 	port: u16,
+	shared: Vec<String>,
 }
 #[path = "web_process/ice.rs"]
 mod ice;
@@ -21,6 +23,8 @@ mod preparation;
 mod startup;
 #[path = "web_process/supervision.rs"]
 mod supervision;
+#[path = "web_process/trace.rs"]
+mod trace;
 impl Web {
 	fn binary() -> std::path::PathBuf {
 		std::env::var_os("GLOWCAP_ROOMS_WEB_TEST_BIN")
@@ -64,7 +68,12 @@ impl Web {
 	fn spawn(mut command: Command) -> Self {
 		let child = command.spawn().unwrap();
 		let group = child.id().unwrap() as i32;
-		Self { child, group, port: 0 }
+		Self {
+			child,
+			group,
+			port: 0,
+			shared: Vec::new(),
+		}
 	}
 	async fn start(trace: u16) -> Self {
 		let mut web = Self::spawn(Self::command(trace));
@@ -76,6 +85,9 @@ impl Web {
 		let mut lines = BufReader::new(web.child.stdout.take().unwrap()).lines();
 		loop {
 			let line = lines.next_line().await.unwrap().expect("web readiness before EOF");
+			if line.starts_with("ROOMS-SESSION-") {
+				web.shared.push(line.clone());
+			}
 			if let Some(url) = line.trim().strip_prefix("web ui           http://localhost:") {
 				web.port = url.parse().unwrap();
 			}
@@ -151,6 +163,45 @@ impl Web {
 			"web retires every owned worker"
 		);
 	}
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn web_shared_session_announces_independent_links_and_releases_custody() {
+	tokio::time::timeout(Duration::from_secs(20), async {
+		let state = std::env::temp_dir().join(format!("rooms-web-session-{}", std::process::id()));
+		std::fs::create_dir(&state).unwrap();
+		let mut previous = None;
+		for _ in 0..2 {
+			let mut command = Web::endpoint_command(0);
+			command
+				.arg("--no-browser-assets")
+				.arg(format!("--session-state={}", state.display()));
+			command.env("GLOWCAP_ROOMS_SESSION_REACHABILITY", "discovery");
+			let mut web = Web::spawn(command);
+			web.ready().await;
+			let use_link = std::fs::read_to_string(state.join("workspace.sturdyref")).unwrap();
+			let management = std::fs::read_to_string(state.join("control.sturdyref")).unwrap();
+			assert_eq!(
+				web.shared,
+				[
+					format!("ROOMS-SESSION-LISTENING {}", use_link.trim()),
+					format!("ROOMS-SESSION-MANAGEMENT {}", management.trim())
+				]
+			);
+			assert_ne!(use_link, management);
+			if let Some(previous) = previous {
+				assert_eq!(previous, (use_link.clone(), management.clone()));
+			}
+			previous = Some((use_link, management));
+			assert!(web.get("/locator").await.starts_with("HTTP/1.1 200"));
+			web.stop().await;
+			assert!(!state.join("workspace.sturdyref").exists());
+			assert!(!state.join("control.sturdyref").exists());
+		}
+		std::fs::remove_dir_all(state).unwrap();
+	})
+	.await
+	.expect("shared session lifecycle deadline");
 }
 
 #[tokio::test(flavor = "current_thread")]

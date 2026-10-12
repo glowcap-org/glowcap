@@ -59,7 +59,7 @@ engineTest(
 	() => {
 		// `authoredPins` is what tells the control whether to offer itself, so a
 		// count that saw a pin where the document has none would leave the button
-		// live on a stage with nothing to unpin — and pressing it would spend the
+		// live on a stage with nothing to unpin, and pressing it would spend the
 		// reader's undo on a press that changed nothing.
 		const e = new Engine(looseDoc());
 		assertEquals(authoredPins(e.doc).size, 0);

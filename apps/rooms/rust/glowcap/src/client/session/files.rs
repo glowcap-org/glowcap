@@ -145,7 +145,7 @@ impl<D: Deadline + Clone> Session<D> {
 }
 impl<D: Deadline + Tasks + Clone + 'static> Session<D> {
 	/// The session service consumes the supplied bytes before acknowledging.
-	/// The application supplies its one source pool; this call creates no pool.
+	/// The application supplies its one source pool. This call creates no pool.
 	pub async fn send_files(
 		&self,
 		pool: &Sources<D>,

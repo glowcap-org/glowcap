@@ -228,7 +228,7 @@ test "a server pumped only by the readiness descriptor and stepAny serves a budg
     }
 
     // The client hung up. The step loop must observe the EOF and tell the
-    // close observer — without any blocking verb running on the server.
+    // close observer, without any blocking verb running on the server.
     var waited: usize = 0;
     while (!closed.load(.acquire) and waited < 10_000) : (waited += 10) {
         std.Io.sleep(io, std.Io.Duration.fromMilliseconds(10), .real) catch {};
@@ -331,7 +331,7 @@ test "a vow nobody parked on reaches the completion sink instead of being freed 
     defer client.deinit();
     sink.core = client.runtime.core;
 
-    // A host-tier vow with no listener — the loop tier's every vow — settles
+    // A host-tier vow with no listener, the loop tier's every vow, settles
     // as an action the drain would otherwise free.
     const vow_id = try client.runtime.core.fetch(client.hs, "treasure");
 

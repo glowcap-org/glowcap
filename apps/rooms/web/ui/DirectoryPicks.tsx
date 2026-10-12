@@ -38,7 +38,7 @@ export function DirectoryPicks(
 		context: DirectoryDestinationContext;
 		onPick: (locator: string) => void;
 		/** Take the reader where an address this tab does not hold can be typed.
-		 * `typeAnotherAddress` below is the whole of it on the card; the rail
+		 * `typeAnotherAddress` below is the whole of it on the card. The rail
 		 * brings the card forward and then calls the same thing. */
 		onElsewhere: () => void;
 	},

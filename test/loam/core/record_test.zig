@@ -1,7 +1,7 @@
 //! Structural records reject corrupt, truncated, oversized, and unknown schemas
 //! before exposing a borrowed view. Encoding allocates only its measured bytes.
 //! Defect probes removed record/metadata checksum validation, the short-envelope
-//! guard, and the volatile overlay's allocation unwind; each was detected.
+//! guard, and the volatile overlay's allocation unwind. Each was detected.
 //! Exhaustive prefixes and metadata bit flips cover these fixtures, not arbitrary
 //! syntax or physical storage faults. Allocation enumeration covers the exercised
 //! create/read/update path, not every graph shape or native LMDB allocation.

@@ -17,7 +17,7 @@
 //!
 //! The link is authoritative session state, so the field
 //! (`outbound_resolver_link`, a `BiMap` holding both directions) stays on
-//! `Session`; this file owns the operations over it, and `Session` aliases each
+//! `Session`. This file owns the operations over it, and `Session` aliases each
 //! one so call sites read as ordinary methods.
 
 const std = @import("std");
@@ -51,7 +51,7 @@ pub fn nominateResolverExport(self: *Session) !ResolverNomination {
 }
 
 /// Allocate a fresh export of `kind` and link it to `answer` as that answer's
-/// resolver. All-or-none; a caller whose own later step fails rolls back with
+/// resolver. All-or-none. A caller whose own later step fails rolls back with
 /// `abandonResolverExport` while the export is still unmentioned.
 pub fn bindFreshResolverExport(
     self: *Session,
@@ -89,6 +89,8 @@ pub fn mintMentionedResolverExport(
 
 /// Undo `mintMentionedResolverExport` before its mention reaches the wire.
 pub fn abandonMentionedResolverExport(self: *Session, resolver_export: model.ExportPosition) void {
+    // `mintMentionedResolverExport` above retained this position in the same
+    // commit/rollback pair, so its undo cannot underflow.
     self.exports.decrement(resolver_export, 1) catch unreachable;
     abandonResolverExport(self, resolver_export);
 }
@@ -103,7 +105,7 @@ pub fn abandonResolverExport(self: *Session, resolver_export: model.ExportPositi
 
 /// Undo a whole `nominateResolverExport` whose send failed: the export, the
 /// link, and the installed answer together, so nothing of the nomination
-/// survives. Same window as the halves it composes — the export unmentioned,
+/// survives. Same window as the halves it composes, the export unmentioned,
 /// the answer row still the pending installation the nomination made.
 pub fn abandonResolverNomination(self: *Session, nomination: ResolverNomination) void {
     abandonResolverExport(self, nomination.resolver_export);
@@ -111,8 +113,8 @@ pub fn abandonResolverNomination(self: *Session, nomination: ResolverNomination)
 }
 
 /// Record that our outbound `answer` is settled by an inbound deliver to local
-/// export `resolver_export`. Committed once the message carrying that export —
-/// a V1.0 deliver's `resolve_me_desc`, or an `op:listen`'s listener — is
+/// export `resolver_export`. Committed once the message carrying that export,
+/// a V1.0 deliver's `resolve_me_desc`, or an `op:listen`'s listener, is
 /// accepted. The `BiMap` holds both directions in lockstep, all-or-none, so no
 /// half-installed link can survive a failure. Re-installing an answer's
 /// resolver replaces the whole link, evicting the stale export the answer
@@ -163,7 +165,7 @@ pub fn installNodeSettlingResolver(
 }
 
 /// Conclude a Node-only settling callback before its deliver event is surfaced
-/// to the Host composition hook. The Node still owns the event payload; session
+/// to the Host composition hook. The Node still owns the event payload. Session
 /// authority only retires the one-shot resolver and its promise claim.
 /// The deliver route classifier reaches here only after
 /// `isNodeSettlingResolver` saw this resolver's link row in the same
@@ -178,6 +180,8 @@ pub fn completeNodeSettlingResolverCallback(
         else => unreachable,
     };
     if (node.settling_source) |source| {
+        // `claimSettlingListener` minted this entry beside the link row the
+        // classifier asserted above, so the promise row is present.
         const entry = self.findImportedPromise(source.position) orelse unreachable;
         std.debug.assert(entry.cell.row_id == source.row_id);
         std.debug.assert(entry.settling_listener_claimed);
@@ -239,7 +243,7 @@ pub fn retireNodeSettlingResolver(
 
 /// Retire the resolver for a released application answer without deleting the
 /// export while the partner still holds its wire mention. A pending callback
-/// remains legal and is consumed by the engine; a completed tombstone rejects
+/// remains legal and is consumed by the engine. A completed tombstone rejects
 /// duplicates until the partner releases the export mention.
 pub fn retireApplicationResolver(
     self: *Session,

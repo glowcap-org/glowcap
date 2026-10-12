@@ -165,7 +165,7 @@ fn malformedWatch(kind: gen.WatchKind) WatchError {
 }
 
 /// Hold a directory watch notification to the generated kind it names. A room
-/// kind answers the publication it carries; the member and truncation kinds are
+/// kind answers the publication it carries. The member and truncation kinds are
 /// valid but carry no room for this small terminal client to print, so they
 /// answer null. A malformed or unknown event is refused rather than skipped.
 pub fn watchEvent(args: []const model.Argument) WatchError!?RoomInfo {

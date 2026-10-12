@@ -3,7 +3,7 @@
 //! Application vocabulary, above glowcap. Each invocation across the wire emits
 //! an Episode: a small JSON-LD-shaped quad (subject = the *true* caller, predicate
 //! = invoked, object = affordance + result, graph = the hosting vat's identity)
-//! with bitemporal columns. The signing chain is the load-bearing part and is the
+//! with bitemporal columns. The signing chain is the essential part and is the
 //! same one the Goblins worked example pins:
 //!
 //!   1. A per-Episode ephemeral Ed25519 keypair is drawn. Sigstore-style, the
@@ -14,7 +14,7 @@
 //!
 //! An auditor verifies both links: the countersignature against the signer's
 //! authoritative verkey, and the payload signature against the ephemeral key.
-//! Revoke the AID and every past Episode still verifies for its time window;
+//! Revoke the AID and every past Episode still verifies for its time window,
 //! compromise one ephemeral key and only one Episode is at risk.
 
 const std = @import("std");

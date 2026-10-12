@@ -47,7 +47,7 @@ export class DriverServer {
 	/** Select this listener's locator as the Host's acceptable location.
 	 *
 	 * A Host may retain several live listeners, but exactly one location is
-	 * signed into new sessions. Closing the selected listener deliberately does
+	 * signed into new sessions. Closing the selected listener does
 	 * not guess which sibling should replace it; the process owner chooses by
 	 * calling this method on the remaining server. */
 	select(): void {

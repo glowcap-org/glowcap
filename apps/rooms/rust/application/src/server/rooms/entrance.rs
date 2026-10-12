@@ -1,6 +1,6 @@
 //! How a room is reached: opened by name, entered by name or publication,
 //! reached through a durable link, or claimed through an invitation. An
-//! entrance is what the adapter's room actor holds; subscribing through it
+//! entrance is what the adapter's room actor holds. Subscribing through it
 //! seats a member.
 use super::{Effects, InvitationKey, MembershipKey, RoomKey, notice::Notice};
 use super::{
@@ -91,6 +91,10 @@ pub struct Subscribed<C, R> {
 	pub effects: Effects<C, R>,
 }
 
+fn closed() -> Refusal {
+	Refusal::coded(FailureCode::NoSuchRoom, "this room is no longer open")
+}
+
 impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 	/// Whether `entrance` still admits, for `connection`. A member already in
 	/// the room passes a closed gate: the room does not eject them for it.
@@ -153,6 +157,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			key,
 			policy,
 			members: Vec::new(),
+			offline: Default::default(),
 			invitations: BTreeSet::new(),
 			lines: BTreeSet::new(),
 			lifetime_owner: owner,
@@ -267,7 +272,9 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			});
 		}
 		if let Some(id) = authority.managed_room_id_for_name(name) {
-			let managed = authority.managed_room(id).expect("a named managed room is filed");
+			let managed = authority
+				.managed_room(id)
+				.ok_or_else(|| Refusal::coded(FailureCode::NoSuchRoom, format!("no room named \"{name}\"")))?;
 			if managed.policy.public_membership().is_none() {
 				return Err(invite_only(name));
 			}
@@ -346,7 +353,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 	}
 
 	/// What a room reference says it is called, live or from its durable
-	/// name; empty when a private room came back from a link with nobody left
+	/// name. Empty when a private room came back from a link with nobody left
 	/// to remember what it was called.
 	pub fn called(&self, entrance: &Entrance, authority: &Authority) -> String {
 		if let Some(room) = self.rooms.get(&entrance.room) {
@@ -376,7 +383,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 	}
 
 	/// Seat `connection` in the room `entrance` names. `seat` and `topic` are
-	/// the adapter's freshly minted tokens for this membership; a refusal
+	/// the adapter's freshly minted tokens for this membership. A refusal
 	/// gives them back with the inbox. `same_claimant` says whether two
 	/// connections are one proved peer.
 	#[allow(clippy::too_many_arguments)]
@@ -475,7 +482,9 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		let mut returned = alloc::vec![inbox.clone(), seat.clone()];
 		returned.extend(topic.clone());
 		let refuse = |refusal: Refusal| Refused { refusal, returned };
-		let room = self.rooms.get(&entrance.room).expect("a live room");
+		let Some(room) = self.rooms.get(&entrance.room) else {
+			return Err(refuse(closed()));
+		};
 		// A voucher is spent only where a holder stands in the way, and once.
 		let mut entitlement: Option<bool> = None;
 		let mut entitled = |directory: &mut Directory<C, R>| -> bool {
@@ -526,20 +535,19 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			effects.extend(self.leave_member(&entrance.room, key, None, Departure::Continued));
 		}
 		let key = MembershipKey(self.next_id());
-		let room = self.rooms.get_mut(&entrance.room).expect("a live room");
+		let Some(room) = self.rooms.get_mut(&entrance.room) else {
+			return Err(refuse(closed()));
+		};
 		let files = match self.files.member(&room.files) {
 			Ok(files) => files,
 			Err(error) => return Err(refuse(Refusal::plain(error))),
 		};
 		if let Gate::Invitation(key) = &entrance.gate {
-			// The gate was open a moment ago, so the row is live; a gate that
-			// found no row refused before the seat was reserved.
-			self.invitations
-				.get_mut(key)
-				.expect("an open invitation gate has its row")
-				.admission
-				.admit()
-				.map_err(|reason| refuse(Refusal::plain(reason)))?;
+			// The gate was open a moment ago, so its row should still be live.
+			let Some(row) = self.invitations.get_mut(key) else {
+				return Err(refuse(Refusal::plain("this invitation is no longer open")));
+			};
+			row.admission.admit().map_err(|reason| refuse(Refusal::plain(reason)))?;
 		}
 		room.members.push(Member {
 			key,
@@ -548,6 +556,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			connection,
 			kind: entrance.kind,
 			away: String::new(),
+			typing_until: core::cell::Cell::new(0),
 			files,
 		});
 		effects.presence.push(connection);
@@ -558,6 +567,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		effects.tell(connection, inbox.clone(), Notice::Carries(Carries::EVERYTHING));
 		effects.tell(connection, inbox.clone(), Notice::PolicyChanged(room.policy));
 		effects.tell(connection, inbox.clone(), Notice::Listed(listed));
+		self.returning_name(&entrance.room, nick, &mut effects);
 		if let Some((_, old_nick)) = already.filter(|(_, old)| old.to_lowercase() != nick.to_lowercase()) {
 			self.broadcast(
 				&entrance.room,
@@ -590,6 +600,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		}
 		let room = &self.rooms[&entrance.room];
 		effects.tell(connection, inbox.clone(), Notice::Roster(names));
+		self.offline_roster(&entrance.room, connection, inbox.clone(), &mut effects);
 		for member in room
 			.members
 			.iter()
@@ -627,11 +638,13 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 pub(super) enum Departure {
 	/// A real leave: announced, and the room closes if it emptied.
 	Left,
+	/// The connection ended. Authority is released. A display name stays offline.
+	Disconnected,
 	/// A departure with the room's word said first to the member.
 	Ended,
 	/// The same connection continuing one membership under a new seat.
 	Continued,
-	/// Another connection of the same peer took the name; the old seat goes
+	/// Another connection of the same peer took the name. The old seat goes
 	/// quietly with everything its connection held.
 	Replaced,
 }

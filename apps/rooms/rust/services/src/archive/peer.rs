@@ -13,7 +13,7 @@ mod config;
 pub use config::{Config, HELP, Transport};
 
 /// Where the archive's notices about partners go. The binary installs one
-/// that writes to stderr; a test installs one that collects.
+/// that writes to stderr. A test installs one that collects.
 pub type Report = Rc<dyn Fn(PartnerNotice)>;
 
 /// Run inside a current-thread LocalSet. `ready` receives the authority link
@@ -122,7 +122,7 @@ async fn serve(
 	result
 }
 /// Serve one accepted partner to its end, reporting an end that was not the
-/// partner simply leaving.
+/// partner leaving.
 async fn served(session: glowcap::Session, report: Report) {
 	if let Err(ended) = serve_partner(session).await {
 		report(PartnerNotice::Ended(ended));

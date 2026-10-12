@@ -31,8 +31,8 @@ import {
  *
  *  It is one element rather than two loose cells because the line under
  *  a field belongs to the field. A row whose value needs two layout
- *  rows — a trajectory moment's time above the controls that moment
- *  states — is still one field and still carries one line, under the
+ *  rows, a trajectory moment's time above the controls that moment
+ *  states, is still one field and still carries one line, under the
  *  pair, and nothing has to remember to leave the line out of the
  *  middle. `.ocv-field` in styles.css draws it and re-inherits the `kv`
  *  grid's tracks, so the keys stay in a column across the group.
@@ -88,7 +88,7 @@ export function EditableIdField(
 			return;
 		}
 		if (next.length === 0) {
-			// Treat empty as a revert — don't try to rename to "".
+			// Treat empty as a revert, don't try to rename to "".
 			setDraft(id);
 			setError(null);
 			return;
@@ -118,7 +118,7 @@ export function EditableIdField(
 				onChange={(ev) => {
 					setDraft(ev.target.value);
 					pending.touch();
-					// Clear stale error as the user keeps typing — they're
+					// Clear stale error as the user keeps typing, they're
 					// already correcting.
 					if (error) setError(null);
 				}}
@@ -170,17 +170,17 @@ export const NONE = "";
  *  They are ordinary states of the network rather than fields somebody
  *  forgot to fill, so each is spelled as an answer to the question its
  *  row asks. "Attached to" asks about a party, so the answer is a
- *  pronoun; "attribution" asks about a thing, so the answer is a noun.
+ *  pronoun, "attribution" asks about a thing, so the answer is a noun.
  *  Neither is "loose", which is the word the model uses for an end
  *  nothing attributed and not a word a reader arrives with.
  *
- *  They are plain words rather than parenthesized ones on purpose:
+ *  They are plain words rather than parenthesized ones:
  *  brackets read as chrome around an empty field, which is the reading
  *  these two states most need to avoid.
  *
  *  They live here because two surfaces ask the same question about one
- *  end — the session panel about the end a session is born with, and a
- *  trajectory row about the end at a moment — and two spellings of one
+ *  end, the session panel about the end a session is born with, and a
+ *  trajectory row about the end at a moment, and two spellings of one
  *  word is where they would drift. */
 export const NOBODY = "nobody";
 export const NOTHING = "nothing";
@@ -216,14 +216,14 @@ export function EnumSelect<T extends string>(
 /**
  * The picker that asks which peer is on an end.
  *
- * Two rows ask that question — the end a session is born with, and the
- * moment somebody attaches to it — and they are one control, because a
+ * Two rows ask that question, the end a session is born with, and the
+ * moment somebody attaches to it, and they are one control, because a
  * reader meets the same list of peers in both and should read it the same
  * way. The names come from `pickerLabels`, so a document with two peers
  * called Alice says which Alice in both places or in neither.
  *
  * "Nobody" is an answer only where it is a legal one. A session's genesis
- * end may hold nobody; a moment that attaches an end cannot, because an
+ * end may hold nobody. A moment that attaches an end cannot, because an
  * attachment names somebody by definition and an end comes loose by
  * losing the moment instead.
  */
@@ -253,7 +253,7 @@ export function PeerSelect(
 	);
 }
 
-/** The options a select offers, with the value it is actually holding
+/** The options a select offers, with the value it is holding
  *  among them.
  *
  *  A controlled `<select>` whose value matches no option shows the
@@ -302,9 +302,9 @@ export function ProfileSelect(
 /** Bulk-edit variant of `EnumSelect`. `commonValue` is the shared
  *  value across the selection, or `null` when entities disagree.
  *  In the mixed case the select renders a leading "—" sentinel
- *  option (no commit on its own); picking any concrete option
+ *  option (no commit on its own). Picking any concrete option
  *  fires `onChange` and the caller broadcasts to every selected
- *  entity. The "—" sentinel deliberately doesn't dispatch — there's
+ *  entity. The "—" sentinel doesn't dispatch, there's
  *  no canonical "make it mixed" intent. */
 export function BulkEnumSelect<T extends string>(
 	{ commonValue, options, ariaLabel, onChange, labelFor }: {
@@ -353,13 +353,13 @@ export function TimeScrubInput(
 		onScrubEnd,
 	}: {
 		value: number;
-		/** Lower bound for the scrub. Defaults to 0; entity-specific
+		/** Lower bound for the scrub. Defaults to 0. Entity-specific
 		 *  containment constraints (e.g. "session.closed can't be
 		 *  earlier than session.opened") raise this so the scrub
 		 *  can't produce an invalid state. */
 		min?: number;
 		max: number;
-		/** When true, `max` is a HARD ceiling — the scrub clamps to
+		/** When true, `max` is a HARD ceiling. The scrub clamps to
 		 *  it and never extends. Used when the upper bound comes from
 		 *  a containment constraint (e.g. "session.closed can't be
 		 *  later than peerA.left"). When false (default), `max` is a
@@ -369,8 +369,8 @@ export function TimeScrubInput(
 		strictMax?: boolean;
 		onChange: (next: number) => void;
 		label: string;
-		/** Drag-session brackets forwarded to ScrubInput — see its
-		 *  contract; rows wrap them in an edit transaction so one scrub
+		/** Drag-session brackets forwarded to ScrubInput, see its
+		 *  contract. Rows wrap them in an edit transaction so one scrub
 		 *  is one undo step. */
 		onScrubStart?: (() => void) | undefined;
 		onScrubEnd?: (() => void) | undefined;
@@ -403,8 +403,8 @@ export function TimeScrubInput(
 
 /** Inline text field with the inspector's edit-bracket:
  * focus opens a labeled transaction so a typing burst lands as one
- * undo step; blur closes it. The one spelling of the editable-text
- * idiom — heading and mono variants come in via `style`. */
+ * undo step. Blur closes it. The one spelling of the editable-text
+ * idiom, heading and mono variants come in via `style`. */
 export function InlineTextField(
 	{
 		value,
@@ -434,7 +434,7 @@ export function InlineTextField(
 		 *
 		 *  Enter BLURS rather than committing directly, so there stays exactly one
 		 *  commit path. A second one would have to close the edit bracket itself, and
-		 *  the bracket is the thing that must not be closed twice — a field that
+		 *  the bracket is the thing that must not be closed twice. A field that
 		 *  committed on Enter and again on the blur Enter caused would bracket one
 		 *  edit as two.
 		 *

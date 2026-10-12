@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-modifier-cursor-probe.ts — Cursor preview for the
+ * playwright-modifier-cursor-probe.ts: Cursor preview for the
  * shift / shift+option modifiers. Same idea as the spacebar
  * cursor: the cursor reflects what a click / drag would do at
  * the moment of release.

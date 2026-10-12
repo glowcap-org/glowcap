@@ -1,21 +1,21 @@
 """Internal: the behavior trampoline, the ONE native callback in the binding.
 
-Every hosted object — a :meth:`Session.spawn` / :meth:`Session.publish`
+Every hosted object: a :meth:`Session.spawn` / :meth:`Session.publish`
 actor, a caretaker or attenuator proxy, or a Host publication registers here
 and shares a single process-lifetime ``GlowcapHostBehavior`` whose ctx is the
 entry's registry id packed as a pointer-sized integer (``free`` = NULL: the
 registry owns the Python side, so there is nothing for the library to free).
-Settlements never cross the C boundary as callbacks; they ride the action
+Settlements never cross the C boundary as callbacks. They ride the action
 queue (SETTLE/FAIL, :mod:`glowcap._host`).
 
 Reply discipline: the vat copies ``out_reply``'s payload the instant the
 trampoline returns, so the marshalled reply's buffers are retained in the
-module's one keep slot across the return (overwritten by the next reply — the
+module's one keep slot across the return (overwritten by the next reply: the
 previous one has long been copied). A raised exception must NEVER cross the
 ``CFUNCTYPE`` boundary (ctypes would print it and return garbage), so every
-raise — an attenuator's ``Attenuated``, a revoked caretaker's ``Revoked``, an
-unknown-method error — crosses as ``glowcap_host_turn_break`` carrying the
-exception's own words; a bare non-OK return would flatten them into a generic
+raise, an attenuator's ``Attenuated``, a revoked caretaker's ``Revoked``, an
+unknown-method error, crosses as ``glowcap_host_turn_break`` carrying the
+exception's own words. A bare non-OK return would flatten them into a generic
 reason. A :class:`Forward` return maps onto ``glowcap_host_turn_forward`` (the
 caretaker/attenuator primitive): a target hosted by the same Host composes in
 process, and a far target defers the answer onto the forwarded send's vow.
@@ -91,7 +91,7 @@ def _chase_local_forwards(entry: _BehaviorEntry, result):
     prefix: while it forwards to a near target the current entry's own
     Host owns, run that behavior in the same turn (a caretaker over an
     attenuator composes exactly as it does over the wire). Returns the
-    terminal — a plain value, or the first :class:`Forward` whose target is
+    terminal: a plain value, or the first :class:`Forward` whose target is
     not hosted here (far, promise, or an unknown near id), which each caller
     defers its own way: the trampoline through the host's turn-forward,
     ``send`` onto the forwarded send's wire reply, ``tell`` as a far tell."""
@@ -117,8 +117,8 @@ def _chase_local_forwards(entry: _BehaviorEntry, result):
 
 def _run_hosted(entry: _BehaviorEntry, verb: str, args: list, turn=None):
     """Run a hosted behavior and chase the local Forward prefix. When ``turn``
-    is set, latch ``_current_turn`` for the duration (the wire trampoline path);
-    local send/tell omit the latch."""
+    is set, latch ``_current_turn`` for the duration (the wire trampoline path).
+    Local send/tell omit the latch."""
     if turn is None:
         return _chase_local_forwards(entry, entry.run(verb, args))
     prev = getattr(_turn_state, "current_turn", None)
@@ -145,7 +145,7 @@ def _send_local(session, ctx: int, verb: str, args: list) -> RemotePromise:
             if isinstance(result, Forward):
                 return await session.send(result.target, result.verb, result.args)
             if inspect.isawaitable(result):
-                # A local send to an async behavior simply awaits it; the
+                # A local send to an async behavior awaits it; the
                 # resolver machinery is only for wire-served turns.
                 return await result
             return result
@@ -237,8 +237,8 @@ def _current_turn_for(session: object) -> Optional[int]:
 
 
 def _inside_turn() -> bool:
-    """Whether ANY hosted turn is running — the drain defers while one is (the
-    host refuses the driving verbs inside a callback; everything enqueued pumps
+    """Whether ANY hosted turn is running: the drain defers while one is (the
+    host refuses the driving verbs inside a callback. Everything enqueued pumps
     when the enclosing call unwinds)."""
     return getattr(_turn_state, "current_turn", None) is not None
 
@@ -347,7 +347,7 @@ _TRAMPOLINE = _HostBehavior(_trampoline_body)
 
 
 def _turn_spawn(turn: int, ctx_id: int) -> int:
-    """Spawn a hosted object from INSIDE a turn — the turn-time form the host
+    """Spawn a hosted object from INSIDE a turn: the turn-time form the host
     allows where the top-level spawn is refused. Returns its opaque Host id."""
     out = _Reference()
     _check_host(
@@ -514,7 +514,7 @@ def _publish_hosted(session, name: str, behavior) -> Ref:
 
 class Caretaker:
     """A revocable caretaker over a capability (ADR-0064), returned by
-    :meth:`Session.caretaker`. Hand :attr:`proxy` to a partner; call
+    :meth:`Session.caretaker`. Hand :attr:`proxy` to a partner. Call
     :meth:`revoke` to sever it, after which every call through the proxy breaks
     with ``Revoked``."""
 

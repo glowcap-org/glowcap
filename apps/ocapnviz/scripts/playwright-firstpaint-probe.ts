@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-firstpaint-probe.ts — Captures the visual transition
+ * playwright-firstpaint-probe.ts: Captures the visual transition
  * from boot screen → app interactive at fast intervals so we can
  * look for the "green bar at top of stage" flash the user reported.
  */
@@ -93,7 +93,7 @@ const cols = await page.evaluate(() => {
 	if (!canvas) return null;
 	// Canvas is WebGL; we can't readBack via 2d. Inspect computed
 	// backgrounds of DOM elements at the top of the visible chrome
-	// instead — useful if the green is from a DOM, not WebGL.
+	// instead, useful if the green is from a DOM, not WebGL.
 	const samples: Array<{ y: number; tag: string; bg: string; id: string }> = [];
 	for (let y = 0; y < 200; y += 5) {
 		const el = document.elementFromPoint(800, y);

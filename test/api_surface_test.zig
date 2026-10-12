@@ -4,7 +4,7 @@
 //! semantically checked, so it can drift against std or against its own layer
 //! while the gate stays green. Referencing the whole public `glowcap`
 //! namespace recursively turns that drift into a compile error in
-//! `zig build test` — the API surface is load-bearing even where no scenario
+//! `zig build test`, the API surface matters even where no scenario
 //! exercises it yet. (`std.testing` ships only the shallow `refAllDecls`,
 //! which would skip the method bodies of exported types, so the recursive
 //! walk lives here.)

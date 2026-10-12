@@ -1,5 +1,5 @@
 //! Opt-in delivery of a retained post. The receipt occupies the post's normal
-//! inbox position; it does not replace acknowledgement or line authority.
+//! inbox position. It does not replace acknowledgement or line authority.
 use super::{
 	attachment::{self, Attachment, AttachmentArgument},
 	inbox,
@@ -44,7 +44,7 @@ pub struct Receipt<'a, C> {
 	pub request: u64,
 	pub line: LineId,
 	pub from: &'a str,
-	/// Only a server-normalized caption is sent back; false retains local text.
+	/// Only a server-normalized caption is sent back. False retains local text.
 	pub text: Option<&'a str>,
 	pub attachments: Vec<Attachment<C>>,
 	pub previews: &'a str,

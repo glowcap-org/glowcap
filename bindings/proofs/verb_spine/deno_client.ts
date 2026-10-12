@@ -127,7 +127,7 @@ mark("promise-failed");
 
 // ── listen-served ───────────────────────────────────────────────────────────
 const server = await tcp.listen("127.0.0.1", 0);
-// A closed listener no longer has a locator to read, so name it while it lives.
+// A closed listener has no locator to read, so name it while it lives.
 const ownUri = server.uri;
 const serving = serveOnce(server);
 const own = await runtime.connect(server.locator);

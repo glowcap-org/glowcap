@@ -19,7 +19,7 @@ git -C "${repo}" commit -qm base
 main_tip=$(git -C "${repo}" rev-parse HEAD)
 git -C "${repo}" branch dev
 
-# The worktree designator and branch deliberately differ. A flow that derives
+# The worktree designator and branch differ. A flow that derives
 # one from the other updates or rebases the wrong ref here.
 git -C "${repo}" worktree add -qb feature-work "${tree}" main
 printf 'agent\n' >"${tree}/agent"

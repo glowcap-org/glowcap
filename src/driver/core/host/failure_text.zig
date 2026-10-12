@@ -1,5 +1,5 @@
 //! Bounded terminal diagnostics shared by Host operations. This text survives
-//! its producer without allocating at completion; it is not protocol data.
+//! its producer without allocating at completion. It is not protocol data.
 const std = @import("std");
 const Failure = @This();
 

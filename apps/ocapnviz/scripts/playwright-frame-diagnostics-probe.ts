@@ -29,8 +29,8 @@
  * The last argument picks the condition, and `paused` is the sharp one. A
  * paused document is not changing, so every byte allocated and every triangle
  * built under it is work nothing asked for. Reading the playing pass alone
- * cannot tell a per-frame rebuild from the honest cost of a moving picture;
- * the difference between the two passes can.
+ * cannot tell a per-frame rebuild from the real cost of a moving picture.
+ * The difference between the two passes can.
  *
  * Point it at a `vite preview` build rather than the dev server when the
  * question is what a user experiences: React's development build carries
@@ -56,7 +56,7 @@ if (condition !== "playing" && condition !== "paused") {
 
 // `swiftshader` rasterizes in software on the main thread, and on this document
 // that costs about 100ms per frame whether the picture is moving or standing
-// still — a floor high enough to hide any change the application could make.
+// still. A floor high enough to hide any change the application could make.
 // It is the right choice for a probe that only reads JS-side numbers
 // (allocation, script time, engine counters, all of which it leaves alone) and
 // the wrong one for anything about frame rate. `gpu` opens a real window on a
@@ -165,7 +165,7 @@ await page.evaluate((paused: boolean) => {
 // is the harder case for the renderer, not the easier one: nothing is off
 // screen for culling to discard, so every entity in the document is drawn on
 // every frame. A document built by hand is exactly the one a reader wants to
-// see whole, so it is worth measuring on purpose.
+// see whole, so it is worth measuring.
 if (fit) {
 	const fitted = await page.evaluate(() => {
 		// deno-lint-ignore no-explicit-any

@@ -162,30 +162,27 @@ impl<T: Transport> Trace<T> {
 								Rc::new(move |reason| report(&reason))
 							});
 						owned.failure.borrow_mut().take();
+						let recorder = publisher.clone();
+						let installed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+							glowcap::enable_trace(Box::new(move |event| recorder.record(event)), label.as_deref())
+						}));
+						let (uninstall, failed) = match installed {
+							Ok(uninstall) => (Some(Box::new(uninstall) as Box<dyn FnOnce()>), false),
+							Err(_) => (None, true),
+						};
 						*owned.held.borrow_mut() = Some(Held {
 							selected,
-							scope,
+							scope: scope.clone(),
 							swiss,
-							publisher: publisher.clone(),
-							uninstall: None,
-							label: label.clone(),
+							publisher,
+							uninstall,
+							label,
 						});
-						let installed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-							glowcap::enable_trace(Box::new(move |event| publisher.record(event)), label.as_deref())
-						}));
-						match installed {
-							Ok(uninstall) => {
-								owned.held.borrow_mut().as_mut().expect("held publisher").uninstall =
-									Some(Box::new(uninstall))
-							}
-							Err(_) => {
-								let error = Error::closed("trace hook installation failed");
-								report(&error.to_string());
-								let held = owned.held.borrow();
-								let held = held.as_ref().expect("held publisher");
-								*owned.failure.borrow_mut() = Some((selected, held.scope.clone(), error.to_string()));
-								break;
-							}
+						if failed {
+							let error = Error::closed("trace hook installation failed");
+							report(&error.to_string());
+							*owned.failure.borrow_mut() = Some((selected, scope, error.to_string()));
+							break;
 						}
 					}
 				} else if let Some((_, _, _, label)) = selected {

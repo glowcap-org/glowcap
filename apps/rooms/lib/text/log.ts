@@ -2,13 +2,13 @@
 // did, a notice somebody sent quietly, and the reports the slash commands say
 // back into the conversation they ran in.
 
-/** A `/me` line, drawn as something happening rather than something said. */
+/** A `/me` line, drawn as an action instead of speech. */
 export function logActionLine(from: string, text: string): string {
 	return `✻ ${from} ${text}`;
 }
 
-/** A `/notice` line, drawn the way every IRC client has drawn one: the author
- * kept, the notification given up. */
+/** A `/notice` line, drawn the way IRC clients draw one: the author stays and
+ * the notification goes. */
 export function logNoticeLine(from: string, text: string): string {
 	return `-${from}- ${text}`;
 }

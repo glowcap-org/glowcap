@@ -1,5 +1,5 @@
 //! Rooms' self-contained Deno test inventory and build steps. The application
-//! build composes this subject; this module owns how the suite is cached,
+//! build composes this subject. This module owns how the suite is cached,
 //! divided into bounded processes, and attached to `runtime-check`.
 
 const std = @import("std");
@@ -44,6 +44,8 @@ const batches: []const []const []const u8 = &.{
     },
     &.{
         "apps/rooms/test/text_test.ts",
+        "apps/rooms/test/admission_feedback_test.ts",
+        "apps/rooms/test/room/presence_narration_test.ts",
         "apps/rooms/test/member_identity_test.ts",
         "apps/rooms/test/prefs_test.ts",
         "apps/rooms/test/complete_test.ts",
@@ -64,7 +66,10 @@ const batches: []const []const []const u8 = &.{
         "apps/rooms/test/session/managed_recovery_test.ts",
         "apps/rooms/test/session/managed_admission_test.ts",
         "apps/rooms/test/session/managed_acquisition_test.ts",
+        "apps/rooms/test/session/managed_cancellation_test.ts",
+        "apps/rooms/test/session/managed_cancellation_projection_test.ts",
         "apps/rooms/test/session/managed_completion_test.ts",
+        "apps/rooms/test/session/managed_line_completion_test.ts",
         "apps/rooms/test/session/managed_direct_recovery_test.ts",
         "apps/rooms/test/session/managed_projection_test.ts",
         "apps/rooms/test/session/managed_projection_cost_test.ts",
@@ -72,6 +77,7 @@ const batches: []const []const []const u8 = &.{
         "apps/rooms/test/session/managed_composer_test.ts",
         "apps/rooms/test/session/send_receipt_projection_test.ts",
         "apps/rooms/test/session/managed_controller_test.ts",
+        "apps/rooms/test/session/managed_session_moves_test.ts",
         "apps/rooms/test/session/managed_navigation_test.ts",
         "apps/rooms/test/session/managed_join_test.ts",
         "apps/rooms/test/session/managed_history_test.ts",
@@ -98,6 +104,7 @@ const batches: []const []const []const u8 = &.{
         "apps/rooms/test/richtext_test.ts",
         "apps/rooms/test/writing_test.ts",
         "apps/rooms/test/room/facts_test.ts",
+        "apps/rooms/test/room/presence_test.ts",
         "apps/rooms/test/room/client_custody_test.ts",
         "apps/rooms/test/room/message_stream_test.ts",
         "apps/rooms/test/commands_test.ts",

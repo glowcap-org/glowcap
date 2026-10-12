@@ -82,7 +82,7 @@
                                #:ephemeral-pk-cesr eph-pk-cesr)
   ;; JSON-LD quad shape (RDF-Star-oriented; full reification deferred to
   ;; TerminusDB integration at later (post-kernel)). Subject is the Actor's
-  ;; KERI-anchored DID (`did:keri:<AID>` — KERI WebOfTrust convention,
+  ;; KERI-anchored DID (`did:keri:<AID>`, KERI WebOfTrust convention,
   ;; forward-compatible with W3C DID landscape). The named graph stays in
   ;; the `goblins:vat/` namespace because the Vat is a substrate-internal
   ;; coordination-boundary identifier, not a federated DID. Predicate is
@@ -145,7 +145,7 @@
 
   ;; 4. Sign Episode payload with ephemeral signing key, then zero it. The
   ;;    private key has no use after this point; explicit zero-fill is more
-  ;;    honest than relying on GC. (Memory still lives until reclaimed; we
+  ;;    accurate than relying on GC. (Memory still lives until reclaimed; we
   ;;    don't claim immunity from process-memory inspection, see STATUS.md.)
   (define payload-bytes (canonical-bytes-for-signing payload))
   (define episode-sig-bytes (id:ephemeral-sign eph-sk payload-bytes))

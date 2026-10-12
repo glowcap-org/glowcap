@@ -29,8 +29,8 @@ test "every codec / session / engine / projection error classifies to a non-fore
 }
 
 test "prior cross-surface drift now classifies consistently" {
-    // NestingTooDeep used to reach the C ABI as INTERNAL (a host bug) while the
-    // abort projection called it resource_exhausted. One classifier, one answer.
+    // NestingTooDeep must reach the C ABI and the abort projection as the same
+    // class, resource_exhausted. One classifier, one answer.
     const nesting = abort.classify(error.NestingTooDeep);
     try std.testing.expectEqual(abort.Domain.session, nesting.domain);
     try std.testing.expectEqual(glowcap.ocapn.model.AbortKind.resource_exhausted, nesting.abort.?.kind);

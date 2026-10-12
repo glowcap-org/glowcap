@@ -1,4 +1,4 @@
-//! Command input is application syntax; resulting effects still require live
+//! Command input is application syntax. Resulting effects still require live
 //! session authority. Rendering consumes the catalog and performs view gestures.
 pub mod catalog;
 pub mod composer;

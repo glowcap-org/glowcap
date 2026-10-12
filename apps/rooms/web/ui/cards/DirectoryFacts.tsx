@@ -29,7 +29,7 @@ import {
  * Being reachable is a registration this directory can refuse, and a refused one
  * leaves this window in every roster looking ordinary while no direct message
  * can arrive. The name and the connection come first because both are needed
- * before the question means anything: no name, nothing to register; no
+ * before the question means anything: no name, nothing to register. No
  * connection, nothing registered.
  *
  * The person card asks this too, about the reader on the directory it is

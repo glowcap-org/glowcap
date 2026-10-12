@@ -1,5 +1,5 @@
 #lang racket/base
-;; iroh-netlayer.rkt — an iroh netlayer for Spritely Goblins's CapTP, over
+;; iroh-netlayer.rkt: an iroh netlayer for Spritely Goblins's CapTP, over
 ;; glowcap's iroh transport.
 ;;
 ;; A netlayer is a byte-stream provider plus a locator. CapTP is transport
@@ -16,12 +16,12 @@
 ;; relay-less dialer needs. That is the same spelling glowcap signs and dials, so
 ;; a Goblins vat and a glowcap peer name one endpoint the same way.
 ;;
-;; Provide `^iroh-netlayer` — spawn it with a reachability posture, pass the
+;; Provide `^iroh-netlayer`, spawn it with a reachability posture, pass the
 ;; resulting netlayer to `spawn-mycapn`, and the vat speaks CapTP over iroh.
 ;;
 ;; What this is for: glowcap ↔ Goblins interop over an encrypted transport. It is
 ;; the sibling of `tcp-netlayer.rkt`, and the two differ only in what moves the
-;; bytes and in what a session over them can honestly claim to have proved.
+;; bytes and in what a session over them can accurately claim to have proved.
 ;;
 ;; What this is NOT:
 ;; - Full Spritely netlayer: no graceful shutdown, no reconnect-on-loss, minimal
@@ -57,7 +57,7 @@
 
 ;; How many bytes of inbound stream may sit between the connection and the vat's
 ;; CapTP reader. Past it the reading pump stops draining the connection, the
-;; sidecar's own bounded buffer fills, and QUIC flow control slows the partner —
+;; sidecar's own bounded buffer fills, and QUIC flow control slows the partner,
 ;; so a vat that stops reading pushes back rather than growing.
 (define inbound-buffer-bytes 65536)
 
@@ -132,7 +132,7 @@
      'iroh
      always-evt
      ;; Racket asks for a flush by calling with an empty range; every other call
-     ;; is bytes to accumulate, and reporting them all written is honest because
+     ;; is bytes to accumulate, and reporting them all written is accurate because
      ;; the accumulator cannot refuse them.
      (lambda (bs start end non-block? breakable?)
        (cond
@@ -144,7 +144,7 @@
 
 ;; Constructor for an iroh netlayer.
 ;;
-;;   reachability — how this endpoint becomes reachable, one of the binding's
+;;   reachability: how this endpoint becomes reachable, one of the binding's
 ;;                  IROH-REACH-* postures. Required, with no default: a peer
 ;;                  states how it is reachable and the binding never guesses.
 ;;                  `IROH-REACH-DIRECT` is the loopback and LAN posture, where a
@@ -152,7 +152,7 @@
 ;;                  advertises; a discovery posture resolves an endpoint id
 ;;                  without them.
 ;;
-;; Optional `#:seed bytes` — the 32-byte Ed25519 secret behind the endpoint. It
+;; Optional `#:seed bytes`, the 32-byte Ed25519 secret behind the endpoint. It
 ;; is the vat's durable name, not a tuning knob: an `iroh` locator's designator
 ;; IS this key, so a vat that draws a fresh one is a different peer after every
 ;; restart and no sturdyref naming it survives. Omitting it draws a fresh random
@@ -164,7 +164,7 @@
 ;; query, so fixtures can change advice while existing sessions retain their
 ;; signed snapshot. The default advertises the endpoint's bound addresses.
 ;;
-;; Optional `#:session-trace sink` — a `(lambda (event handle info) ...)` called
+;; Optional `#:session-trace sink`, a `(lambda (event handle info) ...)` called
 ;; with the CapTP session facts this netlayer observes at the wire. The shape and
 ;; the fields are `session-trace.rkt`'s.
 (define (^iroh-netlayer _bcom
@@ -332,8 +332,8 @@
     (check-equal? (read-bytes 5 in) #"hello")
     (check-equal? (read-bytes 1 in) eof))
 
-  ;; Writing: a message written a few bytes at a time and then flushed — which
-  ;; is exactly what `syrup-write` followed by `captp-message-procs`' flush does —
+  ;; Writing: a message written a few bytes at a time and then flushed, which
+  ;; is exactly what `syrup-write` followed by `captp-message-procs`' flush does,
   ;; reaches the connection as ONE write. Sending each small write on its own
   ;; would put a QUIC write behind every length prefix.
   (let ()

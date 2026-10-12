@@ -27,23 +27,23 @@ export type { OperatorReferenceRow } from "../../../lib/room/client.ts";
 export type { ListenerRow } from "../../../lib/room/client.ts";
 
 /** The operations capabilities the page knows how to hold. Holdings keeps one
- * toggle per capability; the Operations page draws one pane per held one.
+ * toggle per capability. The Operations page draws one pane per held one.
  * The order here is the tab order when more than one is held. */
 export { OPERATIONS_CAPABILITIES as OPS_CAPS, type OperationsCapability as OpsCap } from "../application_data.ts";
 import { OPERATIONS_CAPABILITIES as OPS_CAPS } from "../application_data.ts";
 
 /** One durable room this tab published into this directory while it holds the
- * peering capability. The lease behind the row lives in the data layer; what
+ * peering capability. The lease behind the row lives in the data layer. What
  * the pane needs is the words and where the publication stands. */
 export interface PeeringPublication {
 	/** The row's handle for revoking, minted by the data layer. */
 	id: string | number;
 	/** The name the destination lists the room under. */
 	name: string;
-	/** The directory the room actually lives on, as the address this tab used. */
+	/** The directory the room lives on, as the address this tab used. */
 	source: string;
 	/** Publishing is in flight, live at the destination, or being revoked. A
-	 * failed publish leaves no row; its reason lands in the form that asked. */
+	 * failed publish leaves no row. Its reason lands in the form that asked. */
 	phase: "publishing" | "live" | "revoking" | "failed";
 }
 
@@ -76,9 +76,9 @@ export interface TracePublishState {
 	/** The endpoint this session publishes to: Settings' URL, or the page's own. */
 	readonly url: string;
 	/** Whether the publish socket is connected. False while it redials, and
-	 * after a refusal — `refusal` is how those two differ. */
+	 * after a refusal, `refusal` is how those two differ. */
 	readonly connected: boolean;
-	/** Why the endpoint refused this swiss. A refusal is final; it is not a redial. */
+	/** Why the endpoint refused this swiss. A refusal is final. It is not a redial. */
 	readonly refusal: string | null;
 }
 
@@ -95,7 +95,7 @@ export interface AdministeredBridge {
 }
 
 /** One stewardship as the operator pane can act on. The server answers a
- * swiss; the data layer composes its copyable sturdyref with this directory's
+ * swiss. The data layer composes its copyable sturdyref with this directory's
  * actual route before it reaches the store. */
 export interface StewardshipView extends Omit<StewardshipRow, "steward"> {
 	readonly stewardLink: string | null;
@@ -112,7 +112,7 @@ export interface RoomsOperatorState {
 	readonly trouble: readonly OperatorTroubleRow[];
 	readonly next: Readonly<Record<OperatorCategory, number | null>>;
 	/** How many rows each inventory holds that match the search in force. The
-	 * row arrays above are one page of that; a directory holding a hundred
+	 * row arrays above are one page of that. A directory holding a hundred
 	 * thousand references sends thirty-two of them. */
 	readonly totals: Readonly<Record<OperatorCategory, number>>;
 	/** The search these rows and totals answer, empty when the pane is showing

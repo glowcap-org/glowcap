@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# glowcap — format a single agent-edited file (Zig, Rust, TypeScript/TSX/JavaScript).
+# glowcap: format a single agent-edited file (Zig, Rust, TypeScript/TSX/JavaScript).
 # Python and Racket have no single-file formatter on PATH; the
 # `bindings-fmt-check` gate holds them.
 #
 # Wired from:
-#   .cursor/hooks.json    (afterFileEdit)                       — input is .file_path
-#   .claude/settings.json (PostToolUse, Edit|Write|MultiEdit)   — input is .tool_input.file_path
+#   .cursor/hooks.json    (afterFileEdit), input is .file_path
+#   .claude/settings.json (PostToolUse, Edit|Write|MultiEdit), input is .tool_input.file_path
 #
 # Failure posture: exit 0 even on formatter error so a half-saved file does not
-# block the next edit. `zig build check` remains the load-bearing gate.
+# block the next edit. `zig build check` is the gate.
 
 set -uo pipefail
 

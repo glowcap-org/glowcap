@@ -10,8 +10,8 @@
 //!
 //! A provider owns its connection's bytes, so a read copies them once into a
 //! buffer from this backend's shared pool and lends that buffer to the loop.
-//! A write lends the loop's borrowed bytes to `try_write` for the call only;
-//! the provider copies what it accepts.
+//! A write lends the loop's borrowed bytes to `try_write` for the call only.
+//! The provider copies what it accepts.
 //! Every other target and handle passes through to `Platform` unchanged.
 
 const std = @import("std");
@@ -58,7 +58,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         const Entry = State.Entry;
         pub const ListenerRow = State.ListenerRow;
 
-        /// One connection's adapter row; its provider handle is the provider's
+        /// One connection's adapter row. Its provider handle is the provider's
         /// own cost.
         pub const connection_state_bytes = @sizeOf(Entry);
 
@@ -136,7 +136,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
 
         /// Adapter work that completes off the caller's thread reaches this
         /// backend through a platform operation, so the platform's descriptor
-        /// reports it; work that completes synchronously waits in the ready
+        /// reports it. Work that completes synchronously waits in the ready
         /// queue for the caller's next `poll`.
         pub fn readinessFd(self: *const Self) Fd {
             return self.platform.readinessFd();
@@ -177,7 +177,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         }
 
         /// The structured failure a provider keeps for the connection on
-        /// `fd`, claimed once; platform connections answer through the
+        /// `fd`, claimed once. Platform connections answer through the
         /// platform when it keeps any.
         pub fn takeConnFailure(self: *Self, fd: Fd) ?foundation.FailureChain {
             const entry = self.conns.getPtr(fd) orelse {
@@ -270,7 +270,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             self.armPolls(fd);
         }
 
-        /// The read's armed poll stays armed; its edge only raises the hint.
+        /// The read's armed poll stays armed. Its edge only raises the hint.
         pub fn submitCancel(self: *Self, cancel_user_data: u64, target_user_data: u64, fd: Fd) !void {
             if (!Namespace.ownsFd(fd))
                 return self.platform.submitCancel(cancel_user_data, target_user_data, fd);
@@ -416,7 +416,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             self.maybeFinish(fd, entry);
         }
 
-        /// A refused cancel leaves the poll armed; its completion still
+        /// A refused cancel leaves the poll armed. Its completion still
         /// retires the row once the descriptor turns ready.
         pub fn cancelPoll(self: *Self, cancels: *u2, target: u64, fd: i32) void {
             const id = Identity.id(target);
@@ -484,7 +484,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
 }
 
 /// Resolve every transport `InnerResolver` does not know to a foreign
-/// provider dial; the backend refuses a symbol no provider serves.
+/// provider dial. The backend refuses a symbol no provider serves.
 pub const ResidentPolicy = @import("resident_policy.zig").ResidentPolicy;
 pub const PlatformRefused = @import("resident_policy.zig").PlatformRefused;
 

@@ -18,13 +18,23 @@ pub async fn cancelled_call_progress(saved: &str) -> Result<(), JsValue> {
 			let (access, control) = attachment.restore(resource).await.unwrap();
 			wasm_bindgen_futures::JsFuture::from(block_storage(true)).await.unwrap();
 			let mut reading = Box::pin(host.send(&access, "get", &[]).into_future());
-			assert!(reading.as_mut().poll(&mut Context::from_waker(Waker::noop())).is_pending());
-			wasm_bindgen_futures::JsFuture::from(wait_restore_queued()).await.unwrap();
+			assert!(
+				reading
+					.as_mut()
+					.poll(&mut Context::from_waker(Waker::noop()))
+					.is_pending()
+			);
+			wasm_bindgen_futures::JsFuture::from(wait_restore_queued())
+				.await
+				.unwrap();
 			drop(reading);
 			drop((access, control));
 			let mut closing = Box::pin(attachment.close());
 			assert!(
-				closing.as_mut().poll(&mut Context::from_waker(Waker::noop())).is_pending(),
+				closing
+					.as_mut()
+					.poll(&mut Context::from_waker(Waker::noop()))
+					.is_pending(),
 				"close must wait for the admitted physical read, rather than returning Busy"
 			);
 			assert_eq!(drops.get(), 0, "physical work still borrows the registration");
@@ -181,7 +191,7 @@ pub async fn buffered_restore(saved: &str) -> Result<(), JsValue> {
 				drop(restoring);
 				if let Some(next) = next {
 					// Yield to the acknowledgement relay without any Host-driving verb.
-					// Exactly two endpoint slots were occupied by the abandoned pair.
+					// Two endpoint slots were occupied by the abandoned pair.
 					// A different pair can restore only after that relay releases them.
 					tokio::task::spawn_local(async {}).await.unwrap();
 					let pair = attachment.restore(next).await.map_err(message)?;

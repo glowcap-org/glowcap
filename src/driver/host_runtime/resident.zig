@@ -4,7 +4,7 @@ const net = @import("net");
 const lifecycle = @import("lifecycle.zig");
 
 /// One resident runtime, stored once no matter how many profiles it realizes.
-/// Registration validates and caches the readiness descriptor; request and
+/// Registration validates and caches the readiness descriptor. Request and
 /// listener ids are minted inside this provider-local namespace.
 pub const Registered = struct {
     resident: net.MultiplexedResident,

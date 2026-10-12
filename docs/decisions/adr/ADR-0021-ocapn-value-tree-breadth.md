@@ -3,7 +3,7 @@ id: ADR-0021
 status: accepted
 date: 2026-05-17
 tags: [model, codec, syrup-wire, goblins-interop, value-tree]
-decision: The codec-neutral `Argument` union admits the OCapN passable value tree Goblins's marshaller emits, so a partner's value cannot crash glowcap's decoder. The Syrup codec renders every modeled positional passable (`float64` included, as the canonical `'D'` + big-endian binary64) and Integer is arbitrary-precision (ADR-0049). Struct ships as the keyed-dictionary passable (ADR-0046). A value *outside* the model (`Null`, `Float32` fidelity) has no model home; inventing Null would not interop until upstream encoding settles.
+decision: The codec-neutral `Argument` union admits the OCapN passable value tree Goblins's marshaller emits, so a partner's value cannot crash glowcap's decoder. The Syrup codec renders every modeled positional passable (`float64` included, as the canonical `'D'` + big-endian binary64) and Integer is arbitrary-precision (ADR-0049). Struct ships as the keyed-dictionary passable (ADR-0046). A value *outside* the model (`Null`, `Float32` fidelity) has no model home. Inventing Null would not interop until upstream encoding settles.
 supersedes: []
 superseded_by: []
 ---
@@ -15,13 +15,11 @@ superseded_by: []
 Goblins's `^echo` reflects any value its caller sends, and Goblins's CapTP
 marshaller emits the full OCapN passable universe (Model.md § Atom + §
 Container) as `op:deliver` arguments and resolution payloads. If glowcap's value
-model is narrower than that universe, an honest Goblins client can hand glowcap
-a value its decoder has no home for. The
-[First Principles](../../../AGENTS.md#first-principles) hold that protocol
-correctness comes before implementation convenience, and that a codec parses and
-renders but does not get to rule a partner's value illegal. The value model and
-the Syrup wire sit at different widths; the gap between them must be a loud,
-typed boundary, not a silent drop or a panic.
+model is narrower than that universe, a Goblins client can hand glowcap a value
+its decoder has no home for. A codec parses and renders and does not rule a
+partner's value illegal. The value model and the Syrup wire sit at different
+widths, and the gap between them must be a typed refusal, not a silent drop or
+a panic.
 
 ## Decision
 
@@ -43,53 +41,52 @@ cover every modeled positional passable:
   `void` (`<void>`), `set` (`#…$`), `tagged` (`<user-record …>`), and `keyword`
   (`<kw …>`). The `error` variant has no positional-argument arm: it rides
   resolutions through the dedicated `resolve:break` path, so a positional
-  `.error` reaches the fall-through and refuses loudly.
+  `.error` reaches the fall-through and is refused.
 - The neutral decoder (`readNeutralArgument`) lifts the same variants on the way
-  in, including `float64` from the `'D'` marker; a wire shape with no model home
+  in, including `float64` from the `'D'` marker. A wire shape with no model home
   returns `UnsupportedArgument` rather than being mis-decoded.
 
-Refusal is loud at both edges. An outbound value the encoder cannot render
-surfaces `UnsupportedArgument` to the application; an inbound value the decoder
+Refusal is explicit at both edges. An outbound value the encoder cannot render
+surfaces `UnsupportedArgument` to the application. An inbound value the decoder
 cannot lift projects to a `protocol_error` `op:abort`
 ([`src/ocapn/engine/abort_projection.zig`](../../../src/ocapn/engine/abort_projection.zig))
 that closes the session. This is the symmetric-refusal contract from
 [ADR-0003](ADR-0003-codec-interoperability-posture.md): a value the model admits
-but a codec cannot carry is refused, never dropped, so cross-codec behavior does
-not fork on representability.
+but a codec cannot carry is refused, so cross-codec behavior does not fork on
+representability.
 
 ## Scope (what this does not decide)
 
 - **Variants outside the model.** `Null` (distinct from `void`) has no model
-  arm; inventing one waits on upstream encoding and Goblins marshalling
+  arm. Inventing one waits on upstream encoding and Goblins marshalling
   ([ADR-0046](ADR-0046-struct-passable.md) Scope). `Float32` round-trip fidelity
   is not modeled. Struct (the keyed dictionary) and arbitrary-precision Integer
   ship ([ADR-0046](ADR-0046-struct-passable.md),
   [ADR-0049](ADR-0049-arbitrary-precision-integer.md)). Unknown Syrup records
-  project as `Tagged` (Goblins break/exception leniency); that is not a
-  dedicated Null refuse.
+  project as `Tagged` (Goblins break/exception leniency), with no dedicated
+  Null refusal.
 
 ## Alternatives Considered
 
 - **Model only the variants the codec carries.** Rejected: a value outside the
   model has nowhere to land, so a partner could drive the decoder into undefined
-  territory. The model must be at least as wide as the value universe even where
-  the wire path is narrower.
+  territory. The model is at least as wide as the value universe even where the
+  wire path is narrower.
 - **Silently drop or coerce unrepresentable values.** Rejected: a dropped
-  argument changes the call the partner made; loud refusal keeps both state
-  machines honest.
+  argument changes the call the partner made. Refusal keeps both state machines in agreement.
 
 ## Consequences
 
-- The `Argument` union is the single codec-neutral value vocabulary; a new codec
+- The `Argument` union is the single codec-neutral value vocabulary. A new codec
   grows arms against the same union.
 - The Syrup encode and neutral-decode breadths both match the modeled positional
   passables. Residuals outside the model are `Null` (not modeled) and `Float32`
-  fidelity: named boundaries, not invisible ones. Struct and Integer/bignum
+  fidelity. Struct and Integer/bignum
   are in-model per ADR-0046 and ADR-0049.
 - Conformance evidence lives in
   [`test/codec/syrup/`](../../../test/codec/syrup/): the
   rendered variants assert against the glowcap-authored Syrup corpus
-  (`op_deliver_arg_*`); `float64` pins the canonical `'D'` + big-endian binary64
+  (`op_deliver_arg_*`). `float64` pins the canonical `'D'` + big-endian binary64
   bytes and round-trips NaN and signed zero bit-for-bit.
 
 ## Float64 equality

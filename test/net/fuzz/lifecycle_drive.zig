@@ -31,7 +31,7 @@ fn makeLifecyclePeer(ctx: ?*anyopaque, allocator: std.mem.Allocator) anyerror!en
     // choice, and it decides whether the loop's central mechanism is exercised
     // at all. Without a queued frame an open connection's `pendingOut` is zero
     // for its whole life, so it can never cross the outbound high-water mark,
-    // so the ADR-0042 sink park never fires — and neither does anything behind
+    // so the ADR-0042 sink park never fires, and neither does anything behind
     // it: the single-connection un-park, the park deadline, the park-to-drain
     // restamp. Measured over four thousand schedules, all of those ran zero
     // times before this line and thousands of times after.
@@ -54,15 +54,15 @@ var slot_used: [max_slots]bool = @splat(false);
 var generation_repeated = false;
 
 /// Adopting a slot is where its identity has to advance. A connection's slot
-/// number is reused; the generation is what tells a holder of a stale reference
+/// number is reused. The generation is what tells a holder of a stale reference
 /// that the slot became somebody else's, and the loop's own bridge relies on
 /// that to route a flush to the right connection. Checked at adoption because
 /// that is the moment the previous occupant's identity must already be spent.
 ///
 /// The hook also condemns and fails, on the schedule's say-so, because this is
 /// the one moment a slot can be torn down while it is being adopted. A real
-/// bridge condemns from right here — it drains its host's actions inside this
-/// hook, and one of them can be a close — and the loop answers by deferring
+/// bridge condemns from right here, it drains its host's actions inside this
+/// hook, and one of them can be a close, and the loop answers by deferring
 /// the teardown until the hook returns. A hook that only ever reads and
 /// returns null leaves that whole deferral unreachable, so the header's claim
 /// to drive "a teardown while a slot is being adopted" would be a claim about
@@ -79,7 +79,7 @@ fn watchAdoption(ctx: ?*anyopaque, peer: *engine.Peer, slot: usize) anyerror!?*a
     if (decision % 8 == 1) loop.closeSlot(slot);
     // And sometimes a *different* slot. `armOutbound` and `closeSlot` are the
     // loop's public re-entry surface, and a real bridge reaches them from here
-    // by draining its host's actions — one of which can close some other
+    // by draining its host's actions, one of which can close some other
     // connection entirely. Closing only this slot exercises the deferral and
     // nothing else; closing a sibling is what walks a list the caller above is
     // in the middle of.
@@ -87,11 +87,11 @@ fn watchAdoption(ctx: ?*anyopaque, peer: *engine.Peer, slot: usize) anyerror!?*a
     if (decision % 5 == 2 and other != slot) loop.closeSlot(other);
     // Drawn from a different residue than the condemn above, which is `% 8 == 1`:
     // `7 % 8` is 7, so `% 16 == 7` could never coincide with it, and the arm
-    // where a slot is condemned *and* the hook then fails — the one that defers
-    // a teardown across an adoption error — was arithmetically unreachable.
+    // where a slot is condemned *and* the hook then fails, the one that defers
+    // a teardown across an adoption error, was arithmetically unreachable.
     if (decision % 8 == 1 and decision % 3 == 1) return error.AdoptionRefused;
     if (decision % 16 == 7) return error.AdoptionRefused;
-    // A real context, so `free_conn_ctx` has something to free — including on
+    // A real context, so `free_conn_ctx` has something to free, including on
     // the arm where the slot was condemned while this hook ran, which releases
     // the context before tearing the peer down.
     return makeConnCtx();
@@ -132,7 +132,7 @@ fn serveEvent(conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *engine.Event) a
 }
 
 /// The park hook. It fires from inside `markParked`, after the state is
-/// settled, and it is public — so what it does here is what a real embedder
+/// settled, and it is public, so what it does here is what a real embedder
 /// may do: reach back into the loop.
 fn onParked(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, reason: completion.ParkReason) void {
     _ = .{ conn_ctx, reason };
@@ -154,7 +154,7 @@ fn onParked(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, reason: comple
     // And sometimes a sibling, which is the case worth reaching: a parked slot
     // has no armed recv and nothing in flight, so condemning it goes straight
     // to closed. A sibling is mid-conversation, so condemning it lands on
-    // `.draining` with a recv still armed and bytes still queued — which is
+    // `.draining` with a recv still armed and bytes still queued, which is
     // where `onRecvConsume`'s draining arm and `onSend`'s terminal back-swap
     // live, and neither had ever run.
     if (decision % 7 == 4) {
@@ -163,8 +163,8 @@ fn onParked(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, reason: comple
         // picked a free slot and closed nothing.
         for (loop.conns, 0..) |*other, other_slot| {
             // Specifically one with a recv already armed. That is the race the
-            // loop's `.draining` recv arm exists for — a terminal failure
-            // arriving on a connection that is waiting to read — and picking
+            // loop's `.draining` recv arm exists for, a terminal failure
+            // arriving on a connection that is waiting to read, and picking
             // any open slot mostly picked the one being dispatched, whose seat
             // is idle, so the arm never ran.
             if (other_slot == slot or other.state != .open or other.read != .armed) continue;
@@ -187,7 +187,7 @@ var serve_backend: ?*LifecycleBackend = null;
 /// Fires once per connection the loop actually reclaims, which makes it an
 /// independent count of the thing `closed_count` claims to hold. Derived
 /// counters compared against a walk of the state they summarize cannot see a
-/// count incremented twice for one connection; a second, separately-sourced
+/// count incremented twice for one connection. A second, separately-sourced
 /// tally can.
 var close_hook_fires: usize = 0;
 
@@ -220,7 +220,7 @@ pub fn driveLifecycle(_: void, smith: *std.testing.Smith) anyerror!void {
             .outbound_high_water_bytes = 48,
             // The throttle is a schedule choice, not a constant. With it on,
             // the fan-in release sweep is what un-parks a connection, and the
-            // one-connection un-park in `resumeIfDrained` is unreachable —
+            // one-connection un-park in `resumeIfDrained` is unreachable,
             // measured: zero times in four hundred runs. That branch is the
             // whole un-park path when the throttle is off, so pinning the
             // option pinned half the code out of the search.
@@ -261,8 +261,8 @@ pub fn driveLifecycle(_: void, smith: *std.testing.Smith) anyerror!void {
     };
 
     // Dial before running, on the schedule's say-so. Without a dial the loop's
-    // outbound half — the connect completion, the late fd assignment, a refused
-    // dial's `opened == false` teardown, slot exhaustion — has no input that
+    // outbound half, the connect completion, the late fd assignment, a refused
+    // dial's `opened == false` teardown, slot exhaustion, has no input that
     // reaches it.
     var dials: usize = 0;
     while (dials < max_slots and backend.schedule[1] >> @intCast(dials) & 1 != 0) : (dials += 1) {
@@ -292,11 +292,11 @@ pub fn driveLifecycle(_: void, smith: *std.testing.Smith) anyerror!void {
     // happens after `smith.slice` has consumed the input, so outside the
     // fuzzer it always returned the same answer, and this branch ran zero
     // times in four hundred runs while looking like a coin flip. Read from a
-    // schedule byte it runs about one run in ten, and — the part that matters
-    // — a probe can measure which.
+    // schedule byte it runs about one run in ten, and the part that matters is
+    // that a probe can measure which.
     if (backend.schedule[1] % 3 == 0 and quiescent(&loop)) {
-        // Its two assertions — every deadline stamp and every over-mark
-        // released — are the check here.
+        // Its two assertions, every deadline stamp and every over-mark
+        // released, are the check here.
         loop.deinit();
         deinited = true;
         try std.testing.expectEqual(contexts_built, contexts_seen_on_close);
@@ -304,7 +304,7 @@ pub fn driveLifecycle(_: void, smith: *std.testing.Smith) anyerror!void {
         return;
     }
 
-    // Otherwise drain on a backend that no longer refuses anything, so every
+    // Otherwise drain on a backend that refuses nothing, so every
     // outstanding operation retires and teardown is reached from wherever the
     // schedule left the loop.
     loop.backend.draining = true;
@@ -313,7 +313,7 @@ pub fn driveLifecycle(_: void, smith: *std.testing.Smith) anyerror!void {
 
     // `closed_count` against a tally taken somewhere else entirely. The walk
     // above compares each count to the state it summarizes, which cannot see a
-    // count incremented twice for one connection — both sides move together.
+    // count incremented twice for one connection, both sides move together.
     // The close hook fires once per reclaim, from inside the reclaim, so it is
     // the independent witness that catches exactly that.
     try std.testing.expectEqual(close_hook_fires, loop.closed_count);
@@ -373,7 +373,7 @@ fn expectAccountingExact(loop: anytype) !void {
 
     // The throttle bounds itself. A connection over the outbound mark parks
     // every other read, so one of them must be carrying the deadline that ends
-    // it — otherwise the loop waits on a completion that cannot arrive, which
+    // it, otherwise the loop waits on a completion that cannot arrive, which
     // is a hang and not backpressure.
     if (loop.fan_in_throttle and loop.over_mark_count > 0) {
         try std.testing.expect(loop.waiting_count > 0);
@@ -422,7 +422,7 @@ fn expectAccountingExact(loop: anytype) !void {
         p = loop.conns[p].next_link;
     }
     // And every parked or starved connection is on its list. A seat marked but
-    // never linked is a connection the resume can no longer find: it corrupts
+    // never linked is a connection the resume cannot find: it corrupts
     // nothing, it just strands a reader forever, so only counting the two
     // directions against each other catches it.
     var parked_seats: usize = 0;

@@ -136,7 +136,7 @@ if [[ ${1:-} == zig && ${2:-} == build ]]; then
         set -- zig build --cache-poison "${@:3}"
     fi
 
-    # Service steps intentionally run until interrupted. Every other build gets
+    # Service steps run until interrupted. Every other build gets
     # one visible lease over this worktree's shared container resources.
     service_build=false
     for arg in "${@:3}"; do

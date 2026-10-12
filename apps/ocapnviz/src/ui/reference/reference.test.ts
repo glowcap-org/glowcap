@@ -187,7 +187,7 @@ Deno.test("no recording claims a proof its transport could not have made", () =>
 			if (ev.kind !== "session-opened") continue;
 			const transport = ev.transport;
 			// A netlayer this build has never heard of has no row to check against,
-			// and `TRANSPORT_OPTIONS` is an offer rather than a domain on purpose.
+			// and `TRANSPORT_OPTIONS` is an offer rather than a domain.
 			const row = TRANSPORT_ROWS[transport as TransportOption];
 			if (row === undefined) continue;
 			for (const side of SESSION_SIDES) {

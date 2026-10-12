@@ -1,5 +1,5 @@
 //! Filesystem-authorized local view of a Rooms session. The executable composes
-//! this adapter with the peer; neither the application nor session notices
+//! this adapter with the peer. Neither the application nor session notices
 //! depend on it. A failed observer leaves commands and other views available.
 mod acquisitions;
 mod commands;
@@ -55,6 +55,18 @@ async fn snapshot(app: &Application) -> Result<Value, Failure> {
 	Ok(json!({"ok": true, "revision": s.revision.to_string(), "workspace": s.intent}))
 }
 fn peer_failure(error: rooms_glowcap::client::Error) -> Failure {
+	if let Some(failure) = error.admission_refusal() {
+		return Failure::new(failure.code.wire(), failure.code.definition().retry.wire(), &error);
+	}
+	if let rooms_glowcap::client::Error::RefusedObservation(reason) = &error {
+		if let Some(failure) = rooms_application::failure::Failure::parse(reason) {
+			return Failure::new(failure.code.wire(), failure.code.definition().retry.wire(), reason);
+		}
+		return Failure::new("refused", "after-state-change", reason);
+	}
+	if let rooms_glowcap::client::Error::Observation(reason) = &error {
+		return Failure::uncertain(reason);
+	}
 	rooms_runtime::Error::peer(error).into()
 }
 struct Observer {

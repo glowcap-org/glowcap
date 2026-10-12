@@ -14,13 +14,13 @@ amended_by: []
 
 ## Decision
 
-Use Rooms-shaped native workloads to establish the cost of the implemented
-LMDB foundation. A SQLite implementation is not a prerequisite for Rooms or
-the C/Rust interfaces. Compare engines when measured constraints justify that
-experiment. This does not claim that LMDB outperforms another backend.
+Use Rooms-shaped native workloads to establish the cost of the implemented LMDB
+foundation. A SQLite implementation is not a prerequisite for Rooms or the
+C/Rust interfaces. Compare engines when measured constraints justify that
+experiment. LMDB is not claimed to outperform another backend.
 
 The benchmark uses the existing Host/Vat, attachment, transactions, and backend
-executor boundary. Conversation headers have held actor capabilities; their
+executor boundary. Conversation headers have held actor capabilities. Their
 message chains remain plain records. It measures residency, edits, cold bursts,
 and collection alongside queued reads. The
 [benchmark method](../../../bench/loam/README.md) owns interpretation and limits.
@@ -34,12 +34,12 @@ current-authority status through this optimization.
 
 Collection batches without deletions can preserve resident data because tracing
 only changes collector rows. A batch that removes objects conservatively leaves
-the entire cache stale; its receipt does not enumerate individual removals.
+the entire cache stale. Its receipt does not enumerate individual removals.
 Unknown outcomes still fence reads and restoration until exact receipt recovery.
 
 The native adapter reports map geometry separately from logical record bytes
 and Zig allocations. Explicit map growth excludes all backend operations while
-LMDB remaps; active operations refuse maintenance. Copied record leases remain
+LMDB remaps. Active operations refuse maintenance. Copied record leases remain
 valid. Maintenance preserves a concurrent close fence. A failed remap closes
 admission and requires reopening because LMDB may have released the old mapping.
 Applications resolve write outcomes before maintenance and select capacity
@@ -55,12 +55,12 @@ whole-process memory, or the live-session target.
 
 Core tests distinguish a fresh lease from a historical lease sharing unchanged
 bytes. They exercise changes, deletion, stale read completion, collection, and
-committed or absent recovery receipts. Native tests exhaust a map, grow it,
-and commit the formerly oversized transaction. They also exercise refusal
-during active transactions and an impossible remap followed by successful reopen.
+committed or absent recovery receipts. Native tests exhaust a map, grow it, and
+commit the oversized transaction. They also exercise refusal during active
+transactions and an impossible remap followed by successful reopen.
 
 Compaction and replacement, sustained capacity pressure, and concurrent worker
-interference remain in the [implementation sequence](../../planning/loam/architecture.md).
+interference remain in the [implementation sequence](../../loam/architecture.md).
 Managed access must prove atomic content, grants, and events before its hosted
-foreign interface is frozen. Rooms then exercises a complete shared C/Rust path;
-the benchmark does not replace that application evidence.
+foreign interface is frozen. Rooms then exercises a complete shared C/Rust path.
+The benchmark does not replace that application evidence.

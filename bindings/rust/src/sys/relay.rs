@@ -28,6 +28,8 @@ pub struct GlowcapRelayConfig {
 	pub trust: u32,
 	pub trust_pem: *const u8,
 	pub trust_pem_len: usize,
+	pub relay_alias_url: *const u8,
+	pub relay_alias_url_len: usize,
 }
 
 const _: () = {
@@ -42,6 +44,8 @@ const _: () = {
 	assert!(offset_of!(GlowcapRelayConfig, trust) == GLOWCAP_RELAY_CONFIG_TRUST_OFF);
 	assert!(offset_of!(GlowcapRelayConfig, trust_pem) == GLOWCAP_RELAY_CONFIG_TRUST_PEM_OFF);
 	assert!(offset_of!(GlowcapRelayConfig, trust_pem_len) == GLOWCAP_RELAY_CONFIG_TRUST_PEM_LEN_OFF);
+	assert!(offset_of!(GlowcapRelayConfig, relay_alias_url) == GLOWCAP_RELAY_CONFIG_RELAY_ALIAS_URL_OFF);
+	assert!(offset_of!(GlowcapRelayConfig, relay_alias_url_len) == GLOWCAP_RELAY_CONFIG_RELAY_ALIAS_URL_LEN_OFF);
 };
 
 // The raw extern block is generated (`relay_fns_gen.rs`, `zig build

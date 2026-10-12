@@ -1,7 +1,7 @@
 //! Deterministic pass-through TLS engine for transport-projection tests.
 //!
 //! This fake proves state and ownership choreography, not cryptography. Its
-//! ciphertext is deliberately identical to plaintext so completion tests can
+//! ciphertext is identical to plaintext so completion tests can
 //! drive the existing WebSocket fixture without a second protocol oracle.
 
 const glowcap = @import("glowcap");

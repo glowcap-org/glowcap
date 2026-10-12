@@ -78,7 +78,7 @@ async fn enliven_round_trips_then_caches() {
 			assert_eq!(wrong_version.kind(), ErrorKind::Broken);
 
 			// Listen (CapTP `op:listen`): a held capability's resolution comes
-			// back through the vow — a listen on an already-settled capability
+			// back through the vow: a listen on an already-settled capability
 			// answers at once.
 			let observation = session.listen(&cap).into_admitted().unwrap();
 			let refused = session
@@ -189,7 +189,7 @@ async fn a_panicking_behavior_breaks_its_answer_and_the_process_survives() {
 				err.message().is_some_and(|m| m.contains("Revoked by panic")),
 				"the panic's words must survive the boundary: {err:?}"
 			);
-			// The process — and the connection — survived the panic.
+			// The process, and the connection, survived the panic.
 			let reply = session.send(&cap, "still-there", &[]).await.unwrap();
 			assert_eq!(reply, Argument::Symbol("calm".into()));
 			session.close(crate::PendingWork::Cancel).await.unwrap();
@@ -319,7 +319,7 @@ async fn an_outstanding_send_rejects_on_disconnect() {
 		.await;
 }
 
-// A fetch that cannot yield a capability rejects typed — a broken failure,
+// A fetch that cannot yield a capability rejects typed: a broken failure,
 // never a hang and never a transport error. The engine breaks an unknown
 // swissnum's fetch itself, so the failed fetch is observable without a
 // doctored partner.
@@ -419,6 +419,10 @@ async fn local_tell_forward_refusal_does_not_poison_a_later_verb() {
 			let pending = crate::Locator::bare(crate::abi_constants::TRANSPORT_TCP, "127.0.0.1:1");
 			let owned = crate::uri::OwnedLocator::new(&pending).unwrap();
 			let mut ptr = core::ptr::null_mut();
+			// SAFETY: `shared_host.raw()` is the `GlowcapHost` handle of the `Host` this test holds, live until the
+			// test ends; `owned.borrow_view()` is a view into `owned`, a local `OwnedLocator` that outlives the call,
+			// and `ptr` is a local out-parameter the callee fills with a host-owned session handle that
+			// `SessionShared::new` takes over below.
 			crate::host::check_host(unsafe {
 				ffi::glowcap_host_session_open_dialed_locator(shared_host.raw(), owned.borrow_view().unwrap(), &mut ptr)
 			})
@@ -535,7 +539,7 @@ async fn send_to_a_self_spawned_actor_resolves_in_process() {
 
 // The codec selector end-to-end on the session tier: two Cap'n Proto
 // nodes complete the keyed handshake and carry a deliver whose arguments
-// round-trip through the capnp codec — a big integer past int64 and a
+// round-trip through the capnp codec: a big integer past int64 and a
 // Keyword included, so the two rare marshal arms are witnessed alongside
 // the codec.
 #[tokio::test]

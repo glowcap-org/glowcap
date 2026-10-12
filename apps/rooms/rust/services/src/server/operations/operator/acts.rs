@@ -14,8 +14,8 @@ use rooms_application::{room::stewardship::Kind, server::operations::operator::i
 const MEMBERSHIP_ENDED: &str = "An operator ended this room membership.";
 const ROOM_REMOVED: &str = "room-retired: An operator removed this room.";
 
-/// Prepare the complete batch without yielding. Immediate acts run now;
-/// durable acts capture the exact token and wait for writer capacity only
+/// Prepare the complete batch without yielding. Immediate acts run now.
+/// Durable acts capture the exact token and wait for writer capacity only
 /// when polled. Session closes retain their exact session in the same way.
 pub(super) fn prepare(shared: &Shared, store: &Store, connection: u64, act: Act) -> Pending {
 	match act {

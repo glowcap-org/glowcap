@@ -1,5 +1,5 @@
-//! Browser storage effects. Request callbacks extend a transaction synchronously;
-//! only its complete/abort event publishes the operation's outcome.
+//! Browser storage effects. Request callbacks extend a transaction synchronously.
+//! Only its complete/abort event publishes the operation's outcome.
 mod backend;
 pub use backend::PageArchive;
 mod blobs;
@@ -66,7 +66,7 @@ impl From<rooms_application::archive::Error> for Error {
 
 /// The one place browser storage answers the runtime, classed so a caller can
 /// act without reading the sentence. Another tab must release a blocked
-/// database before retry can work; storage that is unavailable or closed
+/// database before retry can work. Storage that is unavailable or closed
 /// cannot, and an unreadable document needs a different document.
 impl From<Error> for rooms_runtime::Error {
 	fn from(error: Error) -> Self {

@@ -85,7 +85,7 @@ class _VerbsMixin:
     def spawn(self, behavior: Behavior) -> Ref:
         """Spawn a local actor and return its Host-scoped capability.
 
-        The returned identity is opaque; wire export positions remain inside
+        The returned identity is opaque. Wire export positions remain inside
         glowcap. It is valid inside a served turn, including a factory minting
         the object it replies with.
         """
@@ -102,7 +102,7 @@ class _VerbsMixin:
     def caretaker(self, target: Ref) -> Caretaker:
         """Return a revocable caretaker proxy for a local or far target.
 
-        Calls forward until :meth:`Caretaker.revoke`; later calls break with
+        Calls forward until :meth:`Caretaker.revoke`. Later calls break with
         ``Revoked``. This can safely wrap authority imported from a partner.
         """
         return _caretaker_proxy(self.spawn, target)
@@ -111,7 +111,7 @@ class _VerbsMixin:
         """Return a proxy that forwards only the named verbs.
 
         Every other call breaks with ``Attenuated``. The target may be local
-        or far; the returned proxy is an ordinary capability to hand onward.
+        or far. The returned proxy is an ordinary capability to hand onward.
         """
         return _attenuate_proxy(self.spawn, target, verbs)
 
@@ -119,7 +119,7 @@ class _VerbsMixin:
         """Fetch the capability published by the partner under ``name``.
 
         The method starts inbound service itself. A partner break is surfaced
-        as :class:`VowBroken`; a fulfillment that is not a live capability is
+        as :class:`VowBroken`. A fulfillment that is not a live capability is
         :class:`FetchFailed`.
         """
         return await _fetch_like(
@@ -167,7 +167,7 @@ class _VerbsMixin:
         """Listen to a far promise or permitted far object via ``op:listen``.
 
         The notification may be any value. In 1.0 a far promise or live far
-        object is accepted; glowcap-next requires a promise.
+        object is accepted. glowcap-next requires a promise.
         """
         try:
             self.guard_open()
@@ -188,7 +188,7 @@ class _VerbsMixin:
         ``via`` lets the application host callback objects in the same Session
         as the redeemed capability. ``via`` is resolved from the reply's own
         Host token, so concurrent and cached redeems remain correctly
-        attributed; it is ``None`` for an ordinary reply or retired exporter.
+        attributed. It is ``None`` for an ordinary reply or retired exporter.
         """
         self.guard_open()
         reply = await self.send(target, verb, args)
@@ -268,7 +268,7 @@ class _VerbsMixin:
         """Bind transport-proved durable identity before the first peer byte.
 
         The realizer owns this evidence because glowcap does not open the
-        socket. A second distinct identity is refused; repeating the same fact
+        socket. A second distinct identity is refused. Repeating the same fact
         is idempotent.
         """
         self.guard_open()

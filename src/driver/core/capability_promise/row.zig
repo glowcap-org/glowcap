@@ -18,7 +18,7 @@ const Host = host_mod.Host;
 
 pub const Row = struct {
     /// The session whose signed give created this promise. Its session key is
-    /// the recipient identity accepted by the exporter; closing that session
+    /// the recipient identity accepted by the exporter. Closing that session
     /// therefore ends redemption authority even when another session has
     /// already pipelined through this Host identity.
     introducing_peer: engine.PeerHandle,

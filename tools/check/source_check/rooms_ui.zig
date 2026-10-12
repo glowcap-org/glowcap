@@ -23,6 +23,7 @@ const codeOnly = shared.codeOnly;
 
 pub const checkRoomsSelectors = @import("rooms_ui/selectors.zig").checkRoomsSelectors;
 pub const checkRoomsTextCatalog = @import("rooms_ui/text_catalog.zig").checkRoomsTextCatalog;
+pub const checkRoomsTextVoice = @import("rooms_ui/text_voice.zig").checkRoomsTextVoice;
 pub const checkRoomsCustomProperties = @import("rooms_ui/tokens.zig").checkRoomsCustomProperties;
 pub const checkRoomsCardWidths = @import("rooms_ui/tokens.zig").checkRoomsCardWidths;
 pub const checkRoomsTypeRamp = @import("rooms_ui/tokens.zig").checkRoomsTypeRamp;
@@ -213,7 +214,7 @@ pub fn checkRoomsLayerBans(
     try checkRoomsJoinDoesNotAskPrivate(io, gpa, root, violations);
 }
 
-/// Restore workspace intent before opening the Rust application; session setup
+/// Restore workspace intent before opening the Rust application, session setup
 /// must retain its projection provider even when no session exists.
 fn checkRoomsStartupComposition(
     io: std.Io,
@@ -386,8 +387,8 @@ fn checkRoomsJoinDoesNotAskPrivate(
     }
 }
 
-/// The opening screen is drawn for states something actually writes, on an
-/// attribute something actually stamps.
+/// The opening screen is drawn for states something writes, on an
+/// attribute something stamps.
 ///
 /// That screen's state machine spans three files with no compiler between them.
 /// page.html stamps `data-boot` as the document is parsed and again if the
@@ -396,7 +397,7 @@ fn checkRoomsJoinDoesNotAskPrivate(
 /// Rename a state on either side and the sheet keeps a rule that matches
 /// nothing: a screen that never explains itself, or one that never goes away.
 /// Rename the attribute and the damage is the other way round, because the
-/// sheet asks about its absence too — `:root:not([data-boot])` is how a browser
+/// sheet asks about its absence too, `:root:not([data-boot])` is how a browser
 /// with scripting off is recognised, and against an attribute nobody writes it
 /// matches every page, so every reader is told this page needs JavaScript. Both
 /// still load, so nothing else notices.
@@ -474,7 +475,7 @@ const rail_row = [_][]const u8{ ".room-open", ".dm-open" };
 /// its own copy some nineteen hundred lines further down, its `all: unset` wiped
 /// the placement written up beside the rooms list, and the mark that closes a
 /// direct line came to rest a whole line above the row it ends. Both rules
-/// parse, both apply, and only their order decides — so nothing but a browser
+/// parse, both apply, and only their order decides, so nothing but a browser
 /// could see it.
 ///
 /// `apps/rooms/test/proofs/dm_tabs_proof.ts` measures that geometry and would catch
@@ -545,7 +546,7 @@ pub fn checkRoomsConfig(
 
     // Motion is a preference, and the rooms sheets say so once, globally. The
     // rule is easy to lose in a stylesheet split, and losing it fails silently:
-    // every slide simply plays again for readers who asked it not to.
+    // every slide plays again for readers who asked it not to.
     if (!(util.fileContains(io, gpa, root, ui_dir ++ "/page.css", "prefers-reduced-motion") catch false)) {
         try appendViolation(
             gpa,

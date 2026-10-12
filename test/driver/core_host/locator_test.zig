@@ -404,7 +404,7 @@ test "core host with the default profile answers an onion accept eagerly and bar
     // No upgraded profile configured: the deferred hello is ADR-0118's one
     // behavior change for a host that never asked for an upgrade, so this
     // host's onion accept says its bare hello at open, exactly as before the
-    // mechanism existed — content and ordering both.
+    // mechanism existed, content and ordering both.
     var host = test_host.init(allocator, @as([32]u8, @splat(0x7a)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
 

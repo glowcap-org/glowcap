@@ -24,15 +24,15 @@ had its own answer, a `messageFeatures` verb the Rust client probed and cached,
 with a partner break read as "no". That is one mechanism per feature, and each
 one a description the client trusts.
 
-The question is where a client should learn what a room affords, and it sits
-on the first principle that authority is what a capability holds. OCapN has no
-introspection: a peer does not ask an object which verbs it answers, it is
-handed the objects that answer them. The subscribe answer already worked this
-way for one feature. It hands a participant the topic authority as a separate
-reference and an observer a null, and the page draws the topic control from
-holding it. A read-only membership also already had a name, the `observer`
-seat kind, which the IRC bridge was not using: it seated read-only readers as
-participants and refused their posts.
+The question is where a client learns what a room affords. Authority is what a
+capability holds, so the answer is a held reference. OCapN has no introspection:
+a peer does not ask an object which verbs it answers, it is handed the objects
+that answer them. The subscribe answer already worked this way for one feature.
+It hands a participant the topic authority as a separate reference and an
+observer a null, and the page draws the topic control from holding it. A
+read-only membership already has a name, the `observer` seat kind, which the IRC
+bridge did not use: it seated read-only readers as participants and refused
+their posts.
 
 ## Decision
 
@@ -40,7 +40,7 @@ What a member can *do* in a room is what they hold, and the subscribe answer
 is where a room hands it over: `[seat, kind, topic, files]`. The seat's kind
 says whether lines can be posted, so a read-only bridge seats an observer. The
 `topic` slot is the authority to set the topic. The `files` slot is the
-authority to stage files against the room's storage and publish them; `attach`
+authority to stage files against the room's storage and publish them. `attach`
 and `postFiles` go to it, a participant in a room that can hold bytes is
 handed one, and a room that cannot answers null. Every client reads that
 answer through one reader per language, generated from
@@ -62,7 +62,7 @@ somebody else. Files can be: a helper holding the facet posts on the member's
 behalf without holding the seat. Whether the room keeps a preview selection or
 relays a courtesy signal is a property of the room, not a thing anybody holds,
 so it is described rather than handed over. The `messageFeatures` probe is
-retired; the fact answers it.
+retired. The fact answers it.
 
 ## Scope (what this does not decide)
 
@@ -89,7 +89,7 @@ reverse direction and keeps its existing notices for what IRC cannot show.
 
 The subscribe answer grows a fourth nullable reference in every client's
 grammar. The native server spawns a files facet per participant beside the
-seat; the IRC bridge and the operator gateway answer null there. The IRC
+seat. The IRC bridge and the operator gateway answer null there. The IRC
 bridge seats observers when it runs one way, so the composer says the room is
 read-only before anything is typed. The browser's composer admission refuses
 files for a membership that holds no facet, at the one path every controller
@@ -101,7 +101,7 @@ and `carries` beside `bridge`.
 `rust/proofs/fixtures/membership.json` holds the answer reader to the four-slot
 shape and refuses the three-slot one. `rust/application/src/server/rooms/tests.rs`
 and `server/irc/room/tests.rs` pin the `carries` notice ahead of the arrival
-mark. `apps/rooms/test/room/facts_test.ts` reads the fact; `test/store/irc_test.ts`
+mark. `apps/rooms/test/room/facts_test.ts` reads the fact. `test/store/irc_test.ts`
 and `test/attached/projection_test.ts` draw the grant and the fact into the
 page. `zig build gen-rooms-protocol-check` holds the application and every
 client's grammar to the one table. `zig build rooms-rust-test` and

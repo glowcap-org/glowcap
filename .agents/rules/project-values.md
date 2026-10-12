@@ -7,7 +7,7 @@ alwaysApply: true
 
 glowcap is a Zig systems library for OCapN / CapTP, serving
 [`docs/vision.md`](../../docs/vision.md). Read the vision when two values
-below pull apart.
+below conflict.
 
 - **Protocol evidence over folklore.** OCapN behavior, Goblins fixtures, and
   Zig scenarios justify semantic claims. A binding proves consumability only.
@@ -58,19 +58,16 @@ below pull apart.
 
 ## Release bar
 
-glowcap should be the best capability networking library there is: the best
-design, the best implementation, and the best results for the people who build
-on it. At 1.0, someone who compares every option at this layer should pick
-glowcap and be unable to think of a cleaner design that keeps the performance,
-the architecture, and interop across bindings.
+At 1.0, someone comparing every option at this layer should pick glowcap and
+find no cleaner design that keeps its performance, architecture, and interop
+across bindings.
 
-Judge each choice against the optimum. That is the design with the best balance
-of performance and comprehension, one that still works for advanced cases and
-is clear enough that a computer scientist and an application developer would
-both call it obvious. Two ways to do the same job, a concept that could merge
-into a simpler one at no cost, or an advanced case that forces an awkward path
-all mean the design is short of that. Say how far short, then fix it or explain
-why it has to stay.
+Judge each choice against the optimum: the best balance of performance and
+comprehension, working for advanced cases, and obvious to both a computer
+scientist and an application developer. Two ways to do one job, a concept that
+could merge into a simpler one at no cost, or an advanced case that forces an
+awkward path all fall short. Say how far short, then fix it or explain why it
+must stay.
 
 - Substantial work follows the [work skill](../skills/work/SKILL.md): fix what
   the assessment finds, or show the checks and boundaries that justify leaving

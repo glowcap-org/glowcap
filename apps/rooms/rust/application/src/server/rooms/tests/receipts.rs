@@ -165,3 +165,43 @@ fn file_receipts_carry_the_rooms_normalized_caption() {
 		);
 	}
 }
+
+#[test]
+fn correlation_belongs_to_the_exact_calling_subscription_and_preserves_the_full_line() {
+	let mut world = World::new(true);
+	let entrance = world.open(1, "Garden", RoomPolicy::Open);
+	let alice = world.join(1, &entrance, "Alice").membership;
+	world.join(2, &entrance, "Bob");
+	for operation in ["first", "second"] {
+		let (_, mut mutation) = world
+			.rooms
+			.post_delivered(&entrance.room, alice, "identical text", Default::default(), 1, None)
+			.unwrap();
+		world
+			.rooms
+			.correlate(&entrance.room, alice, 1, operation, &mut mutation);
+		let own = notices(&mutation.effects, 1);
+		assert!(matches!(own[0], Notice::CorrelatedLine { operation: id, .. } if id == operation));
+		assert!(matches!(notices(&mutation.effects, 2)[0], Notice::Line { .. }));
+		let wire = wire::arguments(own[0], &mut Encoder).unwrap();
+		assert_eq!(
+			&wire[..2],
+			&[Encoded::Text("Alice".into()), Encoded::Text("identical text".into())]
+		);
+		assert_eq!(
+			&wire[wire.len() - 2..],
+			&[
+				Encoded::Text(crate::room::correlation::TAG.into()),
+				Encoded::Text(operation.into())
+			]
+		);
+	}
+	let (_, mut delegated) = world
+		.rooms
+		.post_delivered(&entrance.room, alice, "delegated", Default::default(), 1, None)
+		.unwrap();
+	world
+		.rooms
+		.correlate(&entrance.room, alice, 2, "foreign", &mut delegated);
+	assert!(matches!(notices(&delegated.effects, 1)[0], Notice::Line { .. }));
+}

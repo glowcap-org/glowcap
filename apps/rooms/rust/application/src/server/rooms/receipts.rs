@@ -1,5 +1,5 @@
 //! Receipt selection happens during the ordinary broadcast traversal. Calling
-//! connection affects delivery only; possession still authorizes a delegated post.
+//! connection affects delivery only. Possession still authorizes a delegated post.
 use super::{Effects, MembershipKey, Notice, RoomKey, Rooms};
 use crate::room::message::ChangeKind;
 
@@ -14,6 +14,40 @@ pub(super) struct Retained {
 	pub normalized: bool,
 }
 impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
+	/// Add correlation to exactly the posting subscriber's existing notification.
+	/// The operation string is bounded by OperationId and lives only with that
+	/// one queued event. Everyone else shares the ordinary line representation.
+	pub fn correlate(
+		&self,
+		room: &RoomKey,
+		membership: MembershipKey,
+		caller: C,
+		operation: &str,
+		mutation: &mut super::Mutation<C, R>,
+	) where
+		R: PartialEq,
+	{
+		let Some(member) = self.rooms.get(room).and_then(|room| room.member(membership)) else {
+			return;
+		};
+		if member.connection != caller || !crate::room::correlation::valid(operation) {
+			return;
+		}
+		for tell in &mut mutation.effects.tells {
+			if tell.connection != caller || tell.inbox != member.inbox {
+				continue;
+			}
+			if let Notice::Line { line, marker, files } = &mut tell.notice {
+				tell.notice = Notice::CorrelatedLine {
+					operation: operation.into(),
+					line: line.clone(),
+					marker: *marker,
+					files: core::mem::take(files),
+				};
+				break;
+			}
+		}
+	}
 	/// A refusal completes only the calling subscriber's retained request.
 	/// Delegated callers cannot discard another connection's pending text.
 	pub fn reject_delivery(&self, room: &RoomKey, membership: MembershipKey, delivery: Delivery<C>) -> Effects<C, R> {

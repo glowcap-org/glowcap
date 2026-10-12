@@ -1,4 +1,4 @@
-// Public @glowcap/webrtc surface (ADR-0089, Milestone 2 / phase 6): a browser
+// Public @glowcap/webrtc surface (ADR-0089): a browser
 // WebRTC peer. The peer drives the signaling exchange (offer, answer, ICE) and
 // presents the open `RTCDataChannel` as an opaque packet channel. Signaling is
 // carried by an OCapN capability (a room), not this module. Two browsers

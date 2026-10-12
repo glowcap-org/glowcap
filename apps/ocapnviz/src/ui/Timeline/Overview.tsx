@@ -1,11 +1,11 @@
 /**
- * Overview — the timeline's context strip. A thin band showing the
+ * Overview, the timeline's context strip. A thin band showing the
  * full `[0, doc.duration]` with a draggable visible-window rect
  * that mirrors the Scrubber's `view.windowStart/End`.
  *
  * Pixels paint through `overview-paint.ts` into the unified canvas
- * (`overviewScene`); the DOM marker is transparent and carries React
- * event handlers. The inverse of the Stage's pattern — Timeline has
+ * (`overviewScene`). The DOM marker is transparent and carries React
+ * event handlers. The inverse of the Stage's pattern, Timeline has
  * single-surface pointer state, so React handlers on a transparent
  * overlay are simpler than wiring federated events.
  *
@@ -41,7 +41,7 @@ const OVERVIEW_HOST_TITLE =
 export type OverviewProps = {
 	view: TimelineView;
 	clock: ClockSnapshot;
-	/** Width hint for the marker div; actual paint width comes
+	/** Width hint for the marker div. Actual paint width comes
 	 * from the region rect each frame. */
 	width: number;
 	/** Where the ghost playhead's time lives, shared with the
@@ -60,11 +60,11 @@ export type OverviewProps = {
 	onSetView: (
 		next: TimelineView | ((current: TimelineView) => TimelineView),
 	) => void;
-	/** All-rows visibility cycle — lives on the overview's gutter
-	 *  eyeball (replacing the old `all` button in the control row).
+	/** All-rows visibility cycle, lives on the overview's gutter
+	 *  eyeball (there is no separate `all` button in the control row).
 	 *  Same 4-state vocabulary as the per-category and per-entity
 	 *  eyeballs. With the independent-flag visibility model each
-	 *  level (all / category / entity) stores its own state — no
+	 *  level (all / category / entity) stores its own state, no
 	 *  surveying, no `mixed`. Undefined disables the eyeball
 	 *  affordance entirely (the control isn't wired). */
 	allVisMode?: EyeGlyphMode | undefined;
@@ -82,7 +82,7 @@ export type OverviewProps = {
 	 *  to the captured edge. Must agree with the Scrubber's
 	 *  `viewPanMaxT`. */
 	viewPanMaxT?: number | undefined;
-	/** The App's gesture context — Space, the active tool, and the keys held
+	/** The App's gesture context, Space, the active tool, and the keys held
 	 *  right now. The cursor is drawn from it, the same value the Stage and the
 	 *  Scrubber are handed. */
 	gestureCtx: SurfaceGestureCtx;
@@ -114,7 +114,7 @@ export function Overview(
 	const inFlightRef = useRef<TimelineGesture | null>(null);
 	const ctx = useUnifiedCanvas();
 
-	// This surface's lease on the gesture lock — cross-surface
+	// This surface's lease on the gesture lock, cross-surface
 	// mutual exclusion treats Overview as its own surface. The hook
 	// releases the lease when the strip leaves the tree, which
 	// `TimelinePanel` does mid-drag whenever recording starts or the
@@ -124,7 +124,7 @@ export function Overview(
 	// render has finished.
 	const surface = useGestureSurface(OVERVIEW_SURFACE_TAG, () => endDrag());
 
-	// Shared view bounds — same source of truth as `Scrubber`
+	// Shared view bounds, same source of truth as `Scrubber`
 	// (`TimelinePanel` lifts both and passes to both surfaces).
 	// Without aligning these, wheel / drag over the Overview
 	// would default to `clock.duration` for both and snap the
@@ -175,7 +175,7 @@ export function Overview(
 		cleanups.push(regions.register("timeline-overview", host));
 		cleanups.push(regions.subscribe("timeline-overview", handleRegionRect));
 
-		// Per-frame bail — skip the full Overview rebuild when no
+		// Per-frame bail, skip the full Overview rebuild when no
 		// input changed. See `Scrubber.tsx` for the same pattern.
 		let lastTheme: Theme | null = null;
 		let lastWindowStart = NaN;
@@ -187,7 +187,7 @@ export function Overview(
 		let lastHeight = NaN;
 		let lastGutterWidth = NaN;
 		let lastAllVisMode: OverviewProps["allVisMode"] | null = null;
-		// Hoisted hitArea — see Scrubber for the rationale.
+		// Hoisted hitArea, see Scrubber for the rationale.
 		const hitArea = new Rectangle(0, 0, 0, 0);
 		graphics.hitArea = hitArea;
 
@@ -256,7 +256,7 @@ export function Overview(
 			if (!surface.claim(e.currentTarget, e.pointerId)) return;
 			e.preventDefault();
 			e.currentTarget.setPointerCapture(e.pointerId);
-			// Ghost is a "where would my click land?" hint — moot
+			// Ghost is a "where would my click land?" hint, moot
 			// once a click is in flight.
 			hoverTRef.current = null;
 			const rect = e.currentTarget.getBoundingClientRect();
@@ -351,7 +351,7 @@ export function Overview(
 		(e: React.PointerEvent<HTMLDivElement>) => {
 			// A move with no button held is a pointer-up that went
 			// missing, and `watchGestureEnd` has already ended the drag
-			// by the time this bubbles here — so a live `dragRef` is the
+			// by the time this bubbles here. So a live `dragRef` is the
 			// whole guard.
 			const drag = dragRef.current;
 			if (!drag) return;
@@ -432,7 +432,7 @@ export function Overview(
 			// the gutter and the left pad carry no time.
 			hoverTRef.current = hit !== null && hit.surface !== "timeline-gutter-eyeball" ? hit.t : null;
 		},
-		// List `view` whole — hit resolution reads its gutter width and window,
+		// List `view` whole, hit resolution reads its gutter width and window,
 		// which would otherwise go stale after a resize.
 		[view, clock.duration, hoverTRef, onCycleAllVisibility, allVisMode],
 	);
@@ -459,8 +459,8 @@ export function Overview(
 		[handlePointerMove, handleHoverMove],
 	);
 
-	// Releases this element never sees — off-document pointerup, OS
-	// chrome, capture loss, window blur — reach `endDrag` through
+	// Releases this element never sees, off-document pointerup, OS
+	// chrome, capture loss, window blur, reach `endDrag` through
 	// the window watch in `useGestureSurface`, which every gesture
 	// surface shares.
 

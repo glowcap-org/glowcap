@@ -3,19 +3,19 @@
 ;; served from one readiness loop (ADR-0057), the Racket sibling of the Zig
 ;; `zig build iroh-loop` gate.
 ;;
-;; The iroh netlayer has one I/O model — an event-driven readiness loop. This
+;; The iroh netlayer has one I/O model, an event-driven readiness loop. This
 ;; gate proves it through the binding: one `iroh-server` runs a single readiness
 ;; loop (one green thread parked natively on the endpoint's readiness fd,
 ;; ADR-0057) and serves every accepted connection's peer from green threads on the
 ;; one place. Many clients dial it at once, each over its own iroh endpoint, fetch
 ;; the published greeter, and call it several times. Every reply must come back
-;; correct — so the one server loop is provably multiplexing all the connections
+;; correct, so the one server loop is provably multiplexing all the connections
 ;; at once, not serving them one at a time.
 ;;
 ;; It exercises the whole loop surface live through the binding: the readiness fd,
 ;; the records `drain-ready` returns, non-blocking `try-accept`, and
 ;; `conn-try-read` / `conn-try-write` with their WOULD-BLOCK re-arming. Teardown
-;; is non-blocking by construction — no parked read races a release.
+;; is non-blocking by construction, no parked read races a release.
 ;;
 ;; Needs `racket` plus the iroh ABI companion library (`zig build iroh-abi`); run
 ;; via `zig build racket-iroh-loop`.

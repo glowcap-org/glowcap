@@ -21,8 +21,8 @@ type BundledEdge = { length: number; drawnFromPeer: number | undefined };
 /** Every session edge the shipped recordings settle on, in every era they
  *  settle it: the population `CLAIM_LEAN` was chosen against.
  *
- *  Each end resolves to the node its session is solved against — the peer
- *  attached to it, or the peer its claim names — because that is the segment
+ *  Each end resolves to the node its session is solved against, the peer
+ *  attached to it, or the peer its claim names, because that is the segment
  *  the lean is a fraction of. Reading an end's own node id instead would
  *  measure a claim's already-leaned position and call it an edge. An end that
  *  resolves to nobody rides no edge at all: it is an ordinary body in the
@@ -87,7 +87,7 @@ function daylightOn(length: number, lean: number): number {
  *
  *  At 100% zoom, which is the scale the fraction was chosen at. A ring holds its
  *  screen size as the camera pulls back while the bodies shrink with it, so the
- *  gap measured here is the widest the reader ever gets; `haloRadius` says so at
+ *  gap measured here is the widest the reader ever gets, `haloRadius` says so at
  *  the declaration. */
 const RING_SCALE_AT_100_PERCENT = 1;
 
@@ -102,7 +102,7 @@ layoutTest(
 	() => {
 		// The argument for the fraction, measured where it was made. `CLAIM_LEAN` is
 		// two thirds because of how far apart the shipped recordings settle a
-		// session's two ends, so a fixture that moves its peers moves the reading —
+		// session's two ends, so a fixture that moves its peers moves the reading,
 		// and this is where that goes red instead of quietly becoming untrue.
 		const edges = bundledSessionEdges();
 		assert(edges.length > 0, "no bundled session edge was measured");
@@ -141,8 +141,8 @@ layoutTest(
 		// daylight between the rings and three quarters does not.
 		//
 		// Both readings come off the shipped recordings, so both move when a
-		// fixture moves its peers. That is the point — the fraction was chosen
-		// against these edges — but it also means a retune of `nodeSpacing` or
+		// fixture moves its peers. That is the point, the fraction was chosen
+		// against these edges, but it also means a retune of `nodeSpacing` or
 		// `linkDistance` can turn this red with nothing about `CLAIM_LEAN` having
 		// changed. Read the two distances in the message before reaching for the
 		// fraction.

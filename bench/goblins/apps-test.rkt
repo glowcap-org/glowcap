@@ -14,7 +14,7 @@
 ;; return `(bcom next-behavior return-value)`, which swaps the actor's behavior
 ;; and yields the value. So `local-mint` supplies the same thing rather than a
 ;; stand-in, and the reference it returns reads the actor's *current* behavior
-;; through a cell — otherwise a swap would be invisible to the next call.
+;; through a cell: otherwise a swap would be invisible to the next call.
 (define (local-mint ctor)
   (define behavior #f)
   (define (bcom next [ret (void)])

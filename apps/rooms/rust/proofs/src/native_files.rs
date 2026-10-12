@@ -1,5 +1,5 @@
 //! Loopback integration fixtures, not a second Rooms server. Application
-//! methods run through real Host calls; publication and the pending-work queue
+//! methods run through real Host calls. Publication and the pending-work queue
 //! are controlled here to exercise exact outcomes and pending-work lifetimes.
 use glowcap::{Argument, ConnectOptions, Host, PendingWork, Resolver, Runtime, RuntimeConfig, Session, tcp};
 use rooms_application::{

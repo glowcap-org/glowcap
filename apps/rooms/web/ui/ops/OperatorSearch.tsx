@@ -62,8 +62,8 @@ export function OperatorSearch(
 			},
 		);
 	}, [session]);
-	// The search in force is the store's, so a refresh from elsewhere — another
-	// tab retiring rows, this pane's own sweep — cannot leave the box saying
+	// The search in force is the store's, so a refresh from elsewhere (another
+	// tab retiring rows, this pane's own sweep) cannot leave the box saying
 	// something the rows do not answer.
 	useEffect(() => {
 		if (search !== asked.current.search || referenceKind !== asked.current.referenceKind) {

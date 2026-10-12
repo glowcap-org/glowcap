@@ -155,7 +155,9 @@ impl<P: Tasks + Deadline + Clone + 'static> Owner<P> {
 				)
 			}));
 		}
-		let worker = worker.as_ref().expect("installed change feed");
+		let worker = worker
+			.as_ref()
+			.ok_or_else(|| loam::refusal("Session change feed is not installed"))?;
 		let mut updates = self.updates.subscribe();
 		// Startup callers must observe the initial ready notification, including
 		// subscribers that arrive after it. They still poll their own source.
@@ -184,7 +186,7 @@ struct Feed<P: Tasks> {
 	writer: Rc<super::executor::Writer>,
 }
 /// One admitted receive survives interruption. Cancelling its registration
-/// wakes this same call; observing it drains the work borrowing the attachment.
+/// wakes this same call. Observing it drains the work borrowing the attachment.
 #[derive(Default)]
 pub(super) struct Receive {
 	pending: Option<PendingReceive>,
@@ -246,13 +248,20 @@ impl<P: Tasks + Deadline + Clone + 'static> Feed<P> {
 			}
 			self.observation = Some(
 				self.workspace
-					.observe(self.request.as_ref().unwrap())
+					.observe(
+						self.request
+							.as_ref()
+							.ok_or_else(|| loam::refusal("Session change feed request is not prepared"))?,
+					)
 					.await
 					.map_err(error)?,
 			);
 			self.request.take();
 		}
-		let observation = self.observation.as_ref().unwrap();
+		let observation = self
+			.observation
+			.as_ref()
+			.ok_or_else(|| loam::refusal("Session change feed observation is not held"))?;
 		let mut cursor = *observation.poll(None).await.map_err(error)?.view().cursor;
 		self.signals.ready.send_replace(Some(Ok(())));
 		self.updates.send_modify(|updates| updates[self.index] = Some(Ok(())));

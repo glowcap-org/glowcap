@@ -281,7 +281,7 @@ export class Ref {
 		mintRef = (id) => new Ref(id);
 	}
 
-	// Set by Session.release. Not a memory flag: release deliberately spends the
+	// Set by Session.release. Not a memory flag: release spends the
 	// application's retain. Other occurrences may keep the same Host id live,
 	// so local dispatch and ABI projection both check this occurrence's flag.
 	#released = false;
@@ -331,7 +331,7 @@ export function liveRefId(ref: Ref): bigint {
  * `Session.caretaker` and `Session.attenuate`, where each proxy is an ordinary
  * spawned actor whose behavior forwards, or throws to refuse.
  *
- * Package-internal, and deliberately not exported from `mod.ts`: applications
+ * Package-internal, and not exported from `mod.ts`: applications
  * reach it through those two verbs rather than constructing one. It stays in
  * `Behavior`'s return union because the proxies this package spawns are
  * ordinary behaviors. */
@@ -350,7 +350,7 @@ export class Forward {
  * A behavior may also return a promise (an `async` behavior): the binding
  * defers the turn's answer onto a resolver vow and settles it when the
  * promise does, so awaited work never stalls the host's turn loop. A
- * deferred settle carries plain data only — a reply that hands out a
+ * deferred settle carries plain data only: a reply that hands out a
  * capability, or forwards, must come from a synchronous return. A rejection
  * breaks the caller's promise with the error's message. */
 export type Behavior = (

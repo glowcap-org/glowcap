@@ -1,13 +1,13 @@
-//! Live real-internet iroh reachability proof in the Rust binding — the binding
+//! Live real-internet iroh reachability proof in the Rust binding: the binding
 //! sibling of the Zig `iroh-reachability` driver. Two iroh endpoints in one
 //! process reach each other by node id ALONE over n0's public relays and
 //! DNS/pkarr discovery: no direct-address hints, no in-process address book.
 //!
 //! Both endpoints bind with the `Discovery` posture. The server publishes its
-//! node info to pkarr on bind; the client dials the server by its 64-hex node id
+//! node info to pkarr on bind. The client dials the server by its 64-hex node id
 //! with an empty hint set, so a session that opens proves the dial was resolved
 //! over real discovery infrastructure and carried over a real relay / hole-
-//! punched path — not hinted, not loopback-booked. The client's dial rides the
+//! punched path: not hinted, not loopback-booked. The client's dial rides the
 //! `connect(locator, options)` `Discovery` retry that settles while the publish propagates.
 //!
 //! Not a hermetic gate. This step touches public n0 infrastructure
@@ -17,7 +17,7 @@
 //! `rust-iroh-loop`, so it can never make `check` flaky.
 //!
 //! Needs `cargo` plus the iroh ABI companion library (`zig build iroh-abi`) and
-//! a live internet connection; run via `zig build rust-iroh-reachability`.
+//! a live internet connection. Run via `zig build rust-iroh-reachability`.
 
 use std::rc::Rc;
 
@@ -56,7 +56,7 @@ async fn run() -> Result<(), Fail> {
 		 (pkarr-published; no direct addrs shared)"
 	);
 
-	// ── Client: dial by node id ALONE — empty hints — over real n0 discovery ──────
+	// ── Client: dial by node id ALONE, empty hints, over real n0 discovery ──────
 	let locator = glowcap_rust_dogfood::iroh::locator(&server_id, None);
 	let runtime = Runtime::open(RuntimeConfig::providers([iroh::provider(iroh::Config::new(
 		Reachability::Discovery,

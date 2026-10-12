@@ -51,7 +51,7 @@
 ;; ── Time-travel: restore retargets wire delivers ──────────────────────────────
 ;; The README's headline time-travel claim, pinned over the wire: snapshot a
 ;; served vat, mutate the actor through wire delivers, restore, and observe
-;; the NEXT wire deliver hit the restored behavior — proving `vat-restore!`
+;; the NEXT wire deliver hit the restored behavior, which proves `vat-restore!`
 ;; retargets what the trampoline dispatches, not just local `$` calls.
 (define tt-server (listen "127.0.0.1" 0 #:time-travel? #t))
 (define tt-ready (make-semaphore 0))
@@ -84,11 +84,11 @@
 ;; ── Listener fires run outside the host lock ──────────────────────────────────
 ;; An `on` listener is arbitrary application code; the drain that settles its
 ;; vow runs under the host lock, so the fire itself is deferred to after the
-;; lock releases — a listener that ran under the lock could wedge every other
+;; lock releases, since a listener that ran under the lock could wedge every other
 ;; thread sharing the host. The listener proves it directly: at fire time this
 ;; thread must not own the host lock, and an enqueueing verb (a tell) must go
 ;; through. (Fires also run after the reader gate clears, so a listener may
-;; pump this connection — but must not block the reader turn that produced
+;; pump this connection, but must not block the reader turn that produced
 ;; the settle; enqueue and return.)
 (define lf-server (listen "127.0.0.1" 0))
 (define lf-ready (make-semaphore 0))
@@ -115,7 +115,7 @@
       (lambda (v)
         (set-box! lf-under-lock (eq? (unbox (host-lock-owner lf-host)) (current-thread)))
         ;; An enqueueing verb from inside the fire: legal, takes the host lock
-        ;; the fire no longer holds.
+        ;; the fire does not hold.
         (session-tell lf-session lf-svc 'notify))))
 (expect (= 1 (session-await lf-session lf-vow)) "listener-fire: the send settled")
 (expect (eq? #f (unbox lf-under-lock))
@@ -232,9 +232,9 @@
 ;; exporter (a DIAL action). A dial is a connect syscall plus a whole keyed
 ;; handshake, so the drain defers it post-lock like every write and fire: a
 ;; slow exporter stalls that one redeem, never every thread sharing the host.
-;; Proven with a deterministic stall in a raw byte relay — the redeem dial has
+;; Proven with a deterministic stall in a raw byte relay: the redeem dial has
 ;; connected, but the relay has not yet opened its exporter leg, so its
-;; handshake parks — while a sibling connection on the recipient's host
+;; handshake parks, while a sibling connection on the recipient's host
 ;; completes a full send. Releasing the relay then lets the parked redeem
 ;; finish end-to-end, which also proves the whole hermetic three-party flow:
 ;; gift originated by the gifter's host, deposited on the exporter, withdrawn
@@ -261,7 +261,7 @@
   (thread
    (lambda ()
      (with-handlers ([(lambda (_) #t) void])
-       ;; Accept exactly one connection now — the gifter's — and serve it so
+       ;; Accept one connection (the gifter's) and serve it so
        ;; the gifter's deposit is read. The second accept waits for the relay
        ;; to open its exporter leg after the stalled-dial assertion.
        (define hsession (accept rd-e-server))
@@ -271,7 +271,7 @@
 (define rd-g-server (listen "127.0.0.1" 0))
 ;; Sibling probe peer: a second listen so the recipient host can hold two
 ;; live sessions without a second dial to the same address designator
-;; (SessionPairExists). Same host, different partner — that is the lock pin.
+;; (SessionPairExists). Same host, different partner. That is the lock pin.
 (define rd-ping-server (listen "127.0.0.1" 0))
 ;; The gifter dials the exporter on its server's host, so the tool it fetches
 ;; and the introductions it serves share one identity and handoff router.
@@ -325,7 +325,7 @@
 (define rd-intro-main (session-fetch rd-r-main "intro"))
 (define rd-ping-side (session-fetch rd-r-side "ping"))
 ;; Trigger the handoff: the reply is a give, the recipient's host auto-redeems
-;; it, and the send settles only after the withdraw — so this thread is parked
+;; it, and the send settles only after the withdraw, so this thread is parked
 ;; in the stalled dial until the exporter is released.
 (define rd-tool-ch (make-channel))
 (void (thread
@@ -375,7 +375,7 @@
 ;; when it was spawned in the session through which the exporter is reached.
 ;; This scene proves the whole loop: `via` is a live session, an ordinary send
 ;; to the redeemed capability rides it, and an inbox
-;; spawned on it is reachable — the exporter calls it and the note arrives. The
+;; spawned on it is reachable: the exporter calls it and the note arrives. The
 ;; last two expectations pin the #f arm, where no redeemed route is in play.
 (define sr-e-server (listen "127.0.0.1" 0))
 ;; The session the recipient's redeem dial opens. The exporter answers the

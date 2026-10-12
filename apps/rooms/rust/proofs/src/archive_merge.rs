@@ -1,4 +1,4 @@
-//! Shared merge evidence uses real index entries; keeper and record pointers
+//! Shared merge evidence uses real index entries. Keeper and record pointers
 //! prove attribution carries the original winner without copying its payload.
 use rooms_application::archive::{
 	Body, ConversationKind, Coordinates, Error, LineState, Record,

@@ -1,5 +1,10 @@
 //! Executable application contracts. These are proof entry points, not a Rooms
 //! UI API or a second production glowcap binding.
+#![expect(
+	clippy::unwrap_used,
+	clippy::expect_used,
+	reason = "contract proofs drive the C ABI and fail the proof on any unwrap"
+)]
 // The binding owns archive composition and target layouts on both hosts.
 mod archive;
 mod archive_blobs;

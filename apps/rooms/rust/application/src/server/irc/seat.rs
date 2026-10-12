@@ -1,17 +1,22 @@
 //! What IRC calls the people in a bridged room, and the form it asks Rooms
 //! to draw for one reader's own identity.
 //!
-//! A seat is a native Rooms member who also holds an IRC identity; a foreign
+//! A seat is a native Rooms member who also holds an IRC identity. A foreign
 //! member is somebody who has no Rooms membership at all. The words for both
 //! are IRC's own and live here, because a Rooms server does not know what its
 //! bridge is, and a browser that spelled them itself would have to be
 //! rebuilt before a second bridge could say anything of its own.
+use super::registration::Invalid as RegistrationInvalid;
 use crate::bridge::{Action, Confirm, Field, Form, Leaf, SecretField, TextField, TextOptions, ToggleField, Tone};
-use alloc::{format, string::String, vec::Vec};
+use alloc::{
+	format,
+	string::{String, ToString},
+	vec::Vec,
+};
 
 /// The attribution prefix an IRC-only member's roster name carries. A
 /// roster key of `irc/bo` is a name in the room's namespace and `bo` a name
-/// in IRC's; the prefix keeps the two apart, so a member on IRC cannot take
+/// in IRC's. The prefix keeps the two apart, so a member on IRC cannot take
 /// a Rooms member's name by picking it.
 pub const PREFIX: &str = "irc/";
 pub const FOREIGN_BADGE: &str = "IRC";
@@ -219,7 +224,7 @@ pub fn disconnected_said(network: &str) -> String {
 /// Read one submitted identity form back: what makes a nick or a password
 /// valid on IRC is IRC's, checked whatever a client believed about the form
 /// it drew. A login on a cleartext bridge is refused before any dial.
-pub fn read_identity(answers: &crate::bridge::Answers, tls: bool) -> Result<Identity, String> {
+pub fn read_identity(answers: &crate::bridge::Answers, tls: bool) -> Result<Identity, Invalid> {
 	let field = |id: &str| -> String {
 		answers
 			.get(id)
@@ -234,11 +239,46 @@ pub fn read_identity(answers: &crate::bridge::Answers, tls: bool) -> Result<Iden
 		return Ok(Identity { nick, sasl: None });
 	}
 	if !tls {
-		return Err("this bridge runs without TLS; a registered account needs an encrypted path".into());
+		return Err(Invalid::CleartextLogin);
 	}
 	let sasl = super::registration::SaslPlain { account, password };
 	super::registration::validate_sasl_plain(&sasl)?;
 	Ok(Identity { nick, sasl: Some(sasl) })
+}
+
+/// Why a submitted identity form is refused. `Display` is the exact line
+/// the reader sees.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Invalid {
+	/// The nick or login was refused by IRC registration.
+	Registration(RegistrationInvalid),
+	/// A login was submitted on a bridge without TLS.
+	CleartextLogin,
+}
+
+impl core::fmt::Display for Invalid {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		match self {
+			Self::Registration(source) => write!(f, "{source}"),
+			Self::CleartextLogin => {
+				f.write_str("this bridge runs without TLS; a registered account needs an encrypted path")
+			}
+		}
+	}
+}
+
+impl core::error::Error for Invalid {}
+
+impl From<Invalid> for String {
+	fn from(invalid: Invalid) -> Self {
+		invalid.to_string()
+	}
+}
+
+impl From<RegistrationInvalid> for Invalid {
+	fn from(source: RegistrationInvalid) -> Self {
+		Self::Registration(source)
+	}
 }
 
 /// Every seat word a snapshot or form carries, kept together so a bound on
@@ -251,6 +291,18 @@ pub fn phases() -> Vec<Phase> {
 mod tests {
 	use super::*;
 	use crate::bridge::Answers;
+
+	#[test]
+	fn every_invalid_line_is_the_line_it_replaced() {
+		assert_eq!(
+			Invalid::CleartextLogin.to_string(),
+			"this bridge runs without TLS; a registered account needs an encrypted path"
+		);
+		assert_eq!(
+			Invalid::Registration(RegistrationInvalid::SaslAborted).to_string(),
+			"IRC server aborted SASL authentication"
+		);
+	}
 
 	fn view(phase: Phase) -> View {
 		View {
@@ -293,7 +345,12 @@ mod tests {
 			}
 		);
 		let login = Answers::decode(r#"{"nick":"alice","account":"acct","password":"pw"}"#).unwrap();
-		assert!(read_identity(&login, false).unwrap_err().contains("encrypted"));
+		assert!(
+			read_identity(&login, false)
+				.unwrap_err()
+				.to_string()
+				.contains("encrypted")
+		);
 		assert!(read_identity(&login, true).unwrap().sasl.is_some());
 		let bad = Answers::decode(r#"{"nick":"1bad"}"#).unwrap();
 		assert!(read_identity(&bad, true).is_err());

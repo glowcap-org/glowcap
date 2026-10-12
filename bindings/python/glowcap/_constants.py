@@ -62,7 +62,7 @@ _SPOKEN = {
 def _provenance_from_abi(raw: int) -> DurableProvenance:
     """The enum named by a C ``provenance`` word.
 
-    Unknown values are ABI failures; they must not be weakened into an
+    Unknown values are ABI failures. They must not be weakened into an
     unauthenticated claim, which is a real and distinct native fact.
     """
     try:

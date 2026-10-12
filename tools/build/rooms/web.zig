@@ -1,5 +1,5 @@
 //! Installed HTTP front proofs, including acquisition and retirement. Browser
-//! compilation is a build-tool dependency; no Deno service runs in these tests.
+//! compilation is a build-tool dependency. No Deno service runs in these tests.
 const std = @import("std");
 const execution = @import("../execution.zig");
 
@@ -11,7 +11,7 @@ pub fn register(
 ) void {
     const args: []const []const u8 = &.{
         "cargo", "test",          "--quiet", "--locked",    "--manifest-path", "apps/rooms/rust/Cargo.toml",
-        "-p",    "rooms-product", "--test",  "web_process",
+        "-p",    "rooms-product", "--test",  "web_process", "--bin",           "rooms-web",
     };
     const compile = execution.addSystemCommand(b, .build_tool, &.{"env"});
     compile.addDirectoryArg2(.{ .relative = .{ .base = .install_lib } }, .{ .prefix = "GLOWCAP_LIB_DIR=", .make_absolute = true });

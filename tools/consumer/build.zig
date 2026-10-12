@@ -5,7 +5,7 @@
 //! What it proves: `b.dependency("glowcap", …)` resolves; `.module("glowcap")`
 //! imports, and so do the two optional modules the site's Zig tabs name,
 //! `glowcap_iroh` (which links the cargo-built sidecar) and
-//! `glowcap_native_relay` (which builds Mbed TLS from source); and a program
+//! `glowcap_native_relay` (which builds Mbed TLS from source), and a program
 //! over all three compiles and links. Driven by `zig build consumer-check`
 //! from the repository root.
 

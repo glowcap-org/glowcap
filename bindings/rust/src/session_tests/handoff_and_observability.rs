@@ -67,7 +67,7 @@ async fn send_redeeming_matches_send_and_reports_no_exporter_without_a_handoff()
 
 // Off-turn settlement: a behavior atomically defers onto a resolver vow
 // (`Host::defer_turn`) and returns; the caller's reply arrives only
-// when the parked resolver settles later — after real awaited work — as its
+// when the parked resolver settles later, after real awaited work, as its
 // own top-level event. A successful settle consumes the native authority, so
 // the broken arm exercises a second call's fresh resolver.
 #[tokio::test]
@@ -204,7 +204,7 @@ async fn a_loop_hosted_worker_defers_its_answer_onto_a_resolver_vow() {
 		.await;
 }
 
-/// Test-side base64 decode (RFC 4648, padded) — the veneer encodes, this
+/// Test-side base64 decode (RFC 4648, padded): the veneer encodes, this
 /// proves the round trip without pulling a crate into the dogfood.
 fn b64_decode(s: &str) -> Vec<u8> {
 	const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -227,7 +227,7 @@ fn b64_decode(s: &str) -> Vec<u8> {
 }
 
 // The live trace: the veneer stamps and forwards the native tap's facts, one
-// flat record per fact — session-opened with the codec the handshake actually
+// flat record per fact: session-opened with the codec the handshake
 // negotiated, the same verb outbound at the client and inbound at the server,
 // and session-closed. Endpoint labeling belongs to the consumer, so the
 // records carry only the session and direction.
@@ -320,8 +320,8 @@ async fn the_live_trace_produces_the_timeline_schema() {
 				"an open states the implementation this producer runs",
 			);
 			// Identity and label are two facts. `a` is the host's own key
-			// designator — the name a partner knows it by, and so the only name
-			// two producers can agree on — and the label never stands in for it.
+			// designator, the name a partner knows it by, and so the only name
+			// two producers can agree on, and the label never stands in for it.
 			assert!(
 				opened.iter().all(|ev| {
 					ev.a.as_deref()

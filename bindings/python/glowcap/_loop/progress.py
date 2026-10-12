@@ -68,8 +68,8 @@ class _ProgressMixin(DriverLoopMixinBase):
             return
         self._stepping = True
         # Whether any step observed work. This is the loop tier's one step
-        # funnel — the readiness reader, `schedule_step`, the progress timer,
-        # and the close drivers all step through here — so signaling on
+        # funnel, the readiness reader, `schedule_step`, the progress timer,
+        # and the close drivers all step through here, so signaling on
         # progress here is what wakes a close driver parked on loop activity.
         # Signaling only when work ran keeps a close driver's own quiescent
         # steps from waking the waiter it just armed.

@@ -7,10 +7,9 @@ const log = @import("operability/log.zig");
 ///
 /// Most of what lands here comes off the wire, and a partner is free to send
 /// bytes that are not UTF-8 at all. JSON strings must be valid UTF-8, so
-/// copying those through produced a response the client could not parse: one
-/// odd byte in a remote object's reply broke the whole message rather than the
-/// one field. Each invalid sequence becomes the replacement character instead,
-/// which keeps the response parseable and shows the reader where it happened.
+/// copying those through would make a response the client cannot parse. Each
+/// invalid sequence becomes the replacement character instead, which keeps the
+/// response parseable and shows the reader where it happened.
 pub fn writeJsonString(buf: *std.ArrayList(u8), gpa: std.mem.Allocator, s: []const u8) !void {
     try buf.append(gpa, '"');
     var i: usize = 0;

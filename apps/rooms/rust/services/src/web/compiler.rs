@@ -1,5 +1,5 @@
 //! App-owned Deno invocation. The publisher supplies an empty output directory
-//! and owns this direct child; the recipe introduces no shell or task runner.
+//! and owns this direct child. The recipe introduces no shell or task runner.
 use std::path::Path;
 
 #[derive(serde::Deserialize)]

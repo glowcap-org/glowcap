@@ -2,13 +2,12 @@
 //!
 //! Wire positions remain session names. This registry gives the composed Host
 //! an opaque name for the target behind one of those positions. Native refs
-//! carry their Registry scope; adapters that erase it must provide a wider id
-//! source.
-//! A reverse index canonicalizes repeated observations, while an intrusive
-//! per-session list invalidates exactly the rows homed on a closing session.
-//! Invalidated rows keep only their id and outstanding application-retain
-//! count: use fails immediately, but a later language-finalizer release still
-//! has a deterministic recipient.
+//! carry their Registry scope. Adapters that erase it must provide a wider id
+//! source. A reverse index canonicalizes repeated observations, while an
+//! intrusive per-session list invalidates exactly the rows homed on a closing
+//! session. Invalidated rows keep only their id and outstanding
+//! application-retain count: use fails immediately, but a later
+//! language-finalizer release still has a deterministic recipient.
 
 const std = @import("std");
 
@@ -16,8 +15,8 @@ const model = @import("model");
 const engine = @import("engine");
 
 /// One Host-minted inline handoff promise. The containing Host is the owner
-/// dimension; monotonic issuance is the epoch, and the distinct type keeps
-/// this namespace out of every other Host integer table by construction.
+/// dimension. Monotonic issuance is the epoch, and the distinct type keeps this
+/// namespace out of every other Host integer table by construction.
 pub const PromiseId = enum(u64) { _ };
 
 /// An opaque capability in one Host composition. The registry pointer is the
@@ -49,12 +48,12 @@ pub const Target = union(enum) {
         peer_handle: engine.PeerHandle,
         far: model.FarRef,
         /// Host-monotonic stamp for this live import-row incarnation. A partner
-        /// may reuse the numeric position after release; the stamp prevents the
+        /// may reuse the numeric position after release. The stamp prevents the
         /// old Host row from becoming canonical for the replacement.
         incarnation: u64,
     },
     /// One Host-owned promise created before its handoff redemption settles.
-    /// The promise row owns its eventual target; this registry owns only the
+    /// The promise row owns its eventual target. This registry owns only the
     /// opaque application identity and retain count.
     deferred: PromiseId,
 
@@ -101,7 +100,7 @@ pub const FreshLocalReservation = struct {
 };
 
 /// Optional source for ids that leave the native scoped `Ref`. Native callers
-/// need no issuer because the Registry pointer carries scope; pointer-free
+/// need no issuer because the Registry pointer carries scope. Pointer-free
 /// adapters inject their own process-wide authority.
 pub const IdIssuer = struct {
     ctx: ?*anyopaque = null,
@@ -134,8 +133,8 @@ const Slot = struct {
     };
 };
 
-/// One live/reusable Host-capability slot. This is Host-wide, not per session;
-/// keep the retained high-water cost explicit as the target grows fields.
+/// One live/reusable Host-capability slot. This is Host-wide, not per session.
+/// Keep the retained high-water cost explicit as the target grows fields.
 pub const slot_budget_bytes: usize = 80;
 comptime {
     if (@sizeOf(Slot) > slot_budget_bytes) @compileError(std.fmt.comptimePrint(
@@ -149,7 +148,7 @@ comptime {
 /// have not settled yet. Released slots are reused, but public ids are never
 /// reused by this registry, so stale handles fail the Host-owned `by_id`
 /// lookup. Pointer-free projections use opaque ids whose issuer also separates
-/// Hosts; native refs carry the Registry pointer as their scope proof.
+/// Hosts. Native refs carry the Registry pointer as their scope proof.
 pub const Registry = struct {
     slots: std.ArrayListUnmanaged(Slot) = .empty,
     free_head: ?u32 = null,
@@ -186,9 +185,9 @@ pub const Registry = struct {
 
     /// Mint an id and reserve every backing slot a fresh local target needs.
     /// The Host calls this immediately before spawning or publishing an actor,
-    /// then commits without any intervening registry operation. An id is
-    /// deliberately burned when the later actor operation fails: public ids
-    /// are never reused, including across rolled-back transactions.
+    /// then commits without any intervening registry operation. An id is burned
+    /// when the later actor operation fails: public ids are never reused,
+    /// including across rolled-back transactions.
     pub fn reserveFreshLocal(self: *Registry, allocator: std.mem.Allocator) Error!FreshLocalReservation {
         try self.by_target.ensureUnusedCapacity(allocator, 1);
         try self.by_id.ensureUnusedCapacity(allocator, 1);
@@ -253,8 +252,8 @@ pub const Registry = struct {
         return ref;
     }
 
-    /// Whether a canonical row for `target` already exists — the creation
-    /// probe `Host` uses to pair an actor root with a fresh local slot
+    /// Whether a canonical row for `target` already exists. `Host` uses it as
+    /// the creation probe to pair an actor root with a fresh local slot
     /// (ADR-0101).
     pub fn hasTarget(self: *const Registry, target: Target) bool {
         return self.by_target.contains(target.key());
@@ -285,7 +284,7 @@ pub const Registry = struct {
 
     /// Reconstitute this registry's scoped handle from an internally retained
     /// raw id. Invalidated rows remain nameable only so an already-issued
-    /// application handle can release its outstanding unit; `resolve` still
+    /// application handle can release its outstanding unit. `resolve` still
     /// refuses every use. A fully released or foreign id stays stale.
     pub fn refForRaw(self: *const Registry, raw: u64) ?Ref {
         const id: CapabilityId = @fromBackingInt(@intCast(raw));
@@ -293,8 +292,8 @@ pub const Registry = struct {
         return .{ .registry = self, .id = id };
     }
 
-    /// Release `delta` application retains. The final release reclaims the row;
-    /// its public id is never reused by this registry even when the slot is.
+    /// Release `delta` application retains. The final release reclaims the row.
+    /// This registry never reuses its public id, even when the slot is reused.
     pub fn release(self: *Registry, ref: Ref, delta: u64) Error!?Target {
         const slot_index = self.slotFor(ref) orelse return error.UnknownCapability;
         const slot = &self.slots.items[slot_index];
@@ -322,7 +321,7 @@ pub const Registry = struct {
 
     /// Invalidate every capability homed on `peer_handle` without scanning rows
     /// belonging to other sessions. The target and canonical index disappear
-    /// immediately; a release-only row survives until every already-issued
+    /// immediately. A release-only row survives until every already-issued
     /// application retain settles. Returns the number invalidated.
     pub fn invalidatePeer(self: *Registry, peer_handle: engine.PeerHandle) usize {
         var count: usize = 0;

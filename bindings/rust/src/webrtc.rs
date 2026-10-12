@@ -1,6 +1,6 @@
 //! Raw native WebRTC companion ABI (`webrtc` feature).
 //!
-//! Native bindings intentionally expose this archive at its multiplexed
+//! Native bindings expose this archive at its multiplexed
 //! readiness and try-I/O boundary. The Rust browser adapter lives in
 //! `browser::RtcPeer` and calls the browser's WebRTC implementation. Applications
 //! supply their signaling authority to either backend. All functions here are unsafe C calls and return

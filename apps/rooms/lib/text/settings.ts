@@ -1,10 +1,7 @@
 // Settings: what is kept, what is shared, and how to get a room back.
 //
-// Mostly operator-adjacent, so these stay precise. What changed is that they
-// had been written about the machinery: "This browser refused to save the
-// connection choice", "New room and direct messages are kept by this durable
-// Rooms session", "Its label alone cannot find it". The facts are the same and
-// the subject is now whoever is reading.
+// Mostly operator-adjacent, so these stay precise. The subject is whoever is
+// reading, not the machinery.
 
 /** Session message retention and the archive capability it selects. */
 export const historyOffSession =
@@ -22,9 +19,9 @@ export const historyPeerReconnect = "Reconnect";
 export const historyPeerLead =
 	"A link that can read and write the archive. A new one starts keeping messages from now on, and doesn't copy what's already there.";
 
-/** Getting back into a room a saved workspace remembers. The private case is
- * the one worth being exact about: a name is not enough, and rejoining a
- * public room by name can land somewhere else. */
+/** Getting back into a room a saved workspace remembers. The private case
+ * needs care: a name is not enough, and rejoining a public room by name can
+ * land somewhere else. */
 export const recoveryPrivateNeedsLink = "This private room needs a current link. The name on its own won't find it.";
 export const recoveryPrivateRetry = "Retry the saved link for this private room, or paste a current one.";
 export const recoveryLinkRevoked =
@@ -33,7 +30,7 @@ export const recoveryPublicRetry = "Retry joining this public room by name.";
 export const recoveryLinkLabel = "Current room entry link";
 export const recoveryWait = "Wait for the room recovery to finish.";
 
-/** Saving, and the two ways it can fail to. */
+/** Saving, and how it can fail. */
 export const settingsConnectionSaving = "Wait for the connection setting to finish saving.";
 export const settingsConnectionRefused = "Couldn't save the connection choice.";
 
@@ -72,18 +69,18 @@ export const sessionAccessRevoke = "Revoke access";
 export const sessionAccessPlaceholder = "Kitchen display";
 export const sessionGrantNotePlaceholder = "Back on Monday";
 export const sessionStateFile = "State file";
-export const capabilitySwissLabel = "Swiss number";
+/** What the capability value field takes: the whole URI the server prints,
+ * not a swiss number alone. */
+export const capabilityUriLabel = "Capability URI";
 export const capabilitySetPlaceholder = "ROOMS-ADMIN-LISTENERS …";
 
 /** Why a keepable link is not on offer, and where to go about it.
  *
- * Three parts because the middle one is a control: this is drawn in a
- * conversation card, and the choice it names is in Settings, so a reader told
- * only the name of the place has been handed the job of finding it. Said in one
- * place because it was said in two, word for word, and two copies of a sentence
- * drift the moment one of them is edited. */
+ * Three parts because the middle one is a control. The conversation card draws
+ * this sentence and the choice it names is in Settings, so the control takes
+ * the reader there. */
 export const archiveNeedsPeerLead =
-	"Needs an archive peer to hold it. The archive built into this browser has nobody to mint one. Choose one in";
+	"Needs an archive peer to hold it. The archive built into this browser cannot create one. Choose one in";
 export const archiveNeedsPeerLink = "Session settings";
 export const archiveNeedsPeerAfter = ".";
 
@@ -117,7 +114,7 @@ export const archiveSharesEmpty = "This archive has issued no durable shares.";
 
 /** The operations capability set. */
 export const capabilitySetTitle = "Capability set";
-export function capabilitySetEditSwiss(label: string): string {
+export function capabilitySetEditUri(label: string): string {
 	return `Edit ${label} capability URI`;
 }
 export function capabilitySetInclude(label: string): string {
@@ -125,7 +122,7 @@ export function capabilitySetInclude(label: string): string {
 }
 export const capabilitySetRetry = "Retry";
 export const capabilitySetSave = "Save changes";
-export const capabilitySetSwissRefused = "Enter the complete capability URI printed by the server.";
+export const capabilitySetUriRefused = "Enter the complete capability URI printed by the server.";
 export const capabilitySetIncomplete = "Supply a complete capability URI for every enabled capability.";
 export function capabilitySetMintedSaid(flag: string, how: string): string {
 	return `The server mints it with ${flag}. ${how} It is bearer authority and is retained by this session.`;

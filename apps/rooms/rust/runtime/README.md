@@ -11,7 +11,7 @@ Application declarations live in `rooms-application`, capability clients in
 
 The embedding supplies a Host, registered Loam Store, task custody, deadlines,
 clocks and entropy. LMDB and IndexedDB adapters supply the same storage contract.
-`managed::Bootstrap` persists identity, resource metadata and live markers;
+`managed::Bootstrap` persists identity, resource metadata and live markers.
 `managed::Opened` retains the Store, attachment and session through shutdown.
 Opening restores bounded owner metadata, checks the codec graph and retires
 previous Host registrations before exposing separate use/control branches.
@@ -24,7 +24,7 @@ from a descriptive snapshot.
 
 Use `Opened::workspace` and `Opened::management` for typed clients.
 `Opened::supervise_workspace` starts workspace-driven membership activity.
-Publication prepares reachability on demand; local calls need no transport.
+Publication prepares reachability on demand. Local calls need no transport.
 Stop activity before closing the session. Failed close retains complete custody
 for retry, and the Host stays alive until its barriers succeed.
 
@@ -52,7 +52,7 @@ Modules below live under `session::managed` unless another owner is named.
 A caller dropping its wait abandons observation while admitted work stays owned.
 External replies distinguish failure before target admission from uncertainty
 after it. Durable receipts own application outcome and recovery. Shutdown drains
-callbacks and upstream name/seat custody; an unknown subscription cannot be
+callbacks and upstream name/seat custody. An unknown subscription cannot be
 cleaned up by assuming absence.
 
 Storage adapters keep admitted work alive when its observer stops waiting.

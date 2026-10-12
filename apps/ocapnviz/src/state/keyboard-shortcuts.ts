@@ -1,5 +1,5 @@
 /**
- * Keyboard shortcut table — the one authority for what each key
+ * Keyboard shortcut table, the one authority for what each key
  * commands. A shortcut is a data row: the key, the guard facts that
  * must hold (modifier contract, Build-only, Live-forbidden), and the
  * action.
@@ -8,8 +8,8 @@
  * unit-testable without a browser or React.
  *
  * This table owns one-shot commands only. A key whose meaning is
- * "while held" — Space as the hand tool, Shift and Alt as previews
- * — is a row in `HELD_GESTURES` in `keyboard-input.ts` instead, and
+ * "while held", Space as the hand tool, Shift and Alt as previews,
+ * is a row in `HELD_GESTURES` in `keyboard-input.ts` instead, and
  * `resolveKeyDown` there consults that table first. So a press only
  * reaches this one when no gesture claimed it, and no row here
  * needs a guard describing when a held gesture owns its key. Space
@@ -48,7 +48,7 @@ export interface KeyboardShortcutBindings {
 	onRedo: () => void;
 	/** Cmd-C: extract a payload from the current selection into the
 	 *  clipboard slot. `useSelectionClipboard` holds it between copy
-	 *  and paste; the engine doesn't carry clipboard state. */
+	 *  and paste. The engine doesn't carry clipboard state. */
 	onCopySelection: () => void;
 	/** Cmd-V: paste the stashed clipboard payload at the playhead.
 	 *  No-op when clipboard is empty (no prior copy). */
@@ -57,7 +57,7 @@ export interface KeyboardShortcutBindings {
 	 *  without touching the clipboard. */
 	onDuplicateSelection: () => void;
 	/** Arrow-key nudge of the current selection (Stage entities).
-	 *  Returns `true` if it consumed the gesture; falsy → caller
+	 *  Returns `true` if it consumed the gesture. Falsy → caller
 	 *  falls back to time scrubbing. The host decides what's
 	 *  selected and what units the nudge uses. */
 	onNudgeSelection: (
@@ -96,7 +96,7 @@ type ShortcutRow = {
 	buildOnly?: boolean;
 	/** Live has no transport: the clock auto-plays while events
 	 *  append, and seeking or pausing it desyncs the stage from the
-	 *  feed. The on-screen controls already hide; this keeps the
+	 *  feed. The on-screen controls already hide. This keeps the
 	 *  keyboard from reaching them anyway. */
 	liveForbidden?: boolean;
 	/** Perform the action. Returns whether the browser default
@@ -104,7 +104,7 @@ type ShortcutRow = {
 	run: (b: KeyboardShortcutBindings, ev: KeyEventFacts) => boolean;
 };
 
-/** Scrub stride per arrow press; Shift is the coarse jump. */
+/** Scrub stride per arrow press, Shift is the coarse jump. */
 const strideOf = (ev: KeyEventFacts): number => (ev.shift ? 1000 : 100);
 
 const SHORTCUTS: readonly ShortcutRow[] = [

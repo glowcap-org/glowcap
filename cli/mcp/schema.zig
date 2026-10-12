@@ -68,7 +68,7 @@ fn propertyKnown(cmd: *const registry.Command, name: []const u8) bool {
 }
 
 /// Map MCP `arguments` object into `Parsed` using the leaf's flags/positionals.
-/// Owns flag map entries and `positionals_owned` on success; caller must `deinit`.
+/// Owns flag map entries and `positionals_owned` on success. Caller must `deinit`.
 pub fn fillParsed(
     gpa: std.mem.Allocator,
     cmd: *const registry.Command,

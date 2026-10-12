@@ -14,7 +14,7 @@ pub(super) const BLOBS: &str = "archive-blobs";
 pub(super) const META: &str = "archive-meta";
 pub(super) const MAX_SAFE: u64 = (1 << 53) - 1;
 /// One serial executor for the shared archive worker. A cancelled caller leaves
-/// its transaction here; the next operation observes that outcome before acting.
+/// its transaction here. The next operation observes that outcome before acting.
 pub struct Archive {
 	pub(super) database: Database,
 	pub(super) cache: super::blobs::Cache,

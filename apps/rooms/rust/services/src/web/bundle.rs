@@ -29,9 +29,10 @@ pub(super) async fn build(
 		return Ok(None);
 	}
 	let planned = Temporary::plan()?;
-	let path = parent
-		.map(|p| p.join(planned.file_name().expect("temporary leaf")))
-		.unwrap_or(planned);
+	let path = match parent {
+		Some(parent) => parent.join(planned.file_name().ok_or("temporary path names no leaf")?),
+		None => planned,
+	};
 	let (outdir, owner) = Temporary::create(path).await?;
 	let result = compile(root, &outdir, before, stop).await;
 	match result {
@@ -40,7 +41,7 @@ pub(super) async fn build(
 			owner.close().await?;
 			Ok(None)
 		}
-		Err(error) => Err(crate::cleanup::combine(Err(error), owner.close().await).expect_err("bundle failed")),
+		Err(error) => Err(crate::cleanup::failed(error, owner.close().await)),
 	}
 }
 async fn compile(root: &Path, outdir: &Path, before: &str, mut stop: watch::Receiver<bool>) -> Result<bool, String> {
@@ -72,10 +73,10 @@ async fn compile(root: &Path, outdir: &Path, before: &str, mut stop: watch::Rece
 				Ok(Err(error)) => error.to_string(),
 				_ => "browser compiler timed out".into(),
 			};
-			return Err(
-				crate::cleanup::combine(Err(error), child.kill().await.map_err(|e| e.to_string()))
-					.expect_err("compiler failed"),
-			);
+			return Err(crate::cleanup::failed(
+				error,
+				child.kill().await.map_err(|e| e.to_string()),
+			));
 		}
 	};
 	if !status.success() {
@@ -104,7 +105,7 @@ async fn compile(root: &Path, outdir: &Path, before: &str, mut stop: watch::Rece
 }
 
 /// A generation owns every served byte. Copying linked source assets happens
-/// once during the build; the serving process needs neither links nor sources.
+/// once during the build. The serving process needs neither links nor sources.
 fn package(root: &Path, outdir: &Path) -> Result<(), String> {
 	let copy = |from: &Path, to: &Path| {
 		let bytes = super::assets::read(from, 64 * 1024 * 1024)?;

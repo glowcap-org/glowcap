@@ -111,7 +111,7 @@ export function asLiveRef(result: Argument, label: string): Ref {
 
 /** The one mint/await/classify body under `fetch` and `enliven`: mint the
  * host vow with `mint`, drive the inbound loop for its completion, and
- * classify the settled value — anything but a live capability rejects with
+ * classify the settled value: anything but a live capability rejects with
  * `FetchFailed(label)`. */
 export async function fetchLike(
 	h: MintAwaitHandle,
@@ -178,7 +178,7 @@ export function promiseFor(
 
 /** `Session.listen`'s wire half: mint the listen vow over a held far reference
  * (CapTP `op:listen`, ADR-0095) and hand back the settle handle. The Session API
- * owns profile-specific target legality. The vow is plain — a listen may settle
+ * owns profile-specific target legality. The vow is plain: a listen may settle
  * to any value, not only a capability. */
 export function listenFar(h: PromiseFactoryHandle, target: Ref): RemotePromise {
 	const out = new Uint8Array(8);
@@ -230,7 +230,7 @@ export function sendFar(
 }
 
 /** The handle `Session.send` returns: the eventual result of one eventual-send,
- * and — the point of promise pipelining (ADR-0007) — a target you can `send` to
+ * and (the point of promise pipelining, ADR-0007) a target you can `send` to
  * before it resolves.
  *
  * It is a real `Promise`, so `await session.send(...)`, `Promise.all(...)`, and
@@ -262,12 +262,12 @@ export type PromiseState =
 	| { readonly tag: "far"; readonly vow: bigint; readonly hostOwner: object }
 	| { readonly tag: "observer"; readonly vow: bigint }
 	| { readonly tag: "local" }
-	// A send that could not be issued at all — a closed session, an argument
-	// that would not lower. It is a state rather than a thrown error because
+	// A send that could not be issued at all (a closed session, an argument
+	// that would not lower). It is a state rather than a thrown error because
 	// `send` must return its handle *synchronously*, so pipelining can project
-	// at the answer before it settles (ADR-0050). Throwing instead put a
+	// at the answer before it settles (ADR-0050). Throwing instead would put a
 	// synchronous failure channel on a promise-returning method, and a caller's
-	// `.catch` could not see it. Rust has carried this arm from the start.
+	// `.catch` could not see it.
 	| { readonly tag: "failed"; readonly error: unknown };
 
 export class RemotePromise extends Promise<Argument> {

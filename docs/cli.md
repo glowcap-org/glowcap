@@ -34,24 +34,31 @@ unrelated executable, and keeps older generations for processes still running.
 In the devcontainer, `glowcap` on PATH links to the checkout's `./glowcap`
 development launcher, which runs the complete product in `zig-out/product`.
 
-- If the product is missing, the launcher builds it with `rooms-build`
-  (`-Doptimize=ReleaseSafe -Dcpu=baseline`). Linux can build through this
-  checkout's devcontainer; macOS uses its local toolchain.
+- If the product is missing or incomplete, the launcher builds it with
+  `rooms-release`. This preset uses ReleaseSafe and baseline CPU instructions.
+  Linux can build through this checkout's devcontainer. macOS uses its local
+  toolchain.
 - Once the product is built, ordinary commands need neither the compiler nor
   the devcontainer.
-- After editing source, run
-  `zig build rooms-build -Doptimize=ReleaseSafe -Dcpu=baseline` in the build
+- After editing source, run `zig build rooms-release` in the build
   environment to update the product. `./glowcap install` installs it.
 
 An installed binary never builds source or downloads anything.
 
-On Linux, `./glowcap apps rooms deployment up` uses the checkout's prepared
-product to build its container image unless an image source is explicit.
-The [deployment guide](../apps/rooms/web/deploy/README.md) explains
-state ownership and how installed releases select images.
+The [deployment guide](../apps/rooms/web/deploy/README.md) covers deploying
+Rooms with `./glowcap apps rooms deployment`.
 
 While iterating without installing: `zig build glowcap -- <command> …` runs the
 same binary through the build graph.
+
+| Build step | Purpose |
+| --- | --- |
+| `rooms-dev` | Start the development server with Fast Refresh and durable local state. |
+| `rooms-build` | Build and stage the complete product with the selected build options. |
+| `rooms-release` | Prepare that product with fixed ReleaseSafe and baseline CPU settings, without starting a server. |
+
+Run `rooms-release` on its own, not alongside steps that stage a product with
+other settings.
 
 ## Encrypted conversation
 
@@ -62,8 +69,8 @@ through a directory introduction. [Sit in a room](#sit-in-a-room) shows how
 to start a session and handle messages.
 
 The generic `ocapn` commands, the REPL, and MCP support TCP and configured
-relay routes, but not iroh or WebRTC. They use the native Zig Session, which
-does not yet take multiplexed transports
+relay routes, but not iroh or WebRTC. They use the Zig Session, which does not
+yet take multiplexed transports
 ([known limitations](boundaries.md#transports-and-peer-identity)).
 
 ## Lab round-trip
@@ -77,40 +84,6 @@ returns `Hello, <arg>`. `glowcap help` lists the other verbs.
 
 Each terminal gets its own `GLOWCAP_STATE`, so it acts as its own peer, and
 `init` creates the identity keys that peer signs its sessions with.
-`--publish` serves one partner and then exits.
-
-```sh
-# terminal A
-export GLOWCAP_STATE=/tmp/glowcap-a
-glowcap --json init
-glowcap --json ocapn listen --publish greeter
-# {"ok":true,"locator":"ocapn://127.0.0.1%3A46659.tcp?…"}
-
-# terminal B: paste A's locator into LOC
-export GLOWCAP_STATE=/tmp/glowcap-b
-glowcap --json init
-glowcap --json ocapn call "$LOC" greeter greet world
-# {"ok":true,"value":"Hello, world"}
-```
-
-To check only that a peer answers, run `glowcap --json ocapn probe "$LOC"`. It
-dials, completes the handshake, reports `{"ok":true}`, and closes.
-
-### The REPL
-
-The REPL is an interactive CapTP lab on a live session. It shows the session's
-exports, imports, and answers beside the prompt as you type verbs, and typing
-`guide` starts a step-by-step walkthrough. Start a fresh `--publish` listener in
-terminal A, then in terminal B:
-
-```sh
-glowcap repl "$LOC"
-# the same as: glowcap ocapn dial "$LOC" --repl
-```
-
-The listener stays up for the life of that session and exits when you quit.
-
-Each peer needs its own identity. Use a separate `GLOWCAP_STATE` per terminal.
 
 **Terminal A.** Mint an identity, listen, publish the greeter (`--publish`
 accepts one partner, then exits):
@@ -127,10 +100,9 @@ glowcap --json ocapn listen --publish greeter
 glowcap: listening; will publish greeter when a partner connects (Ctrl-C to stop)
 ```
 
-The process then blocks on accept: that is the happy path, not a hang. Greeter
-is published only after Terminal B dials. `%3A` is a percent-encoded `:`. The
-designator is `127.0.0.1:46659` (standard OCapN peer URI form
-`ocapn://<designator>.tcp`). Paste A's locator as printed.
+The process then waits for a partner. This is not a hang. `%3A` is a
+percent-encoded `:`, so the designator is `127.0.0.1:46659`. Paste A's locator
+as printed.
 
 **Terminal B.** Mint, then one answered call:
 
@@ -160,7 +132,7 @@ glowcap --json ocapn call "$LOC" greeter greet glowcap \
 
 The built-ins are demo actors only: `greeter`, with `greet`, `cowsay`,
 `glowcapsay`, and `goblinsay`, and `echo`, whose `echo` verb returns its arg
-unchanged. CapTP itself hard-codes neither.
+unchanged.
 
 `Ctrl+C` / `SIGTERM` stops a waiting or serving `listen` cleanly (exit 0).
 
@@ -203,15 +175,16 @@ glowcap griddle help
 
 ## CapTP lab (REPL)
 
-The interactive lab is how you learn CapTP from the product CLI. On a TTY it
-opens a fullscreen lab with the REPL in front: the conversation and the prompt
-take most of the screen, and a CapTP instrument rail for exports, imports, and
-answers sits beside them. Without a TTY it stays in line mode.
+`glowcap repl` is an interactive CapTP lab on a live session. On a TTY it opens
+fullscreen, with the conversation and prompt in the middle and the session's
+exports, imports, and answers in a side panel. Without a TTY it stays in line
+mode. Type `guide` for a step-by-step walkthrough.
 
 A locator is optional. Start empty and `dial` inside, or dial first. A REPL
 or MCP `listen` binds and answers with its locator at once, then accepts
-partners on a background thread; `close` stops it. The argv form below stays
-a foreground accept loop:
+partners on a background thread. `close` stops it. A `--publish` listener
+started from the shell stays up for the one REPL session and exits when you
+quit:
 
 ```sh
 # terminal A
@@ -224,8 +197,7 @@ glowcap repl                 # sessionless lab, then dial inside
 # or: glowcap repl "$LOC"    # dial first (same as ocapn dial --repl)
 ```
 
-Inside the lab (the workbench view by default, with CapTP verbs, the instrument
-rail, and the transcript):
+Inside the lab:
 
 ```text
 help                         # everyday verbs
@@ -246,8 +218,7 @@ quit
 ```
 
 `Tab` completes, `F1` shows the full key map, and mouse, selection, scrolling,
-and clipboard behavior are documented in-app, so this page does not repeat
-them.
+and clipboard behavior are documented in-app.
 
 Environment variables tune the rest. `GLOWCAP_REPL_QUIET=1` skips the one-line
 workbench greeting, `GLOWCAP_REPL_NO_MOUSE=1` turns mouse handling off, and
@@ -282,15 +253,13 @@ This repository connects CapTP MCP to Cursor and Claude through the root
 After `zig build`, reload the MCP server in your editor so the tools use the
 new binary. If `glowcap` is already on `PATH`, you can use the portable
 configuration at [`docs/glowcap-mcp.json`](glowcap-mcp.json) instead. It needs
-no shim; set `GLOWCAP_STATE` explicitly there.
+no shim. Set `GLOWCAP_STATE` explicitly there.
 
 ## Sit in a room
 
-Room presence is `glowcap apps rooms session`. Install
-the [Linux/macOS glowcap product](../apps/rooms/host.md), or use the checkout
+Room presence is `glowcap apps rooms session`. Install the
+[Linux/macOS glowcap product](../apps/rooms/host.md), or use the checkout
 launcher with `./glowcap apps rooms session`.
-Zig owns its command grammar, help, and
-completion; the commands use the shared Rust Rooms session application.
 
 ```sh
 glowcap apps rooms session start --dir "$HOME/.rooms/alice" --nick Alice \
@@ -329,8 +298,8 @@ eval "$(glowcap completion bash)"   # or zsh | fish
 
 A script picks its identity with `GLOWCAP_STATE`, `GLOWCAP_IDENTITY`, or
 `--identity`, and should pass `--json` on every verb. `ocapn info` prints the
-session summary: the front, the state path, and the partner's `abort_kind` and
-`abort` reason when one was retained.
+session summary: `front` (command line, REPL, or MCP), the state path, and the
+partner's `abort_kind` and `abort` reason when one was retained.
 
 A `keyed-relay` locator names a peer with no listening socket: a browser tab,
 or any process that registered its identity at a relay instead.
@@ -339,12 +308,9 @@ or any process that registered its identity at a relay instead.
   `GLOWCAP_RENDEZVOUS` supplies one for a bare locator.
 - The route may be `ws` or `wss`. WSS trusts the platform's root certificates
   by default. For a private deployment, set `GLOWCAP_RELAY_CA_FILE` to a PEM
-  bundle of roots; the CLI reads it once at startup.
+  bundle of roots. The CLI reads it once at startup.
 - `keyed-relay` carries cleartext CapTP frames and does not prove who
-  answered. Native peers can seal the path with `noise-relay` instead, and
-  the browser's managed WebSocket connector accepts that sealed profile too.
-  `web-peer-test` proves the native CLI can call a real Chromium peer through
-  a local WSS relay this way
+  answered. Use `noise-relay` to seal the path, which browsers accept too
   ([known limitations](boundaries.md#browser-reachability)).
 
 ```sh
@@ -365,7 +331,4 @@ glowcap --json ocapn listen \
   --publish greeter
 ```
 
-[ADR-0084](decisions/adr/ADR-0084-glowcap-cli-product-boundary.md) records the
-product boundary. [`shipped.md`](shipped.md) lists the commands that exist,
-[`boundaries.md`](boundaries.md) records user-facing limits, and the
-[`roadmap`](roadmap.md) lists unbuilt product work.
+[`boundaries.md`](boundaries.md) records the CLI's limits.

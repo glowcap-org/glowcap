@@ -3,8 +3,8 @@ import { spawnWeb } from "../support/web_front.ts";
 // to end (ADR-0088 capability 5, the native-dialer row). The browser tab opens
 // no listening socket, so it cannot be dialed the ordinary way: it registers
 // its durable identity and a held inbound socket at the relay serve.ts runs, and
-// advertises a `noise-relay` locator to the room. The native peer — a plain
-// Deno process on the dlopen runtime, no browser anywhere near its side — joins
+// advertises a `noise-relay` locator to the room. The native peer, a plain
+// Deno process on the dlopen runtime, no browser anywhere near its side, joins
 // the same room, redeems the room's introduction, and its Host cold-dials the
 // browser's identity through the explicitly composed relay provider. The
 // Noise-sealed OCapN session opens end to end between
@@ -13,7 +13,7 @@ import { spawnWeb } from "../support/web_front.ts";
 // (`currentSession`), so a tab that never listens still replies.
 //
 // This is the general-stranger half `rooms-web-dm-tabs` leaves open: the
-// dialer is not a browser, so nothing browser-shaped carries the rendezvous —
+// dialer is not a browser, so nothing browser-shaped carries the rendezvous,
 // the generic rendezvous plan in the shared runtime opens the WebSocket channel
 // the dialing Host was configured for, on any runtime. The remaining honest
 // scope is unchanged: the locator names the identity, not the relay, so the
@@ -46,7 +46,7 @@ const ROOM = "lobby";
 const DM_TEXT = "hi web-bob, from a native peer that cold-dialed your identity";
 const REPLY_TEXT = "got it native-carol, replying over your arriving connection";
 
-// Join `ROOM` as `nick` in a fresh tab and wait until the composer is live —
+// Join `ROOM` as `nick` in a fresh tab and wait until the composer is live,
 // the signal that the room session is up and the tab has begun
 // advertising its rendezvous identity.
 async function joinAs(browser: Browser, port: number, nick: string): Promise<Page> {
@@ -144,13 +144,13 @@ try {
 	});
 	await line.say(DM_TEXT);
 
-	// The tab renders it — the message reached a browser that never listens,
+	// The tab renders it, the message reached a browser that never listens,
 	// sent by a peer that is not a browser.
 	await openDmTo(bob, "native-carol");
 	await awaitBubble(bob, DM_TEXT, "Bob");
 
 	// The tab replies over the very connection the DM arrived on
-	// (`currentSession` + the reply capability the sender handed it) — it
+	// (`currentSession` + the reply capability the sender handed it), it
 	// cannot dial native-carol back, and it never needs to.
 	await send(bob, REPLY_TEXT);
 	await until(() => replies.includes(REPLY_TEXT), "native-carol never received the reply");

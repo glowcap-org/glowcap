@@ -25,7 +25,7 @@ pub fn ResidentPolicy(comptime Backend: type) type {
             return signaling.DialResolver.resolve(locator);
         }
 
-        /// Empty asks for the Host's key; anything else must be it.
+        /// Empty asks for the Host's key. Anything else must be it.
         pub fn listenTarget(_: *const Backend, transport: []const u8, config: net.netlayer.ListenConfig) !Backend.ListenTarget {
             if (!isWebrtc(transport)) return error.UnknownTransport;
             const identity = config.identity orelse return error.InvalidAddress;

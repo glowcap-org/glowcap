@@ -5,7 +5,7 @@ use glowcap::loam::{ObservationCursor, ObservationDescription};
 /// Keep the original sequence through timeout or lost reply. A new sequence
 /// creates a different durable observation, not recovery of the original one.
 /// The two-element spine and seven verb bytes are owned here until registration
-/// is confirmed; the ordinary binding copies them only at vow admission.
+/// is confirmed. The ordinary binding copies them only at vow admission.
 pub struct ObservationRequest {
 	arguments: std::cell::RefCell<[Argument; 3]>,
 	live: bool,
@@ -37,15 +37,11 @@ impl ObservationRequest {
 		})
 	}
 }
-/// Owns the reply once; all descriptions borrow its immutable metadata.
+/// Owns the reply once. All descriptions borrow its immutable metadata.
 pub struct ObservationState(Argument);
-impl ObservationState {
-	pub fn view(&self) -> ObservationDescription<'_> {
-		ObservationDescription::read(&self.0).expect("validated immutable observation")
-	}
-}
+validated_reply!(ObservationState, ObservationDescription);
 /// Receive and cancellation are independent exact capabilities. Dropping this
-/// handle releases local custody; retire durable registration explicitly with
+/// handle releases local custody. Retire durable registration explicitly with
 /// cancel. Cancellation refusal keeps this handle available for exact retry.
 pub struct Observation<D> {
 	caller: Caller<D>,
@@ -91,7 +87,9 @@ impl<D: Deadline> Observation<D> {
 			// RefCell guard or extra argument copy survives the pending call.
 			let (sequence, pending) = {
 				let arguments = request.arguments.borrow();
-				let sequence = arguments[0].as_i64().expect("validated observation sequence");
+				let Some(sequence) = arguments[0].as_i64() else {
+					return Err(glowcap::loam::refusal("observation request holds no sequence").into());
+				};
 				(
 					sequence,
 					caller.call(
@@ -150,7 +148,7 @@ impl<D: Deadline> Observation<D> {
 	}
 	/// One outgoing cursor copies 56 bytes into the binding's owned Argument.
 	/// Its temporary allocation ends immediately after vow admission, before
-	/// waiting; the caller keeps the exact cursor for interruption recovery.
+	/// waiting. The caller keeps the exact cursor for interruption recovery.
 	pub fn poll(
 		&self,
 		cursor: Option<&ObservationCursor>,
@@ -164,8 +162,8 @@ impl<D: Deadline> Observation<D> {
 		))
 	}
 	/// Wait for change, cancellation or session closure. The caller retains the
-	/// actual future across interruption. Cancellation retires the registration;
-	/// the admitted receive must still be observed before closing its attachment.
+	/// actual future across interruption. Cancellation retires the registration.
+	/// The admitted receive must still be observed before closing its attachment.
 	/// Idle time does not expire a durable subscription.
 	pub fn receive(
 		&self,
@@ -191,7 +189,5 @@ impl<D: Deadline> Observation<D> {
 }
 
 async fn read(pending: impl Future<Output = Result<Argument, Error>>) -> Result<ObservationState, Error> {
-	let reply = pending.await?;
-	ObservationDescription::read(&reply)?;
-	Ok(ObservationState(reply))
+	ObservationState::validated(pending.await?)
 }

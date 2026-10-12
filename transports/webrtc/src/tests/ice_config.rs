@@ -83,6 +83,8 @@ fn ice_servers_reach_the_endpoint() {
 	let ep = test_endpoint_new(&cfg);
 	assert!(!ep.is_null());
 	assert_eq!(
+		// SAFETY: `ep` is the non-null live handle `test_endpoint_new` returned (asserted above); only the
+		// `glowcap_webrtc_sidecar_endpoint_free` call below frees it, after this borrow ends.
 		unsafe { &*ep }.inner.ice_servers,
 		vec![
 			RTCIceServer {
@@ -100,6 +102,8 @@ fn ice_servers_reach_the_endpoint() {
 			}
 		]
 	);
+	// SAFETY: `ep` is the owned endpoint handle `test_endpoint_new` returned; nothing has freed it, it has no peers,
+	// and it is not used after this call.
 	unsafe { glowcap_webrtc_sidecar_endpoint_free(ep) };
 
 	let empty = GlowcapWebrtcEndpointConfig {
@@ -110,7 +114,11 @@ fn ice_servers_reach_the_endpoint() {
 	};
 	let host_only = test_endpoint_new(&empty);
 	assert!(!host_only.is_null());
+	// SAFETY: `host_only` is the non-null live handle `test_endpoint_new` returned (asserted above); only the
+	// `glowcap_webrtc_sidecar_endpoint_free` call below frees it, after this borrow ends.
 	assert!(unsafe { &*host_only }.inner.ice_servers.is_empty());
+	// SAFETY: `host_only` is the owned endpoint handle `test_endpoint_new` returned; nothing has freed it, it has no
+	// peers, and it is not used after this call.
 	unsafe { glowcap_webrtc_sidecar_endpoint_free(host_only) };
 }
 

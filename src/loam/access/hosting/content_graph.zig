@@ -6,7 +6,7 @@ const hosting = @import("loam_hosting");
 pub const Schema = struct { id: u64, version: u32 = 1 };
 
 /// Snapshot copies and staged edges for one complete graph replacement. Each
-/// bound covers both the old and new population; pages excludes the root,
+/// bound covers both the old and new population. Pages excludes the root,
 /// payload_bytes includes it, and fields excludes resource bindings/page links.
 /// The pinned root is borrowed. Caller candidates and references are separate.
 pub fn allocationBound(pages: usize, payload_bytes: usize, fields: usize) !hosting.references.AllocationBound {
@@ -22,7 +22,7 @@ pub fn allocationBound(pages: usize, payload_bytes: usize, fields: usize) !hosti
 }
 
 /// The root's edge zero binds its canonical resource. Every remaining root
-/// edge is an owned page link; page edge zero binds that same resource, and
+/// edge is an owned page link. Page edge zero binds that same resource, and
 /// remaining page edges are capability fields. This registered role separation
 /// prevents traversal through capability fields, including reference recipes.
 pub const Spec = struct {
@@ -73,7 +73,7 @@ pub const Page = struct {
 pub const Snapshot = struct {
     pages: []const Page,
 
-    /// Token membership scans the bounded prepared page inventory; edge
+    /// Token membership scans the bounded prepared page inventory. Edge
     /// selection is indexed and never walks preceding fields or restores them.
     pub fn field(self: Snapshot, handle: *const PageHandle, index: usize) !loam.Edge {
         return hosting.references.edgeAt(try self.page(handle), try std.math.add(usize, index, 1));
@@ -136,7 +136,7 @@ pub const Prepared = struct {
     /// Copy each validated page into the bounded retained call arena, then
     /// release its cache lease before loading the next page. Keeping all pages
     /// pinned would turn graph size into a cache-residency requirement. The
-    /// snapshot must survive callback and transaction waits; the root's strong
+    /// snapshot must survive callback and transaction waits. The root's strong
     /// closure supplies collection custody, and hosting fences Store revisions.
     pub fn advanceCopying(self: *Prepared) !hosting.Preparation.Step {
         try self.current();
@@ -183,7 +183,7 @@ pub const Prepared = struct {
     }
 
     /// Admit the complete candidate before opening a transaction. New pages
-    /// take fresh IDs inside that transaction; retained pages keep their exact
+    /// take fresh IDs inside that transaction. Retained pages keep their exact
     /// identity. No caller-selected object ID can enter the owned graph.
     pub fn replacement(self: *Prepared, payload: []const u8, pages: []const Replacement) !?Delta {
         if (!try self.validateCandidate(payload, pages)) return null;

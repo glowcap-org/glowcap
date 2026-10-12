@@ -2,7 +2,7 @@
 //!
 //! Identity-proving routes race in an ordered window. Weak handoff fallbacks
 //! remain serial and begin only after every strong route has failed. This file
-//! owns the policy as bit arithmetic; the Node owns action publication and
+//! owns the policy as bit arithmetic. The Node owns action publication and
 //! adapters own only the concrete I/O effects.
 
 const std = @import("std");

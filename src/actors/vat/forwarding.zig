@@ -16,7 +16,7 @@ pub const ForwardContext = struct {
     answer: Answer,
 
     /// Capture an eventual answer before an adapter publishes its effect.
-    /// Storage belongs to the adapter; completion never frees this context.
+    /// Storage belongs to the adapter. Completion never frees this context.
     pub fn prepare(turn: *const Turn) !?ForwardContext {
         if (turn.forwarded) return Error.AlreadyForwarded;
         const answer = (try destination(turn)) orelse return null;
@@ -88,7 +88,7 @@ const ForwardRegistration = struct {
     }
 };
 
-/// Reserve before publishing a send or resolver; a no-answer turn needs neither
+/// Reserve before publishing a send or resolver. A no-answer turn needs neither
 /// a continuation allocation nor an answer listener.
 pub const ForwardReservation = union(enum) {
     no_answer,
@@ -126,7 +126,7 @@ pub fn forwardTurn(self: *Vat, turn: *Turn, target: vat_mod.Ref, msg: vat_mod.Me
 }
 
 /// Adapter-owned messages use the same queued answer transfer. The result
-/// value belongs to the adapter; this vow carries only its completion token.
+/// value belongs to the adapter. This vow carries only its completion token.
 pub fn forwardOpaque(self: *Vat, turn: *Turn, target: vat_mod.Ref, body: vat_mod.OpaqueMessage) !void {
     if (turn.port != null or target != .local) return Error.NotConnected;
     const reservation = try reserveForward(self, turn, .local);

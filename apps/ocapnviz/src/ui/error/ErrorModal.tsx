@@ -10,12 +10,12 @@ import { type AppError, subscribeErrors } from "./error-bus.ts";
  *
  * Split into two pieces by responsibility:
  *
- *   - `ErrorModalView` — what an error says and what a person can do about
+ *   - `ErrorModalView`, what an error says and what a person can do about
  *     it. The box it says it in, and the keyboard contract it owes, are
  *     `Dialog`'s. No subscriptions, no router knowledge, so
  *     `AppErrorBoundary` can render it even after React has unmounted the
  *     bus-subscribed tree.
- *   - `BusErrorModal` — subscribes to the error bus, owns the
+ *   - `BusErrorModal`, subscribes to the error bus, owns the
  *     visibility state, and dismisses on the user's primary action.
  *     The default modal mounted under `<App />`.
  */
@@ -26,7 +26,7 @@ export function ErrorModalView(
 		recovery: string;
 		primaryLabel: string;
 		onPrimary: () => void;
-		/** What Escape does. Omitted when the dialog has nowhere to go — the
+		/** What Escape does. Omitted when the dialog has nowhere to go, the
 		 *  error boundary's, where the app behind it is already broken and
 		 *  dismissing would take away the only explanation. */
 		onDismiss?: (() => void) | undefined;
@@ -99,7 +99,7 @@ export function ErrorModalView(
 }
 
 /** Bus-subscribed modal: shows the most recent `internal` or
- * `import` error from the bus; primary button dismisses. */
+ * `import` error from the bus. Primary button dismisses. */
 export function BusErrorModal() {
 	const [current, setCurrent] = useState<AppError | null>(null);
 	useEffect(() => {

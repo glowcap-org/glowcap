@@ -1,9 +1,9 @@
 /** The live timeline producer: a veneer over the native tap. The core is the
- * one owner of the facts — the host reports every session's open (with the
+ * one owner of the facts: the host reports every session's open (with the
  * partner's locator as its designator plus its transport, the OCapN Session ID
  * both peers of the session derive, what proved the partner's durable name,
  * and the codec the handshake
- * actually negotiated), every message's verb in both directions, and every
+ * negotiated), every message's verb in both directions, and every
  * close. This veneer only stamps time and forwards one flat record per fact in
  * the versioned timeline schema; even endpoint labeling belongs to the
  * consumer (ocapnviz resolves src/dst from the session-opened it already saw),
@@ -12,9 +12,9 @@
  * The facts arrive through the drained seam, `glowcap_host_set_trace_queue`
  * plus `glowcap_host_next_trace`: the host captures each one into a fixed ring
  * and this veneer pops the ring on the same unwind that drains the action
- * queue. That is the seam a browser can reach — the wasm module admits only
+ * queue. That is the seam a browser can reach: the wasm module admits only
  * its fixed behavior and hosted-retirement callbacks, so the trace callback
- * beside them has no wasm form — and using the one seam everywhere means a
+ * beside them has no wasm form. Using the one seam everywhere means a
  * browser peer and a native one produce the same stream through the same code.
  *
  * Off by default and zero-cost when off: with no sink installed no ring is
@@ -58,20 +58,20 @@ export type TraceEvent = {
 		| "ocapn.session-closed"
 		| "ocapn.session-meta";
 	/** This producer's own handle for the session. Scoped to the producer
-	 * and meaningless outside it — the name two producers agree on is
+	 * and meaningless outside it. The name two producers agree on is
 	 * `session_id` below, which OCapN derives from both ends' keys. */
 	session: string;
 	/** `ocapn.session-opened`: the reporting host's own OCapN Designator. */
 	a?: string;
 	/** `ocapn.session-opened`: the partner's OCapN Designator. Half a name
-	 * on its own — OCapN needs a designator and a transport together to
+	 * on its own: OCapN needs a designator and a transport together to
 	 * tell two locations apart, so `transport` travels with it. */
 	b?: string;
 	/** `ocapn.session-opened`: the locator's OCapN Transport, the netlayer
 	 * symbol this session runs over. */
 	transport?: string;
 	/** `ocapn.session-opened`: what the reporting host would like itself
-	 * called on screen. Display only — `a` stays the identity a consumer
+	 * called on screen. Display only. `a` stays the identity a consumer
 	 * merges on, and this text does not reach that decision. */
 	a_label?: string;
 	/** `ocapn.session-opened`: the implementation this producer runs, always
@@ -80,13 +80,13 @@ export type TraceEvent = {
 	 * the same footing as the `provenance` verdict beside it: a conclusion the
 	 * producer states, not a raw wire fact.
 	 *
-	 * It is stated because this schema is not glowcap's alone — the Goblins
-	 * conformance peer publishes the same records — so a consumer cannot read
+	 * It is stated because this schema is not glowcap's alone (the Goblins
+	 * conformance peer publishes the same records), so a consumer cannot read
 	 * an implementation off the fact that a record arrived, and a host that
-	 * says nothing is honestly unknown to it. */
+	 * says nothing is unknown to it. */
 	a_profile?: string;
 	/** `ocapn.session-opened`: the OCapN session identifier, 64 lowercase hex
-	 * digits — the spec's own Session ID, derived from both ends' Public
+	 * digits: the spec's own Session ID, derived from both ends' Public
 	 * Identifiers. Both peers of one session derive the same value, so a consumer
 	 * merging feeds from several producers can tell that two producers are
 	 * watching one session rather than two unrelated ones. Absent when the
@@ -109,7 +109,7 @@ export type TraceEvent = {
 	outbound?: boolean;
 	op?: string;
 	/** `ocapn.message-decoded`: the wire frame's byte length. Both
-	 * directions carry the frame — the core's fact sites sit at the
+	 * directions carry the frame because the core's fact sites sit at the
 	 * wire boundary. */
 	len?: number;
 	/** The whole frame, base64, when it fits the payload cap. */
@@ -128,7 +128,7 @@ export type TraceEvent = {
 	 * this one. Absent when none were lost, which is the ordinary case. */
 	dropped?: number;
 	/** `ocapn.session-meta`: an application annotation about the
-	 * session — a CLAIM by the producing application, never protocol
+	 * session. It is a CLAIM by the producing application, never protocol
 	 * identity. `label` names the session's partner in the
 	 * application's own vocabulary (a chat nick); `null` WITHDRAWS the
 	 * claim, the way an application says it no longer knows the
@@ -372,7 +372,7 @@ export function traceDrainHost(raw: Ptr): void {
  * `payloadCap` bounds the message-frame bytes forwarded per event
  * (base64; whole frame under the cap, head + true length above it);
  * 0 turns payload capture off. `selfLabel`, when given, is what the producing
- * application would like its own endpoint CALLED — a display name beside the
+ * application would like its own endpoint CALLED: a display name beside the
  * identity, never instead of it: the `a` endpoint stays the host's own key
  * designator, the name a partner knows it by and the only one two
  * producers can agree on. */
@@ -407,13 +407,13 @@ function installQueue(raw: Ptr): void {
 	hostS.glowcap_host_set_trace_queue(raw, BigInt(queueDepth), BigInt(windowBytes()));
 }
 
-/** Annotate a session with application metadata — the SET half of the
+/** Annotate a session with application metadata. This is the SET half of the
  * three-layer annotation design (set where meaning lives, pass through
  * dumb, use at the edge): the application that knows what a session
  * MEANS (a chat server that knows which member it carries) states it
  * here, and the record rides the same stream as the protocol facts,
  * named for the same session row the tap names. An annotation is a
- * claim, never identity — a consumer may display it, and must not let
+ * claim, never identity: a consumer may display it, and must not let
  * it merge or split peers. No sink installed, or a host the trace
  * never attached: silently nothing, like every other trace emit. */
 export function annotateSession(

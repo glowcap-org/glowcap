@@ -1,9 +1,9 @@
 #lang racket/base
 ;; The live timeline producer: a veneer over the native tap. The core is the
-;; one owner of the facts — `glowcap_host_set_trace` reports every session's
+;; one owner of the facts: `glowcap_host_set_trace` reports every session's
 ;; open (with the partner's designator, the wire name both peers of the
 ;; session derive, whether a durable identity verified the name, and the codec
-;; the handshake actually negotiated), every
+;; the handshake negotiated), every
 ;; message's verb in both directions, and every close. This veneer only
 ;; stamps time and forwards one flat record per fact in the versioned
 ;; timeline schema; even endpoint labeling belongs to the consumer (ocapnviz
@@ -32,15 +32,15 @@
 ;; failure. Observation stays non-load-bearing, but diagnostics never disappear
 ;; at the native callback boundary.
 ;; The display label the application chose for its own endpoint, or #f. The `a`
-;; endpoint itself is always the host's own key designator — what a partner
+;; endpoint itself is always the host's own key designator: it is what a partner
 ;; names it by, so one peer stays one node in a feed several producers share.
 (define self-label (box #f))
 ;; What this producer answers when a record asks what it runs. A constant and
 ;; not an option: the host behind this binding is a glowcap host, and an
 ;; application naming itself something else would put a claim on the wire that
 ;; nothing here could stand behind. It is stated rather than left implicit
-;; because this schema is not glowcap's alone — the Goblins conformance peer
-;; publishes the same records — so a consumer cannot read an implementation off
+;; because this schema is not glowcap's alone (the Goblins conformance peer
+;; publishes the same records), so a consumer cannot read an implementation off
 ;; the fact that a record arrived, and a host that says nothing is honestly
 ;; unknown to it. Each of the four bindings states the word itself, because it
 ;; is a claim about the binding tier rather than a fact the core or the C ABI

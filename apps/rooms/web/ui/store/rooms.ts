@@ -148,7 +148,7 @@ export function dropRoomManager(projection: PageProjection, key: string, token: 
 
 /** Note the matching room and moderator authorities after a claim or handover
  * has been validated. They move together because the moderator was accepted
- * for this exact room; recording only one would discard the evidence the
+ * for this exact room. Recording only one would discard the evidence the
  * operation just established. */
 export function noteRoomSteward(projection: PageProjection, key: string, roomLink: string, steward: string): void {
 	const conv = getConv(projection, key);

@@ -1,8 +1,7 @@
 // The parts catalog behind the glossary's secret door.
 //
-// Sample content for a component gallery rather than anything a reader meets
-// in the course of using Rooms, but it is on screen for whoever finds the
-// door, so its words live here with the rest.
+// Sample content for a component gallery. A reader does not meet it while using
+// Rooms, but it is on screen for whoever finds the door.
 
 export const kitchenPageNotice = "Page notice";
 export const kitchenBesideControl = "Beside the control";

@@ -5,10 +5,10 @@
 // the same directory has to be reachable again from its own row.
 //
 // Those three are what this file proves. The fourth thing that can happen to a
-// directory — going away without being left — is `gone.ts`, which this hands
+// directory, going away without being left, is `gone.ts`, which this hands
 // the page to when it is done with it.
 //
-// The tail of the two-directories conversation in `directories.ts`; it runs
+// The tail of the two-directories conversation in `directories.ts`. It runs
 // with that page's state and returns the restarted foreign server, if the
 // scenario minted one.
 
@@ -28,8 +28,8 @@ export async function run(
 ): Promise<void> {
 	// A directory with nothing open on it is still a directory this tab is on: a
 	// live session, and a name registered on it that nobody else can take. Leaving
-	// the last room on one used to leave exactly that, with no row anywhere saying
-	// so — a connection nobody could see and therefore nobody could end. So it
+	// the last room on one would leave exactly that, with no row anywhere saying
+	// so, a connection nobody could see and therefore nobody could end. So it
 	// keeps a row of its own, the same shape a room gets, because it is the same
 	// kind of thing: somewhere you are.
 	const before = namedRoomRow(tab, "elsewhere");
@@ -144,7 +144,7 @@ export async function run(
 	).catch(() => fail("leaving a directory did not take its rooms with it, or took the other directory's too"));
 	// And it stays left. A session that was dropped from the list without being
 	// released still has a reconnect timer, and that timer opens the directory
-	// again a second or two later — the tell is a row that comes back by itself.
+	// again a second or two later, the tell is a row that comes back by itself.
 	await tab.waitForTimeout(4000);
 	const cameBack = await tab.evaluate(() =>
 		[...document.querySelectorAll("#roomList .rname")].some((el) => el.textContent?.trim() === "elsewhere")
@@ -161,7 +161,7 @@ export async function run(
 	// show and the part most likely to be got wrong. A directory grants a name for
 	// the length of a connection; if leaving drops the row but leaves the session
 	// running, the directory is still holding that name and hands out a suffixed
-	// one to whoever asks next — including us, walking back in. So this walks back
+	// one to whoever asks next, including us, walking back in. So this walks back
 	// in, and the name it is given is the whole answer.
 	await tab.click("#newRoomBtn");
 	await tab.fill("#newRoomInput", "elsewhere");
@@ -273,7 +273,7 @@ export async function run(
 	// characters nobody retypes, and every one of these was pasted once already,
 	// so the field can be filled from what the tab is holding instead. Leaving it
 	// empty means this page's own directory, so that one clears rather than fills
-	// — the two directions are different actions and both are checked.
+	// (the two directions are different actions and both are checked).
 	// Named in the rail's own field, which is aimed at the directory of the room
 	// being read, so the card it opens is aimed there without anybody picking a
 	// directory: standing in a room has one reading of where the next one goes,
@@ -309,8 +309,8 @@ export async function run(
 	await tab.getByRole("menuitemradio", { name: other, exact: true }).click();
 	const filled = await tab.inputValue("#locator");
 	if (filled === "") fail("pressing a held directory did not fill the locator field");
-	// And fills it with the exact address sharing hands out — the route this
-	// tab dialed, hints and all — not the bare authority the store keys by. The
+	// And fills it with the exact address sharing hands out, the route this
+	// tab dialed, hints and all, not the bare authority the store keys by. The
 	// directory card's copy field is the sharing answer, so the two are compared
 	// directly rather than against any expectation about the route's shape.
 	await openDirectoryCardFromCaption(tab, aboutOf("elsewhere"));

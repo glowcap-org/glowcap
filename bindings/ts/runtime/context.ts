@@ -250,8 +250,8 @@ export class Context {
 		const live = new Map<bigint, Uint8Array>();
 
 		// Deno and Bun register callbacks globally, so these trampolines are
-		// callable from whichever archive allocates — the core that created the
-		// context, or a driver-archive host created in it.
+		// callable from whichever archive allocates (the core that created the
+		// context, or a driver-archive host created in it).
 		const allocCb = ffi.makeCallback(
 			{ parameters: ["pointer", "usize", "usize"], result: "pointer" },
 			(_user: Ptr, size: bigint, alignment: bigint): Ptr => {
@@ -303,7 +303,7 @@ export class Context {
 
 		// GlowcapAllocator, laid out by the generated ABI mirror. The C side copies
 		// its three fields out at the call (it never retains this pointer), so the
-		// struct is transient — only the callback pointers it carries must stay
+		// struct is transient: only the callback pointers it carries must stay
 		// live, and `#allocCb`/`#freeCb` own those.
 		const allocStruct = new Uint8Array(L.ALLOCATOR_SIZE);
 		const dv = new DataView(allocStruct.buffer);

@@ -24,7 +24,7 @@ fn validateResolverCallbackEnvelope(deliver: model.view.Deliver) session.Error!v
 /// pipelined calls target answers, and bootstrap delivers target export 0.
 pub const Route = union(enum) {
     /// A deliver to one of our resolver exports, settling the outbound answer
-    /// carried here; the frame surfaces as a semantic `Resolve`.
+    /// carried here. The frame surfaces as a semantic `Resolve`.
     resolver_callback_resolve: model.AnswerPosition,
     /// A next-profile shortening-only callback. It advances private session
     /// routing and is consumed before the application event queue.
@@ -48,7 +48,7 @@ pub const Route = union(enum) {
 
 /// Route selection with the resolver and destination state prepared by the
 /// routes that can do so here. The inbound owner commits prepared authority
-/// only after securing the chosen destination; specialized callback views are
+/// only after securing the chosen destination. Specialized callback views are
 /// validated there before the shared import preparation.
 pub const Classification = struct {
     route: Route,

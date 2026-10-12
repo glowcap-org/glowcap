@@ -57,6 +57,8 @@ pub const Cancellation = opaque {
         context: *anyopaque,
         /// All publication rows were loaded during preparation. This callback
         /// stages their retirement through the existing owning hosting seam.
+        /// Implementors are unknown at this declaration, so `stage` keeps an
+        /// `anyerror` return set.
         stage: *const fn (*anyopaque, [2]?loam.ObjectId) anyerror!void,
     };
 

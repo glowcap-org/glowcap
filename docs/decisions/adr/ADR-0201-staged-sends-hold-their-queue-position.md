@@ -3,7 +3,7 @@ id: ADR-0201
 status: accepted
 date: 2026-10-04
 tags: [engine, node, ordering, handoff, turns]
-decision: "A send the Node stages for gift ids reserves a row in the recipient Peer's pending queue at the moment it is sent; a step stops at that row, the finished batch fills it in place, and a failed batch removes it."
+decision: "A send the Node stages for gift ids reserves a row in the recipient Peer's pending queue at the moment it is sent. A step stops at that row, the finished batch fills it in place, and a failed batch removes it."
 supersedes: []
 superseded_by: []
 amends: [ADR-0194]
@@ -25,8 +25,7 @@ recipient was encoded first. One turn that sent `gift` and then `plain` to one
 sink delivered `plain` first. The only reservation staging held was a byte
 budget (`reserveInlinePassableStaging`), not a position.
 
-This engages protocol correctness before implementation convenience: the
-ordering is a CapTP guarantee, and an application cannot repair it above the
+Ordering is a CapTP guarantee, and an application cannot repair it above the
 library.
 
 ## Decision
@@ -34,7 +33,7 @@ library.
 The position is reserved where the order is decided. `batches.stage` reserves
 one row in the recipient's pending queue (`Peer.reserveStagedRow`) before its
 last fallible step and publishes it as an `Outbound.staged` row naming the
-batch. The row costs a queue seat and no bytes; the carrier's bytes stay
+batch. The row costs a queue seat and no bytes. The carrier's bytes stay
 charged to its staging reservation.
 
 - `Peer.step` stops before a staged row at the head while the session is open,
@@ -44,15 +43,15 @@ charged to its staging reservation.
   moves into the reserved one (`Peer.fillStagedRow`), keeping the reserved
   row's provisional mark.
 - When the batch fails, `Peer.removeStagedRow` removes the row and reports
-  whether a sendable carrier now heads the queue; only then does the Node
+  whether a sendable carrier now heads the queue. Only then does the Node
   queue a flush for the recipient. A retiring recipient removes the rows of
   its batches as they retire.
 
-The provisional window of ADR-0194 now covers staged sends through the same
-rows: a staged row made inside the window is marked, retraction removes it
-like any other marked row, and the Peer tells the Node to fail that batch
-(`NodeServices.stagedWithdrawn`). The Node no longer keeps its own list of
-batches staged in a window.
+The provisional window of ADR-0194 covers staged sends through the same rows: a
+staged row made inside the window is marked, retraction removes it like any
+other marked row, and the Peer tells the Node to fail that batch
+(`NodeServices.stagedWithdrawn`). The Node keeps no list of its own for batches
+staged in a window.
 
 ## Scope (what this does not decide)
 

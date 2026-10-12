@@ -1,8 +1,4 @@
 // The things you press, and what a screen reader calls them.
-//
-// Labels rather than prose, so there is little voice to get wrong. They are
-// here for the other half of the catalog's job: one place to read the
-// product's words, and one place a translator works from.
 
 export const topicChange = "Change the topic";
 export const topicClear = "Take the topic down";
@@ -21,7 +17,7 @@ export const yourRooms = "Your rooms";
 export const dmMarkTitle = "Direct message";
 export const dmRemove = "Remove this direct message";
 export const dmSectionTitle = "Direct messages";
-export const railFilterLabel = "What the rail shows";
+export const railFilterLabel = "What the sidebar shows";
 export const messageStopFiles = "Stop sending these files";
 export const messageRetry = "Retry failed message";
 export const discardChangesTitle = "Discard unsaved changes?";
@@ -44,13 +40,13 @@ export const standingSay = "Say it";
 export function standingFollow(what: string): string {
 	return `Follow ${what}`;
 }
-/** The one act on a form whose saving reloads the window. */
+/** The button on a form whose saving reloads the window. */
 export const saveAndReload = "Save and reload";
 /** What a pasted capability looks like, shown in an empty field. */
 export const sturdyrefPlaceholder = "ocapn://…/s/…";
 
 /** The composer: whom the field addresses, the bar over an edit, and the
- * one button that sends, joins, or takes a message back. */
+ * button that sends, joins, or takes a message back. */
 export function composerMessageDirectly(nick: string): string {
 	return `Message ${nick} directly`;
 }
@@ -72,8 +68,19 @@ export const composerTakeBack = "Take this message back";
 export const composerSend = "Send";
 export const commandKeyApple = "⌘";
 export const commandKeyControl = "Ctrl";
-/** The bar over a field on a directory that is not connected: the phase
- * word, then what became of the message. */
+/** The bar over a field on a directory that is not connected: the phase,
+ * then what became of the message. */
 export function composerNotConnected(phase: string): string {
 	return `${phase}. Your message was not sent.`;
 }
+
+export const composerUnsynced = "Draft is kept in this tab. Sync has stopped.";
+export const composerRetrySync = "Retry sync";
+
+export const messageWithdrawing = "Withdrawing message…";
+
+export function controlInProgress(action: string): string {
+	return action === "" ? "Working" : `In progress: ${action}`;
+}
+
+export const messageEditing = "Editing message…";

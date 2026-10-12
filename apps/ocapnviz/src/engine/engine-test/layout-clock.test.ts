@@ -27,7 +27,7 @@ import { doc } from "./fixtures.ts";
 //
 // The assertion is object identity on the keyframes array rather than a frame
 // budget. `recompute` replaces the array, so identity answers "did it run"
-// exactly, on any machine, in any build — where a millisecond budget would
+// exactly, on any machine, in any build, where a millisecond budget would
 // pass on a tree that had doubled the cost and fail on a busy laptop.
 //
 // Validated by injection, one per half, because a pair that passes on a
@@ -37,7 +37,7 @@ import { doc } from "./fixtures.ts";
 // recompute costs. The seek path shares the document-changed recompute gate
 // with playback (`#doSeek`); the live-arrival seek case below holds that half.
 // `scripts/playwright-masterpiece-cost-probe.ts` is the instrument for the
-// cost itself, and it is deliberately not a check — it needs a CPU throttle to
+// cost itself, and it is not a check, it needs a CPU throttle to
 // mean anything, which trades away machine independence.
 
 engineTest("playing an unedited document never recomputes the layout", () => {
@@ -106,7 +106,7 @@ engineTest("playing an unedited document never recomputes the layout", () => {
 		e.layout.keyframes === atConstruction,
 		"playing a document nobody edited re-derived its keyframes",
 	);
-	// The staggered arrivals really were crossed — otherwise the assertion
+	// The staggered arrivals really were crossed, otherwise the assertion
 	// above is vacuous and would keep passing if the trigger came back.
 	assert(e.clock.t >= 3000, "the clock did not reach the last arrival");
 	assert(
@@ -236,8 +236,8 @@ engineTest(
 // `version` promises to catch any mutation, so it moves on every frame of
 // playback and a panel subscribed to it re-renders at the frame rate. That is
 // the right contract for a consumer following the world. It is the wrong one
-// for a panel showing what the document says — its source, its title, whether
-// an id is taken — and those panels were paying it.
+// for a panel showing what the document says, its source, its title, whether
+// an id is taken, and those panels were paying it.
 //
 // `docVersion` is the narrower fact. The assertion is a count rather than a
 // duration for the same reason as the keyframes above: it holds on any machine
@@ -320,9 +320,9 @@ engineTest("a live observation moves the document version", () => {
 
 // ──────── Frame geometry shared once per stage update ────────
 //
-// Flight and the Stage projection used to each call `claimTargets` /
-// `computeSessionBundles`, and flight rebuilt time bundles every tick
-// even though those are observation-stable. The engine now owns one
+// Flight and the Stage projection share one `claimTargets` /
+// `computeSessionBundles` result, and flight does not rebuild time bundles
+// every tick because those are observation-stable. The engine owns one
 // `frameGeometry` per stage pass. Validated by injection: rebuilding
 // time bundles every `#runStageSystems` fails the identity test; leaving
 // Stage to compute its own session bundles would not fail these, but the

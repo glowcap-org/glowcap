@@ -6,7 +6,7 @@
 	flex: none;
 }
 /* The glowcap mark's box (Mark.tsx). The mark is a shader mushroom drawn on
-   a canvas that hangs around this box, so the light has room; the box is
+   a canvas that hangs around this box, so the light has room. The box is
    only where the mushroom stands, and whatever holds it leaves overflow
    visible. */
 .mark-live {
@@ -90,7 +90,7 @@
    synthetic hover state. Disabled controls never take an interactive state. */
 @media (hover: hover) {
 	/* Paper hover is ink on a cream wash. Inverse and on-accent sit on dark
-	   or amber; that wash would paint them the colour of the plate and they
+	   or amber. That wash would paint them the colour of the plate and they
 	   would vanish. Their own rules below keep a wash that still contrasts. */
 	.icon-button:hover:not(:disabled):not([data-tone="inverse"]):not([data-tone="on-accent"]) {
 		background: var(--hover);
@@ -163,7 +163,7 @@
    on a phone, where there is no hover at all.
 
    It names the two attributes every button in this family carries, because it
-   has to outrank the one hover state that also moves a control — the solid
+   has to outrank the one hover state that also moves a control: the solid
    accent lift above. A button being pressed is under the pointer by definition,
    so the two always meet, and the press is the one that should win: the control
    goes down under the finger rather than staying lifted. */
@@ -217,7 +217,7 @@
 }
 
 /* A refusal or warning that still belongs to the control it answers. Toasts
-   leave; these stay, in the same danger and warning ink the page notices use. */
+   leave. These stay, in the same danger and warning ink the page notices use. */
 .said {
 	margin: 0;
 	font-size: var(--type-ui);
@@ -245,7 +245,7 @@
 	flex: none;
 }
 /* Two lines where the error appeared, and Show for the rest. The control it
-   answered keeps its place; the card is where a locator or a paragraph is read. */
+   answered keeps its place. The card is where a locator or a paragraph is read. */
 .said-more {
 	all: unset;
 	display: flex;
@@ -279,7 +279,7 @@
 .said-more:focus-visible .said-show {
 	text-decoration: underline;
 }
-/* The ring is the base rule's; this only rounds the corners it follows. */
+/* The ring is the base rule's. This only rounds the corners it follows. */
 .said-more:focus-visible {
 	border-radius: var(--radius-chip);
 }
@@ -317,7 +317,7 @@ html {
 	touch-action: pan-x pan-y;
 }
 /* Make the hidden attribute authoritative. Component display rules would
-   otherwise override it and leave a toggled control visible — e.g. a Members
+   otherwise override it and leave a toggled control visible, e.g. a Members
    button lingering in a direct message. */
 [hidden] {
 	display: none !important;
@@ -342,12 +342,12 @@ body {
 }
 /* The ground is a property of the window, not of the document. On a phone the
    document scrolls, and a ground painted on `body` would carry the floor away
-   with it — the composer, its tucked banner, and the log fade are anchored to
+   with it: the composer, its tucked banner, and the log fade are anchored to
    the viewport and resolve to the solid floor, so mid-scroll they would sit on
    a ground that had not settled yet. A fixed layer keeps the crown at the top
    of the window and the floor under the composer wherever the conversation has
    scrolled to. (`background-attachment: fixed` says the same thing, but iOS
-   Safari has never honored it; a fixed element is honored everywhere.) The
+   Safari has never honored it. A fixed element is honored everywhere.) The
    `html` backstop paints the same picture over the canvas so overscroll
    rubber-banding shows the crown above and the floor below rather than a flat
    flash. */
@@ -362,7 +362,7 @@ body::before {
 	background: var(--page-bg);
 }
 /* The app shell: a fixed two-column grid on desktop (sidebar + main column).
-   On a phone the conversation is the screen; opening the list slides that
+   On a phone the conversation is the screen. Opening the list slides that
    screen right and brings the rail with it, leaving a peek of its left edge. */
 .app {
 	position: relative;
@@ -402,8 +402,8 @@ body::before {
    Every focusable shape the app builds is named here, because one it cannot
    reach has to draw its own ring, and a surface that draws its own ring is a
    surface that can drift from this one. The link and the disclosure arrow are
-   the two that used to. A reset more specific than this rule takes the ring
-   away again, so a control that resets itself stays scoped by class; the rooms
+   the two known cases. A reset more specific than this rule takes the ring
+   away again, so a control that resets itself stays scoped by class. The rooms
    rail carries that note where it bit. */
 a[href]:focus-visible,
 button:focus-visible,
@@ -420,7 +420,7 @@ summary:focus-visible,
    Asking for it should not turn a change into a jump cut: something that
    vanishes between two frames can leave a reader unsure anything happened at
    all, which is worse than the motion they asked to be spared. So repeated
-   animation stops, movement stops, and fades stay — short ones.
+   animation stops, movement stops, and fades stay, short ones.
 
    The duration is a near-zero rather than `none` on purpose, and it is
    load-bearing beyond taste: `boot.ts` takes the opening screen down on the
@@ -515,7 +515,4 @@ summary:focus-visible,
 .disclosure[data-align="center"] > summary {
 	margin-inline: auto;
 	padding-inline-start: 25px;
-}
-.disclosure[data-align="center"][open] {
-	justify-items: center;
 }

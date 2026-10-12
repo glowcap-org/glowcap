@@ -112,7 +112,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Directory<D> {
 		let opening = format!("direct:{next}");
 		self.introduce_opening(peer, expected, &opening).await
 	}
-	/// One opening is retained across every retry; registrations namespace it.
+	/// One opening is retained across every retry. Registrations namespace it.
 	pub async fn introduce_opening(
 		&self,
 		peer: &str,

@@ -1,5 +1,5 @@
 /* The session chooser: the whole page until a session is established. The
-   two doors are launch rows (entries.css) in one raised card; this sheet only
+   two doors are launch rows (entries.css) in one raised card. This sheet only
    places the page's own pieces around them. */
 .session-setup {
 	min-height: 100dvh;
@@ -21,7 +21,7 @@
 /* The lockup as the opening screen draws it, because this page is what that
    screen fades into and the mark should not appear to jump. The column and the
    fit between the mark and the word are `.brand-lockup` in page.css, which both
-   screens take; the logotype is taken at its own size, since its metrics are a
+   screens take. The logotype is taken at its own size, since its metrics are a
    drawing (mark.css) and a larger font-size here once left the caps standing
    small against a bigger "glowcap". This rule adds only the page's own colour. */
 .session-setup-brand {
@@ -34,7 +34,7 @@
 }
 .session-setup-heading h1 {
 	margin: 0;
-	/* Off the chrome ramp on purpose, for the reason the page's own measure is:
+	/* Off the chrome ramp, for the reason the page's own measure is:
 	   this is the whole screen rather than a card on one, so its heading is
 	   sized against the page it fills. The ramp tops out at the largest heading
 	   that has to sit inside a card, and nothing here has to. */
@@ -85,8 +85,8 @@
 	font-size: var(--type-body);
 	line-height: 1.45;
 }
-/* A field's label on this page is the caption voice like everywhere else;
-   the field row under it gets a breath of room from the sentence above. */
+/* A field's label on this page is the caption voice like everywhere else.
+   The field row under it gets a breath of room from the sentence above. */
 .session-setup-choice > .field-row {
 	margin-top: 4px;
 }

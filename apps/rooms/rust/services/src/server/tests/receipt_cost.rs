@@ -8,7 +8,18 @@ async fn locally_refused_posts_release_retained_capacity() {
 	tokio::task::LocalSet::new()
 		.run_until(async {
 			let temp = Temp::new();
-			let running = start(temp.0.clone(), tcp()).await;
+			let running = start_with_admission(
+				temp.0.clone(),
+				tcp(),
+				Asked::default(),
+				rooms_application::admission::Settings::parse(
+					|key| (key == "admission-scale").then(|| "100".into()),
+					8192,
+					1,
+				)
+				.unwrap(),
+			)
+			.await;
 			let host = glowcap::Host::with_options(Default::default()).unwrap();
 			host.set_session_limits(glowcap::SessionLimitOptions {
 				max_frame_bytes: 4096,
@@ -60,7 +71,18 @@ async fn retained_post_measures_request_and_callback_wire_bytes() {
 	tokio::task::LocalSet::new()
 		.run_until(async {
 			let temp = Temp::new();
-			let running = start(temp.0.clone(), tcp()).await;
+			let running = start_with_admission(
+				temp.0.clone(),
+				tcp(),
+				Asked::default(),
+				rooms_application::admission::Settings::parse(
+					|key| (key == "admission-scale").then(|| "100".into()),
+					8192,
+					1,
+				)
+				.unwrap(),
+			)
+			.await;
 			let runtime = runtime().await;
 			let dial = glowcap::parse_locator(&running.location).unwrap();
 			let client = Client::new(

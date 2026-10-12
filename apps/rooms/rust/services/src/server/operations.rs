@@ -1,7 +1,7 @@
 //! What an operator holds over this server: the boot capabilities minted on
 //! an explicit ask and published under unguessable swiss numbers that a
 //! state directory keeps across restarts, and the behaviors behind them.
-//! The policies are `rooms_application::server::operations`; this tier
+//! The policies are `rooms_application::server::operations`. This tier
 //! keeps the swiss files, opens sockets, and answers over CapTP.
 pub(super) mod document;
 pub(super) mod inspect;

@@ -11,7 +11,7 @@ impl std::fmt::Display for EntropyUnavailable {
 }
 impl std::error::Error for EntropyUnavailable {}
 
-/// Platform cryptographic entropy. The caller owns this source; cloning a
+/// Platform cryptographic entropy. The caller owns this source. Cloning a
 /// runtime handle must not duplicate a generator state.
 pub trait Entropy {
 	fn fill(&mut self, bytes: &mut [u8]) -> Result<(), EntropyUnavailable>;
@@ -32,7 +32,7 @@ pub fn random_id(source: &mut dyn Entropy, prefix: &str) -> Result<Id, Error> {
 	let mut id = String::with_capacity(prefix.len() + 32);
 	id.push_str(prefix);
 	for byte in entropy {
-		write!(&mut id, "{byte:02x}").expect("string formatting");
+		let _ = write!(&mut id, "{byte:02x}");
 	}
 	Id::new(id.into()).ok_or_else(|| Error::invalid("session identifier exceeds its field bound"))
 }

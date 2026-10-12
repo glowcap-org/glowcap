@@ -266,7 +266,7 @@ LAYOUTS: dict[str, tuple[int, tuple[tuple[str, int, int], ...]]] = {
         ("idle_timeout_ms", 16, 8),
         ("worker_threads", 24, 4),
     )),
-    "GLOWCAP_RELAY_CONFIG": (72, (
+    "GLOWCAP_RELAY_CONFIG": (88, (
         ("abi_version", 0, 4),
         ("struct_size", 8, 8),
         ("relay_url", 16, 8),
@@ -276,6 +276,8 @@ LAYOUTS: dict[str, tuple[int, tuple[tuple[str, int, int], ...]]] = {
         ("trust", 48, 4),
         ("trust_pem", 56, 8),
         ("trust_pem_len", 64, 8),
+        ("relay_alias_url", 72, 8),
+        ("relay_alias_url_len", 80, 8),
     )),
     "GLOWCAP_WEBRTC_READY_EVENT": (16, (
         ("subject", 0, 8),

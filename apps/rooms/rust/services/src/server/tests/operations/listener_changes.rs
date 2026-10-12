@@ -92,7 +92,7 @@ async fn listener_changes_serialize_and_failed_forgetting_preserves_intent() {
 				assert_eq!(int(seat(&list(&session, &admin).await, TRANSPORT_KEYED_TCP), 6), id);
 				assert_eq!(read().listeners.len(), 2);
 				// Retrying proves the failed write did not forget the in-memory
-				// intent: the successful retry must actually remove it from disk.
+				// intent: the successful retry must remove it from disk.
 				session.send(&admin, "down", &[Argument::Integer(id)]).await.unwrap();
 				assert_eq!(read().listeners.len(), 1);
 				assert_eq!(

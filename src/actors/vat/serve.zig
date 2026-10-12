@@ -1,12 +1,12 @@
 //! The vat's wire-hosting family: serving inbound events and settling far vows.
 //!
-//! `serve` dispatches one inbound peer event — a deliver to a bound export
+//! `serve` dispatches one inbound peer event, a deliver to a bound export
 //! runs the actor's turn through the shared frame spine and resolves the
-//! answer; a resolve fires the far vow's one-shot listener, projecting a
+//! answer. A resolve fires the far vow's one-shot listener, projecting a
 //! handoff give typed. `settleFar` is the byte-fed host's counterpart to the
 //! same settle, `forwardTurn` drives `Turn.forward`, and export binding
 //! (`Port.bindExport`/`refForExport`) plus disconnect breaks (`breakFarVows`) live
-//! beside them. `Port` re-binds the session public verbs; the turn module runs the
+//! beside them. `Port` re-binds the session public verbs. The turn module runs the
 //! same frame spine for local calls.
 
 const std = @import("std");
@@ -30,9 +30,9 @@ const Port = vat_mod.Port;
 const releaseBox = boxed.releaseBox;
 
 /// Dispatch one inbound peer event: a deliver to a published actor runs its
-/// turn and resolves the answer (`serveDeliver`); a resolve for a far vow
+/// turn and resolves the answer (`serveDeliver`). A resolve for a far vow
 /// fires its listener (`serveResolve`). Returns whether the event belonged
-/// to this vat; if it did not, the caller handles it. The application polls
+/// to this vat. If it did not, the caller handles it. The application polls
 /// the peer and hands events here.
 pub fn serveFromIngress(self: *Vat, port: *Port, ingress: vat_mod.IngressId, event: *engine.Event) !bool {
     const body = event.view() catch return false;
@@ -74,7 +74,7 @@ fn serveDeliver(
         // so the vat must not race a break onto its answer.
         if (export_position.int() == engine.BOOTSTRAP_POSITION) return false;
         // The engine admitted the deliver, so the position IS a
-        // granted export at peer level — but no actor is bound
+        // granted export at peer level, but no actor is bound
         // (no `Port.bindExport`). An answered call must
         // not strand the partner's vow, so break it, exactly
         // as the mapped-but-vanished case below does. A no-answer
@@ -104,7 +104,7 @@ fn serveDeliver(
     // Materialize the borrowed wire args *inside* the turn window:
     // `beginTurn`'s depth-0 reset has already run, so the args land
     // in the turn arena and the next outermost turn's reset reclaims
-    // them — bump-and-reset instead of a per-event allocate/free walk
+    // them, bump-and-reset instead of a per-event allocate/free walk
     // on the vat allocator. The handler contract is already
     // turn-scoped (module header), so nothing may retain them past
     // this window anyway; the reply (which may alias the args) stays
@@ -121,14 +121,14 @@ fn serveDeliver(
             // already holds its bytes, and `resolveFulfill` copies the
             // reply onto the wire inside this turn, before the deferred
             // free. The wire copy is mandatory regardless, so the move
-            // saves nothing on the serve path — it only avoids
+            // saves nothing on the serve path. It only avoids
             // `callLocal`'s sever-copy on the near path.
             // A forwarding actor handed its answer to another send's
             // vow; that vow resolves it, not this return.
             if (turn.forwarded) return true;
             // The interceptor runs inside the turn (`turn_depth >= 1`), so
             // any top-level turn it opens is nested and never resets the
-            // arena `value` may live in — the value is turn-borrowed,
+            // arena `value` may live in, the value is turn-borrowed,
             // exactly like a handler's own reply.
             if (port.resolve_interceptor) |interceptor| {
                 if (answer) |ans| {
@@ -144,7 +144,7 @@ fn serveDeliver(
                         // The interceptor resolved the answer itself
                         // (an originated give); the vat sends nothing.
                         .claimed => {},
-                        // Resolve with what it returned — the original
+                        // Resolve with what it returned, the original
                         // value, or a token rewritten to its wire
                         // reference.
                         .resolve => |reply| try resolveFulfill(port, answer, reply),
@@ -167,12 +167,11 @@ fn serveDeliver(
 }
 
 /// The fulfilled-arm settle spine shared by `serveResolve` and
-/// `settleFar`, holding the choreography their prose used to promise
-/// stayed in sync. The clone defends two hazards: a listener may open a
+/// `settleFar`, holding the choreography both must keep in sync. The clone defends two hazards: a listener may open a
 /// top-level turn (`near` or `drive`) whose depth-0 turn-arena reset
 /// would free a turn-borrowed value mid-call, and the value may borrow
 /// actor state a listener-run turn mutates or `become`-frees. Its home is
-/// the settle arena; queue chunks own queued messages and are not listener
+/// the settle arena. Queue chunks own queued messages and are not listener
 /// scratch. The depth guard keeps a re-entrant settle (a listener pumping
 /// `serve` again) from resetting the arena under the outer value. Materialized
 /// before the remove so a refused clone leaves the listener parked. That is
@@ -181,7 +180,7 @@ fn serveDeliver(
 /// session, whose release runs `breakFarVows`. A local turn has no such
 /// producer, so `settleLocal` breaks its waiter instead. `value` is either a borrowed
 /// `model.view.Argument` (the wire path) or an owned `model.Argument`
-/// (the byte-fed host path); the clone verb is the only difference.
+/// (the byte-fed host path). The clone verb is the only difference.
 fn fireFulfilledFar(self: *Vat, port: *Port, answer: model.AnswerPosition, listener: Listener, value: anytype) !void {
     self.settle_depth += 1;
     defer {
@@ -207,7 +206,7 @@ fn fireBrokenFar(port: *Port, answer: model.AnswerPosition, listener: Listener, 
 }
 
 /// The resolve arm of `serve`: fire the far vow's one-shot listener with
-/// the settled outcome — a typed give projection when the fulfillment
+/// the settled outcome, a typed give projection when the fulfillment
 /// carries a signed handoff give (`event` is here for exactly that: the
 /// verbatim envelope span lives only in the event's frame), an owned clone
 /// on the plain fulfilled path, or the break reason.
@@ -216,7 +215,7 @@ fn serveResolve(self: *Vat, port: *Port, resolve: model.view.Resolve) !bool {
     // arms do fallible allocation before firing, and an error return
     // must leave the entry in the map so teardown
     // (`freeOwnedForwardContexts`) or `breakFarVows` still reclaims
-    // it — a `forwardListener` frees its heap `ForwardContext` only
+    // it, a `forwardListener` frees its heap `ForwardContext` only
     // when it fires. Each arm removes the entry immediately before it
     // fires, preserving the remove-before-fire order a listener that
     // registers a new far vow relies on.
@@ -261,10 +260,10 @@ fn serveResolve(self: *Vat, port: *Port, resolve: model.view.Resolve) !bool {
 /// Settle the far vow at `answer` with `resolution`, firing and removing its
 /// one-shot listener. This is how an embedder that executes node serve-step
 /// actions (`engine.Node.Action.settle` / `.fail`) delivers a settlement
-/// that never crossed this vat's own wire — the byte-fed host's counterpart to
+/// that never crossed this vat's own wire, the byte-fed host's counterpart to
 /// the resolve arm of `serve`, minus the wire event. The fulfilled value is
 /// cloned into the settle arena for the listener call, under the same depth
-/// guard as `serveResolve`'s fulfilled arm; a broken reason is borrowed for
+/// guard as `serveResolve`'s fulfilled arm. A broken reason is borrowed for
 /// the call. With no listener parked, the application notification is consumed
 /// on the answer row, so a late `on` is refused `AlreadySettled`
 /// instead of parking forever. The parameter admits no `.give`: the
@@ -308,12 +307,12 @@ pub fn breakFarVows(port: *Port, message: []const u8) void {
 
 /// Bind an already-spawned local actor to export `position` so a partner's
 /// deliveries to that position run the actor (dispatched by `serve`). Requires
-/// a session `Port`. This is the numeric-position primitive; the by-name publish
+/// a session `Port`. This is the numeric-position primitive. The by-name publish
 /// verb one layer up (`Served.publish`, `BlockingSession.publish`) rides on
 /// it. Binding *reserves* the position, it does not grant it: the partner
 /// can address the actor only once its reference first marshals onto the
 /// wire, or after an explicit `peer.exportObject` grant (ADR-0074). Only a
-/// local actor can be bound — a far ref already lives elsewhere — so a far
+/// local actor can be bound, a far ref already lives elsewhere, so a far
 /// ref returns `NotLocal`.
 pub fn bindExport(port: *Port, vat: *Vat, actor: Ref, position: u64) !void {
     const local_id = switch (actor) {
@@ -346,7 +345,7 @@ pub fn bindExport(port: *Port, vat: *Vat, actor: Ref, position: u64) !void {
 /// exported there, the inverse of `Port.bindExport`'s position-to-actor map. A
 /// surface that receives a near reference (which names an object by its wire
 /// export position, not its vat-local actor id) resolves it through here so a
-/// position is never mistaken for an actor id; `Vat.serve` resolves an inbound
+/// position is never mistaken for an actor id. `Vat.serve` resolves an inbound
 /// deliver's target the same way.
 pub fn refForExport(port: *const Port, position: u64) ?Ref {
     const local_id = port.exports.get(position) orelse return null;
@@ -371,8 +370,8 @@ pub fn resolveBreak(port: *Port, answer: ?engine.AnswerTarget, message: []const 
 ///
 /// It is a convention of this actor layer, not an OCapN rule: OCapN delivers a
 /// positional argument list with no distinguished method slot. So a deliver from
-/// a peer that does not follow the convention — a genuine Goblins object whose
-/// first real argument is itself a symbol, or a call sent with no leading verb —
+/// a peer that does not follow the convention, a genuine Goblins object whose
+/// first real argument is itself a symbol, or a call sent with no leading verb,
 /// is read here as "the first symbol is the method." A vat hosting objects for a
 /// non-glowcap peer must agree on this verb-as-leading-symbol convention, or
 /// dispatch by inspecting the args directly rather than through this split.

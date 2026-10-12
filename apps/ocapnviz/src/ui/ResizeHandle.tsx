@@ -1,8 +1,8 @@
 /**
  * Seam between two layout regions. Absolutely positioned inside its
- * parent (which must be `position: relative`); the hit-area is fatter
+ * parent (which must be `position: relative`). The hit-area is fatter
  * than the visible 1 px line for an easier grab. The host owns the
- * resize logic — `useResizeHandle` wires the pointer and the keyboard
+ * resize logic, `useResizeHandle` wires the pointer and the keyboard
  * and reports a per-axis delta.
  *
  * It is a focusable separator, which is what a splitter between two
@@ -19,13 +19,13 @@ export function ResizeHandle(
 	{ axis, edge, label, onDelta, onDoubleClick, title, style }: {
 		axis: "x" | "y";
 		edge: "left" | "right" | "top" | "bottom";
-		/** What this seam separates, for anyone who reaches it by Tab —
+		/** What this seam separates, for anyone who reaches it by Tab,
 		 *  "Left panel width". Required, because a separator with no name
 		 *  is an unlabeled control in the tab order. */
 		label: string;
 		onDelta: (delta: number) => void;
-		/** Optional double-click affordance — e.g. "snap pane to its
-		 * intrinsic content height". Callers wire the snap target; the
+		/** Optional double-click affordance, e.g. "snap pane to its
+		 * intrinsic content height". Callers wire the snap target. The
 		 * keyboard reaches the same verb with Enter. */
 		onDoubleClick?: (() => void) | undefined;
 		title?: string | undefined;

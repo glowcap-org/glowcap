@@ -1,5 +1,5 @@
 //! What every server policy asks of its adapter in the same words. The
-//! rooms and the directory each answer their own effects; the ones both
+//! rooms and the directory each answer their own effects. The ones both
 //! answer live here so an adapter handles one shape.
 
 /// A capability the adapter gives back on the connection it lives on.

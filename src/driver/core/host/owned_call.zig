@@ -1,5 +1,5 @@
 //! A bounded, owned result of one admitted capability send. Delivery and vows
-//! remain the producers; this owner never consumes the application's FIFO.
+//! remain the producers. This owner never consumes the application's FIFO.
 const std = @import("std");
 const actors = @import("actors");
 const engine = @import("engine");
@@ -60,8 +60,8 @@ pub const Call = opaque {
         return state.result();
     }
 
-    /// Top-level, before Host destruction. Cancellation detaches the observer;
-    /// it cannot undo a target effect that was already admitted.
+    /// Top-level, before Host destruction. Cancellation detaches the observer.
+    /// It cannot undo a target effect that was already admitted.
     pub fn deinit(self: *Call) void {
         const state: *State = @ptrCast(@alignCast(self));
         state.deinit();
@@ -99,7 +99,7 @@ const State = struct {
 
     /// Detach the exact pending observer or release its completed value. This
     /// does not undo an already admitted target effect. Top-level, before Host
-    /// destruction; cancellation needs no allocator after admission.
+    /// destruction. Cancellation needs no allocator after admission.
     fn deinit(self: *State) void {
         self.host.refuseReentry() catch unreachable;
         switch (self.state) {
@@ -164,7 +164,7 @@ comptime {
         @compileError("owning Call exceeded its 328-byte operation budget");
 }
 
-/// Internal delivery seam; the supported operation exposes result/deinit only.
+/// Internal delivery seam. The supported operation exposes result/deinit only.
 pub fn observe(call: *Call, session: *host_mod.HostSession, row: *settlement.VowRow) !void {
     const state: *State = @ptrCast(@alignCast(call));
     try state.observe(session, row);
@@ -186,7 +186,7 @@ pub fn callCapability(
 }
 
 /// Internal counterpart with a synchronous admitted-work proof. Session
-/// admission remains independent; a Host lease cannot reopen a session.
+/// admission remains independent. A Host lease cannot reopen a session.
 pub fn callAdmitted(host: *host_mod.Host, allocator: std.mem.Allocator, session: *host_mod.HostSession, target: capability.Ref, verb: []const u8, values: []const value_mod.Value, reply_bytes: usize, admission: @import("admission.zig").WorkAdmission) !*Call {
     try host.refuseReentry();
     try admission.check(host);
@@ -203,7 +203,7 @@ pub fn callAdmitted(host: *host_mod.Host, allocator: std.mem.Allocator, session:
 }
 
 /// Internal local producer admission. State and its fixed reply buffer are
-/// observer storage; the Host row and queue own all producer/input custody.
+/// observer storage. The Host row and queue own all producer/input custody.
 pub fn createLocal(host: *host_mod.Host, allocator: std.mem.Allocator, reply_bytes: usize, producer: *@import("local_delivery.zig").Producer) !*Call {
     if (reply_bytes == 0) return error.InvalidLimits;
     const self = try allocator.create(State);

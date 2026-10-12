@@ -1,7 +1,7 @@
 //! Signaling exchanges bind one bounded offer and answer lifecycle to two peers.
 use super::*;
 /// Acceptance and answer settle independently. Platform failures use the same
-/// owner as protocol refusals; E never changes a committed milestone.
+/// owner as protocol refusals. E never changes a committed milestone.
 pub struct Exchange<E> {
 	started: bool,
 	ended: bool,

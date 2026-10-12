@@ -1,5 +1,5 @@
-//! The server's IRC gateway. Portable policy owns networks, rooms and seats;
-//! this owner composes their capabilities, durable names and host sockets.
+//! The server's IRC gateway. Portable policy owns networks, rooms and seats.
+//! This owner composes their capabilities, durable names and host sockets.
 pub(super) mod authority;
 mod commands;
 mod invitation;
@@ -100,10 +100,7 @@ fn current(state: &State, network: &Rc<Network>) -> Result<(), String> {
 	}
 }
 fn retired() -> String {
-	format!(
-		"{}: this IRC bridge publication was retired",
-		rooms_application::failure::FailureCode::RoomRetired.wire()
-	)
+	rooms_application::failure::FailureCode::RoomRetired.line("this IRC bridge publication was retired")
 }
 
 fn apply(state: &State, key: &str, mut effects: Effects<u64, Ref>) -> Result<(), String> {

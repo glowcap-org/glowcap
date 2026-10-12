@@ -1,7 +1,7 @@
 // Real-browser proof for browser Noise rendezvous. Chromium runs the public
 // @glowcap/web bundle over the shipped Wasm Host; the installed native CLI
 // cold-dials its advertised locator through the reference relay and calls an
-// object hosted in the page. Rooms is deliberately absent from this proof.
+// object hosted in the page. Rooms is absent from this proof.
 
 import { chromium } from "playwright";
 import { bundleProbe, fail, freePort } from "./support.ts";

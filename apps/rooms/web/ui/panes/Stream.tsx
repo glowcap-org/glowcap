@@ -3,7 +3,7 @@
 //
 // This is where scrolling is owned, and it is owned in one place because the
 // region that scrolls is not the same element on both layouts. On a wide screen
-// the log is its own overflow area; on a phone the whole document scrolls, the
+// the log is its own overflow area. On a phone the whole document scrolls, the
 // way a native chat does. Every read and every write goes through `scroller`, so
 // there is one answer to "where are we" rather than one per caller.
 
@@ -152,7 +152,7 @@ export function Stream(
 	}, [scroller, atBottom]);
 
 	// Arriving at a conversation, and every line that lands while you are in one.
-	// Both are the same question — what should be on screen now — so they are one
+	// Both are the same question, what should be on screen now, so they are one
 	// effect rather than an append path and a switch path that have to agree.
 	const key = conv?.key ?? null;
 	const count = history.length;

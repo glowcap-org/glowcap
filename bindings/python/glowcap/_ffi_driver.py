@@ -66,7 +66,7 @@ pin_struct(_DriverFailure, "GLOWCAP_DRIVER_FAILURE")
 
 
 class _DriverEvent(ctypes.Structure):
-    # GlowcapDriverEvent (glowcap_driver.h) — one drained loop event. `kind`
+    # GlowcapDriverEvent (glowcap_driver.h): one drained loop event. `kind`
     # selects the live fields; failure names and the views inside `action` are
     # loop-owned and valid until the NEXT glowcap_driver_next_event call.
     _fields_ = [

@@ -67,7 +67,7 @@ pub enum Join {
 	Link { link: DocumentText, label: DocumentText },
 }
 /// A pasted `/link` answer may include prose before its URI. Recognition is
-/// deliberately separate from route validation and capability enlivenment.
+/// separate from route validation and capability enlivenment.
 pub fn join(text: &DocumentText) -> Option<Join> {
 	let text = trimmed(text);
 	if empty(&text) {

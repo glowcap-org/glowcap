@@ -81,7 +81,7 @@ impl tokio_tungstenite::tungstenite::handshake::server::Callback for Asked {
 	}
 }
 
-/// One socket: a plain request is told where the doors are; an upgrade is
+/// One socket: a plain request is told where the doors are. An upgrade is
 /// admitted only with the capability, then serves as a producer or a viewer.
 async fn connection(mut stream: TcpStream, feed: Shared, trace_host: Host, swiss: String, port: u16) {
 	let (head, prefix) = match tokio::time::timeout(HEAD_DEADLINE, connection_head(&mut stream)).await {
@@ -93,7 +93,7 @@ async fn connection(mut stream: TcpStream, feed: Shared, trace_host: Host, swiss
 	use tokio::io::AsyncReadExt;
 	let (reader, writer) = stream.into_split();
 	let stream = tokio::io::join(std::io::Cursor::new(prefix).chain(reader), writer);
-	if head.is_none() {
+	let Some(head) = head else {
 		let designator = format!("127.0.0.1:{port}");
 		match Session::accept_over(&trace_host, "tcp", &designator, &designator, stream, Some(HANDSHAKE)).await {
 			Ok(session) => serve_viewer(session, feed).await,
@@ -103,8 +103,8 @@ async fn connection(mut stream: TcpStream, feed: Shared, trace_host: Host, swiss
 			}),
 		}
 		return;
-	}
-	if !head.expect("HTTP head").contains("upgrade: websocket") {
+	};
+	if !head.contains("upgrade: websocket") {
 		let body = NOT_A_SOCKET;
 		let response = format!(
 			"HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -113,7 +113,7 @@ async fn connection(mut stream: TcpStream, feed: Shared, trace_host: Host, swiss
 		let mut stream = stream;
 		use tokio::io::AsyncWriteExt;
 		// tolerant: a refused plain request that cannot even be answered is
-		// simply dropped.
+		// dropped.
 		let _ = stream.write_all(response.as_bytes()).await;
 		let _ = stream.shutdown().await;
 		return;
@@ -225,7 +225,7 @@ async fn connection(mut stream: TcpStream, feed: Shared, trace_host: Host, swiss
 }
 /// One 4096-byte prefix belongs to connection admission until either handshake
 /// consumes it. Fragmented input needs owned replay bytes because raw CapTP and
-/// HTTP share this socket; peeking cannot wait for new bytes without polling.
+/// HTTP share this socket. Peeking cannot wait for new bytes without polling.
 /// The normalized HTTP text is separate bounded parse scratch and retires at
 /// routing. Connection count and the caller's deadline bound aggregate custody.
 async fn connection_head(

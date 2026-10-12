@@ -24,6 +24,9 @@ fn driver_loop_default_frame_cap_uses_generated_abi_constant() {
 #[cfg(any(feature = "tcp", feature = "iroh"))]
 #[test]
 fn unknown_native_event_and_completion_kinds_are_returned_failures() {
+	// SAFETY: `GlowcapDriverEvent` is a plain C struct of integers, null pointers, and a nested `GlowcapHostAction` of
+	// the same kind; all-zero is a valid value, and the test sets the discriminant fields it exercises before
+	// `decode_event` reads them.
 	let mut event: GlowcapDriverEvent = unsafe { core::mem::zeroed() };
 	event.kind = u32::MAX;
 	let error = decode_event(&event).err().expect("unknown event is rejected");
@@ -86,7 +89,7 @@ fn failed_park_admission_does_not_publish_a_started_loop() {
 
 /// A handshake deadline is a clock edge, not descriptor readiness. The
 /// async loop must therefore ask the native driver when its next progress
-/// step is due; otherwise a partner that accepts TCP and says nothing can
+/// step is due. Otherwise a partner that accepts TCP and says nothing can
 /// leave this future parked forever.
 #[cfg(feature = "tcp")]
 #[tokio::test]
@@ -155,7 +158,7 @@ fn dropped_listener_setup_retires_a_committed_ready_listener() {
 
 /// The loop tier from Rust (ADR-0112): two stepping loops over loopback
 /// TCP, the server driven wholly by its own thread, dial as an operation id, the
-/// session as an Opened event, and a vow's break as a Completion event —
+/// session as an Opened event, and a vow's break as a Completion event:
 /// the byte-fed drain's own Fail shape, ticket-matched. The success arm
 /// rides the live iroh parity test below.
 #[cfg(feature = "tcp")]
@@ -226,6 +229,9 @@ fn tcp_loopback_steps_dial_fetch_and_hangup() {
 
 	let mut vow = 0u64;
 	let name = b"nobody-home";
+	// SAFETY: `session` is the host-owned `GlowcapHostSession` the loop reported in `LoopEvent::Opened` and keeps until
+	// `lp` is dropped at the end of the test; `name` is a local byte-string literal borrowed for the call, and `vow` is
+	// a local out-parameter the callee fills.
 	let rc = unsafe { ffi_host::glowcap_host_session_fetch(session, name.as_ptr(), name.len(), &mut vow) };
 	assert_eq!(rc, sys::OK);
 	let mut broke = false;
@@ -242,6 +248,133 @@ fn tcp_loopback_steps_dial_fetch_and_hangup() {
 	lp.session_release(session).unwrap();
 	stop.store(true, Ordering::Release);
 	server.join().unwrap();
+}
+
+/// The exporter-claim seam on the loop-backed wrapper (`HostShared::exporter_session`'s
+/// loop arm): A's wrapper claims its own dialed session's handle before installing
+/// its one shell, and a repeat resolves to that shell rather than installing
+/// another. A live session owned by a different runtime refuses the claim,
+/// propagates the refusal, and installs nothing. The pointer stays live
+/// throughout: the claim's belonging check reads the session's fields, so the
+/// test uses a real foreign session, never a fabricated pointer.
+#[cfg(feature = "tcp")]
+#[tokio::test]
+async fn exporter_claims_install_one_shell_and_refuse_foreign_handles() {
+	let stop = Arc::new(AtomicBool::new(false));
+	let (designator_tx, designator_rx) = mpsc::channel::<String>();
+	let stop_thread = Arc::clone(&stop);
+	let server = std::thread::spawn(move || {
+		let lp = DriverLoop::open(
+			&seed(0x71),
+			DriverLoopOptions {
+				wire_buffer_bytes: 1024,
+				max_pending_opens: 8,
+				..DriverLoopOptions::default()
+			},
+		)
+		.unwrap();
+		let netlayer = crate::tcp::Netlayer::new(crate::tcp::Config::default()).unwrap();
+		lp.add_provider(netlayer.transport_provider().unwrap()).unwrap();
+		let listener = lp.listen("tcp", "127.0.0.1:0").unwrap();
+		wait_listener_ready(&lp, listener);
+		lp.select_listener(listener).unwrap();
+		let locator = lp.listener_locator(listener).unwrap();
+		designator_tx.send(locator.designator).unwrap();
+		while !stop_thread.load(Ordering::Acquire) {
+			for event in lp.step(20).unwrap().unwrap_or_default() {
+				if let LoopEvent::Accepted { session, .. } = event {
+					lp.session_serve(session).unwrap();
+				}
+			}
+		}
+	});
+	let designator = designator_rx.recv().unwrap();
+
+	let local = tokio::task::LocalSet::new();
+	local
+		.run_until(async {
+			let locator_uri = crate::uri::format_peer_locator("tcp", &designator, "").unwrap();
+			let locator = crate::uri::parse_locator(&locator_uri).unwrap();
+
+			// The loop-backed wrapper whose seam this proves.
+			let lp_a = LoopShared::open(sys::DRIVER_DEFAULT_HANDSHAKE_MS, sys::DRIVER_DEFAULT_SETTLE_MS).unwrap();
+			let netlayer = crate::tcp::Netlayer::new(crate::tcp::Config::default()).unwrap();
+			lp_a.add_provider(netlayer.transport_provider().unwrap()).unwrap();
+			let host = crate::host::Host::from_shared(lp_a.wrapper_host().unwrap());
+			let shared = host.shared();
+
+			// An independent runtime that owns its own live session handle.
+			let lp_b = DriverLoop::open(
+				&seed(0x72),
+				DriverLoopOptions {
+					wire_buffer_bytes: 1024,
+					..DriverLoopOptions::default()
+				},
+			)
+			.unwrap();
+			let netlayer_b = crate::tcp::Netlayer::new(crate::tcp::Config::default()).unwrap();
+			lp_b.add_provider(netlayer_b.transport_provider().unwrap()).unwrap();
+
+			let dial_locator = locator.clone();
+			let dial_a = {
+				let lp = Rc::clone(&lp_a);
+				tokio::task::spawn_local(async move { lp.dial_locator(&dial_locator, None).await })
+			};
+			let mut dial_a = Some(dial_a);
+			let operation_b = lp_b.dial(&locator, None).unwrap();
+			let mut session_a: *mut ffi_host::GlowcapHostSession = core::ptr::null_mut();
+			let mut session_b: *mut ffi_host::GlowcapHostSession = core::ptr::null_mut();
+			for _ in 0..4_000 {
+				if session_a.is_null() && dial_a.as_ref().is_some_and(|handle| handle.is_finished()) {
+					session_a = dial_a.take().unwrap().await.unwrap().expect("A's dial succeeds");
+				}
+				if session_b.is_null() {
+					for event in lp_b.step(20).unwrap().unwrap_or_default() {
+						if let LoopEvent::Opened {
+							operation_id: opened,
+							session,
+						} = event
+						{
+							assert_eq!(opened, operation_b);
+							session_b = session;
+						}
+					}
+				}
+				if !session_a.is_null() && !session_b.is_null() {
+					break;
+				}
+				tokio::task::yield_now().await;
+			}
+			assert!(!session_a.is_null() && !session_b.is_null(), "a dial never completed");
+
+			// A's own session: the claim admits, one shell installs, and the repeat
+			// resolves to that shell instead of installing another.
+			let shell = shared
+				.exporter_session(session_a)
+				.unwrap()
+				.expect("A's own session claims");
+			let again = shared
+				.exporter_session(session_a)
+				.unwrap()
+				.expect("the repeat resolves to the installed shell");
+			assert!(Rc::ptr_eq(&shell, &again));
+			assert_eq!(shared.sessions.borrow().len(), 1);
+
+			// B's session is live but belongs to B's runtime: the claim refuses,
+			// the refusal propagates, and nothing installs.
+			assert!(
+				shared.exporter_session(session_b).is_err(),
+				"a foreign handle refuses the claim"
+			);
+			assert_eq!(shared.sessions.borrow().len(), 1, "a refused claim installs no shell");
+
+			lp_b.session_release(session_b).unwrap();
+			host.close(crate::PendingWork::Cancel).await.unwrap();
+			lp_a.close();
+			stop.store(true, Ordering::Release);
+			server.join().unwrap();
+		})
+		.await;
 }
 
 /// Loop-tier FINISH (ADR-0114), mirroring the byte-fed Host timeout
@@ -339,7 +472,7 @@ fn iroh_provider_dials_live() {
 		});
 
 		// The client half lives wholly on its own OS thread: its own
-		// runtime for the netlayer constructor, then plain stepping —
+		// runtime for the netlayer constructor, then plain stepping:
 		// so a client step parked on its timeout never starves this
 		// serving thread.
 		let (done_tx, done_rx) = mpsc::channel::<std::result::Result<(), String>>();
@@ -399,6 +532,9 @@ fn iroh_provider_dials_live() {
 				lp.session_serve(session).map_err(|e| e.to_string())?;
 				let mut vow = 0u64;
 				let name = b"greeter";
+				// SAFETY: `session` is the host-owned `GlowcapHostSession` the loop reported in `LoopEvent::Opened`,
+				// kept by `lp` until it is dropped at the end of this closure; `name` is a local byte-string literal
+				// borrowed for the call, and `vow` is a local out-parameter the callee fills.
 				let rc = unsafe { ffi_host::glowcap_host_session_fetch(session, name.as_ptr(), name.len(), &mut vow) };
 				if rc != sys::OK {
 					return Err(format!("fetch refused: {rc}"));

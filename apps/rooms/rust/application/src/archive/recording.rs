@@ -110,7 +110,7 @@ pub fn message<'a>(
 }
 
 /// An account-local memo of successfully recorded standing. Eviction permits a
-/// later retry; it never suppresses recording or substitutes for stored history.
+/// later retry. It never suppresses recording or substitutes for stored history.
 /// Keys share their record and borrow the archive index's identity comparison.
 pub struct Standings {
 	keys: BTreeSet<Key>,
@@ -196,7 +196,7 @@ impl Standings {
 			return Ok(());
 		}
 		while self.keys.len() == MAX_STANDINGS || bytes > MAX_STANDING_BYTES - self.bytes {
-			let retired = self.keys.pop_first().expect("nonempty bounded standing memo");
+			let retired = self.keys.pop_first().ok_or(Error::Capacity)?;
 			self.bytes -= retired.0.retained_bytes();
 		}
 		self.bytes += bytes;

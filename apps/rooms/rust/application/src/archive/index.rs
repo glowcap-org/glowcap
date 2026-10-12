@@ -1,4 +1,4 @@
-//! Storage owns commitment; this index applies committed revisions and preserves
+//! Storage owns commitment. This index applies committed revisions and preserves
 //! chronology. Its ordered indexes share immutable records without copying keys.
 use super::{ConversationKind, Error, Filter, Kind, MAX_READ, MAX_RECORDS, Record, records::safe};
 use crate::text::DocumentText;
@@ -208,15 +208,20 @@ impl Index {
 		if let Some(prior) = previous {
 			record.preserve_chronology(&self.entries[&prior].record);
 		}
-		let retired = previous.or_else(|| {
-			(self.len() == self.capacity).then(|| *self.entries.first_key_value().expect("full nonempty index").0)
-		});
-		let retired = retired.map(|revision| {
-			let entry = self.entries.remove(&revision).expect("indexed revision");
-			self.contexts.remove(&entry);
-			self.keys.remove(entry.record.as_ref() as &dyn Identity);
-			entry.record.clone()
-		});
+		let retired = match previous {
+			Some(prior) => Some(prior),
+			None if self.len() == self.capacity => Some(*self.entries.first_key_value().ok_or(Error::Capacity)?.0),
+			None => None,
+		};
+		let retired = match retired {
+			Some(revision) => {
+				let entry = self.entries.remove(&revision).ok_or(Error::Revision)?;
+				self.contexts.remove(&entry);
+				self.keys.remove(entry.record.as_ref() as &dyn Identity);
+				Some(entry.record.clone())
+			}
+			None => None,
+		};
 		let record = Arc::new(record);
 		self.keys.insert(Key(record.clone()), revision);
 		let entry = Arc::new(Entry { revision, record });
@@ -226,7 +231,7 @@ impl Index {
 		Ok(retired)
 	}
 	/// Failed restore leaves the current account untouched. Gaps are expected
-	/// after replacement and eviction; duplicates and reordered revisions refuse.
+	/// after replacement and eviction. Duplicates and reordered revisions refuse.
 	pub fn restore(&mut self, revision: u64, entries: Vec<Entry>) -> Result<(), Error> {
 		safe(revision, false)?;
 		if entries.len() > self.capacity {
@@ -274,7 +279,7 @@ impl Index {
 		// A cursor already ahead of this account must never regress. This also
 		// preserves a caller's position across an empty or restored account.
 		let next = if more {
-			records.last().expect("positive page limit").revision
+			records.last().ok_or(Error::Page)?.revision
 		} else {
 			self.revision.max(after)
 		};

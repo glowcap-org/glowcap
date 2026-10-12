@@ -1,6 +1,6 @@
 // Completing what a reader is part way through typing.
 //
-// Four things complete — members, rooms, emoji, commands — and each draws from a
+// Four things complete, members, rooms, emoji, commands, and each draws from a
 // different source that has to be live at the moment the reader asks. What is
 // checked is that the list is the room's answer rather than a cached guess.
 //
@@ -8,8 +8,8 @@
 // each: a field given no names to offer, a field that opens the room on the
 // press that takes the name, and a field whose combobox role comes and goes
 // with its list. It does not reach two neighbouring states. The join card names
-// a room through the same hook, and only its wiring — where the names come
-// from, where the list hangs — is untested here. And "taking a name did not go
+// a room through the same hook, and only its wiring, where the names come
+// from, where the list hangs, is untested here, and "taking a name did not go
 // anywhere" is read as the panel still standing rather than as the reader not
 // moving, because at this point in the conversation the rail carries one room
 // and going to it would land where the reader already is.
@@ -69,7 +69,7 @@ export async function run(tab: Page, second: Page): Promise<void> {
 	// client renders it as an action rather than a literal slash-prefixed line.
 	await tab.type("#line", "/");
 	// Braced so these names belong to this check rather than to the whole file.
-	// This module is one long scope, and three separate additions to it have now
+	// This module is one long scope, and separate additions to it have
 	// collided with a name a hundred lines away.
 	{
 		const labels = await tab.locator("#completePop [role=option]").allTextContents();
@@ -87,7 +87,7 @@ export async function run(tab: Page, second: Page): Promise<void> {
 			}))
 		);
 		// It belongs to the field it is completing, so it rests against it rather
-		// than against the band the field sits in — with the reserved hint line
+		// than against the band the field sits in, with the reserved hint line
 		// between them it stood forty-three pixels off and read as a thing that had
 		// arrived rather than one the caret had raised.
 		const against = await tab.evaluate(() => {
@@ -118,7 +118,7 @@ export async function run(tab: Page, second: Page): Promise<void> {
 			fail(`the completion list holds all ${offered.rows} commands without scrolling, so it has grown unbounded`);
 		}
 		// That the pick scrolls with the arrows is held by the effect in
-		// Composer.tsx and is deliberately not walked here. This scene is one long
+		// Composer.tsx and is not walked here. This scene is one long
 		// conversation on a thirty second deadline, and pressing arrows in the
 		// composer moves state the rest of it reads: the draft, the recalled line,
 		// and which row Enter would take. A check that costs the scene its budget is
@@ -256,13 +256,15 @@ export async function run(tab: Page, second: Page): Promise<void> {
 	// The pencil changes the line it was pressed on. `/edit` changes the most
 	// recent one, so a pencil that only filled the composer with that command
 	// would quietly rewrite a different message whenever a reader picked an older
-	// one — which is why the composer remembers the line rather than the words.
+	// one, which is why the composer remembers the line rather than the words.
 	{
 		for (const said of ["older line", "newer line"]) {
 			await tab.fill("#line", said);
 			await tab.press("#line", "Enter");
 			await second.waitForSelector(`.bubble:has-text("${said}")`, { timeout: 30_000 })
-				.catch(() => fail(`the other peer never saw "${said}"`));
+				.catch(async () =>
+					fail(`the other peer never saw "${said}": ${await tab.locator(".composer").innerText()}`)
+				);
 		}
 		const older = tab.locator('.bubble:has-text("older line")').last();
 		// The controls appear on the message under the pointer, so reach it the way
@@ -389,8 +391,8 @@ export async function run(tab: Page, second: Page): Promise<void> {
 		// And it can be read. Small and quiet is the point of it; unreadable is not,
 		// and on this tab's own bubble it sits on the accent fill, where a grey
 		// chosen against paper turns to mud. Two measures, because the two bubbles
-		// are painted differently — an accent gradient one side and a flat surface
-		// the other — and the tool for one cannot answer about the other.
+		// are painted differently, an accent gradient one side and a flat surface
+		// the other, and the tool for one cannot answer about the other.
 		const overGradient = await bubbleInkContrast(tab, ".row.mine .edited-said");
 		if (!("ratio" in overGradient)) {
 			fail(`the note on this tab's own changed line could not be measured: ${overGradient.why}`);
@@ -420,14 +422,14 @@ export async function run(tab: Page, second: Page): Promise<void> {
 			});
 		// The way to change it is offered because this membership was handed the
 		// ability, and pressing it writes the command with what the topic says
-		// now — so amending a topic is amending text rather than retyping it.
+		// now, so amending a topic is amending text rather than retyping it.
 		await tab.waitForSelector('#topic [aria-label="Change the topic"]', { timeout: 10_000 })
 			.catch(() => fail("a member the room handed the topic to was not offered a way to change it"));
 		await tab.click('#topic [aria-label="Change the topic"]');
 		if (await tab.inputValue("#line") !== "/topic what we are here for") {
 			fail(`changing the topic did not write the command: ${JSON.stringify(await tab.inputValue("#line"))}`);
 		}
-		// Taking it down is a thing somebody does on purpose, so it is an empty
+		// Taking it down is a thing somebody does, so it is an empty
 		// topic rather than no topic, and the bar goes rather than sitting there
 		// holding a blank. The bar offers it as its own control, which writes
 		// the command like the pencil does, so the reader confirms in the
@@ -466,7 +468,7 @@ export async function run(tab: Page, second: Page): Promise<void> {
 
 	// A notice travels in the line the way an action does, so it needs nothing
 	// from the room, and it keeps its author because it is somebody speaking. It
-	// names the other member on purpose: the point of sending one is to say
+	// names the other member: the point of sending one is to say
 	// something without pulling anybody back to their screen.
 	{
 		await tab.fill("#line", "/notice @bartholomew-longname the build is green again");

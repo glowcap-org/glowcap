@@ -1,7 +1,7 @@
 """Application-owned CapTP Session state and construction.
 
 The package root owns the public class identity, every mutable field, and the
-dial/accept handshake. :mod:`.lifecycle` owns terminal transition effects;
+dial/accept handshake. :mod:`.lifecycle` owns terminal transition effects.
 :mod:`.verbs` owns capability, identity, and GC operations. The leaves have no
 initializer, finalizer, or runtime edge back to this root.
 """

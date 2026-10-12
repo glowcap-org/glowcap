@@ -2,7 +2,7 @@
 // each one is.
 //
 // Flat, the list was a column of nine repeating words with the interesting
-// part — who owns it, which room, which member — pushed to the side. An
+// part (who owns it, which room, which member) pushed to the side. An
 // operator arrives asking about a kind ("what is holding lines open?"), so the
 // kind is the heading and the row is free to lead with its owner. A kind with
 // nothing in it is not drawn, so this page stays short on a
@@ -12,7 +12,7 @@
 // page of thirty-two rows is not an answer about a directory holding a hundred
 // thousand: pressing the kind searches the directory for it, and the section's
 // own count then speaks for that kind alone. For the same reason the number
-// beside a kind is drawn only while the page holds every matching row; over
+// beside a kind is drawn only while the page holds every matching row. Over
 // more than a page it would be counting what was sent.
 
 import type { ReactNode } from "react";
@@ -112,8 +112,8 @@ export function OperatorReferences(
 												<div className="entry-head">
 													{
 														/* Under a kind's own heading the row leads with what
-													    tells it from its siblings — the room it is in, or
-													    the member who holds it — rather than repeating the
+													    tells it from its siblings (the room it is in, or
+													    the member who holds it) rather than repeating the
 													    kind in every line. */
 													}
 													<span className="entry-name">

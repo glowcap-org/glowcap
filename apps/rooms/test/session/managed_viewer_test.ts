@@ -10,6 +10,49 @@ import type { RoomsManagedApplication, RoomsManagedWorkspace } from "../../../..
 
 import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
 
+for (const consumer of ["refresh", "candidate", "command"] as const) {
+	Deno.test(`${consumer} uses the accepted revision when an older snapshot finishes later`, async () => {
+		const older = deferred<ReturnType<typeof snapshot>>();
+		const started = deferred<void>();
+		let reads = 0;
+		let prepared = "";
+		const latest = { ...snapshot(), revision: "2" };
+		const session = viewer({
+			snapshot: () => {
+				if (++reads !== 1) return Promise.resolve(latest);
+				started.resolve();
+				return older.promise;
+			},
+			prepareCommand: (_id: string, revision: string) => {
+				prepared = revision;
+				return Promise.resolve({
+					submit: () => Promise.resolve("committed"),
+					status: () => Promise.resolve("committed"),
+					free() {},
+				});
+			},
+		});
+		try {
+			const reading = consumer === "command" ? session.command("select", ["room"]) : session[consumer]();
+			await started.promise;
+			await session.refresh();
+			older.resolve(snapshot());
+			const result = await reading;
+			if (result instanceof ManagedOperation) {
+				session.finish(result);
+				assertEquals(prepared, "2");
+			} else {
+				assertEquals(result.revision, "2");
+				if (consumer === "candidate") assert(result !== latest, "editable candidates own their copy");
+			}
+			assertEquals(session.current, latest);
+			assertEquals(reads, consumer === "command" ? 3 : 2, "reuse accepted evidence without another read");
+		} finally {
+			await session.close();
+		}
+	});
+}
+
 Deno.test("managed command admission reads past a delayed presentation revision", async () => {
 	let current = snapshot();
 	let prepared = "";
@@ -20,7 +63,7 @@ Deno.test("managed command admission reads past a delayed presentation revision"
 			return Promise.resolve({
 				submit: () => Promise.resolve("committed"),
 				status: () => Promise.resolve("committed"),
-				originalIntent: () => ["operation", revision, "select", ["room"]],
+				originalIntent: () => ["operation", Number(revision), "select", ["room"]],
 				free() {},
 			});
 		},
@@ -371,7 +414,7 @@ Deno.test("managed recovery coalesces the original completion across concurrent 
 	const second = session.completeOperation("original");
 	assert(first === second, "recovery must join the original completion, including its acquisition");
 	await entered.promise;
-	assertEquals(recoveries, 1);
+	assertEquals(recoveries, 0, "the retained committed request completes without privileged recovery");
 	assertEquals(completions, 1);
 	completion.resolve();
 	assertEquals(await first, true);
@@ -520,4 +563,59 @@ Deno.test("managed acquisition refusal wakes recovery and retry retires the orig
 		stop();
 		await session.close();
 	}
+});
+
+Deno.test("typing reports one refusal per failed authority and preserves a newer target", async () => {
+	const entered = deferred<void>();
+	const release = deferred<void>();
+	const sent: string[] = [];
+	let reports = 0;
+	const session = viewer({
+		typingSender: (id: string) =>
+			Promise.resolve({
+				set: async () => {
+					sent.push(id);
+					if (id === "old") {
+						entered.resolve();
+						await release.promise;
+						throw new Error("retired authority");
+					}
+				},
+				free() {},
+			}),
+	});
+	const first = session.typing.set("old", "seat", true).catch(() => reports++);
+	await entered.promise;
+	const repeats = Array.from({ length: 100 }, () => session.typing.set("old", "seat", true).catch(() => reports++));
+	const newer = session.typing.set("new", "seat", true);
+	release.resolve();
+	await Promise.all([first, newer, ...repeats]);
+	await session.typing.set("old", "seat", true);
+	assertEquals([sent, reports], [["old", "new"], 1]);
+	await session.close();
+});
+
+Deno.test("shared reads enforce capacity, drain before retirement and reject new work", async () => {
+	const session = viewer({});
+	const held = deferred<void>();
+	let calls = 0;
+	const read = (key: string) =>
+		session.reads.run(key, () => {
+			calls++;
+			return held.promise;
+		});
+	const first = read("same");
+	assertEquals(read("same") === first, true);
+	const tasks = [first, ...Array.from({ length: 7 }, (_, index) => read(String(index)))];
+	const [full] = await Promise.allSettled([read("overflow")]);
+	assertEquals([full.status, calls, session.reads.active], ["rejected", 8, 8]);
+	let closed = false;
+	const closing = session.close().then(() => closed = true);
+	await Promise.resolve();
+	assertEquals(closed, false);
+	held.resolve();
+	await Promise.all(tasks);
+	await closing;
+	assertEquals(session.reads.active, 0);
+	assertEquals((await Promise.allSettled([read("after-close")]))[0].status, "rejected");
 });

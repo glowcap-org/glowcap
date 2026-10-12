@@ -1,8 +1,8 @@
 /**
  * Who stands at a moment, without going through the force solver.
  *
- * `era-reuse.test.ts` proves the same membership through Engine keyframes;
- * these ask the membership functions themselves, so a closed session's loose
+ * `era-reuse.test.ts` proves the same membership through Engine keyframes.
+ * These ask the membership functions themselves, so a closed session's loose
  * end failing to leave would fail here even if the anneal happened to hide it.
  */
 

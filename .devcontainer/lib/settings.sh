@@ -94,7 +94,7 @@ glowcap_devcontainer_host_cache_rows() {
 }
 
 glowcap_devcontainer_host_cache_layout() {
-    printf '%s\n' tool cargo
+    printf '%s\n' tool cargo installed
 }
 
 glowcap_devcontainer_host_cache_layout_text() {
@@ -103,8 +103,10 @@ glowcap caches — same tree on the host (~/.cache/glowcap) and in the
 container (/home/vscode/.cache/glowcap). See .devcontainer/README.md
 (Persistent paths).
 
-  tool/   shared downloads (zig, deno, npm, pip, bun, uv, zls)
-  cargo/  CARGO_HOME (registry, git, cargo install)
+  tool/       shared downloads (zig, deno, npm, pip, bun, uv, zls)
+  cargo/      CARGO_HOME (registry, git, cargo install)
+  installed/  managed tools (AI harnesses) per platform, owned by
+              .devcontainer/tools; see .devcontainer/tools/lib/lifecycle.sh
 
 Per-worktree Zig objects and extracted packages live in the Docker volume
 glowcap-dev-<worktree>-zig-work. See .devcontainer/README.md (Persistent paths).
@@ -116,9 +118,26 @@ glowcap_devcontainer_host_home_bind_rows() {
     glowcap_devcontainer_host_cache_rows
 }
 
+# The managed-tool platform key: Linux plus machine architecture, and
+# nothing else until a driver demonstrates a real compatibility boundary (a
+# libc floor, a Node ABI requirement, or similar). Every managed candidate
+# so far ships a static or self-contained runtime, so no compatibility
+# generation is added speculatively. This declaration owns the bar for what
+# counts as demonstrated and records when a generation is introduced.
+glowcap_devcontainer_tools_platform() {
+    case "$(uname -s) $(uname -m)" in
+        "Linux x86_64") printf 'linux-x86_64\n' ;;
+        "Linux aarch64") printf 'linux-aarch64\n' ;;
+        *)
+            echo "settings.sh: unsupported managed-tool platform: $(uname -s) $(uname -m)" >&2
+            return 1
+            ;;
+    esac
+}
+
 # The variables Compose reads for a checkout's identity, named once. The guard
 # below refuses an inherited value that disagrees with `.env`, and the host
-# tests have to clear the same set before building checkouts of their own — two
+# tests have to clear the same set before building checkouts of their own, two
 # lists would drift, and the drift would show up as a test that passes on a host
 # and fails in a devcontainer.
 glowcap_devcontainer_compose_variables() {

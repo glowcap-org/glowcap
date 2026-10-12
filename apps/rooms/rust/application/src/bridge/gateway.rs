@@ -91,21 +91,84 @@ pub struct Description {
 	pub connections: List<Connection, MAX_OPERATIONS_ROWS>,
 }
 
+/// Why a gateway description is refused. `Display` is the exact line the
+/// bridge reports.
+#[derive(Debug)]
+pub enum Invalid {
+	/// The description could not be written as JSON, with the serializer's text.
+	Encode(serde_json::Error),
+	/// The description is over the size limit.
+	DescriptionTooLong,
+	/// The bridge answered no description.
+	NoDescription,
+	/// The bridge answered a description over the size limit.
+	AnswerTooLong,
+	/// The bridge answered a description that does not parse.
+	AnswerInvalid,
+}
+
+impl core::fmt::Display for Invalid {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		match self {
+			Self::Encode(source) => write!(f, "{source}"),
+			Self::DescriptionTooLong => f.write_str("the bridge gateway description is too long"),
+			Self::NoDescription => f.write_str("the bridge gateway answered no description"),
+			Self::AnswerTooLong => f.write_str("the bridge gateway answered too long a description"),
+			Self::AnswerInvalid => f.write_str("the bridge gateway answered an invalid description"),
+		}
+	}
+}
+
+impl core::error::Error for Invalid {}
+
+impl From<Invalid> for String {
+	fn from(invalid: Invalid) -> Self {
+		invalid.to_string()
+	}
+}
+
 impl Description {
-	pub fn encode(&self) -> Result<String, String> {
-		let raw = serde_json::to_string(self).map_err(|e| e.to_string())?;
+	pub fn encode(&self) -> Result<String, Invalid> {
+		let raw = serde_json::to_string(self).map_err(Invalid::Encode)?;
 		if raw.len() > MAX_GATEWAY_JSON {
-			return Err("the bridge gateway description is too long".into());
+			return Err(Invalid::DescriptionTooLong);
 		}
 		Ok(raw)
 	}
-	pub fn decode(raw: &str) -> Result<Self, String> {
+	pub fn decode(raw: &str) -> Result<Self, Invalid> {
 		if raw.is_empty() {
-			return Err("the bridge gateway answered no description".into());
+			return Err(Invalid::NoDescription);
 		}
 		if raw.len() > MAX_GATEWAY_JSON {
-			return Err("the bridge gateway answered too long a description".into());
+			return Err(Invalid::AnswerTooLong);
 		}
-		crate::fields::json_object(raw).map_err(|_| "the bridge gateway answered an invalid description".into())
+		crate::fields::json_object(raw).map_err(|_| Invalid::AnswerInvalid)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn every_invalid_line_is_the_line_it_replaced() {
+		let lines = [
+			(
+				Invalid::DescriptionTooLong,
+				"the bridge gateway description is too long",
+			),
+			(Invalid::NoDescription, "the bridge gateway answered no description"),
+			(
+				Invalid::AnswerTooLong,
+				"the bridge gateway answered too long a description",
+			),
+			(
+				Invalid::AnswerInvalid,
+				"the bridge gateway answered an invalid description",
+			),
+		];
+		for (invalid, line) in lines {
+			assert_eq!(invalid.to_string(), line);
+		}
 	}
 }

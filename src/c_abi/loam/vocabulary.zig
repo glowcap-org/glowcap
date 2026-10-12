@@ -1,4 +1,4 @@
-//! Fixed-resource wire vocabulary. Decoding grants no authority; the shared
+//! Fixed-resource wire vocabulary. Decoding grants no authority. The shared
 //! engine validates policy identities, ceilings, ancestry and control powers.
 const std = @import("std");
 const common = @import("common.zig");

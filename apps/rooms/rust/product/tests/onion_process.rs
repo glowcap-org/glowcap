@@ -1,5 +1,6 @@
 //! Host executable startup against a real Tor control service. Networking
 //! is disabled: this proves key custody and local forwarding, not circuits.
+#![cfg(test)]
 use std::{
 	io::{BufRead, BufReader},
 	path::{Path, PathBuf},

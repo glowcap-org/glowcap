@@ -15,7 +15,7 @@ pub const ObservationRecord = struct {
     started: u64 = 0,
     publications: [2]?loam.ObjectId = @splat(null),
     /// A trusted hosting marker fences a runtime observer. Durable observers
-    /// omit this field; their capabilities survive Store and Host restart.
+    /// omit this field. Their capabilities survive Store and Host restart.
     lifetime: ?Lifetime = null,
     pub const Lifetime = struct { marker: loam.ObjectId, revision: u64 };
     pub const max_encoded_bytes = 256;

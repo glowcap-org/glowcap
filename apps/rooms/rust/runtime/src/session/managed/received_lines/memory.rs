@@ -33,8 +33,8 @@ impl LineMemory {
 		})))
 	}
 	/// The trusted consumer derives the full post-mutation metadata cost from
-	/// Proposal's validated selection. Positive growth is charged before copying;
-	/// a failed domain admission drops this guard and releases only that growth.
+	/// Proposal's validated selection. Positive growth is charged before copying.
+	/// A failed domain admission drops this guard and releases only that growth.
 	pub fn prepare(&self, bytes: usize) -> Result<LineResize> {
 		if self.0.preparing.get() {
 			return Err(loam::refusal("line metadata resize is already prepared"));

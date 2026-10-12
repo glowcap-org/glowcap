@@ -242,6 +242,9 @@ pub fn installArchive(
     version: std.SemanticVersion,
 ) InstalledArchive {
     const static_lib = b.addLibrary(.{ .name = name, .linkage = .static, .root_module = root_module });
+    // Foreign linkers do not supply Zig's stack probes and compiler builtins.
+    // Each shipped archive owns the runtime its generated code needs.
+    static_lib.bundle_compiler_rt = true;
     const static_install = b.addInstallArtifact(static_lib, .{});
     checkArchiveSymbols(b, static_lib, &static_install.step, name);
     b.getInstallStep().dependOn(&static_install.step);
@@ -264,7 +267,7 @@ pub fn installArchive(
 }
 
 /// Exact C-family ownership for ELF archives consumed by foreign linkers.
-/// Reflection supplies declarations; artifact inspection catches incidental
+/// Reflection supplies declarations, artifact inspection catches incidental
 /// exports pulled into companions by implementation imports.
 fn checkArchiveSymbols(b: *std.Build, artifact: *std.Build.Step.Compile, install: *std.Build.Step, name: []const u8) void {
     if (artifact.root_module.resolved_target.?.result.ofmt != .elf) return;

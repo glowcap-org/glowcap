@@ -3,7 +3,7 @@ id: ADR-0135
 status: accepted
 date: 2026-08-25
 tags: [rooms, persistence, capabilities, schemas, architecture]
-decision: "Rooms keeps intent, live capability custody, durable resource records and presentation at their owning boundaries; session codecs and exact saved fields compose atomically through Loam."
+decision: "Rooms keeps intent, live capability custody, durable resource records and presentation at their owning boundaries. Session codecs and exact saved fields compose atomically through Loam."
 supersedes: []
 superseded_by: []
 amends: [ADR-0129, ADR-0133, ADR-0134]
@@ -22,7 +22,7 @@ cannot give the workspace authority over them or make their lifetimes equal.
 
 Treat Rooms state as an authority graph. Plain identifiers and bounded view data
 describe resources. Held capabilities and explicitly acquired saved fields carry
-actual authority. A bearer link is secret acquisition material; workspace intent
+authority. A bearer link is secret acquisition material. Workspace intent
 stores typed custody coordinates rather than recreating authority from a label.
 
 | Domain | Durable owner | Live owner |
@@ -35,12 +35,12 @@ stores typed custody coordinates rather than recreating authority from a label.
 
 Rust application declarations own session schemas, permission requirements and
 operation routing. Generated browser metadata mirrors those declarations. JSON
-view decoding supplies structure; shared Loam owns grant semantics, ancestry and
+view decoding supplies structure. Shared Loam owns grant semantics, ancestry and
 exact saved capability identity. The [session guide](../../rooms/session.md)
 owns atomic graph preparation, bootstrap and consumer contracts.
 
-Source loss invalidates protected cached activity. Reconnect uses the actual
-saved source and targets; a nickname or URI-shaped view field cannot select a
+Source loss invalidates protected cached activity. Reconnect uses the
+saved source and targets. A nickname or URI-shaped view field cannot select a
 replacement grant. Runtime lifetime markers retire old live registrations and
 routes across restart while preserving intended navigation, drafts and receipts.
 

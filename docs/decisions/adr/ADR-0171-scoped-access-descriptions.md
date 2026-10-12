@@ -38,7 +38,7 @@ content effect.
 
 The reply is a tagged `access:description` value. Active fields are, in order:
 status symbol, policy schema ID, ceiling policy, configured policy, effective
-policy, and delegation depth. Other statuses have exactly one field.
+policy, and delegation depth. Other statuses have one field.
 
 An `access:policy` has a list of enabled stable permission keys and a list of
 restricted bounds. Each `access:bound` contains its key, `lower_bound` or
@@ -50,20 +50,20 @@ No owner/grant identity, ancestor policy, sibling inventory, resource scope
 list, global revision, or event sequence enters this representation. Unrelated
 owner activity leaves it unchanged. Inactive descriptions reveal no fresh
 policy values. The Zig policy vocabulary contains declaration metadata, not
-ancestor restrictions; the wire representation projects only the stated fields.
+ancestor restrictions. The wire representation projects only the stated fields.
 
 ## Cost and limits
 
 Evaluation allocates nothing. Stored evaluation uses the existing operation
-and bounded working set; unloaded records request ordinary storage work.
+and bounded working set. Unloaded records request ordinary storage work.
 Wire projection and reply copying use the retained call's fixed arena and
 the existing frame limit. The schema limits of 64 permissions and 16 constraints
 bound each policy. Budget room for all three policies when choosing call and
-frame limits; insufficient capacity fails without changing state.
+frame limits. Insufficient capacity fails without changing state.
 
 This implements access snapshots, not subscriptions, replay cursors, control
 inspection, or resource inventory. Those contracts remain in the
-[readiness checkpoint](../../planning/loam/architecture.md#readiness-before-the-c-abi).
+[readiness checkpoint](../../loam/architecture.md#readiness-before-the-c-abi).
 Future observation can use this snapshot for resynchronization, but must add
 scope-bound cursors and retained committed events rather than publish owner
 revision counters.

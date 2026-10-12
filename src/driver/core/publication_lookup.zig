@@ -14,7 +14,7 @@ pub const Lookup = struct {
     context: *anyopaque,
     /// Consult the provider's authoritative work custody before unregister.
     idle: *const fn (*anyopaque) bool,
-    /// Accepted transfers the request; other outcomes leave it untouched. This callback
+    /// Accepted transfers the request. Other outcomes leave it untouched. This callback
     /// runs during ingress and may only admit work, never perform storage I/O.
     start: *const fn (*anyopaque, []const u8, Fetch) Admission,
     /// Exact observer/session cancellation abandons matching requests. Host
@@ -148,7 +148,7 @@ pub fn resolveFetch(context: ?*anyopaque, scope: engine.PeerHandle, request: eng
 
 /// An authenticated locator naming this Host resolves through the same public
 /// registry and cold provider as a wire fetch. It creates no self connection.
-/// The name remains public fetch authority; no private owner lookup runs here.
+/// The name remains public fetch authority. No private owner lookup runs here.
 pub fn resolveLocal(host: *Host, name: []const u8, recipient: Recipient, admission: @import("host/admission.zig").WorkAdmission) !u64 {
     const id = host.next_vow;
     if (recipient == .action) try host.reserveActions(1);

@@ -1,8 +1,8 @@
 # Python binding
 
-This package uses `ctypes`, `asyncio`, and the standard library. Pin a
-checkout, run `zig build`, and import it from the tree.
-CPython 3.11 or newer on an LP64 platform is required.
+This package uses `ctypes`, `asyncio`, and the standard library. It needs
+CPython 3.11 or newer on an LP64 platform. Pin a checkout, run `zig build`,
+and import it from the tree.
 
 ```python
 import asyncio
@@ -28,7 +28,7 @@ asyncio.run(main())
 
 `fetch` and `send` start the inbound loop on demand, so a client that only
 makes calls does not need `session.serve()`. `await session.closed()` observes
-retirement without requesting close or starting that loop; cancelling the
+retirement without requesting close or starting that loop. Cancelling the
 waiter leaves the session running. `Host.publish_durable(behavior, entropy=None)`
 mints a durable swiss name. Pass the same entropy to a Host reconstructed from
 the same seed to restore that name.
@@ -38,8 +38,8 @@ the same seed to restore that name.
 Python values map directly to glowcap values: integers, floats, booleans,
 bytes, strings, and lists, plus `Symbol`, `Keyword`, `Set`, `Tagged`, `Struct`,
 the fulfilled-data `ErrorValue`, and the capability type `Ref`. `ErrorValue`
-does not reject a `RemotePromise`; raising an exception or returning a broken
-vow does.
+accepts a `RemotePromise`. Raising an exception or returning a broken vow
+rejects it.
 
 `await tcp.listen(host, port)` returns a `tcp.Server` whose iterator yields a
 `Session` for each partner. `publish` and `spawn` host ordinary Python
@@ -47,27 +47,27 @@ callables. `send` returns a `RemotePromise`, implemented as an
 `asyncio.Future`, and that promise can be the target of another send.
 
 Under `Runtime` and `listen`, an `iroh`, `noise-tcp`, `keyed-tcp`, or `tcp`
-connection runs on glowcap's native loop. Python loads the separate Host and
-driver archives. One native loop, stepped from Python, owns the provider,
-framing, pumping, and session release, while asyncio waits on the loop's
-readiness descriptor.
+connection runs on glowcap's driver loop. Python loads the separate Host and
+driver archives. One loop, stepped from Python, owns the provider, framing,
+pumping, and session release, while asyncio waits on the loop's readiness
+descriptor.
 
 The application passes `iroh.provider(config)`, `tcp.provider(config)`, or
-another transport package explicitly. The driver starts with no providers and
-receives the chosen package through the common provider ABI. A routed
-`keyed-relay` or `noise-relay` locator likewise loads the relay archive and
-installs its provider package. Either way, you get the same `Session` API.
+another transport package. The driver starts with no providers and receives
+the chosen package through the common provider ABI. A routed `keyed-relay` or
+`noise-relay` locator likewise loads the relay archive and installs its
+provider package. Either way you get the same `Session` API.
 
-`Runtime.open(adopt_host=host, ...)` explicitly transfers an existing Host into
-the Runtime. `await runtime.close()` is then that Host's terminal shutdown
+`Runtime.open(adopt_host=host, ...)` transfers an existing Host into the
+Runtime. `await runtime.close()` is then that Host's terminal shutdown
 barrier.
 
 `tcp.listen`, `tcp.keyed.listen`, and `tcp.noise.listen` return the same
 `tcp.Server` surface. Its canonical `locator` and `uri` are ready to hand to
-`Runtime.connect`; pass a 32-byte `seed` to keep a durable designator across restarts.
-The native loop owns admission. A wildcard `bind_host` requires
-`advertised_host`, the dialable name or address placed in the Host locator;
-glowcap does not guess that reachability from the bind.
+`Runtime.connect`. Pass a 32-byte `seed` to keep a durable designator across restarts.
+The driver loop owns admission. A wildcard `bind_host` requires
+`advertised_host`, the dialable name or address placed in the Host locator,
+because glowcap cannot infer reachability from the bind.
 
 `relay.keyed.listen` and `relay.noise.listen` return the same `DriverServer`
 shape over a registered relay route. Their `locator` and `uri` carry the
@@ -75,7 +75,7 @@ durable key and the rendezvous relay that partners dial.
 
 A shared host makes handoff transparent across several sessions. The less
 common `send_redeeming` call returns both the answer and `via`, the direct
-exporter session. Host a reply capability on `via`; a local reference is valid
+exporter session. Host a reply capability on `via`. A local reference is valid
 only in the session where it was exported.
 
 ## Transports
@@ -87,7 +87,7 @@ only in the session where it was exported.
 | `glowcap.inproc` | Blocking in-process connections. |
 | `glowcap.onion` | Configured `listen` through a Tor daemon you run, plus raw Netlayer handles for an embedder-owned loop. |
 | `glowcap.iroh` | Optional encrypted QUIC and `listen`. |
-| `glowcap.relay` | Native `keyed-relay`/`noise-relay` provider composition and managed listeners. |
+| `glowcap.relay` | `keyed-relay`/`noise-relay` provider composition and managed listeners. |
 
 The application imports only the transport modules it composes. A TCP-only
 program never loads the iroh library.
@@ -96,13 +96,12 @@ A `keyed-relay` locator names a peer that opens no socket of its own. Instead,
 a relay holds inbound connections for it under its key.
 
 - When the locator carries a `rendezvous-relay` hint, `Runtime.connect` routes
-  through the native relay provider.
+  through the relay provider.
 - For a bare locator, use `relay.connector(config)`. The route comes from the
-  locator's hint or from the connector's own configuration, the same two
-  sources every binding uses. The connector is something you choose
-  explicitly, not an automatic fallback.
-- The connector's client is the one optional dependency, kept out of the
-  core: install `glowcap[rendezvous]`. Repository checks install that extra
+  locator's hint or from the connector's configuration, as in every binding.
+  You choose the connector. It is not an automatic fallback.
+- The connector's client is the one optional dependency: install
+  `glowcap[rendezvous]`. Repository checks install that extra
   from the committed lock with
   `uv run --project bindings/python --extra rendezvous --locked`.
 

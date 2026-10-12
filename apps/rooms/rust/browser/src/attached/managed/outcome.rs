@@ -1,5 +1,5 @@
 //! Retained management requests distinguish a proved admission conflict from
-//! a missing acknowledgement. Only the former permits deliberate reapplication.
+//! a missing acknowledgement. Only the former permits explicit reapplication.
 use super::control::RoomsManagedEdit;
 use super::*;
 
@@ -9,6 +9,9 @@ pub(super) fn result(value: core::result::Result<Argument, rooms_glowcap::client
 		Ok(value) => committed_data(&value),
 		Err(rooms_glowcap::client::Error::Observation(reason)) => {
 			json(&serde_json::json!({"observationFailure": reason}).to_string())
+		}
+		Err(rooms_glowcap::client::Error::RefusedObservation(reason)) => {
+			json(&serde_json::json!({"observationFailure": reason, "knownAbsent": true}).to_string())
 		}
 		Err(error) => Err(error.to_string()),
 	}
@@ -38,7 +41,7 @@ pub(super) fn failed(error: rooms_glowcap::client::Error) -> Result<JsValue> {
 #[wasm_bindgen]
 impl RoomsManagedEdit {
 	/// Failure keeps this exact request. An uncertain reply never authorizes a
-	/// new sequence; revision and sequence conflicts refuse before mutation.
+	/// new sequence. Revision and sequence conflicts refuse before mutation.
 	#[wasm_bindgen(js_name = submitOutcome)]
 	pub fn submit_outcome(&self) -> js_sys::Promise {
 		let request = self.request.clone();

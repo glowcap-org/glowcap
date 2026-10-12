@@ -16,7 +16,7 @@ export {
 
 /** Settle one UI action into the controller convention: an empty string is
  * success and any other string is a refusal. Expected failures already arrive
- * that way; adapter/runtime failures can still reject, and a gesture boundary
+ * that way. Adapter/runtime failures can still reject, and a gesture boundary
  * must turn those into something the control can draw instead of leaving an
  * unhandled promise and an ambiguous outcome. */
 export async function actionRefusal(action: () => Promise<string>): Promise<string> {

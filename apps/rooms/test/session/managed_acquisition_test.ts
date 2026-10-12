@@ -1,12 +1,209 @@
-// A proved conflict releases the candidate; uncertainty retains exact replay.
+// A proved conflict releases the candidate. Uncertainty retains exact replay.
 import { assert, assertEquals } from "../assert.ts";
-import { snapshot, viewer } from "../support/managed_viewer.ts";
+import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
 import { AcquisitionConflict } from "../../web/ui/session/managed/acquisition.ts";
 import { ManagedOperation } from "../../web/ui/session/managed/operation.ts";
 import type { RoomsManagedCommand } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
+import { ConversationOpening } from "../../web/ui/session/managed/openings.ts";
 import { OPEN_ROOM_POLICY } from "../../lib/room/policy.ts";
 
-Deno.test("concurrent public room acquisition converges on the committed exact publication", async () => {
+Deno.test("a cancelled uncertain room admission recovers and leaves its exact membership before a fresh join", async () => {
+	const current = snapshot();
+	current.intent.directories.push({
+		id: "dir",
+		access: "access",
+		home: true,
+		nick: "ada",
+		nickAllocation: "exact",
+		standing: null,
+	});
+	let prepared = 0, submitted = 0;
+	const departed: string[] = [];
+	const refusal = new Error("admission reply lost");
+	const session = viewer({
+		snapshot: () => Promise.resolve(current),
+		preparePublicRoom: (_revision: string, raw: string) => {
+			prepared++;
+			const room = JSON.parse(raw);
+			return Promise.resolve({
+				submit: () => {
+					if (++submitted === 1) return Promise.reject(refusal);
+					current.intent.conversations.push({
+						kind: "room",
+						...room,
+						access: null,
+						control: null,
+						reconnect: "requested",
+						standing: null,
+						draft: "",
+					});
+					return Promise.resolve("committed");
+				},
+				free() {},
+			});
+		},
+	});
+	const cancel = new AbortController();
+	session.command = (_name, args = []) => {
+		departed.push(args[0]);
+		current.intent.conversations = current.intent.conversations.filter((row) => row.id !== args[0]);
+		return Promise.resolve({} as ManagedOperation);
+	};
+	session.completeResult = () => Promise.resolve();
+	try {
+		const [outcome] = await Promise.allSettled([
+			session.openings.run(
+				(opening) => session.actions.publicRoom("dir", "garden", "publication", opening),
+				null,
+				cancel.signal,
+			),
+		]);
+		assert(
+			outcome.status === "rejected" && outcome.reason === refusal,
+			"the original refusal belongs to this attempt",
+		);
+		cancel.abort();
+		const fresh = await session.actions.publicRoom("dir", "garden", "publication");
+		assertEquals([prepared, submitted, departed.length], [2, 3, 1]);
+		assert(fresh !== departed[0], "recovery cannot hand a departed conversation to a fresh join");
+		assertEquals(current.intent.conversations.map((row) => row.id), [fresh]);
+		assertEquals(session.actions.pending, []);
+	} finally {
+		await session.close();
+	}
+});
+
+Deno.test("cancelling initial directory preparation frees the request before admission", async () => {
+	const entered = deferred<void>(), release = deferred<void>();
+	let submitted = 0, freed = 0;
+	const session = viewer({
+		prepareDirectory: async () => {
+			entered.resolve();
+			await release.promise;
+			return {
+				submit: () => {
+					submitted++;
+					return Promise.resolve("committed");
+				},
+				free: () => freed++,
+			};
+		},
+	});
+	const cancel = new AbortController();
+	try {
+		const result = Promise.allSettled([
+			session.actions.directory(
+				"directory",
+				"127.0.0.1:1234",
+				{ kind: "exact", name: "ada" },
+				true,
+				cancel.signal,
+			),
+		]);
+		await entered.promise;
+		cancel.abort();
+		release.resolve();
+		const [outcome] = await result;
+		assert(outcome.status === "rejected" && outcome.reason.name === "AbortError", "cancellation refuses admission");
+		assertEquals(submitted, 0);
+		assertEquals(freed, 1);
+		assertEquals(session.actions.pending, []);
+	} finally {
+		release.resolve();
+		await session.close();
+	}
+});
+
+Deno.test("a fresh directory press waits for cancelled preparation before acquiring", async () => {
+	const entered = deferred<void>();
+	const release = deferred<void>();
+	const cancelled = new AbortController();
+	let prepared = 0;
+	let submitted = 0;
+	const session = viewer({
+		snapshot: () => Promise.resolve(snapshot()),
+		prepareDirectory: async () => {
+			if (++prepared === 1) {
+				entered.resolve();
+				await release.promise;
+			}
+			return {
+				submit: () => {
+					submitted++;
+					return Promise.resolve("committed");
+				},
+				free() {},
+			};
+		},
+	});
+	try {
+		const old = Promise.allSettled([
+			session.actions.directory(
+				"directory",
+				"127.0.0.1:1234",
+				{ kind: "exact", name: "ada" },
+				true,
+				cancelled.signal,
+			),
+		]);
+		await entered.promise;
+		cancelled.abort();
+		const next = session.actions.directory("directory", "127.0.0.1:1234", { kind: "exact", name: "ada" }, true);
+		const result = Promise.allSettled([next]);
+		release.resolve();
+		assertEquals((await old)[0].status, "rejected");
+		assertEquals((await result)[0].status, "fulfilled", "a fresh press must not inherit the old cancellation");
+		assertEquals([prepared, submitted], [2, 1]);
+	} finally {
+		release.resolve();
+		await session.close();
+	}
+});
+
+Deno.test("cancelling after a proved directory conflict stops re-admission and permits a fresh press", async () => {
+	const entered = deferred<void>(), release = deferred<void>();
+	const cancel = new AbortController();
+	let prepared = 0, submitted = 0, freed = 0;
+	const request = (first: boolean) => ({
+		submit: () => {
+			submitted++;
+			return Promise.resolve(first ? "conflict" : "committed");
+		},
+		reprepare: async () => {
+			entered.resolve();
+			await release.promise;
+			return request(false);
+		},
+		free: () => freed++,
+	});
+	const session = viewer({
+		snapshot: () => Promise.resolve(snapshot()),
+		prepareDirectory: () => Promise.resolve(request(++prepared === 1)),
+	});
+	try {
+		const old = Promise.allSettled([
+			session.actions.directory("dir", "route", { kind: "exact", name: "ada" }, false, cancel.signal),
+		]);
+		await entered.promise;
+		cancel.abort();
+		const fresh = Promise.allSettled([
+			session.actions.directory("dir", "route", { kind: "exact", name: "ada" }, false),
+		]);
+		release.resolve();
+		const [outcome] = await old;
+		assert(
+			outcome.status === "rejected" && outcome.reason.name === "AbortError",
+			"proved non-admission belongs to the cancelled attempt",
+		);
+		assertEquals((await fresh)[0].status, "fulfilled");
+		assertEquals([prepared, submitted, freed], [2, 2, 3]);
+	} finally {
+		release.resolve();
+		await session.close();
+	}
+});
+
+Deno.test("repeated public room acquisition shares one admitted request", async () => {
 	const current = snapshot();
 	current.intent.directories.push({
 		id: "directory",
@@ -54,8 +251,8 @@ Deno.test("concurrent public room acquisition converges on the committed exact p
 		]);
 		assertEquals(ids[0], ids[1]);
 		assertEquals(current.intent.conversations.length, 1);
-		assertEquals(preparations, 2, "the losing candidate sees a definite revision conflict");
-		assertEquals(freed, 2);
+		assertEquals(preparations, 1, "both entry points share the original acquisition");
+		assertEquals(freed, 1);
 		assertEquals(session.actions.pending, []);
 	} finally {
 		await session.close();
@@ -237,5 +434,183 @@ for (const first of ["conflict", "uncertain"]) {
 			await operation.close();
 		}
 		assertEquals(receiptsFreed, 1);
+	});
+}
+
+Deno.test("lost public-room acquisition reply retries the exact request and conversation", async () => {
+	const current = snapshot();
+	current.intent.directories.push({
+		id: "dir",
+		access: "access",
+		home: true,
+		nick: "ada",
+		nickAllocation: "exact",
+		standing: null,
+	});
+	let prepared = 0;
+	let submitted = 0;
+	let adopted = "";
+	const session = viewer({
+		snapshot: () => Promise.resolve(current),
+		preparePublicRoom: (_revision: string, raw: string) => {
+			prepared++;
+			adopted = JSON.parse(raw).id;
+			return Promise.resolve({
+				submit: () =>
+					++submitted === 1 ? Promise.reject(new Error("reply lost")) : Promise.resolve("committed"),
+				free() {},
+			});
+		},
+	});
+	await Promise.allSettled([session.actions.publicRoom("dir", "garden", "publication")]);
+	assertEquals(session.actions.recoverable.length, 1);
+	const id = await session.actions.publicRoom("dir", "garden", "publication");
+	assertEquals([prepared, submitted, id], [1, 2, adopted]);
+	assertEquals(session.actions.pending, []);
+	await session.close();
+});
+
+Deno.test("failed acquisition preparation has no retained decision even during notification", async () => {
+	const session = viewer({ prepareDirectory: () => Promise.reject(new Error("not prepared")) });
+	const decisions: string[][] = [];
+	const stop = session.subscribe(() => decisions.push([...session.actions.recoverable]));
+	await Promise.allSettled([session.actions.directory("dir", "route", { kind: "exact", name: "ada" }, false)]);
+	assertEquals(decisions.every((ids) => ids.length === 0), true);
+	stop();
+	await session.close();
+});
+
+Deno.test("committed acquisition with a failed refresh retries only the refresh", async () => {
+	let reads = 0, prepared = 0, submitted = 0, freed = 0;
+	const session = viewer({
+		snapshot: () => ++reads === 1 ? Promise.reject(new Error("refresh disconnected")) : Promise.resolve(snapshot()),
+		prepareDirectory: () => {
+			prepared++;
+			return Promise.resolve({
+				submit: () => {
+					submitted++;
+					return Promise.resolve("committed");
+				},
+				free: () => freed++,
+			});
+		},
+	});
+	const [result] = await Promise.allSettled([
+		session.actions.directory("dir", "route", { kind: "exact", name: "ada" }, false),
+	]);
+	assertEquals(result.status, "rejected");
+	assertEquals(session.actions.recoverable, ["directory:dir"]);
+	assertEquals(session.actions.diagnostics[0].outcome, "committed");
+	await session.actions.directory("dir", "route", { kind: "exact", name: "ada" }, false);
+	assertEquals([prepared, submitted, freed, reads], [1, 1, 1, 2]);
+	assertEquals(session.actions.pending, []);
+	await session.close();
+	assertEquals(session.resources, {
+		effects: { effects: 0, workers: 0 },
+		acquisitions: { acquisitions: 0, workers: 0, gestures: 0 },
+		workers: 0,
+		reads: 0,
+		listeners: 0,
+		waiters: 0,
+		observation: false,
+		activity: false,
+	});
+});
+
+for (const timing of ["preparing", "committed"] as const) {
+	Deno.test(`cancelling room creation while ${timing} stops admission or releases the acquired membership`, async () => {
+		const current = snapshot();
+		current.intent.directories.push({
+			id: "directory",
+			access: "access",
+			source: "source",
+			home: true,
+			nick: "ada",
+			nickAllocation: "exact",
+			standing: null,
+		});
+		const entered = deferred<void>(), release = deferred<void>();
+		const cancel = new AbortController();
+		let submitted = 0, freed = 0;
+		const left: string[][] = [];
+		const session = viewer({
+			snapshot: () => Promise.resolve(current),
+			prepareCommand: (id: string, revision: string, name: string, args: string[]) => {
+				entered.resolve();
+				const request = {
+					originalIntent: () => [id, Number(revision), name, args],
+					submit: () => {
+						if (name === "openManagedRoom") submitted++;
+						return Promise.resolve("committed");
+					},
+					status: () => Promise.resolve("committed"),
+					free: () => freed++,
+				};
+				return timing === "preparing" ? release.promise.then(() => request) : Promise.resolve(request);
+			},
+		});
+		session.completeResult = async (command) => {
+			if (timing === "committed") {
+				entered.resolve();
+				await release.promise;
+			}
+			if (timing === "committed" && !current.intent.conversations.some((row) => row.id === command.id)) {
+				current.intent.conversations.push({
+					kind: "room",
+					id: command.id,
+					directory: "directory",
+					name: "garden",
+					access: "entry",
+					control: null,
+					reconnect: "requested",
+					standing: null,
+					draft: "",
+				});
+			}
+			session.finish(command);
+		};
+		const command = session.command.bind(session);
+		session.command = (name, args, ...rest) => {
+			if (name === "leaveConversation") left.push(args ?? []);
+			return command(name, args, ...rest);
+		};
+		try {
+			const result = Promise.allSettled([
+				session.actions.createRoom(
+					"directory",
+					"garden",
+					OPEN_ROOM_POLICY,
+					new ConversationOpening(session, () => {}, cancel.signal),
+				),
+			]);
+			await entered.promise;
+			if (timing === "committed") { while (submitted === 0) await Promise.resolve(); }
+			cancel.abort();
+			const retry = session.actions.createRoom(
+				"directory",
+				"garden",
+				OPEN_ROOM_POLICY,
+				new ConversationOpening(session),
+			);
+			release.resolve();
+			const [outcome] = await result;
+			const next = await retry;
+			assertEquals(submitted, timing === "preparing" ? 1 : 2);
+			if (timing === "preparing") {
+				assertEquals(outcome.status, "rejected");
+				assertEquals(freed, 2);
+				assertEquals(left, []);
+			} else {
+				assertEquals(outcome.status, "fulfilled");
+				assertEquals(left.length, 1);
+				if (outcome.status === "fulfilled") {
+					assertEquals(left[0], [outcome.value]);
+					assert(next !== outcome.value, "new join must acquire its own room");
+				}
+			}
+		} finally {
+			release.resolve();
+			await session.close();
+		}
 	});
 }

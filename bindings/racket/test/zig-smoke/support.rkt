@@ -68,7 +68,7 @@
   (define tb (string->bytes/utf-8 transport-name))
   (define db (string->bytes/utf-8 designator))
   ;; These scenarios know the accepted endpoint they model. An empty address
-  ;; deliberately retains the binding's unreachable-client posture.
+  ;; retains the binding's unreachable-client posture.
   (define hb db)
   (call-with-host m
     (lambda ()

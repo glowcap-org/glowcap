@@ -3,7 +3,7 @@ id: ADR-0207
 status: accepted
 date: 2026-10-06
 tags: [loam, authority, storage, bindings]
-decision: "Held controls independently inspect and issue within immutable ceilings; labels, revisions, child indexes and exact issuance receipts remain shared Loam state."
+decision: "Held controls independently inspect and issue within immutable ceilings. Labels, revisions, child indexes and exact issuance receipts remain shared Loam state."
 supersedes: []
 superseded_by: []
 amends: [ADR-0187]
@@ -17,7 +17,7 @@ amended_by: []
 Rooms needs administration while use is narrowed, paused or unable to delegate.
 Deriving through a use capability cannot supply that contract. Binding-owned
 grant lists would also duplicate shared ancestry and lifecycle authority. The
-Zig grant scenarios are the semantic authority; applications project them.
+Zig grant scenarios are the semantic authority. Applications project them.
 
 ## Decision
 
@@ -32,7 +32,7 @@ Grants own a validated label of at most 120 UTF-8 bytes and a committed revision
 Fresh edits and issuance compare the expected grant revision, including no-op
 edits. Hosted replay first recovers the exact original receipt, then rechecks
 held authority and result custody. Control-owned issuance uses the existing
-derivation receipt window through `issue-access`; it is not a mutation that
+derivation receipt window through `issue-access`. It is not a mutation that
 creates another receipt family. Recovery can return paused use without granting
 permission to invoke it. Revoked controls, revoked ancestry and out-of-scope
 results refuse replay.
@@ -42,7 +42,7 @@ and retirement update membership in their owning transaction. Inventory walks
 only direct children of the held Inspect control, retains one child row, and
 uses existing fixed grant-decoder scratch. Hosted pages contain at most 32 rows
 and a conservative 64 KiB encoded allowance. Cursors bind the exact endpoint
-identity, generation and Store revision; rows contain descriptive policy and
+identity, generation and Store revision. Rows contain descriptive policy and
 lifecycle data, with no publication secrets or returned authority.
 
 The fixed-resource C/Rust/browser profile carries these operations as ordinary
@@ -66,7 +66,7 @@ existing owners. General recursive resource editing is outside this profile.
 ## Consequences
 
 Grant, capability and endpoint prerelease record formats advance to version 2.
-Old storage is rejected; no compatibility reader reconstructs authority.
+Old storage is rejected. No compatibility reader reconstructs authority.
 Capability decoding reserves two complete scope selections in fixed operation
 storage. Record, operation and page allowances remain independently bounded.
 

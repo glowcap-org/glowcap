@@ -7,7 +7,7 @@ pub const ReadProgress = enum { closed, wait_read, wait_write, failed };
 
 /// Discard application data that was already in flight when this endpoint
 /// sent Close, while still validating frames and answering control traffic.
-/// One call performs at most one socket fill; resident buffers bound work and
+/// One call performs at most one socket fill. Resident buffers bound work and
 /// memory even when a peer keeps transmitting during shutdown.
 pub fn drainAfterLocalClose(rs: anytype) ReadProgress {
     const r = rs.source.reader;

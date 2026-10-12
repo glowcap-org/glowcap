@@ -41,12 +41,12 @@ const large_cap_in: u8 = 8;
 
 /// Smallest the synthesized frame is built, in bytes. Above the scan threshold
 /// with room to spare, so every argument count the plan can choose still crosses
-/// it; `ratifyStreamShapes` holds that at both ends.
+/// it. `ratifyStreamShapes` holds that at both ends.
 const big_frame_floor: usize = 4224;
 
 /// Largest read buffer the plan hands the reader, and the most one read may
 /// return. Both are drawn from the whole range, so the search reaches
-/// byte-at-a-time reads as well as ones that swallow a corpus frame whole; every
+/// byte-at-a-time reads as well as ones that swallow a corpus frame whole. Every
 /// corpus frame is longer than this, so a frame always crosses the buffer
 /// boundary and goes through the spill for real.
 const max_read_len: usize = 96;
@@ -104,7 +104,7 @@ pub const StreamPlan = struct {
     /// hold.
     frame_cap: usize,
     tail: Tail,
-    /// The bare frames fed, in order; `bytes` carries their outer envelopes.
+    /// The bare frames fed, in order. `bytes` carries their outer envelopes.
     frames: []const []const u8,
     /// The whole stream: those frames, then the tail.
     bytes: []const u8,
@@ -134,7 +134,7 @@ pub fn appendOuterFrame(dest: []u8, frame: []const u8) ?usize {
 ///
 /// Every fourth argument is a byte string whose payload spells `<`, and that is
 /// the point rather than decoration. The scan steps over a length-prefixed leaf
-/// by its declared length precisely so a payload byte cannot move its depth; a
+/// by its declared length precisely so a payload byte cannot move its depth. A
 /// walk that loses that property counts opens it can never close, withholds the
 /// decoder for good, and the frame is refused at the cap instead of returned.
 /// Without such a payload the frame cannot tell a correct walk from that one.
@@ -163,7 +163,7 @@ pub fn synthesizeDeliver(out: []u8, want: usize) []const u8 {
 /// Every choice comes out of these bytes rather than from a separate draw. A
 /// draw made after `smith.slice` has consumed the input answers the same way on
 /// every replay, so a saved finding would replay under a geometry the fuzzer
-/// never found it with — and for a target whose whole subject is geometry that
+/// never found it with, and for a target whose whole subject is geometry that
 /// is the wrong one every time.
 pub fn planStream(input: []const u8) ?StreamPlan {
     if (input.len <= stream_config_bytes) return null;

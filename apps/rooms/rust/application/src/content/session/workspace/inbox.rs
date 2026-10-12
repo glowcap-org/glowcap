@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 /// Retains each directory's requested nickname (at most 32 UTF-16 units) for
 /// the callback's lifetime. Borrowing the mutable workspace would let an edit
-/// silently retarget a live callback; assigned names remain registration output.
+/// silently retarget a live callback. Assigned names remain registration output.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum InboxSelection {

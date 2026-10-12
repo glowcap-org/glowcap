@@ -27,7 +27,7 @@ pub const GrantView = struct {
 
     /// The source and borrowed term selections outlive each synchronous use.
     /// Sources return data at one revision, never policy verdicts or hidden I/O.
-    /// Returned selections remain valid until the next grant lookup; resource
+    /// Returned selections remain valid until the next grant lookup. Resource
     /// source calls must not invalidate these grant borrows.
     pub fn init(version: Version, max_depth: u16, context: *const anyopaque, read_record: *const fn (*const anyopaque, identity.GrantId) SourceError!Reply) GrantView {
         return .{ .version = version, .max_depth = max_depth, .context = context, .read_record = read_record };
@@ -129,7 +129,7 @@ pub const GrantView = struct {
     const Effective = struct { policy: Policy.Value, supported: u64 };
 
     /// Management may recover an issued endpoint while its use is paused.
-    /// Revocation and current scope still refuse recovery; this grants no use.
+    /// Revocation and current scope still refuse recovery. This grants no use.
     pub fn requireRecovery(self: *GrantView, resources: *ResourceView, policy: *const Policy, id: identity.GrantId, target: identity.ResourceId) Error!void {
         _ = try self.effectivePolicy(resources, policy, id, target, true);
     }

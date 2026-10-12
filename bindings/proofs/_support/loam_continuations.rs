@@ -166,7 +166,7 @@ pub async fn exercise(session: &Session, root: &Ref, control: &Ref, state: &Stat
 	];
 	assert_eq!(
 		session.send(root, "mutate", &request).await.err().unwrap().message(),
-		Some("ApplicationRefused")
+		Some("receipt refuses before commit")
 	);
 	let mut canceled = pending(state).await;
 	assert_eq!(canceled.confirmed().await.err().unwrap().code(), super::UNCHANGED);
@@ -190,7 +190,7 @@ pub async fn exercise(session: &Session, root: &Ref, control: &Ref, state: &Stat
 	let super::EffectResult::Unknown(error) = execution.completed().await.unwrap() else {
 		panic!("application refusal after target admission cannot prove absence")
 	};
-	assert_eq!(error.message(), Some("ApplicationRefused"));
+	assert_eq!(error.message(), Some("target admitted before application refusal"));
 	assert_eq!(state.effects.get(), 1);
 	session
 		.send(

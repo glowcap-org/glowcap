@@ -22,14 +22,14 @@ const Error = vat_mod.Error;
 
 /// One CapTP session's projection of a Vat: wire peer, export positions, and
 /// far-vow settlement. A Port owns names and authority that exist only on that
-/// session; the Vat owns the actor graph and turn machinery shared by every
+/// session. The Vat owns the actor graph and turn machinery shared by every
 /// Port attached to it.
 pub const Port = struct {
     allocator: std.mem.Allocator,
     /// Borrowed from the Node that owns this session's Peer allocation.
     peer: *engine.Peer,
-    /// Causal/admission identity in the Vat. Standalone Ports use `.local`;
-    /// a multi-Port Host assigns one minted ingress per session.
+    /// Causal/admission identity in the Vat. Standalone Ports use `.local`.
+    /// A multi-Port Host assigns one minted ingress per session.
     ingress: IngressId = .local,
     resolve_interceptor: ?ResolveInterceptor = null,
     /// Listener for a far send's vow, keyed by this Port's outbound answer
@@ -268,7 +268,7 @@ pub const Port = struct {
 };
 
 /// Encode one far `op:deliver` while the caller's message is borrowed. The
-/// outbound queue takes the one owned boundary clone; only the verb-splice
+/// outbound queue takes the one owned boundary clone. Only the verb-splice
 /// spine is scratch, stack-backed for the common arity. Inside a turn the Port
 /// enrolls first, so the send is retractable if the turn fails (ADR-0194).
 fn farDeliverTo(vat: *Vat, port: *Port, target: model.Reference, msg: Message, answer: ?model.AnswerPosition) Error!void {

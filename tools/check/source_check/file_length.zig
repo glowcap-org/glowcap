@@ -36,7 +36,7 @@ const Exception = struct {
 
 /// Closed legacy debt, sorted largest first so the next split target is visible.
 /// Never add a row. A ceiling is an exact maximum for non-additive corrections,
-/// never headroom; any shrink must pin the lower count in this table.
+/// never headroom. Any shrink must pin the lower count in this table.
 const exceptions: []const Exception = &.{};
 
 const trees = [_][]const u8{

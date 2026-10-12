@@ -1,4 +1,4 @@
-//! Socket lifetime lends a wait; the adapter retains the exact acquisition and
+//! Socket lifetime lends a wait. The adapter retains the exact acquisition and
 //! its actual receiver. Retrying cannot fetch capabilities or choose intent again.
 use super::{Failure, peer_failure};
 use rooms_application::content::session::{custody, records, workspace};
@@ -104,7 +104,11 @@ impl Acquisitions {
 				},
 			);
 		}
-		let mut result = pending.get(id).unwrap().result.clone();
+		let mut result = pending
+			.get(id)
+			.ok_or_else(|| Failure::invalid("acquisition left the pending table before it was observed"))?
+			.result
+			.clone();
 		drop(pending);
 		tokio::time::timeout(std::time::Duration::from_secs(20), Pending::completed(&mut result))
 			.await

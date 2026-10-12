@@ -2,14 +2,15 @@
  * What an era is, and what a recompute may reuse.
  *
  * These cover the three properties the per-topology layout rests on, each of
- * which was broken in a way nothing else noticed:
+ * which breaks in a way nothing else notices:
  *
- *   1. An era describes the moment it is stamped at. The node set used to be
- *      folded forward across the walk, and a session's departure did not remove
- *      the ends its arrival added, so every closed session left a body in every
- *      later era — a free node with charge and a footprint, seeded at the origin
- *      with nothing standing there. A live room that reconnects every few
- *      seconds accumulated one per reconnect for as long as anyone watched.
+ *   1. An era describes the moment it is stamped at. The node set is derived
+ *      from the moment, not folded forward across the walk, because a
+ *      session's departure does not remove the ends its arrival added. A
+ *      folded set leaves a free node with charge and a footprint, seeded at
+ *      the origin with nothing standing there, in every later era. A live
+ *      room that reconnects every few seconds would accumulate one per
+ *      reconnect for as long as anyone watched.
  *   2. Two moments presenting the solver the same problem are one era. While the
  *      node set grew forever this could never fire, because no two eras were
  *      ever equal.
@@ -186,7 +187,7 @@ const positions = (e: Engine): Map<string, string> => {
 
 engineTest("a closed session leaves no node behind", () => {
 	// While a reconnect's session stands, its loose end is a node, and the era
-	// covering that moment holds it — that is the picture being right. What must
+	// covering that moment holds it. That is the picture being right. What must
 	// not happen is the count growing with the number of reconnects, which is what
 	// it did while the set was folded forward: one body per session ever opened,
 	// piled at the origin, pushing the room outward a little further each time.
@@ -298,7 +299,7 @@ engineTest("a second session on the same pair is its own era", () => {
 
 engineTest("swapping which ids share a pair is its own era", () => {
 	// Sharper than the case above: the pair multiset is unchanged and only the ids
-	// move, which is exactly what the key used to drop.
+	// move, which is what the key must tell apart.
 	const e = roomEngine();
 	primaryObservations(e.doc).push({
 		id: "aaa-open",
@@ -404,7 +405,7 @@ engineTest("a placement edit leaves an era easing from where it began", () => {
 	// Dragging a loose end reaches this: the pin names a node the FIRST era does
 	// not contain, so that era reuses unconditionally, while the second reuses
 	// because the pin matches where it already had the end. Both keep their
-	// arrangements, and those arrangements differ — the second era draws a
+	// arrangements, and those arrangements differ. The second era draws a
 	// session the first does not.
 	const e = twoEraEngine();
 	const before = e.layout.keyframes;
@@ -461,7 +462,7 @@ engineTest("ending a peer's life takes it out of every later era", () => {
 	// the recompute key stays put while the peer stops standing anywhere, and the
 	// layout has to notice on its own.
 	//
-	// Left unnoticed, the peer keeps its place in every later era's solve — a body
+	// Left unnoticed, the peer keeps its place in every later era's solve, a body
 	// with charge and a footprint at a spot the stage draws nothing, which is the
 	// same defect the accumulating node set had, reached from the other side.
 	const e = twoEraEngine();

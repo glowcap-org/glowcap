@@ -330,9 +330,9 @@ test "mcp lifecycle defaults are finite" {
 test "an unwritable state directory is refused as an identity problem, not a dial failure" {
     // The identity is the first thing `glowcap` needs and the first thing the
     // quickstart tells a reader to create, so a state directory nobody can
-    // write has to say so. It used to exit with a bare code and no output, and
-    // `ocapn info` reported it through the dial mapper, which sends the reader
-    // looking at the network for a permissions problem.
+    // write has to say so. A bare exit code with no output, or a report through
+    // the dial mapper, sends the reader looking at the network for a
+    // permissions problem.
     const gpa = std.testing.allocator;
     var environ = std.process.Environ.Map.init(gpa);
     defer environ.deinit();
@@ -458,7 +458,7 @@ test "info reports a background listener that died on its own" {
 
     // The benign stop reports the same way: a one-partner listener that
     // served its partner is not listening, and says why, rather than
-    // reporting a live accept loop it no longer runs.
+    // reporting a live accept loop it does not run.
     const lb = @import("cli").ocapn_listen_background;
     c.background_listener.?.stop_reason.store(lb.Handle.served_stop, .release);
     capture.clearRetainingCapacity();

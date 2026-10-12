@@ -12,24 +12,18 @@ change.
 
 A standard OCapN locator names one transport and one designator. So a program
 that listens on two transports looks like two separate peers, and a sturdyref
-written for one of them only works over that one path. glowcap's multi-home
-support solves this with the `id` locator. It names the peer by its durable
-public key and lists the paths that reach it as hints.
-
-Multi-homing works in glowcap today. Its wire names are not yet part of OCapN,
-so they live in glowcap's private trial profile, `glowcap-next`.
-[Standing]($link.ref('standing')) at the end explains what that means for you.
+written for one of them only works over that one path. glowcap's `id` locator
+names the peer by its durable public key instead and lists the paths that reach
+it as hints. Its wire names are not part of OCapN yet, so they live in
+glowcap's trial profile, `glowcap-next` (see [Standing]($link.ref('standing'))).
 
 # One peer, several routes
 
-An `id` locator puts the peer's durable public key in the designator, the
-same place other keyed transports put their names. Its transport symbol is
-`id`, but `id` is not a byte path of its own. It is a bundle of routes, each
-of which is a real transport.
-
-Dialing an `id` locator tries its routes in order. What makes the answering
-program the right peer is never the route it came in on. It is the channel
-proving it holds the key the locator names.
+An `id` locator puts the peer's durable public key in the designator. `id` is
+not a byte path of its own but a bundle of routes, each a real transport.
+Dialing it tries the routes in order. What makes the answering program the
+right peer is never the route it came in on. It is the channel proving it holds
+the key the locator names.
 
 [Dialing one multi-home peer: the first route is down, so the dial moves on, and the next route's channel proves the key. That proof is what makes whoever answered the peer. The weak fallback can carry a signed gift, never the identity.]($image.siteAsset('diagram-multihome-dial.svg'))
 
@@ -57,15 +51,14 @@ dial and nothing proves it.
 The `alt-locators` hint lists weak fallbacks, such as a plain socket or an
 [onion]($link.page('transports/onion')) address. Tor proves an onion service
 only to the side that dials it, so an onion route cannot prove a peer in both
-directions. A weak route can complete
-one handoff that a signed gift already authorized, and nothing more. It never
+directions. A weak route can complete one handoff that a signed gift already
+authorized, and nothing more. It never
 establishes the peer's identity, it never enters the identity cache, and a
 sturdyref never dials it.
 
 Each list holds at most eight routes, and the two together are limited to a
-few kilobytes. Every `via` route must name the same key as the designator.
-These limits mean an untrusted locator cannot cause unbounded work or slip in
-a second identity.
+few kilobytes. Every `via` route must name the same key as the designator, so
+an untrusted locator cannot cause unbounded work or slip in a second identity.
 
 # What the other peer sees
 
@@ -87,19 +80,15 @@ gives the recipient one concrete route on a transport that recipient is known
 to use, with the private fields removed. If no such route exists, glowcap
 refuses the give before sending anything.
 
-glowcap never sends experimental fields in the hope that the other side will
-ignore them. That is why the wire a Goblins peer sees is the same whether or
-not multi-homing is in use.
+glowcap never sends experimental fields hoping the other side ignores them, so
+a Goblins peer sees the same wire whether or not multi-homing is in use.
 
 # Sturdyrefs that survive a transport change
 
-This is where multi-homing pays off. A sturdyref written against an `id`
-locator names the peer's key, not one of its paths. The peer can move to a
-different transport, or add a second listener, and stored references keep
-working.
-
-Redeeming such a sturdyref works like this, on a Host that has opted into
-`multi_location`:
+A sturdyref written against an `id` locator names the peer's key, not one of
+its paths. The peer can move to a different transport, or add a second
+listener, and stored references keep working. On a Host that has opted into
+`multi_location`, redeeming one works like this:
 
 1. If a session already exists whose channel proved that key, on any
    transport, the Host reuses it.
@@ -130,22 +119,11 @@ stays live.
 
 # [Standing]($section.id('standing'))
 
-The OCapN community has wanted multi-homing for years but has not specified
-it yet. Its meeting notes discuss ideas ranging from locators that name
-several netlayers to a vat id that does not depend on any transport. glowcap
-builds it now because it already has the pieces: keyed transports over
-several kinds of byte path, and a sealed channel that proves a durable key
-over any of them.
-
-Everything described above is built and covered by the build checks. That
-includes the route bundle, the ordered dial with its bounded race and identity
-rules, the per-session negotiation and fallback, `id` sturdyrefs, and the
-Rooms peering suite that exercises them live. The decision record behind this
-design is
-[ADR-0125](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0125-identity-route-multihome.md).
-
-What remains open is the wire format. It stays a `glowcap-next` extension
-until OCapN specifies a compatible one. Peers that never agree on the
-extension never see these route hints, and a Goblins peer keeps getting
-ordinary locators. [What you can depend on]($link.page('stability')) covers
-the evidence behind claims like these.
+OCapN has not specified multi-homing yet. Its meeting notes discuss ideas from
+locators that name several netlayers to a vat id that does not depend on any
+transport. Everything on this page is built and checked
+([ADR-0125](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0125-identity-route-multihome.md)).
+The open part is the wire format, which stays a `glowcap-next` extension until
+OCapN specifies a compatible one. Until then, peers that do not negotiate it
+never see these route hints. [What you can depend on]($link.page('stability'))
+lists the checks.

@@ -38,7 +38,7 @@ engineTest("a moment dropped on its own neighbour is refused", () => {
 
 	// The row's scrub clamps to its predecessor's time, and the floor is
 	// reachable. Landing there once meant remove-then-set, and the set
-	// REPLACES at its t — so the predecessor was overwritten and the
+	// REPLACES at its t. So the predecessor was overwritten and the
 	// track came back one entry short.
 	const errors: string[] = [];
 	const off = e.onError((err) => errors.push(err.detail));
@@ -100,7 +100,7 @@ engineTest("a moment moved along its own track keeps its name", () => {
 	const after = stateMoments(e)[0]!;
 	assertEquals(after.eventId, before.eventId);
 	assertEquals(after.t, 4000);
-	// The definition's track went with it — the Inspector reads the
+	// The definition's track went with it. The Inspector reads the
 	// moments and the stage reads the track, and they must agree.
 	assertEquals(sessionOf(e).keyframes?.state, [{ t: 4000, value: "open" }]);
 });

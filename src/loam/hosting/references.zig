@@ -1,5 +1,5 @@
 //! Call-owned preparation of declared durable fields and held replacements.
-//! Disk reads use the attachment's lane; network work stays in Host.
+//! Disk reads use the attachment's lane. Network work stays in Host.
 const std = @import("std");
 const model = @import("model");
 const core = @import("loam_core");
@@ -20,8 +20,8 @@ pub const AllocationBound = @import("call_memory.zig").AllocationBound;
 
 /// Preparation, one proof and recipe payload per save, plus one transient URI
 /// window. Caller-owned declarations, snapshots, callback storage and reply
-/// marshaling are separate demand; Host network state uses its own budgets.
-/// uri_bytes bounds supplied or stored inputs; save canonicalization may expand.
+/// marshaling are separate demand. Host network state uses its own budgets.
+/// uri_bytes bounds supplied or stored inputs. Save canonicalization may expand.
 pub fn allocationBound(restores: usize, saves: usize, uri_bytes: usize) !AllocationBound {
     if (uri_bytes > max_uri_bytes) return error.RecordTooLarge;
     const requests = try std.math.add(usize, restores, saves);
@@ -48,12 +48,12 @@ pub const Request = union(enum) {
     restore: usize,
     /// A field in the preparation's registered view inventory. Zero names the
     /// original root. Additional views must come from that preparation, never
-    /// a caller-selected object ID; exact revision checks survive restoration.
+    /// a caller-selected object ID. Exact revision checks survive restoration.
     restore_record: struct { record: usize, index: usize, retain_uri: bool = false, metadata_only: bool = false },
     /// The durable URI was obtained before this transaction. Host verifies it
-    /// names this exact held capability; omitting it supports local capture.
+    /// names this exact held capability. Omitting it supports local capture.
     save: struct { capability: driver.Capability, uri: ?[]const u8 = null },
-    /// Explicit Host-lifetime custody; restart never restores this authority.
+    /// Explicit Host-lifetime custody. Restart never restores this authority.
     save_live: driver.Capability,
     /// Prepare one stable facet governed by both actual held capabilities.
     save_live_dependent: struct { source: driver.Capability, target: driver.Capability },
@@ -70,7 +70,7 @@ pub fn retainedUriAllocationBound(count: usize, uri_bytes: usize) !AllocationBou
 pub const Replacement = union(enum) { edge: core.Edge, saved: *Saved };
 
 /// A call-bound recipe proof. Application code cannot manufacture a saved
-/// target from a name; copies retain the actual capability through outcome.
+/// target from a name. Copies retain the actual capability through outcome.
 pub const Saved = opaque {
     pub fn stage(self: *Saved, store: *core.Store) !core.Edge {
         const state: *SavedState = @ptrCast(@alignCast(self));
@@ -157,13 +157,13 @@ pub const Set = struct {
 
     /// Each save declaration owns one Host retain before any request can wait.
     /// Slots and temporary retain spines use the bounded call arena. Starting
-    /// a Save transfers custody by retiring this retain after Save owns its own;
-    /// error, reset and cancellation release unstarted declarations here.
+    /// a Save transfers custody by retiring this retain after Save owns its own.
+    /// Error, reset and cancellation release unstarted declarations here.
     pub fn create(call: *h.Call, view: core.RecordView, requests: []const Request) !*Set {
         return createInventory(call, .{ .one = view }, requests);
     }
 
-    /// Inventory borrows prepared snapshots through settlement; slots and
+    /// Inventory borrows prepared snapshots through settlement. Slots and
     /// request custody share the existing retained arena and lifecycle.
     pub fn createViews(call: *h.Call, views: []const core.RecordView, requests: []const Request) !*Set {
         if (views.len == 0) return error.InvalidArgument;
@@ -385,7 +385,7 @@ pub const Set = struct {
     }
 
     /// Borrow the canonical URI after declared exact restoration or inspection. Local
-    /// recipes return null; live custody has no durable publication recipe.
+    /// recipes return null. Live custody has no durable publication recipe.
     /// This uses the existing sorted selection spine, with no field scan.
     pub fn restoredUri(self: *Set, view: core.RecordView, index: usize) !?[]const u8 {
         const lower = self.firstRestore(view, index);
@@ -454,7 +454,7 @@ pub const Set = struct {
     }
 
     /// Borrow only a facet produced by this call's explicit declaration. The
-    /// call owns its reservation; obtaining it grants no reply disclosure.
+    /// call owns its reservation. Obtaining it grants no reply disclosure.
     pub fn preparedDependent(self: *Set, source: driver.Capability, target: driver.Capability) !driver.Capability {
         for (self.slots) |slot| {
             if (!slot.ready or slot.request != .save_live_dependent) continue;

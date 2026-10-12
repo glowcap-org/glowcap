@@ -1,4 +1,4 @@
-//! Callback-borrowed graph pages; Zig owns selection, capture and atomic staging.
+//! Callback-borrowed graph pages. Zig owns selection, capture and atomic staging.
 use super::{Call, check, invalid};
 use crate::{Argument, Ref, Result, sys::loam as ffi};
 
@@ -28,6 +28,8 @@ impl Graph {
 	pub fn call_size_bound(pages: usize, payload_bytes: usize, fields: usize) -> Result<usize> {
 		let mut bytes = 0;
 		check(
+			// SAFETY: `bytes` is a local out-parameter the callee writes; the other arguments are plain integers and no
+			// handle is involved.
 			unsafe { ffi::glowcap_loam_graph_call_size_bound(pages, payload_bytes, fields, &mut bytes) },
 			false,
 		)?;
@@ -50,6 +52,9 @@ impl<'a> Page<'a> {
 		if self.0.payload_len == 0 {
 			&[]
 		} else {
+			// SAFETY: `self.0` borrows a `GlowcapLoamPage` the C side passed to the active callback, and `payload_len`
+			// is nonzero here, so `payload` points to `payload_len` readable bytes the C side keeps live until that
+			// callback returns, which the `'a` borrow does not outlast.
 			unsafe { core::slice::from_raw_parts(self.0.payload, self.0.payload_len) }
 		}
 	}
@@ -67,6 +72,8 @@ impl<'a> Pages<'a> {
 	pub(super) unsafe fn prepared(input: &'a ffi::GlowcapLoamInvocation) -> Result<Option<Self>> {
 		match input.graph_prepared {
 			0 => Ok(None),
+			// SAFETY: `graph_prepared == 1` says the C side filled `input.pages` and `input.page_count` as a live array
+			// of prepared pages for the callback that passed `input`, which the `'a` borrow does not outlast.
 			1 => Ok(Some(unsafe { Self::from_raw(input.pages, input.page_count) })),
 			_ => Err(invalid("unknown graph preparation state")),
 		}
@@ -75,6 +82,8 @@ impl<'a> Pages<'a> {
 		Self(if count == 0 {
 			&[]
 		} else {
+			// SAFETY: the caller declares that `pages` points to `count` initialized `GlowcapLoamPage` values valid for
+			// `'a`, and the zero-length case is taken in the arm above, where the pointer may be null.
 			unsafe { core::slice::from_raw_parts(pages, count) }
 		})
 	}
@@ -136,41 +145,61 @@ impl Call<'_> {
 		let mut uri = core::ptr::null();
 		let mut len = 0;
 		check(
+			// SAFETY: `self.raw` is the call handle the C side passed to the enclosing callback; `Call`'s lifetime ties
+			// this borrow to that callback, which keeps the handle live until it returns; `page.handle()` is a token of
+			// the active preparation, which the same callback keeps live; `uri` and `len` are local out-parameters the
+			// callee writes.
 			unsafe { ffi::glowcap_loam_call_page_saved_uri(self.raw, page.handle(), field, &mut uri, &mut len) },
 			false,
 		)?;
 		if uri.is_null() {
 			return Ok(None);
 		}
+		// SAFETY: `uri` is non-null (checked above) and the callee set `len` bytes of canonical URI text there, which
+		// it keeps borrowed through the callback that `&self` ties this slice to.
 		core::str::from_utf8(unsafe { core::slice::from_raw_parts(uri, len) })
 			.map(Some)
 			.map_err(|_| invalid("saved URI is not UTF-8"))
 	}
 	/// Exact authority borrows this retained call until settlement. It may be
-	/// used as a candidate field; returning it requires explicit disclosure.
-	/// The Rust Ref occurrence allocates its existing release-status cell;
-	/// shared Call custody owns the capability retain, with no Rust Host guard.
+	/// used as a candidate field. Returning it requires explicit disclosure.
+	/// The Rust Ref occurrence allocates its existing release-status cell.
+	/// Shared Call custody owns the capability retain, with no Rust Host guard.
 	pub fn page_reference(&mut self, page: Page<'_>, field: usize) -> Result<Ref> {
+		// SAFETY: `GlowcapReference` is a plain C struct of integers and null pointers; all-zero is a valid value, and
+		// the callee fills it before it is read.
 		let mut reference = unsafe { core::mem::zeroed() };
 		check(
+			// SAFETY: `self.raw` is the call handle the C side passed to the enclosing callback; `Call`'s lifetime ties
+			// this borrow to that callback, which keeps the handle live until it returns; `page.handle()` is a token of
+			// the active preparation, which the same callback keeps live; `reference` is an out-parameter the callee
+			// fills.
 			unsafe { ffi::glowcap_loam_call_page_reference(self.raw, page.handle(), field, &mut reference) },
 			false,
 		)?;
 		Ok(Ref::from_sys(&reference))
 	}
 	pub fn disclose_page(&mut self, page: Page<'_>, field: usize, dependent: bool) -> Result<Argument> {
+		// SAFETY: `GlowcapArgument` is a plain C struct of integers, null pointers, and nested plain C structs;
+		// all-zero is a valid value, and the callee fills it before it is read.
 		let mut value = unsafe { core::mem::zeroed() };
 		check(
+			// SAFETY: `self.raw` is the call handle the C side passed to the enclosing callback; `Call`'s lifetime ties
+			// this borrow to that callback, which keeps the handle live until it returns; `page.handle()` is a token of
+			// the active preparation, which the same callback keeps live; `dependent` is passed as a plain integer and
+			// `value` is an out-parameter the callee fills.
 			unsafe {
 				ffi::glowcap_loam_call_disclose_page(self.raw, page.handle(), field, u32::from(dependent), &mut value)
 			},
 			false,
 		)?;
+		// SAFETY: `value` was filled by the successful `glowcap_loam_call_disclose_page` call above, and the views it
+		// borrows belong to the call whose handle `self.raw` stays live through the callback, past this statement.
 		unsafe { crate::arg_from_sys(&value) }
 	}
 	/// Copies the foreign candidate once into Zig's bounded retained call.
-	/// Temporary field and descriptor spines retire when this setter returns;
-	/// they contain no transaction state or independent persistence authority.
+	/// Temporary field and descriptor spines retire when this setter returns.
+	/// They contain no transaction state or independent persistence authority.
 	pub fn replace_graph(&mut self, payload: &[u8], pages: &[GraphPage<'_>]) -> Result<()> {
 		let fields: Vec<Vec<_>> = pages
 			.iter()
@@ -213,6 +242,11 @@ impl Call<'_> {
 			})
 			.collect();
 		check(
+			// SAFETY: `self.raw` is the call handle the C side passed to the enclosing callback; `Call`'s lifetime ties
+			// this borrow to that callback, which keeps the handle live until it returns; `payload` is a borrowed slice
+			// and `candidates` a local `Vec`, whose pointers and lengths stay live for the call, as do the `payload`
+			// slices and the `fields` spines they point to; the callee copies the candidate once and retains none of
+			// them.
 			unsafe {
 				ffi::glowcap_loam_call_replace_graph_copying(
 					self.raw,

@@ -1,6 +1,6 @@
 //! The binding verification siblings: the per-language C ABI dogfoods, the
 //! Racket unit tests, the `bindings` and `bindings-onion` aggregates, the
-//! glowcap-only deno gifter handoff, and the formatting/type/lint half —
+//! glowcap-only deno gifter handoff, and the formatting/type/lint half,
 //! `fmt`/`fmt-check` in-tree, `bindings-fmt`/`bindings-fmt-check` over every
 //! language scope, with the TypeScript stack suites beside them.
 
@@ -83,7 +83,7 @@ pub fn register(
     // ── C ABI dogfoods (siblings of `check`) ─────────────────────────────────
     // Per-language dogfood of the Zig C ABI archives. Each consumer loads the
     // installed archives and drives an OCapN round-trip through its idiomatic
-    // API over the whole C ABI — allocation context, owned-frame feed, and
+    // API over the whole C ABI, allocation context, owned-frame feed, and
     // typed events included (see bindings/README.md). The Rust consumer also
     // exercises the opt-in tokio async layer alongside the sync surface. Each
     // needs its runtime on PATH (cargo / deno / python3 / racket), provided by
@@ -94,7 +94,7 @@ pub fn register(
         dogfood_runs[i].step.dependOn(b.getInstallStep());
         b.step(dogfood.step_name, dogfood.description).dependOn(&dogfood_runs[i].step);
     }
-    // Compile/cache work is deliberately outside the bounded proof process:
+    // Compile/cache work is outside the bounded proof process:
     // the deadline measures execution and teardown, not a cold Cargo build or
     // first Deno dependency fetch.
     const rust_dogfood_compile = addRootedSystemCommand(b, .build_tool, &.{
@@ -106,7 +106,7 @@ pub fn register(
     // the same contract. This leg supplies only the whole-target feature shape
     // and promotes otherwise-unclassified rustc warnings to failures.
     const rust_binding_lint = addRootedSystemCommand(b, .build_tool, &.{
-        "cargo", "clippy", "--manifest-path", "bindings/rust/Cargo.toml", "--all-targets", "--features", "async", "--", "-D", "warnings",
+        "cargo", "clippy", "--manifest-path", "bindings/rust/Cargo.toml", "--all-targets", "--all-features", "--", "-D", "warnings",
     });
     rust_binding_lint.step.dependOn(b.getInstallStep());
     const rust_binding_lint_step = b.step("rust-binding-lint", "Lint the Rust binding library, tests, and examples with Clippy (needs cargo)");
@@ -294,8 +294,8 @@ pub fn registerChecks(
     // `fmt-check` rides `check`. The Rust formatter needs cargo, so `bindings-fmt`
     // and `bindings-fmt-check` are siblings of `check`, the same posture as
     // `rust-dogfood` and `bindings`. Python and Racket have no formatter in the
-    // toolchain — Python's formatters forbid tabs and Racket indentation is
-    // alignment-sensitive — so they are governed by `.editorconfig` alone. The
+    // toolchain: Python's formatters forbid tabs and Racket indentation is
+    // alignment-sensitive, so they are governed by `.editorconfig` alone. The
     // indentation policy itself lives in `.editorconfig`, `rustfmt.toml`, and
     // the `deno.json` `fmt` blocks; these steps only run the tools.
     //
@@ -430,7 +430,7 @@ pub fn registerChecks(
     // The Python binding gets the same two checks the TypeScript one has. It
     // had neither, and the first run found a `NameError` waiting in
     // `IrohServer.uri` plus two public annotations naming types the module
-    // never imported — the kind of defect a linter catches for free and a
+    // never imported: the kind of defect a linter catches for free and a
     // dogfood run reaches only if it happens to touch that line. `uvx` pins
     // both tools, so the gate does not drift with whatever the host has
     // installed; `uv` is already a `check-external` prerequisite.

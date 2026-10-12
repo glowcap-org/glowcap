@@ -1,5 +1,5 @@
 /* The marks: small statements of fact worn beside a name or over a
-   control — never controls themselves. The copy reply chip, the state
+   control, never controls themselves. The copy reply chip, the state
    marks in a run of text, the caption voice a section is labeled in,
    and the IRC cap a bridged identity wears. */
 
@@ -31,8 +31,8 @@
 	opacity: 0;
 }
 
-/* The little state marks — a padlock on a direct conversation, the sigil in the
-   room title — are icons sitting in a run of text, so they centre on the line
+/* The little state marks (a padlock on a direct conversation, the sigil in the
+   room title) are icons sitting in a run of text, so they centre on the line
    rather than on the text baseline. */
 .lock,
 #roomSigil {
@@ -42,7 +42,7 @@
 
 /* The caption voice: the small tracked capitals a list or section is
    labeled with. The rails' section heads, the roster's title, and a card
-   section's title outside its well all speak it — a label, not a title
+   section's title outside its well all speak it: a label, not a title
    competing with the names under it. */
 .overline {
 	font-size: var(--type-fine);
@@ -54,7 +54,7 @@
 
 /* The bridge mark: a small cap beside a bridged identity or room name, wearing
    the bridge's own badge word and color. The surrounding mark keeps its own
-   identity; this cap says where the projection came from. Not a control; it
+   identity. This cap says where the projection came from. Not a control. It
    states a fact. */
 .bridge-chip {
 	display: inline-block;

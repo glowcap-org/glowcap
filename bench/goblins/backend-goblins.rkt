@@ -38,10 +38,10 @@
   (sync (make-semaphore)))
 
 ;; A client owns its own vat + netlayer (ephemeral listen port) + mycapn, so each
-;; client-connect is a distinct CapTP session — the same shape as one glowcap
+;; client-connect is a distinct CapTP session, the same shape as one glowcap
 ;; connection. The server's host/port are kept to rebuild the sturdyref. One
 ;; settle channel is reused across all (sequential) calls so the driver adds no
-;; per-call allocation overhead beyond what entering the vat requires — the
+;; per-call allocation overhead beyond what entering the vat requires, the
 ;; glowcap side's `session-send` likewise reuses a single result cell per call.
 (struct gclient (run mycapn host port ch))
 

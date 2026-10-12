@@ -1,5 +1,5 @@
 /**
- * The app's timeline bar — the bottom pane, its seam, and the panel
+ * The app's timeline bar. The bottom pane, its seam, and the panel
  * it hosts.
  *
  * TimelinePanel owns the canvases and the view reducer. This module
@@ -102,7 +102,7 @@ export function AppTimeline({
 				onDelta={(d) => {
 					// `useResizeHandle` only emits non-zero deltas, so
 					// any call here means the user actually moved the
-					// handle — flip auto-size off so the pane stays at
+					// handle, flip auto-size off so the pane stays at
 					// the manually-chosen height instead of snapping
 					// back to intrinsic on the next lane expand.
 					if (autoSizeTimeline) onSetAutoSizeTimeline(false);
@@ -111,7 +111,7 @@ export function AppTimeline({
 					// pane; when intrinsic > pane the lanes region
 					// overflows with internal scroll (handled in the
 					// Scrubber). Hard floor is the collapsed-fit height
-					// TimelinePanel publishes — expand a category and
+					// TimelinePanel publishes, expand a category and
 					// you can drag between that and the live intrinsic;
 					// you cannot drag below collapsed-fit.
 					onResize((s) => ({
@@ -163,7 +163,7 @@ export function AppTimeline({
 				cycleCategoryVisibility={(category) => {
 					// Category eyeball: same 4-mode cycle as the per-
 					// entity eyeball (visible → label → body → both →
-					// visible) — applies uniformly to every entity in
+					// visible), applies uniformly to every entity in
 					// the category. Mixed state collapses to "visible"
 					// first so the user gets a clean-slate reset, and
 					// the next click starts the deterministic cycle.
@@ -176,7 +176,7 @@ export function AppTimeline({
 					});
 				}}
 				cycleAllVisibility={() => {
-					// Master "all rows" eyeball — same cycle as the
+					// Master "all rows" eyeball, same cycle as the
 					// per-category one, applied across every category.
 					// Same lossy / opt-in semantics: the user accepts
 					// wiping per-entity overrides for the convenience.

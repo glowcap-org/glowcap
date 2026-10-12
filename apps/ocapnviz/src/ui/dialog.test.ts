@@ -3,7 +3,7 @@
  *
  * These are the rules a person expects without being told, so each test is
  * named for the expectation rather than the branch. There is no DOM in this
- * suite; the decision is a pure function precisely so it can be read here,
+ * suite. The decision is a pure function precisely so it can be read here,
  * and `ErrorModalView` owns the part that moves real focus.
  */
 import { assertEquals } from "@std/assert";

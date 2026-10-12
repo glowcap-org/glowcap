@@ -1,5 +1,5 @@
 /*
- * ocapnviz — palettes, theme switching, shell, and pane layout.
+ * ocapnviz, palettes, theme switching, shell, and pane layout.
  *
  * Both palettes are CSS custom properties, so flipping
  * `<html data-theme="…">` rethemes everything at once. React inline
@@ -13,7 +13,7 @@
 /*
  * Departure Mono (SIL OFL 1.1), self-hosted; the license sits beside
  * the woff2 in `public/fonts/`. Regular is the only weight shipped, so
- * nothing may ask this family for bold — the browser would synthesize
+ * nothing may ask this family for bold. The browser would synthesize
  * it, and a synthesized pixel-grid face smears. `.ocv-input` in
  * `controls.css` holds that line for every field and read-out.
  */
@@ -29,9 +29,9 @@
  * Surfaces, outermost first:
  *
  *   bg             the page behind the app shell
- *   surface        chrome panes — top bar, side panes, bottom bar
+ *   surface        chrome panes, top bar, side panes, bottom bar
  *   surface-subtle a group of fields inside a pane
- *   surface-muted  an inset inside chrome — hovers, chips
+ *   surface-muted  an inset inside chrome, hovers, chips
  *   canvas         the graph workspace
  *
  * The canvas is the brightest surface in light and the lightest dark in
@@ -107,8 +107,8 @@
 :root {
 	font-feature-settings: "ss01", "cv11", "tnum";
 
-	/* The height every control stands at — button, segmented cell,
-	   select, text field, numeric scrub input — and the width an
+	/* The height every control stands at, button, segmented cell,
+	   select, text field, numeric scrub input, and the width an
 	   icon-only button takes so it comes out square. A row of controls is
 	   read as a row, and two pixels of difference between neighbours
 	   reads as sloppiness before it reads as anything at all.
@@ -164,7 +164,7 @@ button {
 	font: inherit;
 }
 
-/* Motion — a fade means "something appeared"; the one-pixel nudge on
+/* Motion. A fade means "something appeared"; the one-pixel nudge on
  * `.ocv-btn:active` means "you did something". Two signals, two
  * properties. */
 @keyframes ocv-fade-in {
@@ -243,8 +243,8 @@ button {
 /* Field row (Inspector key/value pairs) ------------------------------
  *
  * One key and its value, as one element, so the line under it belongs
- * to the row. That is what lets a row hold two layout rows — a
- * trajectory moment's time above its own controls — without a line
+ * to the row. That is what lets a row hold two layout rows, a
+ * trajectory moment's time above its own controls, without a line
  * through its middle, and why no caller has to emit a separator.
  *
  * `subgrid` keeps the keys in a column: the row spans both tracks of
@@ -253,7 +253,7 @@ button {
  *
  * The panel's vertical rhythm is not here. A value's first line stands
  * one control tall and centers its content, which `fieldLineStyle` in
- * ui/inspector/styles.tsx sets from `CONTROL.height` — the same token
+ * ui/inspector/styles.tsx sets from `CONTROL.height`, the same token
  * the controls themselves read, so a row and the control inside it
  * cannot drift apart.
  *
@@ -271,7 +271,7 @@ button {
 	padding-bottom: 5px;
 	border-bottom: 1px solid var(--ocv-border);
 	/* A grid item's automatic minimum size is its min-content size, and
-	   this one spans every track — so a long key would widen the row past
+	   this one spans every track. So a long key would widen the row past
 	   the pane instead of the value cell clipping. */
 	min-width: 0;
 }
@@ -283,26 +283,26 @@ button {
 	border-bottom: none;
 }
 
-/* The Tools panel's rows — the tool strip, and the commands under it.
+/* The Tools panel's rows, the tool strip, and the commands under it.
  *
  * They share a box because the section is one thing: what the left rail
  * offers for acting on the composition. They are ruled apart because
  * they are not the same kind of thing, which the pane says in every
- * other way already — a tool is a mode you sit in and wears an icon
+ * other way already, a tool is a mode you sit in and wears an icon
  * square in a radiogroup, a command runs once and wears its verb.
  *
  * A hairline under every row but the last is how a panel separates its
  * rows everywhere in this app; `.ocv-field` above is the same line, and
  * the 5px is the same inset. Said as `:not(:last-child)` rather than
  * naming the strip, because outside Build the commands do not render at
- * all and the strip becomes the last row — so the line goes away by
+ * all and the strip becomes the last row, so the line goes away by
  * itself instead of by somebody remembering to check the mode. */
 .ocv-tools-panel > *:not(:last-child) {
 	padding-bottom: 5px;
 	border-bottom: 1px solid var(--ocv-border);
 }
 
-/* Legend — one column, or two once the pane is wide enough that one
+/* Legend. One column, or two once the pane is wide enough that one
  * leaves obvious empty space. */
 .ocv-legend-grid {
 	display: grid;
@@ -358,7 +358,7 @@ button {
 	border-color: var(--ocv-border-strong);
 }
 
-/* "What this row names is also in the selection" — the same accent box
+/* "What this row names is also in the selection". The same accent box
  * over the same wash a chosen control wears. */
 .ocv-session-row.is-active {
 	background-color: var(--ocv-accent-soft);

@@ -51,7 +51,7 @@ test "core host: durable and mutable swiss namespaces are disjoint, and a remove
     // ADR-0098 evidence item 5. The reserved prefix is the cross-restart
     // invariant: mutable binds refuse it structurally, the durable mint
     // produces only names inside it, removal reclaims the row, and a fresh
-    // Host (the restart) simply misses — no tombstone anywhere.
+    // Host (the restart) misses, no tombstone anywhere.
     const allocator = std.testing.allocator;
     var server = test_host.init(allocator, @as([32]u8, @splat(0x6a)), Host.Options.withFrameCap(frame_cap));
     defer server.deinit();

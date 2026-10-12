@@ -5,7 +5,7 @@
 // nothing here knows any service's fields or states. The form is asked for
 // when the surface opens and again when the seat moves, because a form is
 // declared for the state its bridge is in now. BridgeFormView owns the
-// drawing, the secret custody, and the declared second steps; this owns only
+// drawing, the secret custody, and the declared second steps. This owns only
 // fetching the declaration and routing a submission to the session.
 
 import { useEffect, useRef, useState } from "react";

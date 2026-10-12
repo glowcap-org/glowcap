@@ -30,8 +30,8 @@ const FakeEvent = fixtures.FakeEvent;
 /// A scripted backend for the shared-pool contract (ADR-0054): every accepted
 /// connection replays the same inbound `chunks` script, each chunk handed out
 /// as a borrowed completion view from a pool of `read_buffers` buffers. A recv
-/// armed while the pool is empty completes `recv_no_buffer` — exactly the
-/// platform backends' starvation shape — and sends complete synchronously.
+/// armed while the pool is empty completes `recv_no_buffer`, exactly the
+/// platform backends' starvation shape, and sends complete synchronously.
 const ScriptBackend = struct {
     pub const Fd = i32;
 
@@ -76,6 +76,12 @@ const ScriptBackend = struct {
 
     pub fn loopListenTarget(port: u16) ListenTarget {
         return port;
+    }
+
+    /// A scripted listener binds at `openListener`; nothing pends here; a
+    /// wrapped adapter's pending setup reports through the adapter itself.
+    pub fn listenerPending(_: *@This(), _: Fd) bool {
+        return false;
     }
 
     pub fn openListener(self: *@This(), port: u16) !Fd {
@@ -300,7 +306,7 @@ test "completion loop: a frame split across two recv completions applies exactly
 
 /// A scripted backend that *holds* every submitted send while recv completions
 /// keep flowing, the kernel-borrow shape of a real io_uring send. At submit it
-/// snapshots the submitted bytes; at release (when the loop has nothing else to
+/// snapshots the submitted bytes. At release (when the loop has nothing else to
 /// do) it checks the borrowed slice still holds exactly those bytes. Before the
 /// front/back outbound split, a reply appended while a write was in flight
 /// could realloc the queue and free the storage this held slice points into.
@@ -346,6 +352,12 @@ const HeldSendBackend = struct {
 
     pub fn loopListenTarget(port: u16) ListenTarget {
         return port;
+    }
+
+    /// A scripted listener binds at `openListener`; nothing pends here; a
+    /// wrapped adapter's pending setup reports through the adapter itself.
+    pub fn listenerPending(_: *@This(), _: Fd) bool {
+        return false;
     }
 
     pub fn openListener(self: *@This(), port: u16) !Fd {
@@ -470,7 +482,7 @@ test "completion loop: an in-flight send's bytes stay frozen while replies queue
     // The client's start-session, then several fetches: every fetch reply the
     // server queues lands while its opening start-session send is still held
     // by the backend, and together they outgrow the queue's first allocation,
-    // forcing the realloc that used to free the held storage.
+    // forcing a realloc that would free the held storage.
     var client = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
     defer client.deinit();
     client.session_state.limits.max_frame_bytes = frame_cap;
@@ -524,7 +536,7 @@ test "completion loop: an in-flight send's bytes stay frozen while replies queue
     try std.testing.expectEqual(loop.backend.handed, loop.backend.recycles);
 }
 
-/// A server peer whose admission limit is deliberately above the shared read
+/// A server peer whose admission limit is above the shared read
 /// buffer, proving pool sizing does not become a second frame limit.
 fn makeBigFramePeer(ctx: ?*anyopaque, allocator: std.mem.Allocator) anyerror!engine.Peer {
     _ = ctx;

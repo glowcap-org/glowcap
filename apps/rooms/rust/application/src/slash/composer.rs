@@ -32,7 +32,7 @@ pub struct Submission {
 	pub files: Vec<Attachment>,
 	pub keeping: bool,
 }
-/// Descriptions cross the presentation boundary; source readers stay with the host.
+/// Descriptions cross the presentation boundary. Source readers stay with the host.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Attachment {
@@ -86,7 +86,9 @@ pub fn prepare(submission: &Submission) -> Prepared {
 		away: submission.away,
 	};
 	let text = if let Some(read) = super::read(text) {
-		let name = Name::parse(read.name).expect("reader selected a catalog command");
+		let Some(name) = Name::parse(read.name) else {
+			return refuse("That command is not in the catalog.");
+		};
 		let rest = input::slice(text, read.rest_start, usize::MAX);
 		match interpret::interpret(name, &rest, &context) {
 			Plan::Refused { why } => return refuse(why),

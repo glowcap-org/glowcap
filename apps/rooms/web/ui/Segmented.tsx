@@ -8,13 +8,13 @@
 // so cell by cell rather than by where a thumb has come to rest.
 //
 // A chosen cell is washed, inked and outlined in the accent while the cells
-// beside it are none of those. It draws no tick: a mark that is simply there
+// beside it are none of those. It draws no tick: a mark that is there
 // whenever a cell is on says nothing the cell has not already said, and it cost
 // a reserved column in every cell to keep the words from moving when one came
 // or went.
 //
-// It is compact on purpose. A row of cells is what you reach for when the
-// answers have to sit on one line beside something else; anywhere with room to
+// It is compact. A row of cells is what you reach for when the
+// answers have to sit on one line beside something else. Anywhere with room to
 // spare wants a column of checkboxes instead, which reads better and needs no
 // track. Sized past that and it stops being the thing it is for.
 

@@ -1,5 +1,5 @@
 //! Shared-session snapshot admission and facet projection. The adapter retains
-//! CapTP argument custody; this owner retains only validated application data.
+//! CapTP argument custody. This owner retains only validated application data.
 mod codec;
 pub mod views;
 
@@ -23,7 +23,7 @@ pub trait SnapshotArgument: ArgumentView {
 		Self: 'a;
 	fn list(&self) -> Option<impl ExactSizeIterator<Item = Self::Item<'_>>>;
 }
-/// Constructs the binding's existing owned values directly; no parallel CapTP
+/// Constructs the binding's existing owned values directly. No parallel CapTP
 /// value tree or capability representation exists in the application.
 pub trait BuildArguments {
 	type Value;

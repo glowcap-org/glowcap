@@ -1,14 +1,14 @@
 """Internal: resolve where the glowcap shared libraries live.
 
-Publishable cascade (ADR-0077; see ``c-abi-resolve.json`` and
+Publishable cascade (ADR-0077, see ``c-abi-resolve.json`` and
 ``bindings/README.md``):
 
-1. ``GLOWCAP_LIB_DIR`` (configure) wins — never downloads.
+1. ``GLOWCAP_LIB_DIR`` (configure) wins: never downloads.
 2. Abi-versioned download cache under ``GLOWCAP_CACHE_DIR`` (default
    ``$XDG_CACHE_HOME/glowcap/c-abi`` or ``~/.cache/glowcap/c-abi``).
 3. In-tree ``zig-out/lib`` when a glowcap checkout is discoverable (dev only).
-4. Bare library name (OS dynamic-linker search) — refused on Windows (DLL
-   search-order plant risk); elsewhere a last resort with a stderr warning.
+4. Bare library name (OS dynamic-linker search): refused on Windows (DLL
+   search-order plant risk). Elsewhere a last resort with a stderr warning.
 
 Download posture (native C-ABI packaging practice): HTTPS-only base URL,
 required SHA256SUMS verification before extract, extract only the ``lib/``
@@ -409,7 +409,7 @@ def _lib_path(stem: str) -> str:
     directory = _lib_dir()
     if directory is not None:
         return str(directory / name)
-    # Bare names ride the OS search path — a DLL/so plant risk. Refuse on
+    # Bare names ride the OS search path: a DLL/so plant risk. Refuse on
     # Windows; warn elsewhere (system install / LD_LIBRARY_PATH posture).
     if sys.platform == "win32":
         raise RuntimeError(

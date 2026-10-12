@@ -4,7 +4,7 @@
 //! constants become `#define`s, extern structs become typedefs, and exports
 //! become prototypes, all spelled from the real Zig types so the header cannot
 //! disagree with the implementation. The reflection machinery is identical
-//! across them; only the module, the function table, the curated prose, and
+//! across them. Only the module, the function table, the curated prose, and
 //! (for `libglowcap_ocapn`) the three function-pointer typedefs differ. Those
 //! differences are a `Spec` type each generator supplies to `Emit`.
 //!
@@ -57,7 +57,7 @@ const baseName = @import("reflect").baseName;
 
 /// The reflection primitives, bound to one generator's `Spec`. `Spec` supplies
 /// `c` and `emitted_fns` always, and `const_docs` / `special` when it needs
-/// them; the primitives that read those check for the declaration first.
+/// them. The primitives that read those check for the declaration first.
 pub fn Emit(comptime Spec: type) type {
     return struct {
         const c = Spec.c;
@@ -66,7 +66,7 @@ pub fn Emit(comptime Spec: type) type {
         /// Map a Zig type to its C spelling. Reflection-driven, so a field or
         /// parameter type change in the module flows into the header. `Spec.special`
         /// gets first refusal (it names the function-pointer typedefs the base
-        /// spelling has no case for); everything else is the shared table.
+        /// spelling has no case for). Everything else is the shared table.
         pub fn cType(comptime T: type) []const u8 {
             if (@hasDecl(Spec, "special")) {
                 if (Spec.special(T)) |s| return s;
@@ -263,7 +263,7 @@ pub fn Emit(comptime Spec: type) type {
         }
 
         /// Emit a function prototype: return and parameter types reflected from the
-        /// real export; `param_names` and `doc` curated by the caller. A parameter
+        /// real export, `param_names` and `doc` curated by the caller. A parameter
         /// added in the module without a name here, a name missing from
         /// `emitted_fns`, or an empty doc is a compile error.
         pub fn emitFn(
@@ -285,7 +285,7 @@ pub fn Emit(comptime Spec: type) type {
                 if (doc.len == 0) @compileError("prototype '" ++ fn_name ++ "' has no header doc; write the contract here");
                 // The doc lands inside a block comment: prose that itself spells
                 // `/*` or `*/` (an out-pointer pair like `*out_a/*out_b`) breaks
-                // or nests the comment, a warning -Werror consumers fail on —
+                // or nests the comment, a warning -Werror consumers fail on,
                 // possibly much later, when a header change first invalidates
                 // their compile cache. Space the slash: `*out_a / *out_b`.
                 if (std.mem.indexOf(u8, doc, "/*") != null or std.mem.indexOf(u8, doc, "*/") != null)

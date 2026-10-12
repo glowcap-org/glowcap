@@ -86,9 +86,9 @@ fn exhausted() -> glowcap::Error {
 	glowcap::loam::refusal("Rooms storage profile exceeds addressable memory")
 }
 
-/// Shared process/tab profile. Whole-call reservations limit concurrency;
-/// backing grows with admitted work. The shared call count also admits reads,
-/// callback forwarding and source checks; effect receipts have their separate
+/// Shared process/tab profile. Whole-call reservations limit concurrency.
+/// Backing grows with admitted work. The shared call count also admits reads,
+/// callback forwarding and source checks. Effect receipts have their separate
 /// application limit. Three overlapping managed windows cover issuance and
 /// its exact use/control result, independently of graph population.
 pub fn production_limits() -> glowcap::Result<Limits> {

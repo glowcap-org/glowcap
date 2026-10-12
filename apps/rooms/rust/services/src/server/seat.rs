@@ -1,5 +1,5 @@
 //! Operations on one live room seat. The capability identifies the
-//! membership; no nickname, account, or calling-session lookup authorizes an
+//! membership. No nickname, account, or calling-session lookup authorizes an
 //! act. The seat is minted before its membership is filed, so it answers
 //! nothing until the policy has named it.
 use super::{
@@ -43,10 +43,7 @@ pub(super) fn admitted(
 		return Err(format!("{what} {verb} does not take capability arguments"));
 	}
 	let Some(membership) = membership.get() else {
-		return Err(format!(
-			"{}: this room membership has ended",
-			FailureCode::NotRoomMember.wire()
-		));
+		return Err(FailureCode::NotRoomMember.line("this room membership has ended"));
 	};
 	let session = current_session()
 		.map_err(|e| e.to_string())?
@@ -65,6 +62,19 @@ pub(super) fn seat(
 	move |verb, args| {
 		let (membership, session) = admitted(&membership, "room membership", verb, args)?;
 		let mut state = shared.borrow_mut();
+		let connection = state.admit(session.borrowed());
+		let posting = matches!(
+			verb,
+			POST | rooms_application::open_graph::ROOM_POST_VERB
+				| rooms_application::room::receipt::POST
+				| rooms_application::room::correlation::POST
+		);
+		if verb != LEAVE && !posting {
+			state.ingress(connection)?;
+		}
+		if verb == LEAVE {
+			state.admit_work(connection, rooms_application::admission::Class::Cleanup, 1)?;
+		}
 		let text = |at: usize| args.get(at).and_then(Argument::as_str);
 		match verb {
 			bridge::ASK if args.is_empty() => Ok(Argument::Void),
@@ -83,14 +93,31 @@ pub(super) fn seat(
 				let (Some(kind), 1) = (text(0).and_then(MembershipKind::parse), args.len()) else {
 					return Err("mintInvitation takes one observer or participant membership kind".into());
 				};
+				state.rooms.require_participant(&room, membership).map_err(refusal)?;
+				state.admit_work(connection, rooms_application::admission::Class::Create, 1)?;
 				let key = state.rooms.mint_invitation(&room, membership, kind).map_err(refusal)?;
 				let invitation = session
 					.spawn_owned(invitations::invitation(shared.clone(), key))
 					.map_err(|e| e.to_string())?;
 				Ok(Argument::Reference(invitation))
 			}
-			POST | rooms_application::open_graph::ROOM_POST_VERB | rooms_application::room::receipt::POST => {
+			POST
+			| rooms_application::open_graph::ROOM_POST_VERB
+			| rooms_application::room::receipt::POST
+			| rooms_application::room::correlation::POST => {
 				let retained = verb == rooms_application::room::receipt::POST;
+				let correlation = if verb == rooms_application::room::correlation::POST {
+					Some((
+						state
+							.connection_of(&session)
+							.ok_or("post needs a live calling connection")?,
+						text(2)
+							.filter(|value| rooms_application::room::correlation::valid(value))
+							.ok_or("post needs its bounded operation identity")?,
+					))
+				} else {
+					None
+				};
 				super::receipts::post(
 					&mut state,
 					&room,
@@ -99,14 +126,13 @@ pub(super) fn seat(
 					args,
 					retained,
 					|state, delivery| {
+						state.ingress(connection)?;
 						let previews = verb != POST;
 						if verb == POST && args.len() > 1 {
-							return Err(format!(
-								"{}: post carries trailing args; attach a file with attach()",
-								FailureCode::BadAttachment.wire()
-							));
+							return Err(FailureCode::BadAttachment
+								.line("post carries trailing args; attach a file with attach()"));
 						}
-						let expected = if retained {
+						let expected = if retained || correlation.is_some() {
 							3
 						} else if previews {
 							2
@@ -126,14 +152,27 @@ pub(super) fn seat(
 							Default::default()
 						};
 						let key = Rc::new(Cell::new(None));
+						state.rooms.require_participant(&room, membership).map_err(refusal)?;
+						state.admit_message(connection, said.len())?;
 						let actor = session
 							.spawn_owned(lines::line(shared.clone(), key.clone()))
 							.map_err(|e| e.to_string())?;
 						let line = history::mutate(state, |rooms| {
-							rooms.post_delivered(&room, membership, said, previews, State::wall_clock(), delivery)
+							let (line, mut mutation) = rooms.post_delivered(
+								&room,
+								membership,
+								said,
+								previews,
+								State::wall_clock(),
+								delivery,
+							)?;
+							if let Some((caller, operation)) = correlation {
+								rooms.correlate(&room, membership, caller, operation, &mut mutation);
+							}
+							Ok((line, mutation))
 						})?;
 						key.set(Some(line));
-						Ok(lines::posted_reply(state, line, actor))
+						lines::posted_reply(state, line, actor)
 					},
 				)
 			}
@@ -141,7 +180,15 @@ pub(super) fn seat(
 				let (Some(on), 1) = (args.first().and_then(Argument::as_bool), args.len()) else {
 					return Err("typing needs one boolean".into());
 				};
-				let effects = state.rooms.typing(&room, membership, on).map_err(refusal)?;
+				let now = state.now();
+				if !state.rooms.typing_needed(&room, membership, on, now).map_err(refusal)? {
+					state
+						.admission
+						.coalesced(rooms_application::admission::Class::RoomTransient);
+					return Ok(Argument::Void);
+				}
+				state.admit_transient(connection, &room)?;
+				let effects = state.rooms.typing_at(&room, membership, on, now).map_err(refusal)?;
 				state.apply_rooms(effects);
 				Ok(Argument::Void)
 			}
@@ -149,6 +196,7 @@ pub(super) fn seat(
 				if !args.is_empty() {
 					return Err("history takes no arguments".into());
 				}
+				state.admit_work(connection, rooms_application::admission::Class::Read, 1)?;
 				let lines = state.rooms.history(&room, membership).map_err(refusal)?;
 				Ok(Argument::List(
 					lines
@@ -168,6 +216,13 @@ pub(super) fn seat(
 				let (Some(why), 1) = (text(0), args.len()) else {
 					return Err("away needs one reason".into());
 				};
+				if !state.rooms.away_needed(&room, membership, why).map_err(refusal)? {
+					state
+						.admission
+						.coalesced(rooms_application::admission::Class::RoomTransient);
+					return Ok(Argument::Void);
+				}
+				state.admit_transient(connection, &room)?;
 				let effects = state.rooms.away(&room, membership, why).map_err(refusal)?;
 				state.apply_rooms(effects);
 				Ok(Argument::Void)

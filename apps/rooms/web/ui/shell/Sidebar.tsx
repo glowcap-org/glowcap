@@ -6,8 +6,8 @@
 // `sidebar/Foot.tsx`, because it is about the reader rather than about what
 // they hold.
 //
-// Both "+" fields behave identically — open one and the other closes, click
-// away or press Escape and it puts itself away and hands focus back — so they
+// Both "+" fields behave identically (open one and the other closes, click
+// away or press Escape and it puts itself away and hands focus back) so they
 // are one component held in two places rather than two sets of handlers kept in
 // step.
 //
@@ -38,6 +38,7 @@ import {
 import { policyForRoomPreset } from "../room_policy.ts";
 import { CAUGHT_UP, type DirId, dirId, type DirView, type Invitation, liveRoomNames } from "../types.ts";
 import { DirectMessages } from "../sidebar/dms.tsx";
+import { JoinRefusal } from "../sidebar/JoinRefusal.tsx";
 import { YourRooms } from "../sidebar/rooms.tsx";
 import { RailFilter } from "../sidebar/Filter.tsx";
 import {
@@ -157,7 +158,7 @@ function SidebarPane(
 	// With the join card up, this panel is a second view of it: one room name,
 	// one lock, and one destination. So where a room lands is the card's locator
 	// field, resolved exactly as the card resolves it, rather than the directory
-	// the reader was last standing on — the panel and the card cannot state two
+	// the reader was last standing on: the panel and the card cannot state two
 	// destinations for the one name being typed into both.
 	//
 	// With a room open there is no card to be a view of, and standing in a room
@@ -379,6 +380,7 @@ function SidebarPane(
 						onJoinOn={(dir) => browser.reachFor({ source: "press", locator: named(rooms.dirAddress(dir)) })}
 						onLeaveDir={rooms.leaveDirectory}
 					/>
+					<JoinRefusal />
 				</RailSection>
 				<DirectMessages
 					canInteract={canInteract}
@@ -412,7 +414,7 @@ function SidebarPane(
 	);
 }
 
-// Memoised: see `useRoomsState`. Composer keystrokes change none of these props;
-// the join card's answers do change per keystroke, but only while the card is
+// Memoised: see `useRoomsState`. Composer keystrokes change none of these props.
+// The join card's answers do change per keystroke, but only while the card is
 // on screen, where the rail's linked field has to redraw anyway.
 export const Sidebar = memo(SidebarPane);

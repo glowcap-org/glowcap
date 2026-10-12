@@ -26,7 +26,7 @@ impl RuntimeOwner {
 	}
 
 	/// Run one synchronous C-ABI operation on the endpoint's private runtime.
-	/// Tokio refuses nested `Runtime::block_on`; a multithreaded ambient runtime
+	/// Tokio refuses nested `Runtime::block_on`. A multithreaded ambient runtime
 	/// yields its worker with `block_in_place`, while a current-thread runtime
 	/// borrows one scoped helper thread instead of turning an ordinary library
 	/// call into a panic.

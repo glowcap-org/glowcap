@@ -30,7 +30,7 @@ const tcp = net.tcp;
 const frame_cap = 4096;
 
 /// A netlayer resident defined outside the core, under a fabricated transport
-/// symbol. Its dial and listen operations ride tcp's public API; the point is
+/// symbol. Its dial and listen operations ride tcp's public API. The point is
 /// that the driver reaches it only through the contract.
 const LoopbackResident = struct {
     io: std.Io,

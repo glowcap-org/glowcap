@@ -1,18 +1,18 @@
 # Three-party handoffs
 
-Anchors: CapTP Specification § Third Party Handoffs (depositing the gift,
-desc:handoff-give, desc:handoff-receive, validation) and § The bootstrap Object
-(the `withdraw-gift` method). All
-certificates ride `desc:sig-envelope` (Ed25519 over the canonical bytes of the
-inner certificate). Settlement arrows below are resolver callbacks. Next
-obtains them through the mandatory listen after each answered withdrawal;
-V1.0 carries the resolver in the withdrawal deliver.
+These diagrams follow the CapTP Specification sections Third Party Handoffs
+(depositing the gift, desc:handoff-give, desc:handoff-receive, validation) and
+The bootstrap Object (the `withdraw-gift` method). All certificates ride
+`desc:sig-envelope` (Ed25519 over the canonical bytes of the inner
+certificate). Settlement arrows below are resolver callbacks. Next obtains them
+through the mandatory listen after each answered withdrawal. V1.0 carries the
+resolver in the withdrawal deliver.
 
 ## HO-1: Roles and sessions
 
 Three peers hold three sessions between them. The Gifter already talks to both
-other parties. The Receiver–Exporter session is established (if it is absent)
-in order to withdraw.
+other parties. The Receiver establishes the Receiver–Exporter session, if it
+is absent, to withdraw.
 
 ```mermaid
 flowchart LR
@@ -23,7 +23,7 @@ flowchart LR
 
 ## HO-2: Happy path overview
 
-This diagram shows the five steps end-to-end; HO-3 through HO-7 zoom into each.
+HO-3 through HO-7 zoom into each of the five steps.
 
 ```mermaid
 sequenceDiagram
@@ -72,9 +72,9 @@ flowchart TD
 
 The Receiver cannot verify the Gifter's signature yet, because it has never seen
 the Gifter's G-X pubkey. That check belongs to the Exporter. The spec also
-suggests the Receiver check that the give's receiver-key names it; glowcap
-leaves that to the Exporter too, where the receive must be signed by exactly
-that key (HO-7), so a mis-addressed give fails at withdraw rather than locally.
+suggests the Receiver check that the give's receiver-key names it. glowcap
+leaves that to the Exporter too, where the receive must be signed by that
+key (HO-7), so a mis-addressed give fails at withdraw rather than locally.
 What the Receiver does check locally is the exporter-location: an unparseable
 locator fails closed with no dial.
 
@@ -110,7 +110,7 @@ flowchart TD
 The Exporter is the only party that can verify both signatures. It knows the
 Gifter's pubkey from the G-X session, and the give itself carries the
 receiver-key that must have signed the receive. A failed check refuses the
-withdrawal by breaking its answer with a typed reason; the session stays open.
+withdrawal by breaking its answer with a typed reason. The session stays open.
 
 ```mermaid
 flowchart TD
@@ -128,13 +128,12 @@ flowchart TD
 
 The count guard is one monotonic scalar on the live R-X session. The gift table
 belongs to the live G-X session. Closing either `Peer` destroys the authority it
-owns; no Host- or Vat-wide replay map survives. Every Host session derives a
+owns. No Host- or Vat-wide replay map survives. Every Host session derives a
 distinct signing seed from a process-fresh, domain-separated session root and a
 monotonic counter (ADR-0097), so a reconnect cannot recreate the old side or
 session names. An old signed receive therefore cannot name a replacement
 session. The V1 Node uses a separate lifetime cursor for receive-certificate
-issuance to accommodate the pinned Goblins counter behavior across reconnects;
-accepted replay authority remains local to the R-X session.
+issuance to accommodate the pinned Goblins counter behavior across reconnects.
 
 ## HO-8: Withdraw before deposit
 

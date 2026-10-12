@@ -2,7 +2,7 @@
 //!
 //! The production module injects Mbed TLS at the same seam. This test owner
 //! lets `ws` exercise the complete relay lifecycle without fetching a network
-//! dependency; any attempted `wss` open fails closed and is never mistaken for
+//! dependency. Any attempted `wss` open fails closed and is never mistaken for
 //! secure evidence.
 
 const std = @import("std");

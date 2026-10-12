@@ -3,13 +3,13 @@
 //! Both of Tor's endpoints, the SOCKS port and the control port, are reached the
 //! same two ways: an address and port, or a Unix socket path. The pinned Spritely
 //! Goblins uses Unix sockets for both and defaults them under
-//! `~/.cache/goblins/tor/`; a distribution's Tor commonly offers a loopback
+//! `~/.cache/goblins/tor/`. A distribution's Tor commonly offers a loopback
 //! `SocksPort` instead. glowcap takes either, and takes it from configuration
 //! rather than guessing, because a daemon it did not start is not one it can
 //! assume the shape of.
 //!
 //! The two forms are told apart by the leading character. A path is absolute, so
-//! it begins with `/`; anything else is parsed as `host:port`. A relative path is
+//! it begins with `/`. Anything else is parsed as `host:port`. A relative path is
 //! refused rather than guessed at, which keeps `tor-control-sock` from being read
 //! as a hostname whose port is missing.
 

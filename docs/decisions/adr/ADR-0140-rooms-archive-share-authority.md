@@ -15,15 +15,14 @@ amended_by: []
 ## Context
 
 ADR-0132 ships read-only handover for one direct conversation. A room does not
-have a past; people do. Broadcasting a room's archive into the room would
+have a past. People do. Broadcasting a room's archive into the room would
 confuse live membership with one member's account. Session-lifetime facets are
-not revocation. ADR-0136's content digest identifies bytes; it is not a
+not revocation. ADR-0136's content digest identifies bytes. It is not a
 lookup key on the whole archive.
 
-The protocol already distinguishes live `handRoom` from durable `offerRoom`.
-ADR-0137 already shows independently revocable Host publications with a
-tombstoned ledger and HMAC-derived entropy. Archive sharing was missing both
-shapes.
+The protocol distinguishes live `handRoom` from durable `offerRoom`, and
+ADR-0137 provides independently revocable Host publications with a tombstoned
+ledger and HMAC-derived entropy. Archive sharing needs both shapes.
 
 ## Decision
 
@@ -42,15 +41,15 @@ on the transport DM. Standing records never become live roster state.
 
 Durable `offerArchive(directory, kind, conversation, sturdyref)` is data, the
 archive sibling of `offerRoom`. Only a standalone archive peer may mint the
-sturdyref. The sender confirms the carrying DM before that mint; a failed
+sturdyref. The sender confirms the carrying DM before that mint. A failed
 offer tombstones the share it just published. The peer keeps `shares.json`
 beside `peer.json`: client-minted UUID,
 label, exact filter, and revoked tombstones, with the same persist-then-publish
 and tombstone-then-unpublish order as ADR-0137. Entropy is HMAC-SHA-256 of a
 domain-separated share id and canonical filter, keyed by the archive root
 publication entropy. `share` and `revokeShare` succeed only on the whole
-read-write root; `narrow` does not copy that issuer. A browser IndexedDB
-archive refuses durable mint with that sentence. It never substitutes a live
+read-write root. `narrow` does not copy that issuer. A browser IndexedDB
+archive refuses durable mint with that sentence. It does not substitute a live
 facet.
 
 The archive filter adds `digest`, a 64-character SHA-256 hex or `null`, as a
@@ -74,11 +73,11 @@ index, a room-broadcast archive, or durable minting in the tab recorder.
 ## Alternatives considered
 
 - **Same button on the room card, posting into the room.** Rejected because a
-  room is not an account of its own past; handover is person-to-person.
+  room is not an account of its own past. Handover is person-to-person.
 - **Smuggling kind through the conversation string.** Rejected because kind is
   its own exact dimension and empty or encoded sentinels are a second parser.
 - **Revocable live facets.** Rejected because a live occurrence dies with its
-  session; independent revocation needs a Host publication and a tombstone.
+  session. Independent revocation needs a Host publication and a tombstone.
 - **Lookup-any-blob-by-hash on the whole archive.** Rejected because a digest
   is data. Authority stays the facet's filter, including an optional digest
   dimension.
@@ -94,7 +93,7 @@ facets, handed live or published as durable shares.
 `apps/rooms/test/archive/protocol_test.ts` holds digest intersection and the tab's
 durable-mint refusal. `apps/rooms/test/archive/wire_test.ts` holds scoped
 `blob(digest)`. Native session-service scenarios hold live admission and drive
-the four-argument live and durable verbs through the actual peer. A failed
+the four-argument live and durable verbs through the peer. A failed
 durable offer revokes the share it just minted. A session room share realizes
 the carrying DM the same way a session `say` does, without dialing intended
 directs on restore. An attached room-card share starts that DM without stealing
@@ -109,5 +108,5 @@ the direct-line one-shot path.
 ## Notes
 
 Amends ADR-0132 (live DM-only handover), ADR-0136 (digest is not authority),
-ADR-0129 (filter tuple), and ADR-0130 (one root swiss is no longer the only
+ADR-0129 (filter tuple), and ADR-0130 (the root swiss is not the only
 durable publication).

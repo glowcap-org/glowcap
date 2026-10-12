@@ -1,7 +1,7 @@
 /**
- * Inheritance resolver — turns a TimeSpan + its parent's
- * intrinsic range into the entity's own intrinsic range. Pure;
- * does NOT apply context constraints (effective.ts does that).
+ * Inheritance resolver, turns a TimeSpan + its parent's
+ * intrinsic range into the entity's own intrinsic range. Pure.
+ * Does NOT apply context constraints (effective.ts does that).
  *
  * Layer 2 of the three-layer model. See
  * `docs/temporal-model.md`.
@@ -18,7 +18,7 @@
  * message-duration still tracks the session's pre-clamp end so
  * the message reads as "wanting" what the session "wants." The
  * message's own effective layer then re-clamps under the same
- * constraints; the result for rendering is identical, but the
+ * constraints. The result for rendering is identical, but the
  * intent through the chain is preserved for the Inspector to
  * surface "clamped by session" instead of silently shrinking.
  */

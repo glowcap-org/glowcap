@@ -106,7 +106,7 @@ pub struct Request<'a, A> {
 }
 impl<'a, A: ArgumentView> Request<'a, A> {
 	/// Access comes from the held facet. Parsing borrows delivered values and
-	/// admits no capability arguments; no authority is derived from these strings.
+	/// admits no capability arguments. No authority is derived from these strings.
 	pub fn read(access: Access, args: &'a [A]) -> Result<Self, Refusal> {
 		if !matches!(access, Access::Interact | Access::Admin) {
 			return Err(Refusal::Access);
@@ -151,7 +151,7 @@ impl<'a, A: ArgumentView> Request<'a, A> {
 		Ok(())
 	}
 	/// Admit borrowed application arguments before constructing a wire envelope.
-	/// This grants no access; the held source owns command authorization.
+	/// This grants no access. The held source owns command authorization.
 	pub fn from_parts(id: &'a str, base: u64, name: &'a str, args: &'a [A]) -> Result<Self, Refusal> {
 		SafeInteger::<false>::new(base).ok_or(Refusal::Arguments)?;
 		if !OperationId::accepts_utf16(id.encode_utf16()) {
@@ -174,7 +174,7 @@ impl<'a, A: ArgumentView> Request<'a, A> {
 		for arg in args {
 			if arg
 				.text()
-				.expect("checked text")
+				.ok_or(Refusal::Arguments)?
 				.encode_utf16()
 				.take(MAX_ARGUMENT_UNITS + 1)
 				.count() > MAX_ARGUMENT_UNITS
@@ -204,10 +204,16 @@ impl<'a, A: ArgumentView> Request<'a, A> {
 		self.route
 	}
 	pub fn args(&self) -> impl ExactSizeIterator<Item = &'a str> {
-		self.args.iter().map(|v| v.text().expect("admitted text"))
+		self.args.iter().map(|v| {
+			#[expect(
+				clippy::expect_used,
+				reason = "`from_parts` refused any argument that is not text before this command existed"
+			)]
+			v.text().expect("admitted text")
+		})
 	}
 	/// Own the exact bounded intent for receipt recovery. Serialization walks
-	/// admitted borrowed arguments directly; it creates no intermediate argument
+	/// admitted borrowed arguments directly. It creates no intermediate argument
 	/// inventory or payload copies. The returned string outlives the request.
 	pub fn canonical(&self) -> serde_json::Result<String> {
 		serde_json::to_string(&(self.id, self.base, self.name, Arguments(self.args)))
@@ -223,7 +229,10 @@ impl<A: ArgumentView> Serialize for Arguments<'_, A> {
 	fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
 		let mut sequence = serializer.serialize_seq(Some(self.0.len()))?;
 		for argument in self.0 {
-			sequence.serialize_element(argument.text().expect("admitted text"))?;
+			let text = argument
+				.text()
+				.ok_or_else(|| <S::Error as serde::ser::Error>::custom("a command argument is not text"))?;
+			sequence.serialize_element(text)?;
 		}
 		sequence.end()
 	}

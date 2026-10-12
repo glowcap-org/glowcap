@@ -1,18 +1,18 @@
 //! Live WebRTC signaling mesh: two native glowcap peers bring up a DataChannel
 //! through an OCapN-shaped signaling object, then hold a keyed OCapN session
-//! over it (ADR-0089 phase 5).
+//! over it (ADR-0089).
 //!
 //! This is WebRTC's capability-routed signaling shape: an introducer routes the
 //! peers to each other. Here the introducer is the `SignalingHub`, a
 //! rendezvous keyed by designator that carries the offer, the answer, and the
 //! ICE candidates between the two peers. The hub holds no WebRTC state and
-//! parses no payload; it moves opaque strings between the two designators it was
+//! parses no payload. It moves opaque strings between the two designators it was
 //! given references to, the same byte-transparency a room or the relay holds.
 //! That is the ADR-0089 signaling-capability shape, proven natively before the
-//! browser arm (phase 6) drives the same verbs over the wire.
+//! browser arm drives the same verbs over the wire.
 //!
 //! The delta from `webrtc-interop` is exactly the signaling path: there the
-//! driver ferries SDP and ICE between the two peers directly; here every offer,
+//! driver ferries SDP and ICE between the two peers directly. Here every offer,
 //! answer, and candidate routes through the hub's `offer` / `candidate` verbs.
 //! Once the channel is open, the keyed handshake and the greet round-trip are
 //! identical, so a green mesh run proves the signaling object brings up a real
@@ -46,12 +46,12 @@ const Greeter = struct {
     }
 };
 
-/// The in-tree signaling object (ADR-0089 phase 5): a rendezvous keyed by peer
+/// The in-tree signaling object (ADR-0089): a rendezvous keyed by peer
 /// designator that routes the offer, the answer, and the ICE candidates between
 /// two webrtc peers. It holds references to the two peers it introduces and
 /// forwards opaque strings between them, the same way a room routes a chat line.
-/// It parses no SDP and no candidate. This native proof calls it directly; the
-/// capability version (phase 6) hosts the same two verbs on a Host and routes
+/// It parses no SDP and no candidate. This native proof calls it directly. The
+/// capability version hosts the same two verbs on a Host and routes
 /// them over CapTP.
 const SignalingHub = struct {
     const Entry = struct { designator: []const u8, peer: *webrtc.Peer };

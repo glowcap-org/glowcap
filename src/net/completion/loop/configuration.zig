@@ -2,7 +2,9 @@
 //!
 //! This module owns policy and callback shapes only. Runtime state remains
 //! inline in \`Loop\`, and the supported completion namespace aliases these
-//! declarations without exporting this internal leaf.
+//! declarations without exporting this internal leaf. The callback types keep
+//! `anyerror` return sets: their implementors are application code unknown at
+//! these declarations.
 
 const std = @import("std");
 const engine = @import("engine");
@@ -21,9 +23,9 @@ pub const MakePeer = *const fn (ctx: ?*anyopaque, allocator: std.mem.Allocator) 
 /// connection's peer is in its final home, with `&conn.peer` stable for the
 /// connection's life. A returned context may bind to that peer, for example an
 /// `actors.Vat` that hosts the connection's objects. `null` means the connection
-/// has no per-connection state. `net` stays actor-agnostic; the vat lives
+/// has no per-connection state. `net` stays actor-agnostic. The vat lives
 /// one layer up and rides through this opaque pointer. `slot` is the
-/// connection's loop slot — the handle `armOutbound` and `closeSlot` take from
+/// connection's loop slot, the handle `armOutbound` and `closeSlot` take from
 /// a hook that works across connections. It is recycled once the connection
 /// closes, so retain it only alongside the context this call builds.
 pub const MakeConnCtx = *const fn (ctx: ?*anyopaque, peer: *engine.Peer, slot: usize) anyerror!?*anyopaque;
@@ -34,7 +36,7 @@ pub const MakeConnCtx = *const fn (ctx: ?*anyopaque, peer: *engine.Peer, slot: u
 /// per-connection context from `MakeConnCtx`, the caller-owned peer, and the
 /// borrowed event. If the hook enqueues a reply on `peer`, the same loop step
 /// flushes it after the event is drained, matching `driver.BlockingSession.step`.
-/// An error closes that one connection; it never tears down the loop.
+/// An error closes that one connection. It never tears down the loop.
 pub const Serve = *const fn (conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *engine.Event) anyerror!void;
 
 /// Tear down a per-connection context built by `MakeConnCtx`, on connection
@@ -45,7 +47,7 @@ pub const FreeConnCtx = *const fn (ctx: ?*anyopaque, conn_ctx: ?*anyopaque) void
 /// `free_conn_ctx` releases the per-connection context. Receives the shared
 /// `ctx`, the per-connection context (null when the connection failed before
 /// `make_conn_ctx` ran), and a `CloseReport` captured before peer teardown.
-/// `report.opened` distinguishes a completed connect/accept from a refusal;
+/// `report.opened` distinguishes a completed connect/accept from a refusal.
 /// `report.failure` carries a recorded typed cause. This is the loop's only
 /// failure surface for a dialed connection,
 /// `dial` returns before the connect completes, so a refused dial is
@@ -53,7 +55,7 @@ pub const FreeConnCtx = *const fn (ctx: ?*anyopaque, conn_ctx: ?*anyopaque) void
 ///
 /// `slot` is the connection's loop index: refused dials tear down before
 /// `make_conn_ctx` runs (`conn_ctx` is null), so an embedder correlating an
-/// in-flight dial to a ticket needs the slot — `conn_ctx` alone cannot name
+/// in-flight dial to a ticket needs the slot, `conn_ctx` alone cannot name
 /// it (ADR-0076 loop-side dial executor). `report.reason` names which of the
 /// loop's reclaims fired, or `.ordinary` for everything else.
 pub const OnClose = *const fn (ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, report: CloseReport) void;
@@ -80,7 +82,7 @@ pub const ParkReason = enum { sink, fan_in };
 /// Optional park notification (ADR-0082): fired when a connection's read seat
 /// first enters `.parked`. `slot` and `conn_ctx` match `OnClose` so an embedder
 /// can correlate lag to an open connection without scraping private Loop state,
-/// and `reason` says which of the two parks it is — the branch that decides is
+/// and `reason` says which of the two parks it is, the branch that decides is
 /// the branch that reports, so the two cannot disagree.
 pub const OnPark = *const fn (ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, reason: ParkReason) void;
 
@@ -100,7 +102,7 @@ pub const DialAdmission = enum { ordinary, reserved };
 /// carries the rare larger frame, so this sizes concurrent ordinary traffic,
 /// not protocol admission or per-connection memory.
 pub const default_read_buffer_bytes: u32 = 16 * 1024;
-/// Loop-wide pending-output slack, deliberately independent of frame admission
+/// Loop-wide pending-output slack, independent of frame admission
 /// and transport framing.
 pub const default_outbound_high_water_bytes: usize = 64 * 1024;
 
@@ -112,8 +114,8 @@ pub const BackendOptions = struct {
     queue_entries: u16 = 256,
     /// Number of buffers in the backend's shared read pool (ADR-0054).
     read_buffers: u16 = 256,
-    /// Exact size of each shared read-pool buffer. This is not a frame limit;
-    /// larger admissible frames accumulate in the bounded connection spill.
+    /// Exact size of each shared read-pool buffer. This is not a frame limit.
+    /// Larger admissible frames accumulate in the bounded connection spill.
     read_buffer_bytes: u32 = default_read_buffer_bytes,
 };
 
@@ -128,12 +130,12 @@ pub const Options = struct {
     /// step 2).
     max_conns: usize = 1024,
     /// Slots held exclusively for dials explicitly admitted as `.reserved`.
-    /// Ordinary dials and accepts cannot consume them; reserved dials cannot
+    /// Ordinary dials and accepts cannot consume them. Reserved dials cannot
     /// spill into ordinary capacity. This is a hard partition, so both classes
     /// remain bounded and a reconnect path does not depend on timing.
     reserved_dial_conns: usize = 0,
-    /// Listen on this loopback port and accept inbound connections; 0 lets the
-    /// kernel choose (read it back from `Loop.port`). `null` — the default —
+    /// Listen on this loopback port and accept inbound connections. 0 lets the
+    /// kernel choose (read it back from `Loop.port`). `null`, the default,
     /// never binds, listens, or arms an accept, so a pure dialer loop exposes
     /// no socket a stranger could connect to.
     listen: ?u16 = null,
@@ -156,8 +158,8 @@ pub const Options = struct {
     /// Optional close notification (see `OnClose`), fired once per connection
     /// at teardown. Null leaves closes (including failed dials) unobserved. This
     /// fires under `run`, not only at `closeAndDrain`: the moment any completion
-    /// ends a connection — a partner's clean FIN, a read error from an RST, or a
-    /// keepalive probe giving up on a dead remote host — the loop reclaims that
+    /// ends a connection, a partner's clean FIN, a read error from an RST, or a
+    /// keepalive probe giving up on a dead remote host, the loop reclaims that
     /// one slot and fires `on_close` with its report, leaving the rest of the
     /// loop running (ADR-0081).
     on_close: ?OnClose = null,
@@ -171,28 +173,28 @@ pub const Options = struct {
     on_park: ?OnPark = null,
     /// Opt-in TCP keepalive. When set, all of idle/interval/count must apply
     /// before an accepted or dialed connection is served. TCP-backed adapters
-    /// configure their physical socket; a transport without TCP keepalive
+    /// configure their physical socket. A transport without TCP keepalive
     /// semantics refuses and closes that connection with a typed report. Null
-    /// — the default — leaves sockets without keepalive (NODELAY only). Do not "just enable"
+    /// (the default) leaves sockets without keepalive (NODELAY only). Do not "just enable"
     /// SO_KEEPALIVE: the OS idle default is hours. Rationale is NAT hold-open /
-    /// dead-remote-host reclaim — not reaping a live orphaned process.
+    /// dead-remote-host reclaim, not reaping a live orphaned process.
     ///
     /// This is also the loop's only automatic detector of a *silently* vanished
-    /// peer (ADR-0081): a remote that disappears with no FIN and no RST — a
-    /// crash, a cable pull, a partition — sends nothing, so its armed recv never
+    /// peer (ADR-0081): a remote that disappears with no FIN and no RST, a
+    /// crash, a cable pull, a partition, sends nothing, so its armed recv never
     /// completes and its slot is held until a completion surfaces. Keepalive is
     /// what makes one surface: its probes eventually fail, the recv completes
     /// with a read error, and `on_close` fires under `run`. Without it, and
     /// without application-level heartbeats, such a slot is reclaimed only at
-    /// `closeAndDrain`. The detection deadline is deliberately the caller's — a
+    /// `closeAndDrain`. The detection deadline is the caller's, a
     /// liveness policy lives above glowcap, which is why this stays opt-in
     /// rather than a silent default. See `tcp_keepalive.Keepalive`.
     keepalive: ?tcp_keepalive.Keepalive = null,
     /// Fan-in source throttle (ADR-0082): when any live connection is parked
     /// under ADR-0042 outbound high-water, also refuse to arm reads on every
     /// *other* connection until no connection remains parked. Off by default
-    /// so existing scale harnesses keep per-connection-only backpressure;
-    /// enable to prove many-A-to-one-B sources slow when the sink parks.
+    /// so existing scale harnesses keep per-connection-only backpressure.
+    /// Enable to prove many-A-to-one-B sources slow when the sink parks.
     fan_in_throttle: bool = false,
     /// Park-duration kill (ADR-0082 / NATS write_deadline analogue): if a
     /// connection stays `.parked` longer than this many milliseconds, the loop
@@ -218,8 +220,8 @@ pub const Options = struct {
     drain_kill_ms: ?u64 = 5_000,
 };
 
-/// When `Loop.run` returns. Production servers and dialers run `.forever`;
-/// tests stop after a known number of connections have fully closed.
+/// When `Loop.run` returns. Production servers and dialers run `.forever`.
+/// Tests stop after a known number of connections have fully closed.
 pub const Stop = union(enum) {
     forever,
     after_closed: usize,

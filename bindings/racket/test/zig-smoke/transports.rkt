@@ -57,7 +57,7 @@
 ;; own node, vat, and keyed handshake); only the transport's (read, write) pair
 ;; differs, so the driving logic is shared.
 ;;
-;; The exchange is single-threaded on purpose. Unlike Racket's own
+;; The exchange is single-threaded. Unlike Racket's own
 ;; scheduler-aware ports, these explicit C-ABI netlayers park the whole Racket
 ;; place for the duration of a foreign read or write, so two connections cannot
 ;; rendezvous across green threads in one place. The script therefore orders
@@ -147,7 +147,7 @@
   (expect (ref? counter-ref) "transport: fetched a capability")
   ;; Explicitly retire the consumed fetch question and serve its deterministic
   ;; GC frame before the next scripted leg. A finalizer is not an ordering
-  ;; primitive, and this harness intentionally reads one whole frame at a time.
+  ;; primitive, and this harness reads one whole frame at a time.
   (release-vow! fetched)
   (feed-next! server-session server-read)
   (feed-next! client-session client-read)
@@ -245,7 +245,7 @@
 
 ;; The SOCKS endpoint for the sections that never dial: an absolute Unix socket
 ;; path, which is the other form `make-onion-netlayer` accepts and the one a
-;; distribution's Tor actually offers. Nothing is bound there, so a section that
+;; distribution's Tor offers. Nothing is bound there, so a section that
 ;; reached it would fail rather than quietly connect somewhere.
 (define absent-socks "/run/glowcap-smoke/absent.socks")
 

@@ -1,10 +1,9 @@
 // Archive history on a conversation card: handing somebody a read-only copy
 // of what your archive kept, and the accounts others have handed you.
 //
-// A share is a capability that travels over a direct message, and the words
-// here keep saying so: it goes to one person, reaches nothing else of yours,
-// and either lasts for the conversation or is a link they keep. Moved here
-// verbatim from the card so the product's voice can be read in one place.
+// A share is a capability that travels over a direct message. It goes to one
+// person, reaches nothing else of yours, and either lasts for the conversation
+// or is a link they keep.
 
 export const archiveDoorWhat = "What you kept";
 export function archiveDoorOffered(waiting: number): string {
@@ -41,6 +40,8 @@ export const archiveDiscardCommit = "Discard";
 export const archiveDiscardAsk = "Discard…";
 export const archiveReading = "Reading…";
 export const archiveRead = "Read shared history";
+export const archiveReadFull = "Finish another archive action before reading this share";
+export const archiveDropFull = "Finish another archive action before discarding this share";
 
 /** Handing one over. */
 export function archiveDmLead(nick: string): string {

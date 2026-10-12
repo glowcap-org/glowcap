@@ -61,11 +61,11 @@ pub fn retire_room_control<R: References>(
 }
 
 /// Retire every workspace alias of the selected exact seat before dispatching
-/// its goodbye. Files, topic and line lists move out of their existing bounded rows;
-/// only their borrowed coordinates survive through alias-aware release. This
+/// its goodbye. Files, topic and line lists move out of their existing bounded rows.
+/// Only their borrowed coordinates survive through alias-aware release. This
 /// adds no payload copy or field inventory. Other seats, independent imports
-/// and receipt occurrences remain held. Call only on the admitted candidate;
-/// the runtime commits this change with its unresolved effect receipt.
+/// and receipt occurrences remain held. Call only on the admitted candidate.
+/// The runtime commits this change with its unresolved effect receipt.
 pub fn retire_membership<R: References>(
 	intent: &mut Intent,
 	custody: &mut Custody<R>,
@@ -106,7 +106,7 @@ pub fn retire_membership<R: References>(
 	if retired { Ok(()) } else { Err(Refusal::Missing) }
 }
 /// Retire all aliases of the exact publication lease in the admitted candidate.
-/// The receipt keeps its own occurrence; independent room custody survives.
+/// The receipt keeps its own occurrence. Independent room custody survives.
 pub fn retire_publication<R: References>(
 	intent: &mut Intent,
 	custody: &mut Custody<R>,
@@ -158,8 +158,8 @@ fn remove_conversation<R: References>(intent: &mut Intent, custody: &mut Custody
 
 /// All candidates belong to the callback. Removed rows move out of its existing
 /// lists, so retirement needs no duplicate field inventory or payload copies.
-/// Each removed selection checks the bounded remaining intent for aliases;
-/// receipts and unrelated imports keep their independent custody.
+/// Each removed selection checks the bounded remaining intent for aliases.
+/// Receipts and unrelated imports keep their independent custody.
 pub(super) fn apply<R: References>(
 	command: Command,
 	args: &[&str],

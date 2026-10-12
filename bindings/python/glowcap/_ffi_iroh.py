@@ -1,11 +1,11 @@
 """Internal: the raw ``ctypes`` loader for ``libglowcap_net_transport_iroh``.
 
 The iroh companion library (``libglowcap_net_transport_iroh``, ADR-0055) is
-optional — built only with cargo (``zig build iroh-abi``) — so it loads lazily on
+optional (built only with cargo, ``zig build iroh-abi``), so it loads lazily on
 first ``_iroh()`` use and names how to produce it when absent rather than failing
 at import. It carries the ``glowcap_iroh_*`` family plus its own thread-local
 last-error (``glowcap_iroh_last_error``), symbol-disjoint from the
-core. Nothing here is public; :mod:`glowcap.iroh` is the ergonomic surface over
+core. Nothing here is public. :mod:`glowcap.iroh` is the ergonomic surface over
 it. The read/write calls move frames through the shared ctypes ``Structure``
 types from :mod:`glowcap._ffi_ocapn`.
 """
@@ -44,7 +44,7 @@ class _IrohConfig(ctypes.Structure):
     """One iroh endpoint's config, the ``extern struct`` counterpart of the
     header's ``GlowcapIrohConfig``. ``ctypes.Structure`` zero-initializes every
     field, so filling only ``reachability`` leaves ``connect_timeout_ms`` (and
-    any field a future version adds) at 0 — the header's zero-init contract."""
+    any field a future version adds) at 0: the header's zero-init contract."""
 
     _fields_ = [
         ("reachability", ctypes.c_uint32),
@@ -80,8 +80,8 @@ _iroh_lib_cache = None
 
 
 def _iroh():
-    """Open the iroh ABI library on first use. It is optional — absent unless
-    built with cargo — so a clear error names how to produce it rather than a raw
+    """Open the iroh ABI library on first use. It is optional, absent unless
+    built with cargo, so a clear error names how to produce it rather than a raw
     load failure."""
     global _iroh_lib_cache
     if _iroh_lib_cache is None:

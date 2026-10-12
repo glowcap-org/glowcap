@@ -1,6 +1,6 @@
 /**
  * Timing spans synthesized from observations: a join, a leave, a
- * flight, an open, a close — and a re-run that must not rewrite
+ * flight, an open, a close, and a re-run that must not rewrite
  * what it already wrote.
  */
 

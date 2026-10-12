@@ -1,7 +1,7 @@
 //! Prompt buffer edits for the CapTP lab TUI.
 //!
 //! `tui.zig` owns the frame loop. Completion and history only need to
-//! replace the current editor line or its last token; this module is
+//! replace the current editor line or its last token. This module is
 //! that leaf so mouse clicks and key intents share one buffer walk.
 const vaxis = @import("vaxis");
 

@@ -1,11 +1,12 @@
 //! Durable, record-backed actors attached to an existing Host. The attachment
-//! emits storage work and queues ready calls on that Host's Vat; it owns no I/O.
+//! emits storage work and queues ready calls on that Host's Vat. It owns no I/O.
 const std = @import("std");
 const core = @import("loam_core");
 const actors = @import("actors");
 const driver = @import("driver_core");
 const behavior = @import("behavior.zig");
 const calls = @import("calls.zig");
+const drive = @import("drive.zig");
 const storage = @import("storage.zig");
 pub const Behavior = behavior.Behavior;
 pub const Call = behavior.Call;
@@ -19,7 +20,7 @@ pub const Options = struct {
     continuation_bytes: usize = 64 * 1024,
     max_continuation_targets: usize = 32,
     /// Complete acquired arena blocks per call, including headers and slack.
-    /// Admission reserves this ceiling; heap backing grows only as needed.
+    /// Admission reserves this ceiling. Heap backing grows only as needed.
     call_bytes: usize = 64 * 1024,
     /// Whole-call reservations for admitted operations, rather than live heap bytes.
     pending_bytes: usize = 4 * 1024 * 1024,
@@ -32,7 +33,7 @@ pub const Options = struct {
     forward_reply_bytes: usize = 16 * 1024,
     reference_scope: ?*@import("reference_scope.zig").Scope = null,
     live_scope: ?*@import("live_scope.zig").Scope = null,
-    /// Stable embedding-owned attachment name; borrowed until this attachment closes.
+    /// Stable embedding-owned attachment name. Borrowed until this attachment closes.
     attachment_name: ?[]const u8 = null,
     sleep_policy: enum { lru, every_turn } = .lru,
 
@@ -55,11 +56,11 @@ pub const Operation = calls.Operation;
 pub const Loading = struct { request: core.Read, submitted: bool = false, operation: ?usize = null };
 pub const Writing = struct { batch: core.Batch, operation: ?usize, submitted: bool = false, uncertain: bool = false };
 /// One staged publication tombstone this attachment owns the registry
-/// transition for. Reserved when the tombstone stages; fenced (discovery
-/// removed) when its batch reaches an unknown outcome; cleared at every
+/// transition for. Reserved when the tombstone stages. Fenced (discovery
+/// removed) when its batch reaches an unknown outcome. Cleared at every
 /// confirmed retirement. Known-absent recovery retains bounded retry custody
 /// while advance restores the still-rooted recipe through the ordinary read
-/// and Host publication paths; later write outcomes cannot discard that work.
+/// and Host publication paths. Later write outcomes cannot discard that work.
 pub const Retirement = struct {
     record: core.ObjectId,
     swiss: driver.Host.DurableSwiss,
@@ -127,7 +128,7 @@ pub const Attachment = struct {
         errdefer allocator.free(retirements);
         @memset(retirements, null);
         if ((options.reference_scope == null) != (options.attachment_name == null) or options.max_reference_saves == 0) return error.InvalidLimits;
-        const runner = try host.vat.spawn(calls.Runner, .{ .owner = self });
+        const runner = try host.vat.spawn(drive.Runner, .{ .owner = self });
         errdefer host.vat.discardFreshActor(runner);
         self.* = .{ .allocator = allocator, .host = host, .store = store, .behaviors = behaviors, .options = options, .entries = entries, .operations = operations, .reads = reads, .retirements = retirements, .runner = runner };
         if (options.reference_scope) |scope| try scope.register(self);
@@ -137,7 +138,7 @@ pub const Attachment = struct {
     }
 
     /// Refuses pending work. Stops future calls and releases the attachment's
-    /// ownership; live endpoint boxes retain only its closed routing metadata
+    /// ownership. Live endpoint boxes retain only its closed routing metadata
     /// until their existing Host/Vat custody ends. Do not use self afterward.
     pub fn destroy(self: *Attachment) !void {
         try self.topLevel();
@@ -178,7 +179,7 @@ pub const Attachment = struct {
     }
 
     /// Construct a dependent runtime facet from two live capabilities. The
-    /// source id only selects the already-held endpoint entry; it never restores
+    /// source id only selects the already-held endpoint entry. It never restores
     /// authority. Both actor retains transfer into the facet on successful spawn.
     pub fn projectDependent(self: *Attachment, source: core.ObjectId, target: driver.Capability) !driver.Capability {
         if (self.closing) return error.AttachmentClosed;
@@ -220,8 +221,8 @@ pub const Attachment = struct {
         if (try self.store.evictObject(entry.id)) self.stats.sleeps += 1;
     }
 
-    pub const advance = calls.advance;
-    pub const advanceProgress = calls.advanceProgress;
+    pub const advance = drive.advance;
+    pub const advanceProgress = drive.advanceProgress;
     pub const prefetch = storage.prefetch;
     pub const nextWork = storage.nextWork;
     pub const completeRead = storage.completeRead;

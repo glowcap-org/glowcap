@@ -9,7 +9,7 @@ pub const operator_script = "tools/c-abi/fetch-c-abi.sh";
 
 /// The C-ABI find/download cascade is one contract (`bindings/c-abi-resolve.json`)
 /// shipped inside every binding package (ADR-0077). Bindings download with
-/// language-native code; `tools/c-abi/fetch-c-abi.sh` is an operator CLI only.
+/// language-native code, `tools/c-abi/fetch-c-abi.sh` is an operator CLI only.
 pub const c_abi_binding_loaders = [_][]const u8{
     "bindings/rust/build.rs",
     "bindings/python/glowcap/_lib_resolve.py",

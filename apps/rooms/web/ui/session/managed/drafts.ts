@@ -2,6 +2,7 @@
 // replaces a newer local edit with an older accepted snapshot.
 import type { ManagedRoomsSession } from "./session.ts";
 import { conversationIdentity } from "./model.ts";
+import { refusalText } from "../../../../lib/text/failure.ts";
 import { WorkspaceConflict } from "./operation.ts";
 
 export class ManagedDrafts {
@@ -13,8 +14,17 @@ export class ManagedDrafts {
 	readonly #origins = new Map<string, { identity: string; accepted: string }>();
 	readonly #jobs = new Map<string, Promise<void>>();
 	readonly #writes = new Map<string, string>();
-	#tail: Promise<void> = Promise.resolve();
 	#stopped = false;
+	readonly #failures = new Map<string, string>();
+	failure(id: string): string {
+		return this.#failures.get(id) ?? "";
+	}
+	sync(id: string): void {
+		if (this.#failures.has(id)) return;
+		void this.flush(id).catch(() => {
+			// The persistent composer notice owns this failed background sync.
+		});
+	}
 	constructor(session: ManagedRoomsSession) {
 		this.#session = session;
 	}
@@ -33,12 +43,16 @@ export class ManagedDrafts {
 	flush(id: string): Promise<void> {
 		const current = this.#jobs.get(id);
 		if (current != null) return current;
-		const job = this.#tail.then(() => this.#flush(id)).finally(() => this.#jobs.delete(id));
-		// Workspace revisions serialize draft writes across conversations. A
-		// refusal belongs to its caller and does not poison the next local edit.
-		this.#tail = job.catch(() => {
-			// tolerant: the flush caller owns refusal; the serialization tail must admit the next edit.
+		const job = Promise.resolve().then(() => this.#flush(id)).then(() => {
+			this.#failures.delete(id);
+		}, (error: unknown) => {
+			this.#failures.set(id, refusalText(error));
+			throw error;
+		}).finally(() => {
+			this.#jobs.delete(id);
+			this.#session.acquisitionChanged();
 		});
+		// The shared admission owner serializes revisions; other drafts settle independently.
 		this.#jobs.set(id, job);
 		return job;
 	}
@@ -91,6 +105,7 @@ export class ManagedDrafts {
 		}
 	}
 	retire(id: string): void {
+		this.#failures.delete(id);
 		this.#values.delete(id);
 		this.#origins.delete(id);
 	}
@@ -101,6 +116,7 @@ export class ManagedDrafts {
 		this.stop();
 		await Promise.allSettled(this.#jobs.values());
 		this.#values.clear();
+		this.#failures.clear();
 		this.#origins.clear();
 		this.#writes.clear();
 	}

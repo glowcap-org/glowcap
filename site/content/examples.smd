@@ -7,9 +7,7 @@
 ---
 
 Every program below uses the same CapTP API. For a first call in code, use
-[Start building]($link.page('start')). For a complete application, the
-[Rooms guide]($link.page('rooms')) follows the browser product from first use
-through its architecture and operation.
+[Start building]($link.page('start')).
 
 # A complete application
 
@@ -22,17 +20,15 @@ zig build rooms-web
 ```
 
 Open `http://localhost:8080` after the build is ready. The
-[first-room walkthrough]($link.page('rooms/start')) continues from there,
-including a second browser and a direct message. The
-[Rooms section]($link.page('rooms')) also covers durable sessions, history,
-files, IRC, reachability, and the state model that reconciles every command.
+[first-room walkthrough]($link.page('rooms/start')) continues from there, and
+the [Rooms section]($link.page('rooms')) covers the rest.
 
 # Learn the Zig API
 
 Start the walk at
 [01_connect_and_serve.zig](https://github.com/jimisaacs/glowcap/blob/main/examples/zig/01_connect_and_serve.zig).
-It shows both ends of one session: listen, publish, connect, fetch,
-and call, over a local TCP socket so the API is unobscured.
+It shows both ends of one session: listen, publish, connect, fetch, and call,
+over Noise TCP, which proves the listener's key to the dialer.
 
 ```sh
 zig build examples
@@ -52,13 +48,9 @@ Three later chapters isolate the moves that are easiest to miss:
 The [complete example guide](https://github.com/jimisaacs/glowcap/blob/main/examples/README.md)
 continues down through actors, bootstrap lookup, the raw engine, and the
 buffer-explicit and many-session helpers.
-[Concepts]($link.page('concepts')) explains the handoff and pipelining behavior
-used by these examples; [The modules]($link.page('modules')) shows which API
-level each chapter exercises.
-
-The same `Session` API on every transport is on
-[Start building]($link.page('start')) and
-[Choosing a transport]($link.page('transports/choosing')).
+[Concepts]($link.page('concepts')) explains handoff and pipelining, and
+[the modules]($link.page('modules')) page shows which API level each chapter
+uses.
 
 # Embed from C
 
@@ -77,6 +69,5 @@ for linking, ownership, the host allocator, and transport composition.
 | [accountability](https://github.com/jimisaacs/glowcap/blob/main/apps/accountability-on-glowcap/) | Signed calls above an OCapN session | `zig build demo-accountability` |
 
 Tasks and tools need Deno. Accountability runs a Zig host with Deno and Python
-callers. The same applications also serve as binding examples; the
-[bindings overview]($link.page('bindings')) points to each language. For a
-smaller first call, use [Start building]($link.page('start')).
+callers. They double as binding examples, and the
+[bindings overview]($link.page('bindings')) points to each language.

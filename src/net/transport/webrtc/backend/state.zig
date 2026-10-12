@@ -26,11 +26,11 @@ pub const max_signal_bytes = signaling.signaling_frame_bytes;
 /// `completion.Loop(Backend, DialResolver).initWithBackend`. Outbound dials
 /// create an offerer and complete only on `ev_open`. Inbound answerers exist
 /// because a signaling owner created and transferred one through
-/// `adoptAnswerer`; they join the ordinary accept completion only after open.
+/// `adoptAnswerer`. They join the ordinary accept completion only after open.
 ///
 /// `adoptAnswerer`, `provideAnswer`, and `provideRemoteCandidate` are the three
 /// thread-safe entries. They queue under one spinlock and nudge the loop wake
-/// fd; all other state belongs to the loop thread. The resident must outlive
+/// fd. All other state belongs to the loop thread. The resident must outlive
 /// this backend and have no other readiness consumer. Producers and wake callers
 /// must stop before `deinit` closes the wake fd.
 ///
@@ -57,7 +57,7 @@ pub const Backend = struct {
     const ReadinessOps = readiness.Machine(Self, SignalingOps, ConnectionOps);
 
     allocator: std.mem.Allocator,
-    /// Borrowed; must outlive the backend.
+    /// Borrowed. Must outlive the backend.
     resident: *Resident,
     signaling: SignalingAuthority,
     readiness_fd: i32,
@@ -80,7 +80,7 @@ pub const Backend = struct {
     signal_mutex: net.sync.SpinLock = .{},
     signal_in: std.ArrayList(signaling.SignalIn) = .empty,
     /// Seats reserved while a producer fills its exclusive payload slot. A row
-    /// is not visible until its copy completes; this prevents producers from
+    /// is not visible until its copy completes. This prevents producers from
     /// oversubscribing the inbox in that interval.
     signal_reservations: usize = 0,
     signal_payloads: signaling.SignalPayloadPool,
@@ -187,7 +187,7 @@ pub const Backend = struct {
     }
 
     /// Nothing to arm: the signaling inbox is the listener substrate.
-    /// Reachability is the signaling inbox; there is nothing to choose.
+    /// Reachability is the signaling inbox. There is nothing to choose.
     pub const ListenTarget = void;
 
     pub fn loopListenTarget(_: u16) ListenTarget {}

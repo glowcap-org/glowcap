@@ -8,7 +8,7 @@ use super::{
 };
 use glowcap::{Host, PendingWork};
 use rooms_platform::serving::{CONNECTION_LIMIT, PartnerNotice, Retry, accept_ended, serve_partner_until};
-use rooms_platform::storage::session::{Prepared, Session as Storage};
+use rooms_platform::storage::session::{Custody, Session as Storage};
 use rooms_runtime::session::managed::{MembershipKinds, production_limits};
 use std::future::Future;
 use tokio::task::JoinSet;
@@ -77,6 +77,7 @@ pub struct Peer {
 	owners: Owners,
 	pub(super) state_directory: std::path::PathBuf,
 	link: String,
+	management_link: String,
 	report: Report,
 	connections: JoinSet<()>,
 	// One shared stop signal, with at most CONNECTION_LIMIT borrowed receivers.
@@ -92,9 +93,10 @@ impl Peer {
 	pub async fn open(config: Config, report: Report) -> Result<Self, Error> {
 		let mut owners = Owners::default();
 		match assemble(&config, &report, &mut owners).await {
-			Ok(link) => Ok(Self {
+			Ok((link, management_link)) => Ok(Self {
 				owners,
 				link,
+				management_link,
 				report,
 				connections: JoinSet::new(),
 				connections_stop: tokio::sync::watch::channel(false).0,
@@ -116,6 +118,22 @@ impl Peer {
 	/// The managed workspace use endpoint this peer published.
 	pub fn link(&self) -> &str {
 		&self.link
+	}
+	/// The independent management endpoint. Workspace access cannot recover it.
+	pub fn management_link(&self) -> &str {
+		&self.management_link
+	}
+	/// Serve and retain ownership until every close barrier has retired.
+	pub async fn run(mut self, shutdown: impl Future<Output = ()>) -> Result<(), Error> {
+		let result = self.serve(shutdown).await;
+		while let Err(cause) = self.close().await {
+			(self.report)(Notice::Activity {
+				operation: "session close".into(),
+				cause: glowcap::loam::refusal(cause.to_string()),
+			});
+			tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+		}
+		result
 	}
 	/// Local application access for a view hosted by this same process.
 	pub fn local(&self) -> Result<super::Local, Error> {
@@ -181,7 +199,7 @@ impl Peer {
 }
 
 /// Serve one accepted partner to its end, reporting an end that was not the
-/// partner simply leaving.
+/// partner leaving.
 async fn served(session: glowcap::Session, report: Report, mut stop: tokio::sync::watch::Receiver<bool>) {
 	let halted = async {
 		while !*stop.borrow_and_update() {
@@ -195,13 +213,21 @@ async fn served(session: glowcap::Session, report: Report, mut stop: tokio::sync
 	}
 }
 
-async fn assemble(config: &Config, report: &Report, owners: &mut Owners) -> Result<String, Error> {
-	owners.readiness = Some(Readiness::clear(config.readiness_path()).await?);
-	owners.management_readiness = Some(Readiness::clear(config.state.join("control.sturdyref")).await?);
-	let prepared = Prepared::open(&config.state)?;
+async fn assemble(config: &Config, report: &Report, owners: &mut Owners) -> Result<(String, String), Error> {
+	// Readiness belongs to the process holding this directory's lease. A
+	// refused contender must leave the running owner's mirrors intact.
+	let custody = Custody::acquire(&config.state)?;
+	owners.readiness = Some(Readiness::clear(config.readiness_path(), custody.directory().clone()).await?);
+	owners.management_readiness =
+		Some(Readiness::clear(config.state.join("control.sturdyref"), custody.directory().clone()).await?);
+	let prepared = custody.prepare()?;
 	let mut listener_keys = rooms_platform::serving::onion::KeyFile(Some(prepared.directory().clone()));
 	let host = Host::from_seed_with_options(prepared.seed(), rooms_glowcap::host_options())?;
-	let needs = Needs::configured(&config.dial_transports, config.relay_url.clone())?;
+	let needs = Needs::configured(
+		&config.dial_transports,
+		config.relay_url.clone(),
+		config.relay_alias_url.clone(),
+	)?;
 	// Until the dial runtime adopts it, the Host has no owner but this frame.
 	let transports = match Transports::open(&host, &config.transport, &needs, &mut listener_keys).await {
 		Ok(transports) => transports,
@@ -211,6 +237,7 @@ async fn assemble(config: &Config, report: &Report, owners: &mut Owners) -> Resu
 		}
 	};
 	let locator = transports.locator().clone();
+	let runtime = transports.runtime();
 	owners.transports = Some(transports);
 	let limits = production_limits()?;
 	let credentials = crate::documents::DocumentFile::bridge_secrets(prepared.directory().clone());
@@ -222,8 +249,9 @@ async fn assemble(config: &Config, report: &Report, owners: &mut Owners) -> Resu
 			rooms_application::content::session::custody::MAX_CUSTODY_FIELDS as u32,
 		)
 		.await?;
-	owners.session = Some(session);
-	let opened = &mut owners.session.as_mut().expect("installed storage owner").opened;
+	let opened = &mut owners.session.insert(session).opened;
+	opened.session().configure_admission(config.admission)?;
+	report(Notice::Admission(config.admission.summary()));
 	let trouble_report = report.clone();
 	opened.session().on_trouble(move |operation, cause| {
 		trouble_report(Notice::Activity {
@@ -234,11 +262,7 @@ async fn assemble(config: &Config, report: &Report, owners: &mut Owners) -> Resu
 	opened.session().configure_credentials(credentials).await?;
 	let mut backend = crate::archive::file::FileArchive::open(config.state.join("archive"), Default::default()).await?;
 	let source = backend.recording_source().await?;
-	let (archive, worker) = crate::session_archive::SessionArchive::new(
-		rooms_platform::HostPlatform,
-		owners.transports.as_ref().expect("owned transport").runtime(),
-		backend,
-	);
+	let (archive, worker) = crate::session_archive::SessionArchive::new(rooms_platform::HostPlatform, runtime, backend);
 	let archive = std::rc::Rc::new(archive);
 	owners.archive = Some(archive.clone());
 	owners.archive_worker = Some(tokio::task::spawn_local(worker.run()));
@@ -314,5 +338,5 @@ async fn assemble(config: &Config, report: &Report, owners: &mut Owners) -> Resu
 	if let Some(readiness) = owners.readiness.as_ref() {
 		readiness.publish(&link).await?;
 	}
-	Ok(link)
+	Ok((link, management_link))
 }

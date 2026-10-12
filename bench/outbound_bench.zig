@@ -1,6 +1,6 @@
 //! The outbound engine path, end to end, and the GC release storm.
 //!
-//! `bench-codec` times encode alone; nothing times what a caller actually pays
+//! `bench-codec` times encode alone. Nothing times what a caller pays
 //! to put a message on the wire: `send` (owned-tree validate walk plus
 //! `recordSend`'s retain walk), then queue, then `step` (on a v1.0 session, an
 //! answered `op:deliver` also mints a resolver export: an export allocation,
@@ -50,7 +50,7 @@ const target_import: u64 = 5;
 /// send ceiling sits roughly an order of magnitude over the measured figure
 /// so only a structural regression crosses it, and the growth ceiling is
 /// dimensionless (the same code at two sizes), so machine speed cancels out
-/// of it entirely — a reintroduced per-position scan shows as roughly
+/// of it entirely: a reintroduced per-position scan shows as roughly
 /// Q-proportional growth against a measured noise floor near 1.2.
 pub const gate_outbound_send_ceiling_ns: f64 = 8_000;
 pub const gate_storm_growth_ceiling: f64 = 3.0;
@@ -181,7 +181,7 @@ const StormMeasurement = struct {
     q: usize,
     /// Median ns for the whole release wave (one `op:gc-answers` send + step).
     wave_ns: u64,
-    /// wave_ns / q — flat across the sweep means linear release, growth
+    /// wave_ns / q: flat across the sweep means linear release, growth
     /// means the per-position resolver-link scan is quadratic.
     ns_per_answer: f64,
 };

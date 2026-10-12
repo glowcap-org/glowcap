@@ -1,24 +1,24 @@
-//! The shared C-ABI waist. Subject modules own each layout and mechanism; this
-//! root deliberately re-exports the stable vocabulary every symbol-disjoint
+//! The shared C-ABI waist. Subject modules own each layout and mechanism. This
+//! root re-exports the stable vocabulary every symbol-disjoint
 //! archive and generated binding consumes.
 //!
 //! This leaf declares **no `export fn`**. The public `glowcap_*` entry points
 //! live in the `c_abi/ocapn` families (context, frame, uri), the Host, and
 //! the `c_abi/net_transport/{tcp,inproc}` transport families, and the
-//! `glowcap_iroh_*` entry points in `c_abi_net_transport_iroh`; all reach this
+//! `glowcap_iroh_*` entry points in `c_abi_net_transport_iroh`. All reach this
 //! vocabulary through `@import("c_abi_shared")`. Because importing the leaf pulls the
 //! vocabulary without pulling either library's exported surface, `libglowcap_ocapn`
 //! carries the core families and `libglowcap_net_transport_iroh` carries only
 //! the iroh family, each reusing these types, and each from `glowcap_ocapn.h`
 //! on the C side
 //! (ADR-0055 companion split). The two artifacts therefore share no exported
-//! core symbol; they share the *layout* of these types, exactly as a C consumer
+//! core symbol. They share the layout of these types, as a C consumer
 //! including both headers does.
 
 /// Process signal handlers and alternate signal stacks belong to the embedder.
 /// Each separately compiled archive otherwise contributes Zig's 256 KiB TLS
 /// signal stack to every native thread, even threads created by another runtime.
-/// On pthread hosts that storage consumes the thread's stack allocation; linking
+/// On pthread hosts that storage consumes the thread's stack allocation. Linking
 /// several archives can exhaust a Rust worker's stack before ordinary work runs.
 /// Every public C-ABI archive root selects these standard-library options.
 pub const library_options: @import("std").Options = .{
@@ -27,8 +27,8 @@ pub const library_options: @import("std").Options = .{
 };
 
 /// The one cross-archive schema and bounded mechanics for failures with no
-/// remaining return recipient (ADR-0115). This leaf owns no mutable global;
-/// storage belongs to an explicit Context, Host, or driver owner.
+/// remaining return recipient (ADR-0115). This leaf owns no mutable global.
+/// Storage belongs to an explicit Context, Host, or driver owner.
 pub const failure_diagnostics = @import("failure_diagnostics.zig");
 pub const GlowcapFailureEvent = failure_diagnostics.GlowcapFailureEvent;
 pub const GlowcapFailureReport = failure_diagnostics.GlowcapFailureReport;

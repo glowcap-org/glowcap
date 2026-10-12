@@ -1,7 +1,7 @@
 // The operations namespace's address logic, drawn by nothing.
 //
 // /ops lands on the remembered held pane when it is held, else the first held
-// one; with nothing held it stays, and the surface is the asks. Arriving asks
+// one, with nothing held it stays, and the surface is the asks. Arriving asks
 // every capability again, and standing on a held pane remembers it. The panes
 // themselves load with `OpsMain` when the content cell stands here.
 

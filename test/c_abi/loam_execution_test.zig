@@ -1,5 +1,5 @@
 //! Portable C executor scenarios. Zig transactions decide atomicity, fencing
-//! and exact recovery; this bounded test KV only supplies physical snapshots.
+//! and exact recovery. This bounded test KV only supplies physical snapshots.
 const std = @import("std");
 const c = @import("c_abi_loam");
 const core = @import("loam_core");

@@ -2,7 +2,7 @@
  * The ocapnviz shell: header, rails, stage, and timeline.
  *
  * `App` owns the buffer, the mode, and which engine is live. This
- * module owns the view of that engine — the commands the chrome
+ * module owns the view of that engine. The commands the chrome
  * publishes, and the panes those commands fill.
  */
 
@@ -73,7 +73,7 @@ export function AppView({
 	onSetSelection,
 	onTimelineEditSelection,
 }: AppViewProps) {
-	// Intentionally NOT subscribing to the clock here — that lives
+	// NOT subscribing to the clock here, that lives
 	// in `TimelinePanel` where the value is consumed. App-level
 	// reconciliation runs at human-interaction rate, not 60 Hz.
 
@@ -81,14 +81,14 @@ export function AppView({
 		async (event: React.ChangeEvent<HTMLSelectElement>) => {
 			const nextId = event.target.value;
 			// The synthetic "current source" row is a label, not a
-			// choice — re-selecting it changes nothing.
+			// choice, re-selecting it changes nothing.
 			if (nextId === CURRENT_SOURCE_OPTION) return;
 			// Held now, before anything is awaited. `event.target` survives the
 			// handler where `currentTarget` does not, and the picker below has to be
 			// put back by hand: it is controlled, but a cancel changes no state, so
 			// there is no re-render for React to re-sync its value on.
 			const picker = event.target;
-			// Switching source discards whatever the buffer holds — a
+			// Switching source discards whatever the buffer holds, a
 			// Build undo stack, an edited fork, an opened file, or a
 			// recording. Ask when that loses user-made state; put the
 			// picker back if they cancel.
@@ -110,7 +110,7 @@ export function AppView({
 			// shadow it (opened file, recording, edited fork).
 			onClearSourceOverrides();
 			dispatch({ type: "select-scenario", id: nextId });
-			// The new doc has a new entity universe — any prior anchor /
+			// The new doc has a new entity universe. Any prior anchor /
 			// selection is stale, clear the store so halos don't paint
 			// for ids that no longer exist.
 			onClearStoreSelection();
@@ -179,7 +179,7 @@ export function AppView({
 
 	// Sub-selection focus (#16): id of the keyframe glyph the user
 	// has parked attention on, or null when focus is clear. Sits
-	// orthogonal to entity selection — a focused glyph lives inside
+	// orthogonal to entity selection. A focused glyph lives inside
 	// a session span, but the entity selection still rides on the
 	// parent session (not the keyframe). Escape unwinds focus
 	// before clearing the entity selection so the state machine
@@ -194,7 +194,7 @@ export function AppView({
 	const handleDeselect = useCallback(() => {
 		// Sub-selection state machine (#16): unwind inner→outer. If a
 		// keyframe glyph is focused, Esc clears focus first and stops
-		// there — the user is still parked on the entity. Second Esc
+		// there. The user is still parked on the entity. Second Esc
 		// (focus now null) falls through to the entity / first-pick
 		// clear. Matches the muscle memory of nested modals where
 		// Esc closes one layer at a time.
@@ -300,8 +300,8 @@ export function AppView({
 	// Undo and redo are the app's, not the engine's, because taking
 	// history back moves ids out from under the selection and something
 	// has to walk the selection back onto what the document then holds.
-	// Both surfaces that offer the command — the top bar's buttons and
-	// the Cmd-Z binding — come through this pair, so there is one place
+	// Both surfaces that offer the command, the top bar's buttons and
+	// the Cmd-Z binding, come through this pair, so there is one place
 	// the act is spelled and one place it can gain a step.
 	const handleUndo = useCallback(
 		() => undoWithSelection(engine, dispatchSelection),
@@ -316,7 +316,7 @@ export function AppView({
 	// units, so a step matches what the user sees on the stage at 1:1
 	// zoom. Returning `true` claims the gesture; `false` falls back to
 	// the global time-scrub behavior (arrows = seek).
-	// "Non-empty selection wins" stands in for explicit panel focus —
+	// "Non-empty selection wins" stands in for explicit panel focus,
 	// the user's intent is whichever surface they last selected on.
 	const handleNudgeSelection = useCallback(
 		(dx: number, dy: number, opts: { shift: boolean }): boolean => {
@@ -447,13 +447,13 @@ export function AppView({
 			/>
 
 			{
-				/* Timeline panel — always rendered so the bottom bar
+				/* Timeline panel, always rendered so the bottom bar
           doesn't disappear-and-reappear on mode switches. In
           Live mode the panel still shows the live-feed events
           and the live edge, but interaction is disabled: no
           scrub / seek / play (the feed is forward-only). The
           `disabled` prop mutes the chrome and short-circuits
-          the pointer handlers — visually the user reads
+          the pointer handlers, visually the user reads
           "timeline is here, just not yours to steer right now,"
           which is the honest live semantic. */
 			}

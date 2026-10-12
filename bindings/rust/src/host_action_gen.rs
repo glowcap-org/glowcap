@@ -70,6 +70,8 @@ pub fn decode(raw: &ffi::GlowcapHostAction) -> Result<HostAction> {
 		} else {
 			// The bytes originate in a partner-authored give, so decode
 			// leniently rather than let untrusted bytes fault mid-drain.
+			// SAFETY: `ptr` is non-null (checked above) and names `len` bytes of a view the host owns in the
+			// `GlowcapHostAction` being decoded, live until the next pop; `into_owned` copies them first.
 			String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(ptr, len) }).into_owned()
 		}
 	};
@@ -84,6 +86,8 @@ pub fn decode(raw: &ffi::GlowcapHostAction) -> Result<HostAction> {
 		HOST_ACTION_NEED_GIFT_ID => HostAction::NeedGiftId { ticket: raw.ticket },
 		HOST_ACTION_SETTLE => HostAction::Settle {
 			ticket: raw.ticket,
+			// SAFETY: `raw.value` is the settle value the host wrote into this `GlowcapHostAction`, whose
+			// spines and leaves stay host-owned until the next pop; `arg_from_sys` copies them first.
 			value: unsafe { arg_from_sys(&raw.value) }?,
 		},
 		HOST_ACTION_FAIL => HostAction::Fail {

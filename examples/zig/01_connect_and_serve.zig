@@ -1,9 +1,9 @@
-//! 01 — Connect, listen, fetch, call, and serve over TCP.
+//! 01: Connect, listen, fetch, call, and serve over encrypted TCP.
 //!
-//! One process hosts a greeter; another dials it, fetches that greeter by the
+//! One process hosts a greeter. Another dials it, fetches that greeter by the
 //! name the host published, and calls `greet`. Both sides use `driver.Session`
-//! over a real TCP socket. There is no export-position bookkeeping and no
-//! hand-rolled receive loop.
+//! over Noise-sealed TCP. The client dials the listener's key, so the channel
+//! proves which peer answered. The Host owns protocol bookkeeping and I/O.
 //!
 //! This is the application surface. Chapter 02 adds a third peer and a
 //! three-party introduction. Later chapters open the layers underneath.
@@ -30,7 +30,7 @@ const Greeter = struct {
 
 /// The hosting half: publish the greeter on the server before accept, so a
 /// partner that fetches as soon as the session opens cannot miss it. Then
-/// accept (the keyed handshake completes inside) and serve until they leave.
+/// accept (the Noise and CapTP handshakes complete inside) and serve until they leave.
 fn host(server: *driver.Server) !void {
     try server.publish("greeter", Greeter, .{});
     var session = try server.accept();
@@ -44,32 +44,32 @@ pub fn main(init: std.process.Init) !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    // Listen on a designator, the peer's name on its transport: for tcp a
-    // `host:port`, with port 0 letting the OS pick one.
-    var server = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, .{
+    // The listener's name is its key. Its direct-address hint carries the
+    // bound socket, with port 0 letting the OS choose an available port.
+    const secret = try driver.drawSessionSecret(io);
+    var server = try driver.listen(allocator, io, .{ .symbols = &.{.noise_tcp} }, model.transport.noise_tcp, .{ .designator = "127.0.0.1:0" }, .{ .keyed = secret }, .{
         .handshake = driver.default_handshake_budget,
         .settle = driver.default_settle_budget,
     });
     defer server.deinit();
 
-    var addr_buf: [64]u8 = undefined;
-    // `try`: a bound listener that cannot report a dialable designator is a
-    // defect, and signing an empty one publishes an address nobody can dial.
-    const designator = try server.localDesignator(&addr_buf);
+    // Own the advertised route before the server starts on another thread.
+    const partner = try model.clonePeerLocator(allocator, try server.advertisedLocator());
+    defer model.freePeerLocator(allocator, partner);
 
     var hosting = try io.concurrent(host, .{server});
 
     {
         // `glowcap.Session` is the front-door alias for the owning
         // `driver.Session` this call hands back.
-        // Finite budgets, named on purpose: the compiler requires a choice here,
+        // Finite budgets, named: the compiler requires a choice here,
         // and writing `.unbounded` would park this program with no way out
         // against a peer that never answers.
         var session: *glowcap.Session = try driver.connect(
             allocator,
             io,
-            .{ .symbols = &.{.tcp} },
-            glowcap.net.tcp.locator(designator),
+            .{ .symbols = &.{.noise_tcp} },
+            partner,
             .ephemeral,
             .{
                 .handshake = driver.default_handshake_budget,
@@ -91,5 +91,5 @@ pub fn main(init: std.process.Init) !void {
     }
 
     try hosting.await(io);
-    std.debug.print("01: greeter fetched by name and called over an OCapN session on the `tcp` netlayer\n", .{});
+    std.debug.print("01: greeter fetched by name and called over an authenticated, encrypted OCapN session\n", .{});
 }

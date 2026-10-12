@@ -1,5 +1,5 @@
-//! One line capability's protocol behavior. Possession authorizes a mutation;
-//! the caller's nickname is not an authorization input. File resources move
+//! One line capability's protocol behavior. Possession authorizes a mutation.
+//! The caller's nickname is not an authorization input. File resources move
 //! between owners, and a refused command leaves both owned and staged files
 //! untouched. The host adapter supplies only the calling session's staged files.
 use super::{
@@ -17,7 +17,7 @@ pub const MAX_MESSAGE_FILES: usize = 8;
 /// The adapter retires removed resources, broadcasts this change, and updates
 /// retained history. Encoding must borrow the files, never clone file bytes.
 /// No change is produced for a repeated withdrawal. Effects are synchronous
-/// handoffs here; pending I/O and delivery failure belong to the session owner.
+/// handoffs here. Pending I/O and delivery failure belong to the session owner.
 #[must_use = "a committed line change needs notification, file retirement, and history effects"]
 #[derive(Debug)]
 pub struct LineChange<'line, 'call, F> {
@@ -181,6 +181,10 @@ impl<F> Line<F> {
 				for (slot, file) in slots.iter_mut().zip(self.files.drain(..)) {
 					*slot = Some(file);
 				}
+				#[expect(
+					clippy::expect_used,
+					reason = "the refile check above admitted `keep` as distinct indexes below the file count"
+				)]
 				for &index in &keep[..count] {
 					replacement.push(slots[index].take().expect("validated distinct file index"));
 				}

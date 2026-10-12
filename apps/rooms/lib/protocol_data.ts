@@ -92,4 +92,5 @@ export const UNREGISTERED = "unregistered";
 export const TRUNCATED = "truncated";
 export const ROSTER = "roster";
 export const JOIN = "join";
+export const OFFLINE = "offline";
 export const SEAT = "seat";

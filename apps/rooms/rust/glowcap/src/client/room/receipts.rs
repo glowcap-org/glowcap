@@ -72,8 +72,8 @@ impl Pending {
 		Ok(())
 	}
 	pub fn discard(&mut self, id: u64, queue: &mut Queue<Ref>) {
-		if let Some(index) = self.posts.iter().position(|(held, _)| *held == id) {
-			let (_, payload) = self.posts.remove(index).expect("located request");
+		let located = self.posts.iter().position(|(held, _)| *held == id);
+		if let Some((_, payload)) = located.and_then(|index| self.posts.remove(index)) {
 			queue.release(payload.bytes);
 		}
 	}
@@ -89,7 +89,7 @@ impl Pending {
 			.ok_or(receipt::Error::Unknown)?;
 		let previews = Selection::decode(receipt.text.unwrap_or(&self.posts[index].1.text), receipt.previews)
 			.map_err(|_| receipt::Error::Malformed)?;
-		let (_, payload) = self.posts.remove(index).expect("located request");
+		let (_, payload) = self.posts.remove(index).ok_or(receipt::Error::Unknown)?;
 		queue.release(payload.bytes);
 		let text = receipt.text.map(String::from).unwrap_or(payload.text);
 		Ok(Message {

@@ -51,7 +51,7 @@ pub fn classifyFailure(self: *const Host, peer_handle: engine.PeerHandle) host_a
 }
 
 /// Cached references contribute no new wire occurrence. A failed acquisition
-/// leaves existing observations untouched; successful actions own their retain.
+/// leaves existing observations untouched. Successful actions own their retain.
 pub fn queueCachedCompletion(self: *Host, session: *host_mod.HostSession, id: u64, reference: model.Reference) void {
     const ref = self.liftCapability(session, reference) catch |err| {
         queueFailure(self, session.peer_handle, id, .broken, retainError(self, err));

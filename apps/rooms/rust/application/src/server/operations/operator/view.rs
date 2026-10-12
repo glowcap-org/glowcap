@@ -1,5 +1,5 @@
 //! Operator response admission and attached-session JSON. Raw capability
-//! arguments stay with the binding; this layer owns bounded inventory data.
+//! arguments stay with the binding. This layer owns bounded inventory data.
 mod footprint;
 pub mod inventory;
 pub mod rows;
@@ -33,28 +33,31 @@ impl core::error::Error for Refusal {}
 /// keeps all admitted digits instead of rounding through a JavaScript number.
 #[derive(Clone, Debug, Serialize)]
 #[serde(transparent)]
-pub struct Revision(String);
+pub struct Revision(#[serde(serialize_with = "decimal")] u128);
+fn decimal<S: serde::Serializer>(value: &u128, s: S) -> Result<S::Ok, S::Error> {
+	s.collect_str(value)
+}
 impl Revision {
 	pub fn get(&self) -> u128 {
-		self.0.parse().expect("admitted decimal revision")
+		self.0
 	}
 	pub(super) fn new(value: u128) -> Result<Self, Refusal> {
-		let text = value.to_string();
-		if text.len() > 32 {
+		if value.to_string().len() > 32 {
 			return Err(Refusal::Number);
 		}
-		Ok(Self(text))
+		Ok(Self(value))
 	}
 }
 impl<'de> Deserialize<'de> for Revision {
 	fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
 		let text = Text::<32, true>::deserialize(d)?;
-		let value = text
-			.text()
+		// At most 32 decimal digits always fits a u128, which holds 39.
+		text.text()
 			.as_str()
 			.filter(|s| s.bytes().all(|b| b.is_ascii_digit()))
-			.ok_or_else(|| serde::de::Error::custom("operator revision"))?;
-		Ok(Self(value.into()))
+			.and_then(|s| s.parse().ok())
+			.map(Self)
+			.ok_or_else(|| serde::de::Error::custom("operator revision"))
 	}
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]

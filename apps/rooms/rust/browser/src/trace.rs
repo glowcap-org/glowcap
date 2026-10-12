@@ -1,5 +1,5 @@
 //! Browser websocket effects for the shared visualization publisher. Browser
-//! callbacks admit only bounded control text; trace policy stays in the runtime.
+//! callbacks admit only bounded control text. Trace policy stays in the runtime.
 use crate::platform::Platform;
 use rooms_runtime::Error;
 use rooms_runtime::trace::{Input, Socket, Transport};

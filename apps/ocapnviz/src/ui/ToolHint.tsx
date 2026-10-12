@@ -7,25 +7,25 @@
  * "context bar" idiom from design tools (Figma/Sketch top-of-canvas
  * prompt).
  *
- * Scope is gesture state only — NOT pan/multi-select modifier
- * feedback (the cursor change already covers space-pan; shift is a
+ * Scope is gesture state only, NOT pan/multi-select modifier
+ * feedback (the cursor change already covers space-pan, shift is a
  * common modifier the user is expected to know). Configured tool
- * values live in the ToolOptionsBar; this banner is the "what
+ * values live in the ToolOptionsBar. This banner is the "what
  * happens next" surface.
  *
  * Every message is the tool's name, then ONE imperative saying what to click
  * next, and nothing else. This sits over the stage, so a hint long enough to
- * need reading covers the thing the reader is trying to look at — which is what
+ * need reading covers the thing the reader is trying to look at, which is what
  * it did while it also explained what clicking empty canvas would do instead.
  * That detail, and the way out of a part-finished gesture, belong to the tool
  * options bar above: it has room, and unlike this banner it can hold a button.
  *
  * Cases, in priority order:
  *
- *   1. Armed two-click — "Open session — click a second node (from alice)"
- *   2. Pre-armed two-click — "Open session — click the first node"
- *   3. Add peer — "Add peer — click empty canvas"
- *   4. Select / others — null (no banner)
+ *   1. Armed two-click, "Open session, click a second node (from alice)"
+ *   2. Pre-armed two-click, "Open session, click the first node"
+ *   3. Add peer, "Add peer, click empty canvas"
+ *   4. Select / others, null (no banner)
  */
 
 import type { BuilderTool } from "../state/app-state.ts";
@@ -35,10 +35,10 @@ export function ToolHint(
 	{ tool, armedNodeLabel, spaceHeld }: {
 		tool: BuilderTool;
 		/** Display label of the armed node (peer or loose end) when in
-		 *  the two-click ARMED state for open-session / send-message;
+		 *  the two-click ARMED state for open-session / send-message.
 		 *  null when unarmed or when the tool has no two-click flow. */
 		armedNodeLabel: string | null;
-		/** Whether the spacebar is currently held — overrides the
+		/** Whether the spacebar is currently held, overrides the
 		 *  tool's normal gesture cue with the pan announcement. */
 		spaceHeld: boolean;
 	},

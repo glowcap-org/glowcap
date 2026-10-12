@@ -196,7 +196,7 @@ impl Authority {
 		next.revoked.insert(key, held);
 		Self::admitted(next)
 	}
-	/// Invalidate the issued steward generation; answers the next generation.
+	/// Invalidate the issued steward generation. Answers the next generation.
 	pub fn with_steward_revoked(&self, name: &str) -> Result<(Self, u64), Refusal> {
 		let key = fold(name);
 		let Some(existing) = self.stewards.get(&key).filter(|row| row.issued) else {

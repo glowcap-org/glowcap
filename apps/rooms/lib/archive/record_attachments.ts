@@ -10,7 +10,7 @@ export interface ArchivedAttachment {
 	readonly size: number;
 	readonly width: number;
 	readonly height: number;
-	/** Content digest minted by the archive that holds the bytes, or null when
+	/** Content digest created by the archive that holds the bytes, or null when
 	 * this record retains metadata only. It identifies content, not authority. */
 	readonly blob: string | null;
 }

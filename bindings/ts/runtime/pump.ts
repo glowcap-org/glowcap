@@ -61,7 +61,7 @@ export interface PumpHandle {
  * action queue, so the first kick puts it on the wire. The core stops
  * consuming at the frame that opens the session, so a fast partner's
  * application frames coalesced behind start-session stay buffered until the
- * Host-owned resume step — otherwise a pipelined fetch would answer before
+ * Host-owned resume step. Otherwise a pipelined fetch would answer before
  * the object it names exists. Abandonment on failure stays on Session's
  * establish wrapper. */
 async function driveHandshake(h: PumpHandle): Promise<void> {
@@ -264,7 +264,7 @@ export function lastAbort(h: PumpHandle): AbortDetail | null {
 /** Capture last_error / last_abort before another verb can clobber them,
  * then run the shared action drain so the projected op:abort (and any
  * CLOSE/FAIL queued with it) leave through the same spine as a steady
- * FLUSH — not a private `take_outbound` path. */
+ * FLUSH, not a private `take_outbound` path. */
 export async function raiseFeedRefusal(
 	h: PumpHandle,
 	rc: number,

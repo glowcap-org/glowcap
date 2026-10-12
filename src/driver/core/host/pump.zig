@@ -25,9 +25,9 @@ pub const queueHostAction = pump_schedule.queueHostAction;
 pub const UniqueSessionActionTag = pump_schedule.UniqueSessionActionTag;
 const queueUniqueSessionAction = pump_schedule.queueUniqueSessionAction;
 
-/// The tail of every top-level verb: encode and pump until quiescent. A
-/// nested verb returns immediately. A Host callback or native Vat execution
-/// owns that boundary; the next top-level Host tail picks up queued effects.
+/// The tail of every top-level verb: encode and pump until quiescent. A nested
+/// verb returns immediately. A Host callback or native Vat execution owns that
+/// boundary. The next top-level Host tail picks up queued effects.
 pub fn finishVerb(self: *Host) !void {
     if (self.withinCallback()) return;
     self.in_callback = true;
@@ -51,20 +51,19 @@ pub fn finishVerb(self: *Host) !void {
     }
 }
 
-/// Alternate the two work queues to quiescence: encode every dirty
-/// session (queueing its flush action), then execute every node
-/// serve-step action. Either side can feed the other — a settle listener's
-/// nested send dirties a session, an encoded withdraw queues a claim's
-/// actions — so the loop runs until neither moves.
+/// Alternate the two work queues to quiescence: encode every dirty session
+/// (queueing its flush action), then execute every node serve-step action.
+/// Either side can feed the other (a settle listener's nested send dirties a
+/// session, an encoded withdraw queues a claim's actions), so the loop runs
+/// until neither moves.
 ///
-/// Attribution under a `local_turn_budget`: a budget breach here belongs
-/// to the session whose vat amplified, never to the verb that fed the
-/// pump — the fed session's work may have flooded a *sibling*. The
-/// flooded session is condemned (typed `resource_exhausted` abort) and
-/// a `close` action names it for the embedder; the verb that ran this
-/// pump succeeds. A budget breach inside the fed session's own
-/// dispatch (`feed`'s latched `feedBorrowed`) never reaches here: it
-/// keeps `failDispatch` semantics and fails that feed.
+/// Attribution under a `local_turn_budget`: a budget breach here belongs to the
+/// session whose vat amplified, never to the verb that fed the pump, because
+/// the fed session's work may have flooded a *sibling*. The flooded session is
+/// condemned (typed `resource_exhausted` abort) and a `close` action names it
+/// for the embedder. The verb that ran this pump succeeds. A budget breach
+/// inside the fed session's own dispatch (`feed`'s latched `feedBorrowed`)
+/// never reaches here: it keeps `failDispatch` semantics and fails that feed.
 fn drainWork(self: *Host) !void {
     var remaining = self.opts.host_work_quantum;
     work: while (remaining != 0) {
@@ -236,11 +235,11 @@ fn drainHandoffChange(self: *Host) bool {
     return true;
 }
 
-/// The non-blocking executor of node serve-step actions: settles and
-/// fails fire the recipient vat's listener directly (`Vat.settleFar`);
-/// dials and gift-id draws are host effects, queued for the embedder;
-/// flushes mark the session dirty so the encode loop drives it.
-fn execNodeAction(self: *Host, action: engine.Node.Action) anyerror!ActionOutcome {
+/// The non-blocking executor of node serve-step actions: settles and fails fire
+/// the recipient vat's listener directly (`Vat.settleFar`). Dials and gift-id
+/// draws are host effects, queued for the embedder. Flushes mark the session
+/// dirty so the encode loop drives it.
+fn execNodeAction(self: *Host, action: engine.Node.Action) !ActionOutcome {
     switch (action) {
         .dial => |d| {
             // Attempt-only action: pending row owns URI + parsed parts.
@@ -406,9 +405,9 @@ fn retireRedeemOnlyExporter(self: *Host, session: *HostSession) !void {
     return retireQuietly(self, session, "handoff redemption failed");
 }
 
-/// Retire a session after its adapter reports that the transport is gone.
-/// The adapter owns that physical fact; the core owns every authority and
-/// lifecycle consequence of it.
+/// Retire a session after its adapter reports that the transport is gone. The
+/// adapter owns that physical fact. The core owns every authority and lifecycle
+/// consequence of it.
 pub fn retireTransportClosed(self: *Host, session: *HostSession, reason: []const u8) !void {
     return retireQuietly(self, session, reason);
 }
@@ -416,10 +415,10 @@ pub fn retireTransportClosed(self: *Host, session: *HostSession, reason: []const
 /// Retire a session whose sealed channel refused (ADR-0107): a handshake or
 /// record that did not verify. There may be no CapTP session at all yet, and
 /// after one opens no plaintext byte may follow the failure, so no `op:abort`
-/// is manufactured in either case — the embedder is told to close the
-/// transport and every later verb refuses `SessionCondemned`. Any ingress
-/// cancellation or verb-tail failure is retained on the condemned peer while
-/// the channel's own refusal remains the caller-visible cause.
+/// is manufactured in either case. The embedder is told to close the transport
+/// and every later verb refuses `SessionCondemned`. Any ingress cancellation or
+/// verb-tail failure is retained on the condemned peer while the channel's own
+/// refusal remains the caller-visible cause.
 pub fn retireSealedSession(self: *Host, session: *HostSession) void {
     const latched = self.in_callback;
     var cleanup_failed = false;
@@ -435,8 +434,8 @@ pub fn retireSealedSession(self: *Host, session: *HostSession) void {
 
 /// Start one fresh cleanup diagnostic chain for this retirement, then retain
 /// later consequences behind it. A peer may carry an older abort before the
-/// channel refuses; that unrelated record must not turn this retirement's
-/// first cleanup failure into a secondary.
+/// channel refuses. That unrelated record must not turn this retirement's first
+/// cleanup failure into a secondary.
 fn recordRetirementFailure(peer: *engine.Peer, failed: *bool, err: anyerror) void {
     if (failed.*) {
         peer.recordSecondaryFailure(err);
@@ -447,9 +446,9 @@ fn recordRetirementFailure(peer: *engine.Peer, failed: *bool, err: anyerror) voi
 }
 
 /// The shared no-abort teardown: condemn, unindex, break parked vows, cancel
-/// the Vat ingress, and queue the embedder's close — everything a terminal
-/// verdict owes except an `op:abort` echo. Runs under the callback latch;
-/// notification capacity was reserved when the shell was minted.
+/// the Vat ingress, and queue the embedder's close. This is everything a
+/// terminal verdict owes except an `op:abort` echo. Runs under the callback
+/// latch. Notification capacity was reserved when the shell was minted.
 fn retireQuietly(self: *Host, session: *HostSession, reason: []const u8) !void {
     if (session.isTerminating()) return;
     host_close.markSessionTerminating(self, session);
@@ -506,11 +505,11 @@ pub fn finishDispatch(self: *Host, session: *HostSession) !void {
     try dirtyThenPump(self, session.peer_handle);
 }
 
-/// Condemn a session the host is done with — a crossed-hellos tiebreak
-/// loser, or one whose local turns amplified past the budget: queue its
-/// typed abort (`kind` names which contract it broke) and mark it so every
-/// later verb refuses `SessionCondemned`. The abort rides the ordinary
-/// flush path; the embedder drains and writes it, then releases the session.
+/// Condemn a session the host is done with (a crossed-hellos tiebreak loser, or
+/// one whose local turns amplified past the budget). Queue its typed abort
+/// (`kind` names which contract it broke) and mark it so every later verb
+/// refuses `SessionCondemned`. The abort rides the ordinary flush path. The
+/// embedder drains and writes it, then releases the session.
 pub fn condemn(self: *Host, session: *HostSession, kind: model.AbortKind, message: []const u8) !void {
     if (session.isTerminating()) return;
     host_close.markSessionTerminating(self, session);

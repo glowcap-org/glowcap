@@ -14,7 +14,7 @@ import { spawnWeb } from "../support/web_front.ts";
 //   1. A cold deep link at /room/<name> arrives with that room named, and
 //      joining leaves the address where it already was.
 //   2. Opening a second room writes its address, and back and forward walk
-//      between the two — the view and the address together, never one
+//      between the two, the view and the address together, never one
 //      without the other.
 //   3. Following an address never rearranges the furniture. The rail is the
 //      reader's, not the link's, so navigating with it closed leaves it
@@ -23,7 +23,7 @@ import { spawnWeb } from "../support/web_front.ts";
 //      label alone, so it reopens the held conversation in this tab and is
 //      an ordinary join card to a tab that was never handed the room.
 //   5. The card standing in for a link is a gate on it, so its fields answer
-//      that link rather than whatever this browser used last — and asking for
+//      that link rather than whatever this browser used last, and asking for
 //      the card with nothing named still offers what was used last.
 //   6. An address nothing answers folds back to the front.
 //   7. A refused room nickname remains the reader's choice, offers a deliberate
@@ -65,7 +65,7 @@ function railShown(tab: Page): Promise<boolean> {
 }
 
 /** The room the conversation column is showing, from the title the page
- * stamps — the one place the view's own answer is readable as text. */
+ * stamps, the one place the view's own answer is readable as text. */
 async function showing(tab: Page): Promise<string> {
 	return (await tab.title()).replace(" · glowcap rooms", "").replace(/^\(\d+\)\s*/, "");
 }
@@ -213,12 +213,12 @@ try {
 	// field it holds has to answer it. A returning reader arrives with a
 	// directory they used before, and the link says nothing about it out loud;
 	// it only names a room here, which can mean this directory and nothing
-	// else. That silence used to let the old address stand, so a link to a room
-	// on this page offered to join it somewhere the link never mentioned.
+	// else. Silence there would let the earlier address stand, so a link to a
+	// room on this page would offer to join it somewhere the link never mentioned.
 	//
 	// The same tab then asks for the card with nothing named, which is where
 	// the remembered address is the right answer. Both halves are driven,
-	// because a fix that simply stopped offering anything would pass the first
+	// because a fix that stopped offering anything would pass the first
 	// on its own.
 	const returning = await browser.newContext();
 	await returning.addInitScript(() => {

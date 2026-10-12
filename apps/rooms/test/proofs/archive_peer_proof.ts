@@ -197,7 +197,7 @@ try {
 	// occurrence scoped to this line. Bob holds it only as a visible offer until
 	// choosing to read, then the page returns it and attributes Alice's account
 	// separately from live traffic.
-	// Handing one over is a form now, so it is a card of its own behind the
+	// Handing one over is a form, so it is a card of its own behind the
 	// door on the conversation card.
 	const openArchive = async (page: import("playwright").Page) => {
 		await page.click("#convcardArchiveOpen");

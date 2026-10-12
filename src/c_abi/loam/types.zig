@@ -22,11 +22,11 @@ pub const GlowcapLoamEffectResult = extern struct {
 };
 pub const GlowcapLoamObject = extern struct { key: [33]u8 };
 pub const GlowcapLoamSchema = extern struct { id: u64, version: u32, max_payload: usize, max_edges: usize };
-/// Retained encoded proposals; temporary encoding and backend metadata are
+/// Retained encoded proposals. Temporary encoding and backend metadata are
 /// separate. record_bytes is the largest contributing complete record.
 pub const GlowcapLoamStagingBounds = extern struct { changes: usize, staging_bytes: usize, record_bytes: usize };
-/// Scalar topology, with roots and every descendant counted in values; keys
-/// count separately. Bytes includes all copied leaf occurrences; capabilities
+/// Scalar topology, with roots and every descendant counted in values. Keys
+/// count separately. Bytes includes all copied leaf occurrences. Capabilities
 /// counts occurrences rather than distinct identities.
 pub const GlowcapLoamValueBounds = extern struct { values: usize, struct_entries: usize, bytes: usize, capabilities: usize };
 pub const GlowcapLoamContinuationBounds = extern struct { custody_bytes: usize, observer_bytes: usize, call_bytes: usize };
@@ -45,13 +45,13 @@ pub const GlowcapLoamLimits = extern struct {
     cache_slots: usize,
     max_leases: usize,
     max_changes: usize,
-    /// Live attachment endpoints; independent of Store retention tokens.
+    /// Live attachment endpoints. Independent of Store retention tokens.
     max_references: usize,
     max_operations: usize,
     call_bytes: usize = 64 * 1024,
     pending_bytes: usize = 4 * 1024 * 1024,
     ingress_bytes: usize = 1024 * 1024,
-    /// Pinned managed records per operation; directory faults borrow another
+    /// Pinned managed records per operation. Directory faults borrow another
     /// lease, and the capability descriptor borrows one more.
     record_capacity: usize = 8,
     /// Live save proofs in this attachment, including completed call-owned
@@ -90,12 +90,12 @@ pub const GlowcapLoamRequirement = extern struct {
 };
 pub const GlowcapLoamResourceId = extern struct { owner: [16]u8, slot: u32, generation: u64 };
 /// Descriptive current resource data. The revision covers the owner's resource
-/// graph; none of these names supplies a capability or reusable admission.
+/// graph. None of these names supplies a capability or reusable admission.
 pub const GlowcapLoamBoundResource = extern struct { id: GlowcapLoamResourceId, kind: u64, object: GlowcapLoamObject, revision: u64 };
 pub const GlowcapLoamGraphSchema = extern struct { id: u64, version: u32 };
 /// One registered source method whose forwarded requirement reads current
 /// scalar graph pages. Attachment creation copies at most 128 nonempty names,
-/// each at most 256 bytes; callbacks borrow pages and restore no fields.
+/// each at most 256 bytes. Callbacks borrow pages and restore no fields.
 pub const GlowcapLoamGraphVerb = extern struct { verb: ?[*]const u8, verb_len: usize };
 pub const GlowcapLoamGraph = extern struct {
     schemas: ?[*]const GlowcapLoamGraphSchema,
@@ -124,7 +124,7 @@ pub const GlowcapLoamGraphField = extern struct {
 };
 pub const GlowcapLoamPageReplacement = extern struct {
     /// Non-null selects this preparation's exact page. A non-null payload
-    /// replaces only its bytes; null preserves them. Schema/fields stay zero.
+    /// replaces only its bytes. Null preserves them. The schema and fields stay zero.
     keep: ?*const GlowcapLoamPageHandle,
     schema: u64,
     version: u32,
@@ -135,7 +135,7 @@ pub const GlowcapLoamPageReplacement = extern struct {
 };
 pub const GlowcapLoamInvocation = extern struct {
     bound_resource: GlowcapLoamBoundResource,
-    /// Zero executes the selected local target; one mediates forwarding and
+    /// Zero executes the selected local target. One mediates forwarding and
     /// describes only its source. Forwarded target metadata is not asserted.
     delivery: u32,
     content: GlowcapLoamObject,
@@ -155,6 +155,7 @@ pub const GlowcapLoamInvocation = extern struct {
 };
 pub const GlowcapLoamRequirementFn = *const fn (?*anyopaque, *const GlowcapLoamInvocation, *GlowcapLoamRequirement) callconv(.c) i32;
 pub const GlowcapLoamInvokeFn = *const fn (?*anyopaque, *GlowcapLoamCall, *const GlowcapLoamInvocation) callconv(.c) i32;
+pub const GlowcapLoamForwardFn = *const fn (?*anyopaque, *GlowcapLoamCall, [*]const u8, usize, [*]const u8, usize, usize) callconv(.c) i32;
 pub const GlowcapLoamReferencesFn = *const fn (?*anyopaque, *GlowcapLoamReferences, *const GlowcapLoamInvocation) callconv(.c) i32;
 pub const GlowcapLoamEntropyFn = *const fn (?*anyopaque, [*]u8, usize) callconv(.c) i32;
 pub const GlowcapLoamMethod = extern struct { verb: ?[*]const u8, verb_len: usize, retry: u32 };
@@ -171,6 +172,7 @@ pub const GlowcapLoamContent = extern struct {
     references: ?GlowcapLoamReferencesFn = null,
     dependent_requirement: ?GlowcapLoamRequirementFn = null,
     graph: ?*const GlowcapLoamGraph = null,
+    admit_forward: ?GlowcapLoamForwardFn = null,
 };
 pub const GlowcapLoamResource = extern struct { owner: GlowcapLoamObject, use: GlowcapLoamObject, control: GlowcapLoamObject };
 pub const GlowcapLoamPolicyValue = extern struct { identity: [16]u8, permissions: u64, bounds: [16]u64, bound_mask: u16 };

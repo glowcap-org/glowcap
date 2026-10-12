@@ -1,8 +1,8 @@
 //! CapTP lab layout: status, stage, REPL transcript, CapTP rail, prompt dock.
 //!
 //! libvaxis cells store grapheme *slices* until `vx.render`. Any dynamic string
-//! passed to `printLine` must therefore outlive the frame — use `frame`
-//! (arena) for formatted lines; literals and transcript-owned lines are fine.
+//! passed to `printLine` must therefore outlive the frame. Use `frame`
+//! (arena) for formatted lines. Literals and transcript-owned lines are fine.
 const std = @import("std");
 const vaxis = @import("vaxis");
 const glowcap = @import("glowcap");
@@ -61,7 +61,7 @@ fn printFmt(
 
 /// Content under a 1-row title inside a window that is *already* border-inset
 /// by vaxis (`child` with `.border = .all` returns the inner area).
-/// Do not call this on a pre-border outer frame — that double-insets.
+/// Do not call this on a pre-border outer frame: that double-insets.
 pub fn belowTitle(win: Window) Window {
     if (win.height < 2) return win;
     return win.child(.{
@@ -116,7 +116,7 @@ pub fn drawStage(win: Window, progress: *const teach.Progress, frame: std.mem.Al
     for (stages) |st| {
         const done = progress.completed(st);
         const is_cur = st == cur;
-        // Final stage stays "current" forever once reached — prefer ✓ when done.
+        // Final stage stays "current" forever once reached. Prefer ✓ when done.
         const mark: []const u8 = if (done) "✓" else if (is_cur) "●" else "·";
         const style = if (done)
             theme.styleStageDone()
@@ -199,7 +199,7 @@ fn printCapRow(win: Window, row: *u16, frame: std.mem.Allocator, position: u64, 
 }
 
 /// One slot-table pane (exports or imports): header, empty line, or the rows.
-/// `View` and `forEachFn` are the only things the two panes differ on; the
+/// `View` and `forEachFn` are the only things the two panes differ on. The
 /// visitor body is shared because `ExportView`/`ImportView` carry the same
 /// `position`/`slot`/`refcount` shape.
 fn drawSlotPane(
@@ -419,7 +419,7 @@ pub const JumpButton = struct {
 };
 
 /// Lay out the jump-to-live button in the transcript inner area. `label` is the
-/// bare text (`↓ jump` / `↓ 3 new`); brackets are added for the button chrome.
+/// bare text (`↓ jump` / `↓ 3 new`). Brackets are added for the button chrome.
 pub fn layoutJumpButton(inner_x: u16, inner_y: u16, inner_w: u16, inner_h: u16, label: []const u8) ?JumpButton {
     if (inner_h == 0 or inner_w < 6 or label.len == 0) return null;
     // "[ label ]" → +4 for brackets and spaces

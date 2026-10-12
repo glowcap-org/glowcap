@@ -4,7 +4,7 @@
 //! One Server's runtime runs the full multi-session CapTP host: adoption, the
 //! keyed handshake, per-event serving, and the host's action queue, all on
 //! its one serving thread over the runtime's stream stack. Many clients dial
-//! it at once. Each client is its own `driver.Session`; each fetches the
+//! it at once. Each client is its own `driver.Session`. Each fetches the
 //! published greeter and calls it several times, every reply asserted. The
 //! run then repeats a second wave of fresh connections, so the run covers
 //! connection churn as well as concurrency.

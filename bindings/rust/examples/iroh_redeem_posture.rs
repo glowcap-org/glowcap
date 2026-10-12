@@ -3,16 +3,16 @@
 //! Python/Racket `iroh_redeem_posture` clients.
 //!
 //! A give whose exporter location names the exporter by **node id alone** (no
-//! `direct-addresses`) cannot be dialed `Direct` — the recipient must resolve the
+//! `direct-addresses`) cannot be dialed `Direct`: the recipient must resolve the
 //! id. Which discovery posture it resolves under is owned by the iroh provider
-//! installed on the recipient Host. This gate installs `LocalDiscovery` — an
-//! in-process address book, no network — and proves the hint-less redeem dials
+//! installed on the recipient Host. This gate installs `LocalDiscovery`, an
+//! in-process address book, no network, and proves the hint-less redeem dials
 //! by id through it and withdraws the gift.
 //!
 //! It is a *discriminating* proof: with the default `Discovery`, the hint-less
-//! redeem would reach for n0's public relays + DNS and fail with no internet; the
+//! redeem would reach for n0's public relays + DNS and fail with no internet. The
 //! redeem succeeds here only because `dial_exporter` honors the configured
-//! posture. Deterministic and flake-free — three `LocalDiscovery` endpoints in
+//! posture. Deterministic and flake-free: three `LocalDiscovery` endpoints in
 //! one process sharing one address book.
 //!
 //! Topology:
@@ -20,14 +20,14 @@
 //!             `greeter`.
 //!   Gifter    binds its own endpoint, dials the exporter by id (one node
 //!             identity), fetches the greeter, and records the exporter's
-//!             **id-only** location as the give's exporter location — a hint-less
+//!             **id-only** location as the give's exporter location: a hint-less
 //!             give.
 //!   Recipient installs a `LocalDiscovery` provider, dials the gifter, asks for
 //!             the greeter, redeems
 //!             the hint-less give by resolving the exporter's id through the book,
-//!             and calls it — the reply must echo its name.
+//!             and calls it: the reply must echo its name.
 //!
-//! Needs `cargo` plus the iroh ABI companion library (`zig build iroh-abi`); run
+//! Needs `cargo` plus the iroh ABI companion library (`zig build iroh-abi`). Run
 //! via `zig build rust-iroh-redeem-posture`.
 
 use std::rc::Rc;
@@ -84,7 +84,7 @@ async fn run() -> Result<(), Fail> {
 		.connect(&exporter_locator, ConnectOptions::default())
 		.await?;
 	let greeter_ref = to_exporter.fetch("greeter").await?;
-	// Record the exporter's location by **node id alone** — no direct-addresses.
+	// Record the exporter's location by **node id alone**: no direct-addresses.
 	// This is what forces the recipient down the configured-posture redeem path
 	// instead of a Direct dial.
 	to_exporter.set_exporter_locator(Some(&exporter_locator))?;

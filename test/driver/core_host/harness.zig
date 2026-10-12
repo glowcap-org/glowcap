@@ -209,7 +209,7 @@ pub fn openPair(
 
 /// Drive a finishing/closing Host through one session's terminal FLUSH/CLOSE
 /// actions and prove their order.
-/// The sans-I/O core names the effects; this helper is the tiny embedding that
+/// The sans-I/O core names the effects. This helper is the tiny embedding that
 /// drains bytes and releases the shell after the transport-close notice.
 pub fn retireClosingSession(host: *Host, session: *HostSession) !void {
     var saw_flush = false;
@@ -235,8 +235,8 @@ pub fn retireClosingSession(host: *Host, session: *HostSession) !void {
     try std.testing.expectEqual(Host.LifecyclePhase.closed, host.lifecyclePhase());
 }
 
-/// Drain one session's terminal effects without requiring its Host to close;
-/// sibling sessions remain owned by the same Host.
+/// Drain one session's terminal effects without requiring its Host to close.
+/// Sibling sessions remain owned by the same Host.
 pub fn retireClosedSession(host: *Host, session: *HostSession) !void {
     const closing_peer = session.peer_handle;
     var saw_flush = false;
@@ -289,7 +289,7 @@ pub const Tagged = struct {
 /// `Host.partnerIdentity` keeps three facts distinct: the session key verified
 /// by the `op:start-session` signature, the designator claimed by the partner's
 /// acceptable location, and the provenance of any durable identity proof.
-/// Success means the handshake signature was verified; it does not make the
+/// Success means the handshake signature was verified. It does not make the
 /// advertised designator an authenticated durable identity. Only provenance
 /// from an authenticated channel establishes that stronger fact.
 ///

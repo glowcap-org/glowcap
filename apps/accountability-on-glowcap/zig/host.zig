@@ -6,7 +6,7 @@
 //! processes invocations, and exits when the caller leaves.
 //!
 //! The cross-seam demo script starts this, reads the port, and points
-//! its Deno or Python caller at it; the caller fetches the Affordance
+//! its Deno or Python caller at it. The caller fetches the Affordance
 //! by name.
 
 const std = @import("std");

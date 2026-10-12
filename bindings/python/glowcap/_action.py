@@ -1,12 +1,12 @@
-"""Internal: host-action execute — the embedder-contract switch the CapTP
+"""Internal: host-action execute: the embedder-contract switch the CapTP
 host drain runs.
 
-:class:`~glowcap._host.Host` owns park/kick/vows and the Session registry;
-decode/types come from the generated ``_host_action_gen`` module
-(``zig build gen-binding-host-action``); this module owns the shared C drain
+:class:`~glowcap._host.Host` owns park/kick/vows and the Session registry.
+Decode/types come from the generated ``_host_action_gen`` module
+(``zig build gen-binding-host-action``). This module owns the shared C drain
 (``glowcap_host_pump_drain``) with sync park-only hooks, then runs each parked
 arm (dial, flush, close, gift-id entropy, settle, fail) after the C loop
-returns — so async I/O never runs inside the C callback.
+returns: so async I/O never runs inside the C callback.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ def _answer_gift_id(draw, provide, failed) -> None:
 
 
 def _park_actions(host) -> tuple[list[HostAction], bool]:
-    """Run ``glowcap_host_pump_drain`` with park-only arms; return decoded
+    """Run ``glowcap_host_pump_drain`` with park-only arms. Return decoded
     actions in queue order. Views are copied inside ``decode`` before the
     next pop frees them."""
     parked: list[HostAction] = []
@@ -85,8 +85,8 @@ def _park_actions(host) -> tuple[list[HostAction], bool]:
 
 
 class _Handlers:
-    """The executor for popped host actions. Deliberately dumb: every decision
-    was already made in the core; each arm is pure I/O or marshalling. The
+    """The executor for popped host actions. Dumb by construction: every decision
+    was already made in the core. Each arm is pure I/O or marshalling. The
     kind inventory lives in generated ``dispatch``, so a new kind fails
     generate/check. One instance per Host: building this table per action
     cost more than the action it dispatched."""
@@ -97,7 +97,7 @@ class _Handlers:
         self._host = host
 
     async def dial(self, a: Dial) -> None:
-        # A popped DIAL is no longer owned by the native action queue. Hand
+        # A popped DIAL is not owned by the native action queue. Hand
         # it to the Host before returning so teardown can cancel and join it
         # without serializing this drain behind network establishment.
         from ._dial import run_dial_ticket
@@ -162,7 +162,7 @@ class _Handlers:
 
     async def resume(self, a: Resume) -> None:
         # The shared C pump reports this as `yielded` before dispatch; keep
-        # the exhaustive generated handler honest for direct callers.
+        # the exhaustive generated handler complete for direct callers.
         _ = a
 
 

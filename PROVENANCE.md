@@ -3,7 +3,7 @@
 glowcap began as the capability-secure substrate for an agent orchestrator.
 The maintainer builds it with AI coding assistants, authors every commit,
 directs the work, and is answerable for what lands. There is no earlier,
-human-only codebase; the first commit is from June 2026.
+human-only codebase. The first commit is from June 2026.
 
 `Co-Authored-By: Claude` and `Co-authored-by: Cursor` trailers corroborate
 the disclosure, but they are not the disclosure: different tools emit different
@@ -28,7 +28,7 @@ The [Zig project](https://ziglang.org/code-of-conduct/#strict-no-llm-no-ai-polic
 does not accept LLM-assisted contributions and also excludes LLM-assisted bug
 finding. glowcap therefore sends no generated patches, reports, or discussion
 upstream to Zig or to any project with a comparable policy. An issue found in
-an agent-assisted glowcap session is not reported by glowcap; only an
+an agent-assisted glowcap session is not reported by glowcap. Only an
 independently discovered issue may be handled under the target project's
 policy.
 
@@ -36,14 +36,14 @@ The pinned OCapN repository has its own [generative-AI
 policy](https://github.com/ocapn/ocapn#generative-ai-policy): specifications,
 suite, official tooling, and surrounding communication must be human-authored,
 and generated issues and pull requests are rejected. glowcap's implementation
-may use agents; its messages to OCapN may not. Any finding or review request is
+may use agents. Its messages to OCapN may not. Any finding or review request is
 independently understood and written by the maintainer rather than forwarded
 from an agent-produced packet.
 
 ## Responsibility and licensing
 
 The maintainer uses glowcap and stands behind the repository. The author field
-records who accepted responsibility for what landed; it is not evidence of
+records who accepted responsibility for what landed. It is not evidence of
 independent review, does not erase how the work was made, and creates no
 exception to another project's policy.
 

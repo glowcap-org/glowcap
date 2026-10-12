@@ -11,7 +11,7 @@ export async function run(
 ): Promise<void> {
 	await narrow(tab, descendersIntact);
 	// ── Two rooms at once ────────────────────────────────────────────────
-	// Entering a room no longer gives one up, so the rail's "+" puts a second
+	// Entering a room does not give one up, so the rail's "+" puts a second
 	// room beside the first. The part worth proving is the part a page that only
 	// ever held one room could fake by switching: a room nobody is looking at
 	// keeps receiving, and its own history is still there on the way back.
@@ -30,7 +30,7 @@ export async function run(
 	).catch(() => fail("entering a second room did not leave both rooms marked as joined in the rail"));
 
 	// In this room alice is alone, and that is what tells the two `@` completions
-	// apart. A mention reaches somebody present, so `@bar` here offers nobody —
+	// apart. A mention reaches somebody present, so `@bar` here offers nobody,
 	// bartholomew is reachable but not in annex. `/invite`'s target is somebody
 	// to bring in, so its `@bar` offers exactly the reachable person the members
 	// list leaves out. The bug this closes: /invite completed against the room,
@@ -68,7 +68,7 @@ export async function run(
 	// A name at the longest the field will take, because the middle of the range
 	// is the one length a layout is never wrong about. The rail is a fixed narrow
 	// column, so this is where truncation actually happens, and truncation that
-	// keeps no copy of what it cut is a name a reader can no longer read.
+	// keeps no copy of what it cut is a name a reader cannot read.
 	//
 	// Every element on the page is asked, not the rooms list alone: names of
 	// rooms, of people, and of files all truncate in narrow places, and only the
@@ -139,7 +139,7 @@ export async function run(
 	// other: before the exchange above, each had only its own, and "none of
 	// somebody else's offered to change it" was true because there were none to
 	// ask. A check that passes for want of anything to look at is not a check,
-	// and this one said nothing twice before it was moved.
+	// and this one would say nothing twice.
 	{
 		// One line from each, so what each tab is asked about is a plain posted line
 		// rather than whatever happened to be last: a message carrying files is
@@ -199,7 +199,7 @@ export async function run(
 		// between the bubble and the mark rather than teleported onto it. That space
 		// hovered neither of them, so the mark a reader was reaching for went away
 		// while they reached, and there was no way to open the menu with a mouse at
-		// all. A click here would not have caught it — Playwright puts the pointer
+		// all. A click here would not have caught it, Playwright puts the pointer
 		// straight onto what it clicks.
 		{
 			const bubble = tab.locator(`.bubble:has-text("${said.first}")`).last();
@@ -226,9 +226,9 @@ export async function run(
 				if (!stillThere) fail("the mark that opens a message's menu vanishes on the way to it");
 
 				// And it meets a pointer that never touches the message at all. The
-				// mark is out in the margin, so that is where a hand aims — and
-				// aiming there used to hover nothing, because the only thing that
-				// summoned the mark was the message it sits beside.
+				// mark is out in the margin, so that is where a hand aims, and
+				// aiming there must hover something, though the only thing that
+				// summons the mark is the message it sits beside.
 				await tab.mouse.move(10, 10);
 				await tab.mouse.move(Math.round(boxes.bubbleLeft - 20), boxes.y);
 				const met = await tab.evaluate((text) => {
@@ -348,20 +348,14 @@ export async function run(
 		}
 	}
 	// Having just watched this same log paint an arriving line, its silence about
-	// the other room's line means the two histories are genuinely separate.
+	// the other room's line means the two histories are separate.
 	const bled = await tab.locator(`.bubble:has-text("${annexLine}")`).count();
 	if (bled !== 0) fail("a line from the annex was drawn in the first room's log");
 	await tab.waitForSelector('.bubble:has-text("hello from a browser peer")', { timeout: 10_000 })
 		.catch(() => fail("the first room lost the history it had before the second room was entered"));
 
-	// The badge on a room counts who is in it, not who has been.
-	//
-	// A roster keeps everyone it has seen — leaving turns a member offline rather
-	// than taking their name off the list, because the pane beside the rail shows
-	// both numbers. So the badge counting the whole roster read as the room being
-	// fuller than it is, and it read that way for as long as the tab stayed open.
-	// The two surfaces are asked together, because the bug is exactly that they
-	// disagreed: the badge said two while the pane said one online of two seen.
+	// The badge and roster both describe current room membership. A departure
+	// removes the member while their messages remain in the conversation.
 	{
 		// No click to get here: this tab is already reading the lobby, and pressing
 		// the room you are already in is how a reader puts the rail away.
@@ -395,18 +389,16 @@ export async function run(
 			const badge = await lobby.locator(".rcount").textContent().catch(() => "?");
 			fail(`the badge still reads ${JSON.stringify(badge)} after a member left, while the pane says ${said}`);
 		});
-		// The pane still knows they were here. Its answer makes the badge's number
-		// a different question rather than the same one counted twice.
 		const summary = (await tab.textContent("#presenceSummary")) ?? "";
-		if (!summary.includes("1 of 2 here")) {
-			fail(`the members pane lost the distinction the badge depends on: ${JSON.stringify(summary)}`);
+		if (summary.trim() !== "1 here" || await tab.locator('#members li:has-text("bartholomew")').count() !== 0) {
+			fail(`the roster retained a departed member: ${JSON.stringify(summary)}`);
 		}
 	}
 
 	// A half-written line belongs to the conversation it was written in.
 	//
 	// Two rooms are open, so switching between them is something a reader does
-	// constantly — to check one thing before finishing a sentence in the other.
+	// constantly, to check one thing before finishing a sentence in the other.
 	// A draft held once for the whole page turns that into either losing the
 	// sentence or, worse, finding it in the wrong room: the composer would be
 	// offering the annex's words under the lobby's name, and one press would
@@ -458,8 +450,8 @@ export async function run(
 
 	// Every row carries its own way out and its own badge. Both are keyed on the
 	// row rather than on a membership class, because every room listed here is one
-	// you are in — a class that used to mean something and now means nothing is
-	// how the leave mark and its hover swap stopped matching anything at all.
+	// you are in, so a class on membership means nothing and a selector built on
+	// it matches nothing, as the leave mark and its hover swap show.
 	const rowParts = await tab.evaluate(() => {
 		const row = document.querySelector("#roomList li");
 		if (row === null) return null;
@@ -469,7 +461,7 @@ export async function run(
 			leave: leave === null ? null : leave.getAttribute("aria-label"),
 			// Existing is not the same as reachable. The mark is drawn at zero
 			// opacity and revealed under the pointer, so the reveal rule matching
-			// nothing leaves a control that is present, findable, and invisible —
+			// nothing leaves a control that is present, findable, and invisible,
 			// which is exactly what happened when it was keyed on a class the rail
 			// had stopped emitting.
 			leaveShown: leave === null ? null : getComputedStyle(leave).opacity,

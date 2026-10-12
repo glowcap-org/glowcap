@@ -21,7 +21,7 @@ export type TriggerKind = "nick" | "room" | "emoji" | "command";
  * the query typed so far (without the sigil). */
 export interface Trigger {
 	kind: TriggerKind;
-	/** Index of the sigil in the text; replacement spans [start, caret). */
+	/** Index of the sigil in the text. Replacement spans [start, caret). */
 	start: number;
 	query: string;
 	/** A room name after `/link` or `/join`, written without `#`. */
@@ -50,9 +50,9 @@ export function triggerAt(text: string, caret: number): Trigger | null {
  *
  * A mention reaches somebody in the conversation, so most `@`s complete against
  * the room's members (or the one person a direct line is with). But a command
- * whose target is somebody to bring in — `/invite`, `/msg` — wants the people
+ * whose target is somebody to bring in (`/invite`, `/msg`) wants the people
  * the members list leaves out, so its `@` completes against the directory's
- * reachable set instead. The command registry declares which (`targets`); the
+ * reachable set instead. The command registry declares which (`targets`). The
  * one place that knows a name is not present is here, where the draft is.
  * Room-wide names are not in this list: they are mention vocabulary, and
  * completion keeps them off any command that declared `targets`. Your own
@@ -83,8 +83,8 @@ export function nickSource(
 
 /** A listed room name as the argument of `/link` or `/join`.
  *
- * `#lobby` still works; so does `lobby` without the hash. `/link` with nothing
- * after it is this room, so the list stays down until a name is started —
+ * `#lobby` still works, so does `lobby` without the hash. `/link` with nothing
+ * after it is this room, so the list stays down until a name is started,
  * taking Enter for a row would steal the send that mints this room's link.
  * `/join` needs a destination, so an empty argument offers the listed rooms. */
 export function commandArgTrigger(text: string, caret: number): Trigger | null {
@@ -111,7 +111,7 @@ export function commandArgTrigger(text: string, caret: number): Trigger | null {
 export interface Candidate {
 	kind: TriggerKind;
 	/** Replaces [trigger.start, caret). Names carry their sigil and a trailing
-	 * space so typing flows on; an emoji is just its glyph. */
+	 * space so typing flows on. An emoji is just its glyph. */
 	insert: string;
 	/** The row's own name: the command, the person, the room, the shortcode. What
 	 * a reader is picking, and the half that never gives up room. */
@@ -151,7 +151,7 @@ export function rank(hay: string, query: string): number {
  * reader finds out what they can do here: cutting that to the first handful
  * answered the question with a third of the answer and gave no sign the rest
  * existed. What a conversation cannot run is already off the list, so the
- * length is the honest one.
+ * length is the accurate one.
  *
  * The other lists are drawn from corpora nobody here bounds. There are a few
  * hundred emoji, and a room's roster is the room's to size, so those keep a
@@ -237,7 +237,7 @@ export function completeCandidates(
 				...sources.nicks.map((name) => ({ name, says: name, hint: undefined, after: false })),
 				// Room-wide names are mention vocabulary: they address everyone here,
 				// they are not people. A command that declares `targets` is naming a
-				// person to act on — `/invite`, `/msg` — so they stay off that list.
+				// person to act on (`/invite`, `/msg`) so they stay off that list.
 				...(here === "room" && sources.targets == null
 					? ROOM_MENTIONS_OFFERED.map((name) => ({
 						name,

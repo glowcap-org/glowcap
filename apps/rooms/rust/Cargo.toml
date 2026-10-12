@@ -53,6 +53,10 @@ unsafe_code = "forbid"
 # turning the group off; nothing needs that yet, and the shape is here so the
 # first exception has to be written down rather than achieved with a flag.
 all = { level = "deny", priority = -1 }
+# Every unwrap or expect in non-test code is a typed refusal or carries a
+# lint-checked reason; `clippy.toml` exempts tests.
+unwrap_used = "deny"
+expect_used = "deny"
 
 [profile.test]
 # Keep source locations for failure backtraces without full variable/type

@@ -1,5 +1,5 @@
 //! An archive reader names one attachment position and expected content. Every
-//! read rechecks the current record and scope; metadata alone never selects bytes.
+//! read rechecks the current record and scope. Metadata alone never selects bytes.
 use super::{Attachment, Body, ConversationKind, Coordinates, Error, Facet, Filter, Record, index::Index, records};
 use crate::{
 	fields::SafeInteger,

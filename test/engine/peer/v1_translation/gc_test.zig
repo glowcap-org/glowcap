@@ -78,7 +78,7 @@ test "a gc wave over many answered delivers drops every V1.0 resolver link" {
     // answer side of the `outbound_resolver_link` BiMap, two O(1) keyed
     // removals per position instead of a scan of every outstanding link. This
     // pins the correctness half of that shape: after a full release wave every
-    // link — and only the released links — is gone, and both map directions
+    // link, and only the released links, is gone, and both map directions
     // agree. The linear-vs-quadratic win itself is a bench concern.
     const allocator = std.testing.allocator;
     var peer = engine.Peer.init(allocator);

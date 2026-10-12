@@ -18,7 +18,7 @@ struct Snapshot {
 }
 /// At most 64 scalar recovery witnesses (under 8 KiB), rather than 64 form
 /// declarations. One temporary spine and encoded reply cross the private Host
-/// call; neither capability restoration nor a serde Value tree is needed.
+/// call. Neither capability restoration nor a serde Value tree is needed.
 pub(super) fn credential_snapshot(
 	owner: &[u8; 16],
 	witnesses: &[rooms_application::content::session::bridge::Witness],
@@ -44,8 +44,8 @@ pub(super) fn credential_snapshot(
 }
 impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 	/// Startup installs the independent credential journal before admitting
-	/// bridge requests. Its namespace comes from the actual selected Loam owner;
-	/// neither tab labels, room names nor imported workspace intent bind secrets.
+	/// bridge requests. Its namespace comes from the actual selected Loam owner.
+	/// Neither tab labels, room names nor imported workspace intent bind secrets.
 	pub async fn configure_credentials<D: crate::documents::Document + 'static>(&self, document: D) -> Result<()> {
 		if self.state.credentials.borrow().is_some() {
 			return Err(glowcap::loam::refusal("bridge credentials are already owned"));

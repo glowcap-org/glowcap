@@ -1,4 +1,4 @@
-//! Vat footprint budget — the actor layer's half of the burst-drain contract.
+//! Vat footprint budget, the actor layer's half of the burst-drain contract.
 //!
 //! The standard Host owns one Vat shared by its session Ports. One chatty
 //! ingress must not pin its peak queue capacity for the Vat's life. Queue
@@ -74,7 +74,7 @@ test "a burst-drained vat releases its burst capacity back under the steady boun
         try std.testing.expectEqual(@as(usize, 72), @sizeOf(@TypeOf(spare.items[0])));
         try std.testing.expectEqual(@as(usize, 56), spare.items.len);
     }
-    // One Vat-wide spare replaces the old queue list and monolithic arena. Its
+    // One Vat-wide spare serves every queue. Its
     // fixed row array stays within one steady-list page plus a small header, and
     // its payload arena retains at most the declared Vat-wide spare bound. No
     // idle ingress keeps a separate chunk.

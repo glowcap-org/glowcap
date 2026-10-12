@@ -21,6 +21,9 @@ pub fn set_trace_label(label: Option<&str>) {
 	// Reinstalling the same tap asks the core to describe its active sessions.
 	// Release binding state before callbacks can reach the application sink.
 	for (raw, cookie) in hosts {
+		// SAFETY: `raw` is a Host handle `attach_host` registered, still live because `detach_host` has not run since
+		// the snapshot above (nothing between them can release a Host); `on_native_event` matches the callback
+		// signature, and `cookie` is an integer ctx the callback never dereferences.
 		unsafe { ffi::glowcap_host_set_trace(raw, Some(on_native_event), cookie as *mut c_void) };
 	}
 }

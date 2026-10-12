@@ -1,6 +1,6 @@
 //! Transport-neutral connection and handoff dialing.
 //!
-//! Native I/O enters through an explicitly selected [`Provider`]; an embedder
+//! Native I/O enters through an explicitly selected [`Provider`]. An embedder
 //! that owns channel establishment supplies a [`Connector`]. Transport modules
 //! construct both values and own locator interpretation. This module owns only
 //! Host lifetime, loop adoption, handshake budgets, and terminal reporting of
@@ -59,9 +59,14 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64, route_in
 
 	let mut opened: Option<Session> = None;
 	let result: Result<()> = async {
+		// SAFETY: `GlowcapLocatorView` is a plain C struct of integers and null pointers; all-zero is a valid value,
+		// and `glowcap_host_pending_dial` fills it before it is read.
 		let mut view = unsafe { core::mem::zeroed::<sys::GlowcapLocatorView>() };
 		let mut hint_count = 0usize;
 		let mut hints: Vec<sys::GlowcapLocatorHintView>;
+		// SAFETY: `host.raw()` is the `HostShared` handle held by this `Rc`, which the callee refuses as a null host
+		// once teardown has cleared it; `ticket` and `route_index` are plain integers, and the null hint storage with
+		// capacity zero is the size probe; `view` and `hint_count` are local out-parameters.
 		let probe_rc = unsafe {
 			ffi::glowcap_host_pending_dial(
 				host.raw(),
@@ -74,7 +79,13 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64, route_in
 			)
 		};
 		if probe_rc == sys::ERR_BUFFER_TOO_SMALL {
+			// SAFETY: `GlowcapLocatorHintView` is a plain C struct of integers and null pointers; all-zero is a valid
+			// value, and the second `glowcap_host_pending_dial` call fills each element before it is read.
 			hints = vec![unsafe { core::mem::zeroed::<sys::GlowcapLocatorHintView>() }; hint_count];
+			// SAFETY: as the `glowcap_host_pending_dial` probe call above for `host.raw()`, `ticket`, `route_index`,
+			// `view` and `hint_count`; `hints` is a live local `Vec` of `hints.len()` elements, the exact capacity the
+			// probe reported, which the callee fills during the call and which stays alive as the storage behind
+			// `view`.
 			check_host(unsafe {
 				ffi::glowcap_host_pending_dial(
 					host.raw(),
@@ -93,6 +104,9 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64, route_in
 		// Resolve the borrowed core session before yielding. This is a view of
 		// the existing wrapper, never an extra owner of its transport lifetime.
 		let mut source = core::ptr::null_mut();
+		// SAFETY: as the `glowcap_host_pending_dial` probe call above for `host.raw()`, `ticket` and `route_index`;
+		// `source` is a local out-parameter the callee fills with a session handle borrowed from a live session, which
+		// is only looked up and never released here.
 		check_host(unsafe { ffi::glowcap_host_pending_dial_introducer(host.raw(), ticket, route_index, &mut source) })?;
 		let introducer = if source.is_null() {
 			None
@@ -128,6 +142,9 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64, route_in
 			));
 		}
 		let mut adopted = 0u8;
+		// SAFETY: as the `glowcap_host_pending_dial` probe call above for `host.raw()`, `ticket` and `route_index`;
+		// `raw_session` is the handle of `opened`, the live `Session` this task still owns, and `adopted` is a local
+		// out-parameter the callee writes.
 		check_host(unsafe { ffi::glowcap_host_dialed(host.raw(), ticket, route_index, raw_session, &mut adopted) })?;
 		if adopted == 0 {
 			let session = opened.take().expect("unadopted dial remains owned");
@@ -159,6 +176,8 @@ pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64, route_in
 				return Ok(());
 			}
 			let reason = error.to_string();
+			// SAFETY: as the `glowcap_host_pending_dial` probe call above for `host.raw()`, `ticket` and `route_index`;
+			// `reason` is a live local `String` borrowed for the call, and the callee reads it only during the call.
 			check_host(unsafe {
 				ffi::glowcap_host_dial_failed(host.raw(), ticket, route_index, reason.as_ptr(), reason.len())
 			})

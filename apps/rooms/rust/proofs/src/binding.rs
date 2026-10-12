@@ -5,15 +5,19 @@ use std::alloc::{Layout, alloc, dealloc};
 struct RustHeap;
 impl ContextAllocator for RustHeap {
 	fn alloc(&self, size: usize, alignment: usize) -> *mut u8 {
-		match Layout::from_size_align(size, alignment) {
+		// A zero-size request still gets a real block, as the binding's own `RustAllocator` does, because the global
+		// allocator contract forbids a zero-size layout.
+		match Layout::from_size_align(size.max(1), alignment) {
+			// SAFETY: `layout` has a nonzero size and the valid alignment the C side requested; the returned pointer,
+			// or null on failure, goes back to the C side, which pairs it with `free` below.
 			Ok(layout) => unsafe { alloc(layout) },
 			Err(_) => core::ptr::null_mut(),
 		}
 	}
 	unsafe fn free(&self, pointer: *mut u8, size: usize, alignment: usize) {
-		// SAFETY: the trait's contract — `pointer` came from this allocator's
-		// `alloc` under the same size and alignment.
-		unsafe { dealloc(pointer, Layout::from_size_align(size, alignment).unwrap()) };
+		// SAFETY: the trait's contract: `pointer` came from this allocator's
+		// `alloc` under the same size and alignment, including its `max(1)`.
+		unsafe { dealloc(pointer, Layout::from_size_align(size.max(1), alignment).unwrap()) };
 	}
 }
 

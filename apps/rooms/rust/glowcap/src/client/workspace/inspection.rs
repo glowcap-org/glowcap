@@ -65,13 +65,14 @@ impl<D: Deadline + Clone> Workspace<D> {
 		coordinate: custody::Coordinate,
 		kind: Option<Kind>,
 	) -> Result<OperationsReader<D>, Error> {
-		let kind_value = kind.map(|kind| {
-			serde_json::to_value(kind)
-				.expect("operations kind")
-				.as_str()
-				.expect("kind text")
-				.to_owned()
-		});
+		let kind_value = kind
+			.map(|kind| {
+				serde_json::to_value(kind)
+					.ok()
+					.and_then(|value| value.as_str().map(str::to_owned))
+					.ok_or_else(|| loam::refusal("operations kind has no text form"))
+			})
+			.transpose()?;
 		let reference = self
 			.reader(
 				"operations-reader",

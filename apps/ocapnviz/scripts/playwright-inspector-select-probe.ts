@@ -1,9 +1,9 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-inspector-select-probe.ts — Verifies inspector
+ * playwright-inspector-select-probe.ts: Verifies inspector
  * dropdowns show a chevron via inline `background-image`. The
- * prior fix relied on `.ocv-select` cascading the image; that
- * was getting stomped, so the chevron is now owned by the
+ * prior fix relied on `.ocv-select` cascading the image. That
+ * was getting stomped, so the chevron is owned by the
  * inline style itself.
  */
 import { chromium } from "playwright";

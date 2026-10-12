@@ -38,7 +38,7 @@ export function EmojiTray({ open, onPick }: { open: boolean; onPick: (glyph: str
 }
 
 /** The completion list under a half-typed token: commands, names, rooms,
- * shortcodes. `pick` is the row the keyboard is on; a pointer moving onto
+ * shortcodes. `pick` is the row the keyboard is on. A pointer moving onto
  * a row takes the pick, and a press accepts the row under it. */
 export function CompletionList(
 	{ candidates, pick, onPick, onAccept }: {

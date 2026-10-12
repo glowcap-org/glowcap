@@ -52,14 +52,14 @@ impl Server {
 	}
 
 	/// Stop iroh admission through this listener. Sessions already returned by
-	/// [`Server::accept`] remain live on the shared Host; [`Host::close`]
+	/// [`Server::accept`] remain live on the shared Host. [`Host::close`]
 	/// is the terminal endpoint and session release barrier.
 	pub async fn close(&self) -> Result<()> {
 		self.listener.close().await
 	}
 
 	/// Select this listener's locator as the shared Host's advertised
-	/// location; see [`crate::tcp::Server::select`].
+	/// location. See [`crate::tcp::Server::select`].
 	pub fn select(&self) -> Result<()> {
 		self.listener.select()
 	}
@@ -70,13 +70,13 @@ impl Server {
 // [`Runtime::connect`](crate::Runtime::connect) routes an `ocapn://<nodeid>.iroh?…` locator
 // to the binding-internal iroh dial here, and [`listen`]/[`Server`] host.
 // The byte-fed pump remains for a redeem on a Host that already owns
-// externally supplied channels —
+// externally supplied channels:
 // `Session::establish_dialed_locator` carries the session over the iroh
 // byte-stream bridge ([`Stream`]) exactly as over a `TcpStream`; only the
 // dialed locator differs (`iroh` + endpoint id, never `tcp` + host:port). The
 // default listener uses the generic driver resident and accepted-session
 // lifecycle. The iroh-touching code lives here behind the `iroh`
-// feature, so a tcp-only build references no iroh symbol — the same
+// feature, so a tcp-only build references no iroh symbol: the same
 // `libglowcap_ocapn` / `libglowcap_net_transport_iroh` split the other bindings
 // mirror.
 

@@ -9,7 +9,7 @@
 //
 // Neither of them stops the peer. The CapTP session is not owned by React and
 // does not live in this tree, so messages keep arriving and the store keeps
-// taking them while a boundary is showing; recovering re-reads the state that
+// taking them while a boundary is showing. Recovering re-reads the state that
 // accumulated meanwhile.
 
 import { Component, type ErrorInfo, type ReactNode } from "react";

@@ -22,7 +22,6 @@ pub const justification_tic = [_][]const u8{
     "apps/ocapnviz/src/engine/engine-test/messages.test.ts",
     "apps/ocapnviz/src/engine/event-helpers.ts",
     "apps/ocapnviz/src/engine/live/feed-test/fixtures.ts",
-    "apps/ocapnviz/src/engine/live/feed-test/wire-replay.test.ts",
     "apps/ocapnviz/src/engine/live/feed.ts",
     "apps/ocapnviz/src/engine/live/replay-differential.test.ts",
     "apps/ocapnviz/src/engine/stage-ledger/names.ts",

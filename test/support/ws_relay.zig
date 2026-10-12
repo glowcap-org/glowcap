@@ -3,11 +3,11 @@
 //! Test support (not a production module): the in-process stand-in for the
 //! reference relay's rendezvous contract (ADR-0086/0088). It accepts WebSocket
 //! clients on a loopback TCP socket, performs the RFC 6455 server upgrade,
-//! routes by request target (`/register?id=` holds the socket;
+//! routes by request target (`/register?id=` holds the socket.
 //! `/relay?rendezvous=` bridges onto it), and pumps frames between the two
-//! legs — unmasking each client frame and re-framing it unmasked, the
+//! legs, unmasking each client frame and re-framing it unmasked, the
 //! byte-transparent shape `bindings/ts/relay/serve.ts` ships. The production
-//! client side under test is `net.relay`; everything here exists so that
+//! client side under test is `net.relay`. Everything here exists so that
 //! client meets a spec-shaped far end without Deno.
 
 const std = @import("std");
@@ -17,7 +17,7 @@ const keyed_relay = glowcap.net.relay;
 const Io = std.Io;
 const ip = Io.net;
 
-/// The relay never re-frames more than this per frame; a test frame larger
+/// The relay never re-frames more than this per frame. A test frame larger
 /// than the cap is a test bug, refused loudly.
 pub const max_frame_payload = 64 * 1024;
 

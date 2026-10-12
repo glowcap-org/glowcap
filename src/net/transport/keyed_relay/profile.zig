@@ -3,7 +3,7 @@
 const model = @import("model");
 
 /// Which byte protocol runs over the relay pipe. Both profiles use the same
-/// key-addressed rendezvous; only `noise-relay` asks the owning Host to run the
+/// key-addressed rendezvous. Only `noise-relay` asks the owning Host to run the
 /// sealed channel before CapTP bytes move.
 pub const Channel = enum {
     keyed,

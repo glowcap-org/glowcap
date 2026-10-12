@@ -27,7 +27,7 @@ pub const Error = said_mod.Error;
 
 /// Why a presented key event log failed to bind a key to the AID it claims.
 /// Each one is a refusal, and the host projects them all to a single typed
-/// reason on the wire; they are separate here so a reader can see what the walk
+/// reason on the wire. They are separate here so a reader can see what the walk
 /// actually checks.
 pub const LogError = error{
     /// Not a log, or an event missing the fields a key event must carry.
@@ -46,7 +46,7 @@ pub const LogError = error{
     /// A rotation is not signed by the key it retires.
     BadRotationSignature,
     /// The log verifies, but the key presented with the request is not the one
-    /// the log ends on — a retired pre-rotation key.
+    /// the log ends on, a retired pre-rotation key.
     RetiredKey,
 } || Error;
 
@@ -104,7 +104,7 @@ fn renderRotation(
 /// This is the check that binds a key to an identifier. An AID is the SAID of
 /// its own inception event, so the log proves the binding by construction: the
 /// event that names the first key *is* the identifier. From there each rotation
-/// has to earn its place — it names the event before it, it is signed by the key
+/// has to earn its place, it names the event before it. It is signed by the key
 /// it retires, and the key it reveals has to match the digest its predecessor
 /// committed to. That last one is pre-rotation, and this application commits one
 /// key deep (`nt` is 1), so the walk holds it to that depth and no further.
@@ -198,7 +198,7 @@ pub fn currentVerkey(allocator: std.mem.Allocator, kel: []const u8, aid: []const
 
 /// Prove that a presented key really speaks for the AID presented alongside it:
 /// the log must derive that AID and must end on that key. A key the log has
-/// already rotated away from fails here, which is the point — a pre-rotation key
+/// already rotated away from fails here, which is the point, a pre-rotation key
 /// that leaked after its rotation buys its holder nothing.
 pub fn verifyBinding(
     allocator: std.mem.Allocator,

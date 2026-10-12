@@ -84,7 +84,9 @@ impl Commands {
 				},
 			);
 		}
-		let pending = commands.get(id).expect("retained local command");
+		let pending = commands
+			.get(id)
+			.ok_or_else(|| Failure::invalid("local command left the pending table before it was observed"))?;
 		let command = pending.command.clone();
 		let mut result = pending.result.clone();
 		drop(commands);
@@ -101,10 +103,14 @@ impl Commands {
 		let Some(pending) = commands.get(id) else {
 			return Ok(());
 		};
-		let conflict = matches!(pending.result.borrow().as_ref(), Some(Ok(EffectStatus::Conflict)));
+		let absent = match pending.result.borrow().as_ref() {
+			Some(Ok(EffectStatus::Conflict)) => true,
+			Some(Err(error)) => error.known_absent(),
+			_ => false,
+		};
 		let command = pending.command.clone();
 		drop(commands);
-		if !conflict
+		if !absent
 			&& !matches!(
 				command.status().await.map_err(peer_failure)?,
 				EffectStatus::Committed | EffectStatus::Unsent

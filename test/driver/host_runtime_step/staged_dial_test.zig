@@ -1,7 +1,7 @@
 //! Staged dials and the close lifecycle (ADR-0112): the staged-open
 //! admission bound, a staged dial serving a fetch and keeping its claimed
 //! session through retirement, the step-clock handshake timeout, and every
-//! cancel/finish close arm — interruption, publication before close,
+//! cancel/finish close arm, interruption, publication before close,
 //! deadline escalation, and one session's timeout leaving its Host active.
 
 const std = @import("std");
@@ -546,7 +546,7 @@ test "a wire lost mid-handshake fails the staged dial through the dial observer,
 
     // Tearing the listener down resets its never-accepted backlog
     // connection; the pump sees the loss on the next step. The dial path
-    // owns the report — a close event would name a session the embedder
+    // owns the report, a close event would name a session the embedder
     // never received.
     try std.testing.expect(server.close() == null);
     var rounds: usize = 0;

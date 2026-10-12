@@ -1,18 +1,18 @@
 import { z } from "zod";
 
 /**
- * OCapN vocabulary primitives — the atoms higher-level schemas
+ * OCapN vocabulary primitives, the atoms higher-level schemas
  * (`TimelineEvent`, ECS components) compose. Names track glowcap's
- * actual types in the Zig `model` and `session` layers; the `ocapn:`
+ * actual types in the Zig `model` and `session` layers. The `ocapn:`
  * IRI namespace exposes them for JSON-LD consumers.
  *
- * Session ends — sides, attribution, and the stage nodes they occupy —
+ * Session ends, sides, attribution, and the stage nodes they occupy,
  * live in [`session-end.ts`](./session-end.ts).
  */
 
 /**
  * Implementation behind a peer. Open-ended (`z.string`) because
- * OCapN is implementation-plural; the renderer colors the well-known
+ * OCapN is implementation-plural. The renderer colors the well-known
  * profiles in `KNOWN_PROFILES` and falls back for anything else.
  * `ocapn:profile`.
  */
@@ -30,7 +30,7 @@ export const GOBLINS_PROFILE = "goblins";
  * a producer states it on the record it publishes (`a_profile`), and a
  * session that negotiated the `next` CapTP profile has a glowcap host at each
  * end, because that profile is glowcap-private (ADR-0003). The second is the
- * only implementation a feed ever concludes without being told; publishing a
+ * only implementation a feed ever concludes without being told. Publishing a
  * trace is not evidence of anything, since every implementation may publish
  * one. `StageLedger` is where both are read.
  *
@@ -48,7 +48,7 @@ export const KNOWN_PROFILES = [GOBLINS_PROFILE, GLOWCAP_PROFILE] as const;
  *
  * Unknown is where every peer starts and where one the feed never speaks for
  * stays. It is a name rather than an absence because a peer always has an
- * implementation — the viewer has simply not been told which — and it is not
+ * implementation, the viewer has not been told which, and it is not
  * a final answer, because a peer's implementation is a temporal property like
  * its name: `PEER_TRAJECTORY.profile` is a keyframe track, so a peer drawn
  * unknown and later spoken for changes at the moment the viewer learns,
@@ -59,9 +59,9 @@ export const UNNAMED_PROFILE = "other";
  *  by name, and the name for one nobody has stated.
  *
  *  It is an offer and not a domain. `PeerProfile` above is any
- *  non-empty string on purpose, so a document or a feed can carry an
+ *  non-empty string, so a document or a feed can carry an
  *  implementation this list has never heard of, and a picker holding
- *  such a value has to keep showing it — `EnumSelect` does, by adding
+ *  such a value has to keep showing it. `EnumSelect` does, by adding
  *  whatever it was handed to whatever it was offered. Every surface
  *  that offers a profile reads this list, so there is one place a
  *  fourth implementation is named. */
@@ -74,7 +74,7 @@ export const PROFILE_OPTIONS: readonly PeerProfile[] = [
  *
  *  `PeerProfile` is every string, which is right for the field and useless to
  *  a table that has to cover the offer. This names the offer itself, so a
- *  `Record<ProfileOption, …>` — the Reference's profile section is one — fails
+ *  `Record<ProfileOption, …>`, the Reference's profile section is one, fails
  *  to compile when a third implementation is named above. */
 export type ProfileOption =
 	| typeof KNOWN_PROFILES[number]
@@ -93,7 +93,7 @@ export type Transport = z.infer<typeof Transport>;
 /** What a transport picker offers: the netlayers this build knows by
  *  name.
  *
- *  It is an offer and not a domain, exactly as `PROFILE_OPTIONS` is —
+ *  It is an offer and not a domain, exactly as `PROFILE_OPTIONS` is,
  *  `Transport` above is any non-empty string, and a picker handed a
  *  netlayer that is not on this list keeps showing it, because
  *  `EnumSelect` adds whatever it was handed to whatever it was offered.
@@ -116,8 +116,8 @@ export const TRANSPORT_OPTIONS: readonly Transport[] = KNOWN_TRANSPORTS;
 /** One netlayer the picker offers, as a type.
  *
  *  The list above is the offer and `Transport` is the field, which is every
- *  string. This names the offer, so a `Record<TransportOption, …>` — the
- *  Reference's transport section is one — fails to compile when a seventh
+ *  string. This names the offer, so a `Record<TransportOption, …>`, the
+ *  Reference's transport section is one, fails to compile when a seventh
  *  netlayer is added to the list. */
 export type TransportOption = typeof KNOWN_TRANSPORTS[number];
 
@@ -149,7 +149,7 @@ export const CODEC_REFERENCE_OPTIONS: readonly CodecReferenceOption[] = [
 
 /**
  * CapTP wire-profile version. `v1_0` is the spec-text version
- * (Goblins-canonical); `next` is glowcap's forward private track, valid
+ * (Goblins-canonical), and `next` is glowcap's forward private track, valid
  * only between glowcap peers (ADR-0003: it is a glowcap-namespaced interop
  * version, not an upstream OCapN maturity stage). `unknown` is an observed
  * trace sentinel for a producer that named a profile this viewer cannot.
@@ -174,7 +174,7 @@ export const CAPTP_VERSION_REFERENCE_OPTIONS: readonly CaptpVersionReferenceOpti
 /**
  * How the handshake spells each version, which is the word a glowcap trace
  * reports (the Zig `model.CaptpVersion.wireString`). The tags above are this
- * document model's own names, chosen to read as identifiers; these are the
+ * document model's own names, chosen to read as identifiers. These are the
  * protocol's, and a live feed arrives speaking them.
  *
  * It is also what the app calls a version anywhere a person reads one: the
@@ -226,7 +226,7 @@ export function captpVersionFromWire(
 
 /**
  * Session lifecycle as the viewer draws it. The Zig `session.State` is
- * `negotiating` / `open` / `closed`; `draining` is the viewer's own visual
+ * `negotiating` / `open` / `closed`, and `draining` is the viewer's own visual
  * stage for a session on its way out, not a protocol state.
  */
 export const SessionState = z.enum([

@@ -1,5 +1,5 @@
 /**
- * Session-curve strokes — how a session Bezier is inked and where
+ * Session-curve strokes, how a session Bezier is inked and where
  * its chip sits. Pixi has no curved-dash primitive, so dashes are
  * sampled into a polyline.
  *
@@ -21,7 +21,7 @@ const EDGE_LABEL_OFFSET = 14;
  * little over a hundred units wide and under twenty tall. The lanes it rides
  * are `SESSION_BUNDLE_SPACING` apart ACROSS the corridor. Thirty of separation
  * clears the height but not the width, so a bundle running roughly up the
- * screen — where across the corridor means across the page — stacked its chips
+ * screen, where across the corridor means across the page, stacked its chips
  * on top of one another. Walking each chip along the corridor puts the
  * separation on the axis that has room for it.
  *
@@ -30,13 +30,13 @@ const EDGE_LABEL_OFFSET = 14;
  * across and the walk along resolve into one nearly horizontal offset, and the
  * vertical part of it can fall under a chip's height. The pair is clear at
  * every angle once the resolved offset passes a chip's diagonal, and a hundred
- * and fifty is comfortably past it. The number is tuned rather than derived;
- * what holds it is `draw-helpers-test/chips.test.ts`, which measures a real pair of chips
+ * and fifty is comfortably past it. The number is tuned, not derived.
+ * What holds it is `draw-helpers-test/chips.test.ts`, which measures a real pair of chips
  * built from `EDGE_CHIP_LABEL` at every corridor angle, so growing the type
  * turns that test red rather than quietly overlapping.
  *
  * At 100% zoom. A chip is counter-scaled and a stride is not, so zooming out
- * grows the chip against a fixed stagger; `stage-labels.ts` says why one solve
+ * grows the chip against a fixed stagger. `stage-labels.ts` says why one solve
  * cannot answer that.
  *
  * Two lanes clear at every angle on any corridor with room for two chips.
@@ -49,7 +49,7 @@ const EDGE_LABEL_LANE_STRIDE = 150;
 /** How far out of the middle of its own edge a chip will walk before the
  *  walk starts creeping instead of striding, as a share of the edge. */
 const EDGE_LABEL_REACH_FRACTION = 0.4;
-/** What is left of the stride past that point. Not zero: a chip that simply
+/** What is left of the stride past that point. Not zero: a chip that
  *  stopped would land on the one that stopped before it, and two chips on one
  *  point read as one chip, which is the thing being fixed. */
 const EDGE_LABEL_REACH_CREEP = 0.15;
@@ -59,7 +59,7 @@ const EDGE_LABEL_REACH_CREEP = 0.15;
  *
  * Where a line meets a peer, the node body covers its end and the tip is not
  * visible either way. Where it meets a session end nobody has attributed, the
- * body is see-through, so the tip shows through it — and a flat one reads as a
+ * body is see-through, so the tip shows through it, and a flat one reads as a
  * line that was cut rather than one that arrives.
  *
  * The halo behind a selected line is stroked by the same helper, which is why
@@ -82,7 +82,7 @@ export interface CurveCanvas {
 
 /** Stroke a Bezier curve as one continuous path. Degenerate curves
  * (control = midpoint, e.g. singleton bundles) fall back to a
- * straight line — Pixi's quadratic primitive handles that fine but
+ * straight line, Pixi's quadratic primitive handles that fine but
  * a moveTo+lineTo is one less segment to process. */
 export function strokeCurve(
 	g: CurveCanvas,
@@ -102,14 +102,14 @@ export function strokeCurve(
 /** Sample count for Bezier → polyline walks (dashes and hit tests). */
 export const CURVE_STROKE_SAMPLES = 24;
 
-/** Dashed stroke along a Bezier — Pixi has no curved-dash primitive,
+/** Dashed stroke along a Bezier, Pixi has no curved-dash primitive,
  * so we sample the curve into a polyline and walk dashes across the
  * segments. Sample count is {@link CURVE_STROKE_SAMPLES} (gives ~5 dashes
  * for our dash period at typical edge lengths).
  *
  * Each dash is ONE sub-path, however many sample boundaries it crosses. A dash
  * has to follow the curve, so a long one is several segments, and opening a
- * sub-path per segment put a line cap at every internal joint — invisible while
+ * sub-path per segment put a line cap at every internal joint, invisible while
  * the caps were flat, and a row of beads the moment a tip is round.
  *
  * Only the line's own two tips are round. Dashed against solid is what the legend
@@ -170,7 +170,7 @@ export function strokeDashedCurve(
 	}
 	// A dash the curve cut short. Shorter than the line is wide, a round tip on it
 	// is a dot rather than the end of a line, so the line ends at the dash before
-	// it — which is where a reader would say it ends anyway.
+	// it, which is where a reader would say it ends anyway.
 	if (dash !== null && dashLen < style.width && dashes.length > 0) {
 		dash = null;
 	}
@@ -213,10 +213,10 @@ export interface Positionable {
 }
 
 /**
- * Edge-label position — the apex of the Bezier, offset outward along the local
+ * Edge-label position, the apex of the Bezier, offset outward along the local
  * perpendicular so the label sits clear of the stroke, and walked along the
  * corridor by however far out of the middle of its bundle this lane rides.
- * Never rotates; tilted labels are harder to read than tilted lines.
+ * Never rotates. Tilted labels are harder to read than tilted lines.
  *
  * Which lane this is comes from the curve's own bow rather than from a bundle
  * index handed in, because the bow already carries it: `curveBetween` displaces
@@ -227,7 +227,7 @@ export interface Positionable {
  * that does not depend on which end of the session was listed first, so two
  * lanes of one bundle walk opposite ways and separate rather than colliding.
  *
- * A trimmed edge — the prefix of a lane, drawn to a claim — bows a little less
+ * A trimmed edge, the prefix of a lane, drawn to a claim, bows a little less
  * than the lane it was cut from, so the lane it reads back is an estimate. It
  * is still ordered and signed the same way, which is all the stagger needs: the
  * chips have to end up in different places, not in exactly computed ones.

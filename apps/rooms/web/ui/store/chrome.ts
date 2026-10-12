@@ -39,7 +39,7 @@ export function setStatus(projection: PageProjection, statusText: string): void 
  * looping failure cannot bury the page. */
 const MAX_TOASTS = 5;
 
-/** Put a notice on the stack. Several may be up; a new one takes the top and
+/** Put a notice on the stack. Several may be up. A new one takes the top and
  * the others move down. */
 export function toast(projection: PageProjection, kind: ToastKind, text: string): void {
 	const notice = { id: projection.allocToastId(), kind, text };
@@ -70,8 +70,8 @@ export function activeDraft(projection: PageProjection): Draft {
 
 /** Each edit has its own immutable identity, including an explicit clear.
  * Pending submissions use that identity to distinguish a newer empty draft
- * from the empty draft they left behind. Untouched conversations have no row;
- * touched rows are bounded by open conversations and retire with them. */
+ * from the empty draft they left behind. Untouched conversations have no row.
+ * Touched rows are bounded by open conversations and retire with them. */
 function setDraftOn(projection: PageProjection, key: string, next: Draft): void {
 	if (!projection.get().convs.has(key)) return;
 	const drafts = new Map(projection.get().drafts);
@@ -101,7 +101,7 @@ function setActiveDraft(projection: PageProjection, next: Draft): void {
 }
 
 /** Write a conversation's draft text. The composer types into whoever is on
- * screen; a send names the conversation that was composed, because a command
+ * screen. A send names the conversation that was composed, because a command
  * may have already put that conversation away. */
 export function setDraft(
 	projection: PageProjection,
@@ -440,7 +440,7 @@ export function setOpsPane(projection: PageProjection, opsPane: OpsCap): void {
 }
 
 /** Flip whether the selected archive keeps message history. The store field
- * is what the switch draws; the Rust archive behind the session, reached
+ * is what the switch draws. The Rust archive behind the session, reached
  * through `session.setKeepHistory`, owns the bytes and does the wiping. */
 export function setKeepHistory(projection: PageProjection, keep: boolean): void {
 	projection.set({ keepHistory: keep });
@@ -545,11 +545,12 @@ export function stepViewer(projection: PageProjection, direction: ViewerDirectio
 export function viewedAttachment(
 	snapshot: Readonly<Pick<State, "viewing" | "histories">>,
 ): AttachmentView | null {
-	if (snapshot.viewing === null) return null;
-	const history = snapshot.histories.get(snapshot.viewing.key) ?? [];
+	const viewing = snapshot.viewing;
+	if (viewing === null) return null;
+	const history = snapshot.histories.get(viewing.key) ?? [];
 	for (const item of history) {
 		if (item.kind !== "chat") continue;
-		const attachment = item.attachments?.find((file) => file.id === snapshot.viewing!.id);
+		const attachment = item.attachments?.find((file) => file.id === viewing.id);
 		if (attachment !== undefined) return attachment;
 	}
 	return null;
@@ -557,7 +558,7 @@ export function viewedAttachment(
 
 /** Show or hide the rooms list, whichever thing that is on the layout in force.
  *
- * The wide layout collapses a column and keeps it collapsed; the narrow one
+ * The wide layout collapses a column and keeps it collapsed. The narrow one
  * shows a screen any navigation dismisses. Each writes its own field and reads
  * its own field, so crossing the breakpoint shows the other layout its own last
  * answer rather than a translation of this one's, and nothing has to be
@@ -572,7 +573,7 @@ export function showRoster(projection: PageProjection, shown: boolean): void {
 }
 
 /** Dismiss the narrow layout's roster sheet, whatever the layout. Navigation
- * does this; it is not a preference and has no wide-layout meaning. */
+ * does this. It is not a preference and has no wide-layout meaning. */
 export function closeRosterSheet(projection: PageProjection): void {
 	if (projection.get().rosterSheet) projection.set({ rosterSheet: false });
 }
@@ -591,7 +592,7 @@ export function showConv(projection: PageProjection, key: string): void {
 }
 
 /** Pressing a conversation: show it, and dismiss the phone's overlays the
- * press was made through. On a wide layout those fields are simply not
+ * press was made through. On a wide layout those fields are not
  * read. */
 export function switchTo(projection: PageProjection, key: string): void {
 	if (!projection.get().convs.has(key)) return;

@@ -15,14 +15,14 @@
 //! file descriptors, so a test exercises the protocol without socket timing or fd
 //! limits. The pipes block the reading thread until the partner writes, which is
 //! correct under a threaded `std.Io` (the handshake's two halves run on two
-//! fibers); it is not built for high-fan-out production, where the completion loop
-//! and a real transport carry the load. Pipe buffers are unbounded by design here
-//! — a mock has a cooperative partner — so it does not need the inbound
+//! fibers). It is not built for high-fan-out production, where the completion loop
+//! and a real transport carry the load. Pipe buffers are unbounded here
+//! because a mock has a cooperative partner, so it does not need the inbound
 //! read bounds a real netlayer holds.
 //!
 //! Blocking uses `std.Io.Mutex` / `std.Io.Condition`, the io-aware primitives, so
 //! one handshake half parks until the other produces bytes under whatever `std.Io`
-//! backs the conversation (a threaded backend blocks the thread; a fiber backend
+//! backs the conversation (a threaded backend blocks the thread. A fiber backend
 //! yields). Teardown callbacks recover the resident's stored `std.Io` and use the
 //! same primitives, so the mock transport does not carry a separate spin-lock
 //! discipline from the production adapters.
@@ -83,8 +83,8 @@ pub const ArrivalNotifier = struct {
 // ── The switchboard ──────────────────────────────────────────────────────────
 
 /// The in-process network: the shared state behind one or more `inproc` netlayer
-/// residents. Listeners register by designator; dialers resolve against it. One
-/// network per test (or per process region); pass `network.netlayer()` into the
+/// residents. Listeners register by designator. Dialers resolve against it. One
+/// network per test (or per process region). Pass `network.netlayer()` into the
 /// `[]const net.netlayer.Netlayer` transport slice beside tcp. The network must
 /// outlive every connection and listener it mints.
 pub const Network = struct {
@@ -107,9 +107,9 @@ pub const Network = struct {
         return .{ .ctx = self, .vtable = &netlayer_vtable };
     }
 
-    /// Dial `designator` and return a peer-less `InprocFrameStream` — the
+    /// Dial `designator` and return a peer-less `InprocFrameStream`, the
     /// host-driven frame boundary the C ABI sits on. The frame-stream sibling of
-    /// the driver-path `dial`; `read_buf` / `write_buf` are caller-owned and
+    /// the driver-path `dial`. `read_buf` / `write_buf` are caller-owned and
     /// borrowed into the connection for its life.
     pub fn connectFrameStream(
         self: *Network,
@@ -126,7 +126,7 @@ pub const Network = struct {
     /// Bind a frame-level listener on `designator`, returning the raw
     /// `*InprocListener` whose `acceptFrameStream` yields peer-less streams (the
     /// C ABI listener handle). The driver-path `listen` wraps the same listener in
-    /// the netlayer vtable; this hands it back directly. Close with
+    /// the netlayer vtable. This hands it back directly. Close with
     /// `InprocListener.close`.
     pub fn bindFrame(self: *Network, allocator: std.mem.Allocator, designator: []const u8) ListenError!*InprocListener {
         return self.createListener(allocator, designator);
@@ -150,7 +150,7 @@ pub const Network = struct {
 
     /// Dial `designator`, wire a fresh duplex to the bound listener, and return
     /// the dialer's pinned `Endpoint`. The shared core of the driver-path `dial`
-    /// and the frame-stream `connectFrameStream`; the concurrency (pinning the
+    /// and the frame-stream `connectFrameStream`. The concurrency (pinning the
     /// listener across the dial, arming the co-owned duplex) lives here once.
     fn dialEndpoint(self: *Network, designator: []const u8, bufs: Buffers) DialError!*Endpoint {
         // Acquire pins the listener for this whole dial: a concurrent
@@ -197,7 +197,7 @@ pub const Network = struct {
     /// Drop a dial's pin on `listener` and wake a `listenerClose` parked on
     /// it. The decrement happens under the network lock (the counter's guard)
     /// while the listener mutex is held, so the close path, which rechecks
-    /// the counter under both — cannot free the listener until this returns.
+    /// the counter under both, cannot free the listener until this returns.
     fn releaseDial(self: *Network, listener: *InprocListener) void {
         const io = self.io;
         listener.mutex.lockUncancelable(io);
@@ -261,7 +261,7 @@ fn listen(
 }
 
 /// The contract listener over an `InprocListener`, which owns its own storage
-/// and frees it in `close`. Readiness stays behind `waitAcceptable`; the
+/// and frees it in `close`. Readiness stays behind `waitAcceptable`. The
 /// synthetic wake descriptor is not published as the contract's `readiness_fd`.
 const ListenerShell = netlayer.ListenerShell(struct {
     pub const State = InprocListener;
@@ -288,13 +288,13 @@ pub const InprocListener = struct {
     arrived: Io.Condition = .init,
     /// Accept and readiness operations that may still touch this listener.
     /// This counts the whole operation, including finite waits that sleep with
-    /// the mutex released; close joins it before freeing listener storage.
+    /// the mutex released. Close joins it before freeing listener storage.
     operations: usize = 0,
     operations_drained: Io.Condition = .init,
     /// Dials currently pinning this listener (between `Network.acquire` and
     /// `releaseDial`), guarded by the *network* lock so the pin is atomic with
-    /// the registry lookup. `listenerClose` unregisters first — no new pin can
-    /// form — then waits for this to reach zero before freeing anything.
+    /// the registry lookup. `listenerClose` unregisters first, no new pin can
+    /// form, then waits for this to reach zero before freeing anything.
     dialing: usize = 0,
     /// Signaled by `Network.releaseDial` when a pinning dial finishes,
     /// releasing a closing `listenerClose` to free the listener.
@@ -428,7 +428,7 @@ pub const InprocListener = struct {
         };
     }
 
-    /// Block for the next dialer and return a peer-less `InprocFrameStream` — the
+    /// Block for the next dialer and return a peer-less `InprocFrameStream`, the
     /// frame-stream sibling of the driver-path accept, for the C ABI listener.
     /// `read_buf` / `write_buf` are caller-owned and borrowed for the stream's life.
     pub fn acceptFrameStream(
@@ -511,7 +511,7 @@ fn listenerAccept(self: *InprocListener, peer: *engine.Peer, bufs: Buffers) netl
 }
 
 /// Read the pin count under its guard (the network lock). Called by
-/// `listenerClose`'s wait loop while it holds the listener mutex; lock order is
+/// `listenerClose`'s wait loop while it holds the listener mutex. Lock order is
 /// listener mutex, then network lock, everywhere both are held.
 fn dialsPinned(self: *InprocListener) bool {
     const io = self.network.io;

@@ -81,7 +81,7 @@ glowcap_devcontainer_checkout_for_worktree() {
 # The ignored value is useful only if the worktree and container identities
 # agree. The primary checkout may live in a repository directory named
 # `glowcap`; linked worktrees use their designator as the directory basename.
-# Branch names are intentionally independent.
+# Branch names are independent.
 glowcap_devcontainer_validate_worktree() {
     local root="$1" name="$2" checkout kind
     checkout="$(basename "$(cd "${root}/.." && pwd -P)")"

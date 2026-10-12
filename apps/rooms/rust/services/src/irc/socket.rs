@@ -1,5 +1,5 @@
 //! One bounded output owner, including the line currently being written.
-//! Control lines bypass pacing; they cannot interrupt a partially written line.
+//! Control lines bypass pacing. They cannot interrupt a partially written line.
 use rooms_application::server::irc::protocol::{LINE_BYTES, parse_line};
 use std::{cell::Cell, fmt, rc::Rc, time::Duration};
 use tokio::{

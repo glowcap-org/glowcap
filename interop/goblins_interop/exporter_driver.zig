@@ -1,7 +1,7 @@
 //! glowcap as the three-party handoff **exporter**, against live Goblins.
 //!
 //! The third role, and the one that had no cross-implementation proof.
-//! `goblins-handoff` has glowcap redeem a give Goblins minted; `goblins-gift`
+//! `goblins-handoff` has glowcap redeem a give Goblins minted, `goblins-gift`
 //! has glowcap mint a give Goblins redeems. Neither has a live Goblins pair
 //! deposit into and withdraw from a *glowcap* gift registry, so glowcap
 //! answering `deposit-gift` and `withdraw-gift` for somebody else's
@@ -10,7 +10,7 @@
 //!   Exporter (glowcap)   publishes a greeter, answers deposit and withdraw
 //!   Gifter  (Goblins)    enlivens that greeter, publishes an introducer over it
 //!   Recipient (Goblins)  enlivens the introducer, asks for the greeter, and
-//!                        receives a give naming glowcap — which it can only
+//!                        receives a give naming glowcap, which it can only
 //!                        use by dialing glowcap and presenting a receive
 //!
 //! What makes this a real proof rather than a shape: the recipient's greeting
@@ -50,8 +50,8 @@ const opts: driver.SessionOptions = .{
 };
 
 /// The exported capability, one stateful Host-Vat actor for every session.
-/// Alice primes it with a marker before any introduction; Carol reaches it
-/// only through the handoff, and her greeting must carry that marker — which
+/// Alice primes it with a marker before any introduction, Carol reaches it
+/// only through the handoff, and her greeting must carry that marker, which
 /// proves the withdrawn object is the exact mutated actor, even after the
 /// alias it was discovered under has been replaced.
 const Greeter = struct {
@@ -94,7 +94,7 @@ const DecoyGreeter = struct {
 
 /// Serve every partner that dials: Alice (who enlivens and deposits) and Carol
 /// (who withdraws). Both sessions share one `driver.Server` host, which is
-/// what lets the gift Alice deposited be withdrawn by Carol; the greeter is
+/// what lets the gift Alice deposited be withdrawn by Carol. The greeter is
 /// one Host publication, so both Ports project the same actor (ADR-0096).
 fn serveExporter(
     server: *driver.Server,
@@ -102,8 +102,8 @@ fn serveExporter(
     primed: *std.atomic.Value(bool),
     replaced: *std.atomic.Value(bool),
 ) anyerror!void {
-    // One thread drives one host: every host verb — the publication, the
-    // accepts, the pumping, and the mid-run alias replacement — lives on this
+    // One thread drives one host: every host verb, the publication, the
+    // accepts, the pumping, and the mid-run alias replacement, lives on this
     // serving thread; main only watches the atomics.
     try server.publish(greeter_swiss, Greeter, .{ .primed = primed });
 
@@ -242,7 +242,7 @@ fn readCarolOk(io: std.Io, child: *std.process.Child) !void {
         std.debug.print("goblins-exporter: {s}", .{line});
         if (std.mem.indexOf(u8, line, "GIFT OK:") != null) {
             // The greeting must be the primed original, not the decoy the
-            // alias now names: exact-object identity, proven live.
+            // alias names: exact-object identity, proven live.
             if (std.mem.indexOf(u8, line, "primed with alice-mark-7") == null) return error.WrongObjectWithdrawn;
             return;
         }

@@ -1,12 +1,12 @@
-// One archive record: what a recorder writes down, and the one validator every
+// One archive record: what a recorder writes down, and the validator every
 // form of it answers to. The wire row the archive verbs carry (`protocol.ts`)
 // and the document the Rust runtime writes (`record_document.ts`) are two
-// spellings of the record defined here, and both read through
-// `parseArchiveRecord`, so a field is bounded in exactly one place.
+// forms of the record defined here, and both read through
+// `parseArchiveRecord`, so a field is bounded in one place.
 //
-// Nothing here touches a session. The page's bundle reads records off its own
-// runtime through this module, and a runtime import would drag the native
-// binding in with it.
+// Nothing here touches a session. The page's bundle reads records off its
+// runtime through this module, and a runtime import would drag the binding in
+// with it.
 
 import type { Argument } from "@glowcap/runtime";
 import { MAX_ARCHIVE_CONVERSATION_BYTES } from "../application_data.ts";
@@ -14,8 +14,8 @@ import { MAX_LINE, nickRefusal, utf8Fits } from "../limits.ts";
 import type { ArchiveConversationKind } from "./scope.ts";
 import { type ArchivedAttachment, archivedAttachmentRows, parseArchivedAttachments } from "./record_attachments.ts";
 
-/** Opaque recorder coordinates are deliberately small bearer-independent
- * labels. The shipped tab mints 128 bits as printable UUID text. */
+/** Opaque recorder coordinates are small labels that carry no authority. The
+ * shipped tab creates 128 bits as printable UUID text. */
 export const MAX_ARCHIVE_ID_BYTES = 128;
 /** Directory locators and contextual conversation labels are data from
  * another peer. Bound them independently of the much smaller room vocabulary. */
@@ -27,7 +27,7 @@ const MAX_ARCHIVE_LINK_PREVIEW_URL_BYTES = 2_048;
 export type ArchiveLineState = "present" | "edited" | "withdrawn";
 
 export interface ArchiveCoordinates {
-	/** Opaque stable identity minted by this recorder. It is not a person ID. */
+	/** Opaque stable identity created by this recorder. It is not a person ID. */
 	readonly source: string;
 	/** Opaque identity for one live conversation as this recorder saw it. */
 	readonly generation: string;
@@ -46,7 +46,7 @@ export interface ArchiveStanding extends ArchiveCoordinates {
 }
 
 /** One line as this recorder saw it. File metadata preserves the message's
- * shape; byte custody remains separate capability authority. */
+ * shape, and byte storage remains separate capability authority. */
 export interface ArchiveLine extends ArchiveCoordinates {
 	readonly kind: "line";
 	readonly conversationKind: ArchiveConversationKind;

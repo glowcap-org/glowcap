@@ -49,6 +49,81 @@ fn serve(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
     }
 }
 
+// The publish conversation is a pending setup (ADR-0193): the listen
+// admits at once, the loop keeps serving while the control conversation
+// runs, and the listener event arrives when the service exists. The delayed
+// fake control reply makes the order deterministic: a plain dial through
+// the same resident completes while the publish is still running.
+test "onion listen admits pending and the loop serves a dial during its setup" {
+    if (!supported) return error.SkipZigTest;
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var daemon = try fake.Daemon.start(allocator, io);
+    defer daemon.stop();
+    daemon.control_delay_ms = 50;
+    const socks = try net.tcp.parseDesignator(daemon.socksText());
+    const control = try net.tcp.parseDesignator(daemon.controlText());
+
+    var resident = try OnionResident.init(allocator, OnionBackend.initOnion(
+        allocator,
+        try net.Backend.init(allocator, 64, 16, frame_cap),
+        .{ .socks = socks, .control = control, .setup_timeout_ms = 5_000 },
+    ), .{});
+    defer retire(&resident);
+    const mux = resident.resident();
+
+    const listen_outcome = mux.acceptor().?.listen(7, net.onion.transport_name, .{
+        .designator = "",
+        .options = .inherit,
+    });
+    var attempt = switch (listen_outcome) {
+        .admitted => |admitted| switch (admitted) {
+            .pending => |pending| pending,
+            else => return error.ListenAdmittedSynchronously,
+        },
+        .failed => |failure| return failure.cause,
+    };
+
+    // A plain dial through the same resident, aimed at the control port
+    // itself: connecting to it needs nothing from the publish conversation.
+    const dial_locator = try model.clonePeerLocator(allocator, .{
+        .transport = model.transport.tcp,
+        .designator = daemon.controlText(),
+        .hints = model.Hints.emptyFalse(),
+    });
+    defer model.freePeerLocator(allocator, dial_locator);
+    switch (mux.dialer().?.startDial(9, dial_locator, .inherit)) {
+        .admitted => {},
+        .failed => |failure| return failure.chain.cause,
+    }
+
+    // Pump until the listener event, collecting the order the records
+    // arrived in. The dial's connect record must precede it.
+    var dial_connected = false;
+    var turns: usize = 0;
+    while (turns < 2_000) : (turns += 1) {
+        var event_buf: [8]net.multiplexed_resident.ReadyEvent = undefined;
+        const events = try mux.drainReady(&event_buf);
+        for (events) |event| {
+            if (event.events & net.multiplexed_resident.ev_connect != 0) dial_connected = true;
+            if (event.events & net.multiplexed_resident.ev_listen != 0) {
+                try std.testing.expect(event.subject == 7);
+                try std.testing.expect(dial_connected);
+                switch (attempt.finish()) {
+                    .ready => {},
+                    .failed => |failure| return failure.cause,
+                }
+                return;
+            }
+        }
+        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
+    }
+    return error.PublishNeverFinished;
+}
+
 test "onion listens and dials on completion residents through Tor's SOCKS and control ports" {
     if (!supported) return error.SkipZigTest;
     const allocator = std.testing.allocator;

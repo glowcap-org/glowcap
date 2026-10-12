@@ -1,4 +1,4 @@
-//! 03 — Actor far-send with a vow.
+//! 03: Actor far-send with a vow.
 //!
 //! A caller's Port eventual-sends to a host's published actor over a paired
 //! session and observes the vow. One vat publishes an object, the other

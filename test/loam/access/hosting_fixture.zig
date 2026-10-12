@@ -19,7 +19,7 @@ pub const limits: loam.core.Store.Limits = blk: {
 pub const contents = [_]access.ContentBehavior{.{ .schema = 7, .requirement = requirement, .retry = retry, .resource = resourceAction, .invoke = counter }};
 
 pub const Application = struct {
-    /// Deliberately undeclared authority for disclosure refusal scenarios.
+    /// Undeclared authority for disclosure refusal scenarios.
     smuggle: ?driver.Capability = null,
     /// Authority captured only through ContentCall's transactional seam.
     replacement: ?driver.Capability = null,

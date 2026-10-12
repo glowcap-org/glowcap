@@ -1,5 +1,5 @@
 //! Two bounded input slots bridge asynchronous IndexedDB reads to Zig.
-//! Metadata stays cached for read/lookup/restore fronts; the other slot is the
+//! Metadata stays cached for read/lookup/restore fronts. The other slot is the
 //! current supplied row. Writes copy directly to JavaScript and enter the same
 //! active transaction, so no Rust overlay or transaction-sized snapshot exists.
 use super::super::{check, invalid};

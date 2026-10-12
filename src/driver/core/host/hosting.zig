@@ -61,9 +61,9 @@ pub const HostTurn = struct {
         if (!self.turn.forwarded) try (try @import("local_delivery.zig").producer(self.turn)).prepare(reply);
     }
 
-    /// Spawn a fresh local actor mid-turn and return its opaque capability —
-    /// the owning-tier twin of `spawnAt`. The spawned behavior is Value-shaped
-    /// like every owning-tier behavior.
+    /// Spawn a fresh local actor mid-turn and return its opaque capability.
+    /// This is the owning-tier twin of `spawnAt`. The spawned behavior is
+    /// Value-shaped like every owning-tier behavior.
     pub fn spawn(self: *HostTurn, comptime Behavior: type, initial: Behavior) !capability.Ref {
         const reservation = try self.host.reserveFreshCapability(self.session);
         const ref = try self.turn.vat.spawn(Hosting(Behavior), .{ .inner = initial });
@@ -98,9 +98,9 @@ pub const HostTurn = struct {
     }
 
     /// Transfer this answer to another capability. Local invocation uses the
-    /// target's actual home and keeps its original owned reply destination;
-    /// wire invocation stays on its causal session. The returned placeholder
-    /// is ignored while the forwarded completion owns the answer.
+    /// target's actual home and keeps its original owned reply destination.
+    /// Wire invocation stays on its causal session. The returned placeholder is
+    /// ignored while the forwarded completion owns the answer.
     pub fn forward(
         self: *HostTurn,
         target: capability.Ref,
@@ -134,8 +134,9 @@ pub const HostTurn = struct {
     }
 };
 
-/// Adapt a Value-shaped behavior to the actor layer's wire-shaped contract —
-/// the Zig counterpart of the C ABI's hosted-behavior trampoline. `B` declares
+/// Adapt a Value-shaped behavior to the actor layer's wire-shaped contract. It
+/// is the Zig counterpart of the C ABI's hosted-behavior trampoline. `B`
+/// declares
 ///
 /// ```zig
 /// pub fn handle(self: *B, ht: *HostTurn, verb: []const u8, args: []const Value) !Value
@@ -144,10 +145,10 @@ pub const HostTurn = struct {
 /// Inbound wire arguments are lifted through the ingress session (so a
 /// delivered capability arrives as one canonical opaque identity), and the
 /// returned reply is lowered through the same session's Port. Both walks use
-/// the turn arena, whose lifetime is exactly the borrowed reply's contract.
-/// The owning `Session.spawn` / `Session.publish` and Host-wide
-/// `publish` wrap every behavior in this adapter; the base Vat and the
-/// borrowing tier keep the wire-shaped contract.
+/// the turn arena, whose lifetime is the borrowed reply's contract. The owning
+/// `Session.spawn` / `Session.publish` and Host-wide `publish` wrap every
+/// behavior in this adapter. The base Vat and the borrowing tier keep the
+/// wire-shaped contract.
 pub fn Hosting(comptime B: type) type {
     return struct {
         inner: B,

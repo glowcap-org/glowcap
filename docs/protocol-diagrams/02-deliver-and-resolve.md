@@ -1,7 +1,7 @@
 # Deliver and resolve
 
-Anchors: CapTP Specification § op:deliver, § The bootstrap Object, § op:get, §
-op:index.
+These diagrams follow the CapTP Specification sections op:deliver, The
+bootstrap Object, op:get, and op:index.
 
 These diagrams use the next profile unless a step says V1.0. Next follows the
 pending promise-listening proposal: an answered operation is followed by an

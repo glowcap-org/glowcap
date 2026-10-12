@@ -1,15 +1,5 @@
-// Reading the live trace, and the line a record makes. This is not a socket
-// reader: the WebSocket is only the byte channel, and records
-// arrive through an inbox capability after enlivening the sturdyref the server
-// announces as `ROOMS-TRACE-LISTENING`. A consumer that watched the socket
-// directly would hear nothing, which is why the connect lives here once rather
-// than being rediscovered by each consumer.
-//
-// It moved out of the browser proofs because a second consumer arrived. There
-// were already four implementations of this contract across the repository —
-// ocapnviz, the proofs, the Rust endpoint, and the Racket producer — and a
-// fifth written for a terminal would have been the one that drifted, since
-// nothing checks a client the way `checkTraceVocabulary` checks the schema.
+// A trace viewer receives records through an inbox capability. The WebSocket
+// carries CapTP bytes. The advertised route alone grants no trace access.
 
 import { designatorHostPort, Host, parseSturdyRef, Session, webSocketChannel } from "@glowcap/runtime";
 import { traceCapUrl } from "./trace_publish.ts";
@@ -17,95 +7,166 @@ import { answerWithin } from "./deadline.ts";
 
 export type TraceRecord = Record<string, unknown>;
 
+/** Whether a parsed wire value is a trace record: a plain JSON object. */
+function isTraceRecord(raw: unknown): raw is TraceRecord {
+	return raw != null && typeof raw === "object" && !Array.isArray(raw);
+}
+
 /** How long the endpoint has to take a subscription. Generous next to an
- * ordinary room verb: this one replays the whole live topology before it
- * answers, and the reader asking for it has just typed a command rather than
- * being mid-conversation. */
+ * ordinary room verb, because this one replays the whole live topology before
+ * it answers, and the reader asking for it has just typed a command and is not
+ * mid-conversation. */
 const SUBSCRIBE_MS = 15_000;
 
 /** The endpoint's port, read out of the announcement.
  *
- * A viewer needs two things that are really one fact: the byte channel to open,
- * and the peer to establish a session with. The endpoint states both in the
- * announcement, so a caller holding it needs to be told nothing else — which is
- * what lets a caller that asked for an ephemeral port connect at all. */
+ * A viewer needs two things that are one fact: the byte channel to open, and
+ * the peer to establish a session with. The endpoint states both in the
+ * announcement, so a caller holding it needs nothing else. That is what lets a
+ * caller that asked for an ephemeral port connect at all. */
 export function tracePortOf(sturdyref: string): number {
 	return designatorHostPort(parseSturdyRef(sturdyref, "v1_0").locator.designator).port;
 }
 
-/** The trace capability inside the announcement: the sturdyref's swissnum is
+/** The trace capability inside the announcement. The sturdyref's swissnum is
  * the same swiss the endpoint requires of every socket, so a holder of the
  * announcement needs no second secret. */
 export function traceCapOf(sturdyref: string): string {
 	return new TextDecoder().decode(parseSturdyRef(sturdyref, "v1_0").swissnum);
 }
 
-/** The endpoint address a producer or viewer may use, including the capability
- * every socket must present. Producers replace the path with `/publish` while
- * preserving this query. */
+/** Preserve the advertised channel, including proxy prefixes. Legacy links
+ * without channel advice use the locator's TCP address and HTTP token. */
 export function traceUrlOf(sturdyref: string): string {
-	return traceCapUrl(`ws://127.0.0.1:${tracePortOf(sturdyref)}/`, traceCapOf(sturdyref));
+	const locator = parseSturdyRef(sturdyref, "v1_0").locator;
+	const endpoint = locator.hints.get("captp-websocket");
+	if (endpoint !== undefined) {
+		if (typeof endpoint !== "string") throw new Error("trace channel hint must be a string");
+		const url = new URL(endpoint);
+		if (!["ws:", "wss:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+			throw new Error("trace channel must be a WebSocket URL without credentials, query or fragment");
+		}
+		return endpoint;
+	}
+	const { hostname, port } = designatorHostPort(locator.designator);
+	const host = hostname.includes(":") ? `[${hostname}]` : hostname;
+	return traceCapUrl(`ws://${host}:${port}/`, traceCapOf(sturdyref));
 }
 
-/** Connect one viewer and feed every record to `apply`, replay included,
- * exactly as ocapnviz consumes the endpoint. The returned close releases the
- * session and its Host. */
+/** Producers use their independently advertised route and HTTP capability. */
+export function tracePublishUrlOf(sturdyref: string): string {
+	const locator = parseSturdyRef(sturdyref, "v1_0").locator;
+	const endpoint = locator.hints.get("trace-publish");
+	if (endpoint !== undefined && typeof endpoint !== "string") throw new Error("trace producer hint must be a string");
+	const url = new URL(endpoint ?? traceUrlOf(sturdyref));
+	if (endpoint === undefined) url.pathname = "/publish";
+	return traceCapUrl(url.href, traceCapOf(sturdyref));
+}
+
+/** Connect one viewer and feed every record to `apply`, replay included, as
+ * ocapnviz consumes the endpoint. The returned close releases the session and
+ * its Host. */
 export async function connectTraceViewer(
 	sturdyref: string,
 	apply: (record: TraceRecord) => void,
 ): Promise<{ closed: Promise<void>; close(): Promise<void> }> {
 	const locator = parseSturdyRef(sturdyref, "v1_0").locator;
 	const socket = new WebSocket(traceUrlOf(sturdyref));
-	await new Promise<void>((resolve, reject) => {
-		socket.onopen = () => resolve();
-		socket.onerror = () => reject(new Error("the live timeline endpoint would not accept a viewer"));
+	await answerWithin(
+		new Promise<void>((resolve, reject) => {
+			socket.onopen = () => resolve();
+			socket.onerror = () => reject(new Error("the live timeline endpoint would not accept a viewer"));
+		}),
+		"the live trace socket",
+		SUBSCRIBE_MS,
+	).catch((error) => {
+		socket.close();
+		throw error;
 	});
 	const host = new Host(); // rooms-profile-exempt: a viewer is production ocapnviz's v1.0 peer.
-	const session = await Session.establishDialedLocator(
-		host,
-		locator,
-		webSocketChannel(socket),
-	);
-	const serving = session.serve();
-	const raw_log = Deno.env.get("TRACE_VIEWER_LOG");
-	const inbox = session.spawn((verb, args) => {
-		if (verb !== "record" || args.length !== 1 || typeof args[0] !== "string") {
-			throw new Error("the viewer inbox received an invalid record");
+	let session: Session | undefined;
+	let serving: Promise<void> | undefined;
+	const close = async () => {
+		const failures: unknown[] = [];
+		try {
+			await session?.close();
+		} catch (error) {
+			failures.push(error);
 		}
-		if (raw_log != null) {
-			Deno.writeTextFileSync(raw_log, args[0] + "\n", { append: true });
-		}
-		apply(JSON.parse(args[0]) as TraceRecord);
-		return null;
-	});
-	const trace = await session.enliven(sturdyref);
-	// Bounded, because an endpoint that holds the socket open and never answers
-	// the subscribe is indistinguishable from one with nothing to report yet,
-	// and a consumer waiting on it would sit there looking correct forever.
-	await answerWithin(session.send(trace, "subscribe", [inbox]), "the live trace subscription", SUBSCRIBE_MS);
-	return {
-		// Settles when the session ends, however it ends. A consumer that keeps
-		// running past its feed reports a quiet peer where what actually
-		// happened is that nobody is talking to it any more, and those look
-		// identical from the outside.
-		closed: serving,
-		async close() {
-			await session.close();
+		try {
 			await serving;
+		} catch (error) {
+			failures.push(error);
+		}
+		try {
 			await host.close();
-		},
+		} catch (error) {
+			failures.push(error);
+		}
+		socket.close();
+		if (failures.length !== 0) throw new AggregateError(failures, "closing the trace viewer failed");
 	};
+	try {
+		session = await answerWithin(
+			Session.establishDialedLocator(
+				host,
+				locator,
+				webSocketChannel(socket),
+			),
+			"the live trace handshake",
+			SUBSCRIBE_MS,
+		);
+		serving = session.serve();
+		// Startup can fail before the caller owns `closed`. Keep its rejection
+		// observed while cleanup retains the same result for that caller.
+		void serving.catch(() => {}); // tolerant: observes rejection until cleanup or the caller awaits the same result.
+		const raw_log = Deno.env.get("TRACE_VIEWER_LOG");
+		const inbox = session.spawn((verb, args) => {
+			if (verb !== "record" || args.length !== 1 || typeof args[0] !== "string") {
+				throw new Error("the viewer inbox received an invalid record");
+			}
+			if (raw_log != null) {
+				Deno.writeTextFileSync(raw_log, args[0] + "\n", { append: true });
+			}
+			const record: unknown = JSON.parse(args[0]);
+			if (!isTraceRecord(record)) {
+				throw new Error("the live trace sent a record that is not an object");
+			}
+			apply(record);
+			return null;
+		});
+		const trace = await answerWithin(session.enliven(sturdyref), "the live trace capability", SUBSCRIBE_MS);
+		// Bounded, because an endpoint that holds the socket open and never answers
+		// the subscribe looks the same as one with nothing to report yet, and a
+		// consumer waiting on it would sit there looking correct forever.
+		await answerWithin(session.send(trace, "subscribe", [inbox]), "the live trace subscription", SUBSCRIBE_MS);
+		return {
+			// Settles when the session ends, however it ends. A consumer that keeps
+			// running past its feed reports a quiet peer when nobody is talking to
+			// it any more, and those look identical from the outside.
+			closed: serving,
+			close,
+		};
+	} catch (error) {
+		socket.close();
+		try {
+			await close();
+		} catch (cleanup) {
+			throw new AggregateError([error, cleanup], "opening the trace viewer failed and cleanup also failed");
+		}
+		throw error;
+	}
 }
 
 /** One record as one line.
  *
- * Keyed on `kind`, and an unrecognised kind prints rather than being dropped:
- * a trace consumer that silently swallows a record it cannot read is lying
- * about the run, and the reader has no way to tell that from a quiet peer.
+ * Keyed on `kind`. An unrecognized kind prints and is not dropped, because a
+ * trace consumer that silently swallows a record it cannot read misreports the
+ * run, and the reader cannot tell that from a quiet peer.
  *
- * The session column is the producer-scoped id the endpoint stamps (`p0/s1`),
- * and that scope is what tells two producers' identical ids apart, so it is shown as
- * the endpoint gives it rather than shortened to something ambiguous. */
+ * The session column is the producer-scoped id the endpoint stamps (`p0/s1`).
+ * That scope tells two producers' identical ids apart, so it is shown as the
+ * endpoint gives it and not shortened to something ambiguous. */
 export function traceLine(record: TraceRecord): string {
 	const at = stamp(record.sim_t_ns);
 	const session = typeof record.session === "string" ? record.session : "-";
@@ -121,7 +182,7 @@ export function traceLine(record: TraceRecord): string {
 		case "ocapn.message-decoded": {
 			const way = record.outbound === true ? "->" : "<-";
 			// `len` is the frame's true byte length even when the record
-			// carried only a head, so it is the honest number in both cases.
+			// carried only a head, so it is the accurate number in both cases.
 			const len = typeof record.len === "number" ? `${record.len}B` : "";
 			return `${at}  msg    ${session}  ${way} ${str(record.op) ?? "?"}  ${len}`.trimEnd();
 		}
@@ -130,7 +191,7 @@ export function traceLine(record: TraceRecord): string {
 		case "ocapn.session-meta": {
 			// A claim by the producing application, never protocol identity, so
 			// it is shown as one. A null label is the application withdrawing
-			// the name rather than saying nothing, and reads differently.
+			// the name, and it reads differently from saying nothing.
 			const meta = record.meta as { label?: string | null } | undefined;
 			const label = meta === undefined || meta.label === undefined
 				? ""
@@ -151,8 +212,8 @@ function str(value: unknown): string | null {
 }
 
 /** Simulated nanoseconds as a clock-shaped stamp. The endpoint's times are its
- * own monotonic count rather than wall time, so this reads as elapsed rather
- * than pretending to be an hour of the day. */
+ * monotonic count and not wall time, so this reads as elapsed time and does
+ * not pretend to be an hour of the day. */
 function stamp(value: unknown): string {
 	if (typeof value !== "number" || !Number.isFinite(value)) return "        -   ";
 	const ms = value / 1_000_000;

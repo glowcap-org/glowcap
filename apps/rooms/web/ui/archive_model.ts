@@ -1,5 +1,5 @@
 // Presentation-only state for where this tab records member history. The live
-// Session and Ref stay below the store; this value is only what Settings draws.
+// Session and Ref stay below the store. This value is only what Settings draws.
 
 export type ArchiveTargetView =
 	| { readonly kind: "owned" }
@@ -11,16 +11,16 @@ export type ArchiveTargetView =
 	};
 
 /** One archive account offered over a direct line. A live offer keeps its
- * reference in the Rust application; a lasting one is a link whose Host
+ * reference in the Rust application. A lasting one is a link whose Host
  * publication the issuer can revoke on its own. This row is only the bounded
  * choice the conversation card draws. The link itself is a bearer secret and
- * stays in the session snapshot; a control that copies it asks there at press
+ * stays in the session snapshot. A control that copies it asks there at press
  * time (`session/bearer.ts`). */
 export interface ArchiveShareView {
 	readonly id: string;
 	readonly conversationKey: string;
 	readonly from: string;
-	readonly status: "offered" | "reading" | "unavailable";
+	readonly status: "offered" | "reading" | "dropping" | "unavailable";
 	readonly error: string;
 	readonly kind: "direct" | "room" | "standing";
 	readonly scopeConversation: string | null;

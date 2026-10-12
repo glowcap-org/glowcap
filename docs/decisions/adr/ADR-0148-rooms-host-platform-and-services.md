@@ -16,15 +16,14 @@ amended_by: [ADR-0151, ADR-0174]
 
 `rooms-native` mixed two boundaries. Tokio scheduling, filesystem custody,
 listeners, TLS, WebSocket channels, room and session peers, IRC fronts, the web
-front, and interactive commands all lived in one crate. The name described
-where the code ran, not what it owned. It also made platform effects appear to
-be part of each service's policy.
+front, and interactive commands all lived in one crate. The name described where
+the code ran, not what it owned, and made platform effects look like part of
+each service's policy.
 
-The browser already projects portable `rooms-application` and `rooms-runtime`
-owners through browser-specific effects. Moving browser APIs or presentation
-state into those crates would create false portability. The host side needs the
-same distinction between shared policy, platform effects, and product
-composition.
+The browser projects portable `rooms-application` and `rooms-runtime` owners
+through browser-specific effects. Moving browser APIs or presentation state into
+those crates would create false portability. The host side needs the same
+distinction between shared policy, platform effects, and product composition.
 
 ## Decision
 

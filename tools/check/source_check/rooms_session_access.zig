@@ -1,6 +1,6 @@
 //! A Rooms session access is asked what it may do, never which rung it is.
 //!
-//! The access a link carries is a ladder — none, observe, interact, admin — and
+//! The access a link carries is a ladder, none, observe, interact, admin, and
 //! code that reads it by comparing against one rung is code that will be wrong
 //! the next time a rung is added. That is not hypothetical here. `observe` was
 //! once the bottom, so "not observe" meant "more than an observer"; adding a
@@ -11,7 +11,7 @@
 //! The same shape then appeared from the other end. A suspended link was found
 //! by `=== "none"` in the guard that refuses its verbs, in the bar that says
 //! why, and in the composer's line, so a rung added between none and observe
-//! would have walked through every one of them — and through the verb guard,
+//! would have walked through every one of them, and through the verb guard,
 //! that is every verb the session has. The answer is `mayObserve`, asked the
 //! same way.
 //!

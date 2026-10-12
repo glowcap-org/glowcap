@@ -1,7 +1,7 @@
 # Rooms session admission and effect execution
 
-Living-state surface. The [session guide](session.md) maps production owners and
-startup. This page describes how managed commands preserve source admission,
+Living-state surface. The [session guide](session.md) maps production owners
+and startup. This page describes how managed commands preserve source admission,
 target custody and recoverable outcomes across external effects.
 
 ## Admission and receipts
@@ -9,12 +9,12 @@ target custody and recoverable outcomes across external effects.
 `content::session::requirements` declares application admission. `EffectReceipt`
 records the original source, resource incarnation, exact target fields and
 canonical intent before dispatch. Typed custody resolves each selected target
-once. Local and wire calls use the same executor; local ownership retains
+once. Local and wire calls use the same executor. Local ownership retains
 explicit root use and control capabilities.
 
 The shared hosting boundary retains an owned continuation, its bounded reply
 allowance and completion/cancellation custody. Confirmed receipt commit
-activates dispatch. Abort discards the reservation; unknown commit retains it
+activates dispatch. Abort discards the reservation. Unknown commit retains it
 behind recovery. A borrowed callback invocation cannot outlive its turn.
 
 Dispatch, recovery and protected delivery recheck the original source and
@@ -26,8 +26,8 @@ the upstream operation applied.
 Recovery requires the caller's held pending-effect or result authority together
 with ResolvePending. An operation ID cannot select another grant's receipt.
 Concurrent resumes share one dispatch owner. Changed intent refuses, and replay
-pressure cannot evict an unresolved receipt. A missing receipt confirms absence;
-it never authorizes preparing or resending the original effect.
+pressure cannot evict an unresolved receipt. A missing receipt confirms absence.
+It does not authorize preparing or resending the original effect.
 
 ## Cancellation, source loss and shutdown
 
@@ -53,7 +53,7 @@ Workspace acquisition retains source, imported capabilities, expected revision
 and complete candidate intent across cancellation and retry. ManageCustody and
 ReplaceWorkspace are required. Stale revisions return explicit conflict before
 saving capabilities or changing content. Unknown replies keep the original
-candidate; only confirmed conflict permits bounded re-preparation through the
+candidate. Only confirmed conflict permits bounded re-preparation through the
 same source.
 
 Result acquisition atomically adopts seat, topic, file and initiating endpoint
@@ -64,15 +64,15 @@ retain independent occurrences when workspace custody is released.
 Occupied custody accepts only the same actual capability, with its checked role
 and generation. Releasing local fields requires no working upstream grant and
 restores no predecessor authority. Created-room adoption appends through the
-receipt's exact directory target while preserving unrelated current fields;
-removing or replacing that directory refuses adoption.
+receipt's exact directory target while preserving unrelated current fields.
+Removing or replacing that directory refuses adoption.
 
 ## Exact upstream operations
 
 Application dispatch declarations own argument validation and role selection.
 Entry, RoomAccess and RoomControl remain separate actual targets. Moderation,
-policy edits and unregistration use the selected management capability;
-missing moderation authority cannot fall back to entry. `ensureRoomLink`
+policy edits and unregistration use the selected management capability.
+Missing moderation authority cannot fall back to entry. `ensureRoomLink`
 uses RoomControl and saves its returned RoomAccess separately from descriptive
 coordinates.
 
@@ -80,13 +80,13 @@ Discovery and introductions retain selected directory/name fields. Direct
 transitions retain the actual inbox, source, scalar arguments and registration
 witness. Interrupted observation and settlement keep those same targets.
 Canonical upstream conversation identity and generation govern history and
-line identity. Session permissions add admission; they cannot replace upstream
+line identity. Session permissions add admission. They cannot replace upstream
 membership or authorship checks.
 
 ## Files and mediated readers
 
 Room uploads retain original RoomFiles, optional Line and source blobs before
-dispatch. Confirmed staging precedes post/refile; the acknowledged primary
+dispatch. Confirmed staging precedes post/refile. The acknowledged primary
 effect precedes bounded filling. If filling fails, the applied line remains
 with an explicit incomplete-file outcome. The worker retains its complete fill
 future through interruption, including an append awaiting acknowledgment.
@@ -100,7 +100,7 @@ results. Delivery stages no file bytes and performs no source reads.
 
 History, archive and file facades retain exact upstream targets and the original
 session source. Every chunk and protected result rechecks both admissions.
-Independent archive selection needs ReadArchive; files also need ReadFile.
+Independent archive selection needs ReadArchive. Files also need ReadFile.
 Explicit reader release prevents disclosure from an in-flight read.
 Forwarding budgets derive complete page and blob reply demand from application
 bounds and shared sizing, with bounded temporary result storage.
@@ -119,7 +119,7 @@ only. Independent cancellation cannot retire another receiver.
 The shared Zig owning-delivery proofs check exact arguments and replies, failed
 turn rollback, Host retirement, forwarding, deferred refusal and cancellation.
 C/Rust continuation limits project count, bytes, target occurrences and reply
-capacity from that owner. Reservations borrow the turn; confirmation transfers
+capacity from that owner. Reservations borrow the turn. Confirmation transfers
 custody once to the executor.
 
 The [runtime executor scenarios](../../apps/rooms/rust/proofs/src/session_executor.rs)

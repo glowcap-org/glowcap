@@ -64,14 +64,14 @@ def _check_iroh(code: int) -> None:
 
 
 class Reachability(enum.IntEnum):
-    """An iroh endpoint's addressing posture — how it dials partners and how it
-    is dialed. Every iroh constructor requires it explicitly; there is **no
+    """An iroh endpoint's addressing posture: how it dials partners and how it
+    is dialed. Every iroh constructor requires it explicitly. There is **no
     default**, because the right posture is a deployment decision (relay-less vs
-    relayed, discovery vs none) and a hidden one would silently route — or refuse
-    to route — a partner's traffic.
+    relayed, discovery vs none) and a hidden one would silently route, or refuse
+    to route, a partner's traffic.
 
     ``DIRECT``
-        Dial by endpoint id plus direct-address hints; relay-less, no discovery.
+        Dial by endpoint id plus direct-address hints. Relay-less, no discovery.
         A URI must carry ``direct-addresses``. This is the rooms demo's posture.
     ``DISCOVERY``
         Use the n0 relays and DNS discovery, so a partner is dialable by
@@ -211,7 +211,7 @@ class IrohConfig:
     connection up, ``idle_timeout_ms`` bounds keeping one. Set
     ``idle_timeout_ms`` if you read a live session as presence, because it is
     what ends a connection whose peer was killed rather than closed.
-    ``worker_threads`` sizes this endpoint's sidecar runtime; ``None`` takes
+    ``worker_threads`` sizes this endpoint's sidecar runtime. ``None`` takes
     glowcap's default.
     """
 
@@ -245,7 +245,7 @@ class IrohNetlayer(_NativeHandleOwner):
         buf, ptr = _byte_buf(seed) if seed else (None, None)
         out = ctypes.c_void_p()
         # Zero-initialized by `ctypes.Structure`, and 0 means the built-in
-        # default for every timeout — the header's zero-init contract.
+        # default for every timeout: the header's zero-init contract.
         cfg = _IrohConfig(reachability=int(config.reachability))
         if config.connect_timeout_ms is not None:
             cfg.connect_timeout_ms = config.connect_timeout_ms
@@ -414,7 +414,7 @@ class IrohNetlayer(_NativeHandleOwner):
     def readiness_fd(self) -> int:
         """This endpoint's single readiness fd, register it with the event loop
         (``add_reader``) and call :meth:`drain_ready` when it signals. Owned by
-        the netlayer; never close it."""
+        the netlayer. Never close it."""
         with self._native.lease() as raw:
             fd = _iroh().glowcap_iroh_netlayer_readiness_fd(raw)
         if fd < 0:
@@ -426,7 +426,7 @@ class IrohNetlayer(_NativeHandleOwner):
     def drain_ready(self, buf, cap: int) -> int:
         """Drain the pending readiness records into ``buf`` (a ``_IrohReadyEvent``
         array of ``cap`` entries) without blocking. Returns the record count (0
-        when none); raises on fault. Call it when :meth:`readiness_fd` signals,
+        when none). Raises on fault. Call it when :meth:`readiness_fd` signals,
         then again until it returns fewer than ``cap`` records."""
         out = ctypes.c_size_t()
         with self._native.lease() as raw:
@@ -451,7 +451,7 @@ class IrohNetlayer(_NativeHandleOwner):
         return IrohConnection(out, self)
 
     def start_connect(self, request_id: int, node_id: str, addr_hints: str) -> None:
-        """Admit one dial without blocking; completion arrives as EV_CONNECT."""
+        """Admit one dial without blocking. Completion arrives as EV_CONNECT."""
         id_b = node_id.encode()
         hints_b = addr_hints.encode()
         id_buf, id_ptr = _byte_buf(id_b)

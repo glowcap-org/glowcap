@@ -1,5 +1,5 @@
 //! Platform time for byte-fed execution. Every Host and Session uses one
-//! monotonic epoch; the Zig close machine owns the deadlines themselves.
+//! monotonic epoch. The Zig close machine owns the deadlines themselves.
 
 use std::sync::OnceLock;
 

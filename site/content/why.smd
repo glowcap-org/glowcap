@@ -22,14 +22,13 @@ are. Once you are authenticated, every line of code running as you holds all
 of it, including every library you link.
 
 The model works until you need to hand part of your access to someone else. A
-bearer token rarely means one album, read only, for an hour; it usually means
+bearer token rarely means one album, read only, for an hour. It usually means
 everything your account can do, until someone rotates it. Whatever you hand
 your credential to becomes you.
 
 # The same story twice
 
-The walkthrough tells one story twice, first with a bearer token, then with
-capabilities.
+First with a bearer token, then with capabilities.
 
 ```=html
 <figure class="capwalk" id="capwalk">
@@ -212,24 +211,18 @@ capabilities.
 
 # How a reference travels
 
-The reference must cross the network as bytes, and stolen bytes are how tokens
-leak. The difference is that the bytes are not the permission. When two
-programs meet, each proves a key it holds, and a session opens between them.
-Inside that session, each side keeps a private table of the objects it has
-chosen to share. When your album reference crosses the wire, what travels is a
-position in that table. Call it slot 3. Slot 3 means your album only inside
-this one session; in any other session it means nothing, or it names
-something else. The table is bookkeeping, not the permission table returning:
-it holds no identities and no rights, only which object each position means.
+A reference still crosses the network as bytes, but the bytes are not the
+permission. When two programs meet, each proves a key it holds, and a session
+opens between them. Each side keeps a private table of the objects it has
+chosen to share, and your album travels as a position in that table, say
+slot 3. Slot 3 means your album only inside this one session. The table holds
+no identities and no rights, only which object each position means.
 
-A bearer token is a portable string, and it works for whoever presents it,
-anywhere. A capability reference is a row in a ledger that exactly two parties
-keep. Record the traffic and you hold a row number for a conversation you
-cannot join. Guessing does no better, because the table contains only what one
-side put there. The pipe itself is protected the way your token traffic is
-protected today, by the transport underneath. What changes is the cost of a
-leak: a leaked token is authority, and a leaked table position is a number with
-no ledger behind it.
+A bearer token works for whoever presents it, anywhere. Record capability
+traffic and you hold a row number for a conversation you cannot join, and
+guessing does no better. The transport still protects the pipe, as it does for
+your tokens today. What changes is the cost of a leak: a leaked token is
+authority, and a leaked table position is a number with no ledger behind it.
 
 ```=html
 <figure class="tokref">

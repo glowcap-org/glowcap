@@ -32,8 +32,8 @@ export interface OperatorSnapshot {
 	trouble: OperatorTroubleRow[];
 	next: Record<OperatorCategory, number | null>;
 	/** Every row each category holds that matches the search in force, whether
-	 * or not it was sent. The pane's counts and its bulk acts speak from this;
-	 * the row arrays are one page. */
+	 * or not it was sent. The page's counts and its bulk acts speak from this,
+	 * and the row arrays are one page. */
 	totals: Record<OperatorCategory, number>;
 }
 

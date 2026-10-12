@@ -1,7 +1,7 @@
 /**
  * The two-click open-session and send-message tools.
  *
- * Stage pointer routing — pan vs select vs empty-canvas drop —
+ * Stage pointer routing, pan vs select vs empty-canvas drop,
  * lives in `use-stage-build-gestures.ts`. This module is the
  * commit step: whether a node is a legal pick, and what the second
  * click writes.
@@ -24,7 +24,7 @@ import { type NodeKind, toolAcceptsNode } from "../interactions/gesture-resolver
 import { asOneEdit } from "./as-one-edit.ts";
 
 /** Whether this id names an end nothing has attributed. `nodeKindOf` owns
- *  the question; this is its yes-or-no reading, for the places that only
+ *  the question. This is its yes-or-no reading, for the places that only
  *  need the branch. */
 function isLoose(nodeId: string): boolean {
 	return nodeKindOf(nodeId) === "endpoint";
@@ -35,7 +35,7 @@ function singletonSet(entity: EntityRef): ReadonlySet<EntityRefKey> {
 }
 
 /** Tool-options-bar values that affect the commit step of the
- *  two-click flow. Every field is optional — undefined means "use
+ *  two-click flow. Every field is optional, undefined means "use
  *  engine defaults" (capnp / v1_0 / open / DEFAULT_MESSAGE_FLIGHT_MS).
  *  The bar typically pre-fills the defaults visibly so the user
  *  sees what's about to happen, but the caller decides whether to
@@ -62,7 +62,7 @@ export type TwoClickOptions = {
  *
  * The second pick has a rule of its own because an end nothing has attributed
  * can only talk on the session it is an end of. Two peers with no session
- * between them get one opened for the message; an end cannot take a second
+ * between them get one opened for the message. An end cannot take a second
  * session, so there is nowhere for a message to it from anywhere else to
  * ride. Without this the pointer read as an invitation over every node on the
  * stage and the commit then refused all but one of them.
@@ -87,21 +87,21 @@ export function twoClickAccepts(
 
 /** Commit step of the two-click open-session / send-message tools.
  *
- * First click (no prior pick): arms the node — it lights up via the
+ * First click (no prior pick): arms the node, it lights up via the
  * selection ring while we wait for its partner.
  *
  * Re-click of the armed node: cancels.
  *
  * Click on a different node: dispatches the intent and resets the armed slot.
  * Send-message auto-opens a session first (in the same undo step) if the two
- * don't already share one — there's no way to author a free-floating message.
+ * don't already share one, there's no way to author a free-floating message.
  *
  * A node here is a peer OR an unattributed session end, because a message can
  * be sent to an end nothing has attributed: that is what the wire looks like
  * before anything proves who answered, and a recording holds it. What an end
  * cannot do is join a SECOND session. Two ends claiming one address may be one
- * host twice or an impostor beside an honest one, and nothing has proved
- * which; a node shared between sessions would be this app asserting they are
+ * host twice or an impostor beside a real one, and nothing has proved
+ * which. A node shared between sessions would be this app asserting they are
  * the same party. The node that IS shared across sessions is the peer, and
  * attribution is how an end becomes one. So a loose end can only talk on its
  * own session, and the auto-open below refuses rather than inventing a peer
@@ -134,7 +134,7 @@ export function advanceTwoClick(
 	}
 	if (tool === "open-session") {
 		// A new session mints its own two ends, so an existing end has nothing to
-		// be here. The engine refuses it and says why — the rule is about
+		// be here. The engine refuses it and says why. The rule is about
 		// sessions, not about this tool, so it is stated once where sessions are
 		// authored and every caller answers to the same one.
 		const sessionId = engine.dispatch({
@@ -176,7 +176,7 @@ export function advanceTwoClick(
 			kind: "open-session",
 			a: attachedEndpoint(firstPickNodeId),
 			b: attachedEndpoint(clickedNodeId),
-			// Open-session options apply to the auto-opened session too —
+			// Open-session options apply to the auto-opened session too,
 			// user's intent for "what kind of session to use" is the same
 			// whether they explicitly opened one or are sending a message
 			// that opens one inline.
@@ -217,10 +217,11 @@ export function advanceTwoClick(
  * landed.
  *
  * This is the shape a recording holds when a peer dials out and nothing has
- * yet answered for who answered — the wire is real, and who is on the far
+ * yet answered for who answered. The wire is real, and who is on the far
  * side of it is open. Build's claim is that every shape a recording can hold
- * can be authored, and until now this one could only be reached by opening a
- * session between two peers in the Inspector and then detaching an end.
+ * can be authored, including this one, which is otherwise reachable only by
+ * opening a session between two peers in the Inspector and then detaching an
+ * end.
  *
  * It is the opposite of the refusal in `advanceTwoClick`, not an exception to
  * it: a session MINTS its own two ends, so a new end is exactly what it may

@@ -9,7 +9,7 @@ pub const GLOWCAP_RELAY_TRUST_SYSTEM: u32 = 0;
 pub const GLOWCAP_RELAY_TRUST_COPIED_PEM: u32 = 1;
 
 /// Deployment configuration shared by both relay profiles. The resident
-/// copies the URL text it needs; this ABI borrows the fields for construction.
+/// copies the URL text it needs. This ABI borrows the fields for construction.
 pub const GlowcapRelayConfig = extern struct {
     abi_version: u32 = GLOWCAP_RELAY_CONFIG_ABI_VERSION,
     struct_size: usize = @sizeOf(GlowcapRelayConfig),
@@ -20,6 +20,10 @@ pub const GlowcapRelayConfig = extern struct {
     trust: u32 = GLOWCAP_RELAY_TRUST_SYSTEM,
     trust_pem: ?[*]const u8 = null,
     trust_pem_len: usize = 0,
+    /// An advertised dial route to redirect to relay_url. Both must
+    /// reach the same registry. NULL/empty follows every peer hint normally.
+    relay_alias_url: ?[*]const u8 = null,
+    relay_alias_url_len: usize = 0,
 };
 
 pub const Profile = net.relay.ChannelProfile;

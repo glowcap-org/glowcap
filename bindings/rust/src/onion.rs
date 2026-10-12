@@ -1,6 +1,6 @@
 //! The blocking Tor onion transport (the `onion` feature).
 //!
-//! This module wraps `libglowcap_net_transport_onion` — the `glowcap_onion_*`
+//! This module wraps `libglowcap_net_transport_onion`: the `glowcap_onion_*`
 //! archive that the `onion` Cargo feature links (ADR-0059). `onion` is the one
 //! netlayer the OCapN draft standardizes, and the one upstream Spritely Goblins
 //! ships, so it is where a glowcap peer and a Goblins vat meet on ground neither
@@ -66,6 +66,8 @@ error_slot!(
 fn require_archive() -> Result<()> {
 	crate::require_archive_fingerprint(
 		"onion",
+		// SAFETY: `glowcap_onion_archive_fingerprint` takes no arguments and returns a constant of the linked archive;
+		// there is no handle or pointer to keep alive.
 		unsafe { ffi::glowcap_onion_archive_fingerprint() },
 		crate::abi_constants::ONION_ARCHIVE_FINGERPRINT,
 	)
@@ -74,14 +76,14 @@ fn require_archive() -> Result<()> {
 /// How the control endpoint expects to be authenticated.
 ///
 /// These are the three forms a real `torrc` produces. [`Auth::None`] is what an
-/// unauthenticated Unix control socket gives, and what upstream Goblins assumes;
+/// unauthenticated Unix control socket gives, and what upstream Goblins assumes.
 /// [`Auth::Cookie`] is the common default on a distribution's Tor package.
 #[derive(Debug, Clone, Copy, Default)]
 pub enum Auth<'a> {
 	#[default]
 	None,
 	/// The bytes of the file `CookieAuthFile` names, which the transport sends as
-	/// hexadecimal. Read the file yourself; the transport does no I/O of its own
+	/// hexadecimal. Read the file yourself. The transport does no I/O of its own
 	/// to find it.
 	Cookie(&'a [u8]),
 	/// The cleartext of a `HashedControlPassword` setup.
@@ -91,8 +93,8 @@ pub enum Auth<'a> {
 /// Where Tor listens and what to ask it for.
 ///
 /// `socks` is required. Everything else is optional, and the defaults are the
-/// dial-only posture: no control endpoint, so no hosting; no stored key, so a
-/// fresh service; no forward endpoint, so a loopback port glowcap binds and
+/// dial-only posture: no control endpoint, so no hosting. No stored key, so a
+/// fresh service. No forward endpoint, so a loopback port glowcap binds and
 /// reports to Tor.
 #[derive(Debug, Clone)]
 pub struct Config<'a> {
@@ -275,7 +277,7 @@ mod blocking;
 ///
 /// The generic driver owns Tor execution, admission, and accepted-session
 /// pumping. This type exposes only the driver's canonical locator and the
-/// onion provider's opaque restoration key; it does not recreate either value
+/// onion provider's opaque restoration key. It does not recreate either value
 /// from configuration or from the public service id.
 pub struct Server {
 	listener: crate::server::LoopListener,
@@ -305,7 +307,7 @@ impl Server {
 	}
 
 	/// The provider-owned key Tor minted for this service. Empty when Tor
-	/// restored the supplied key instead; retain that supplied key unchanged.
+	/// restored the supplied key instead. Retain that supplied key unchanged.
 	pub fn service_key(&self) -> &[u8] {
 		&self.service_key
 	}
@@ -324,7 +326,7 @@ impl Server {
 	}
 
 	/// Select this listener's locator as the shared Host's advertised
-	/// location; see [`crate::tcp::Server::select`].
+	/// location. See [`crate::tcp::Server::select`].
 	pub fn select(&self) -> Result<()> {
 		self.listener.select()
 	}
@@ -333,7 +335,7 @@ impl Server {
 #[cfg(feature = "async")]
 /// Bind an onion service and return its high-level listener. The shared
 /// `crate::server::bind_loop_listener` spine mints or adopts the Host, puts
-/// the onion provider on its loop, and opens the listener; Tor names the
+/// the onion provider on its loop, and opens the listener. Tor names the
 /// service, so the listener binds an empty designator, and the one
 /// onion-shaped step reads the provider's restoration key off the open
 /// listener.

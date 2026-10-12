@@ -1,6 +1,6 @@
 //! The per-binding client families: one emitter over every `bindings-*`
-//! aggregate — Goblins interop/listen/handoff/gift, iroh loop/handoff/redeem/
-//! reachability, and keyed-tcp restart — with rows ordered deno → python →
+//! aggregate: Goblins interop/listen/handoff/gift, iroh loop/handoff/redeem/
+//! reachability, and keyed-tcp restart, with rows ordered deno → python →
 //! rust → racket wherever a language is present. Native one-off drivers stay
 //! in the goblins family module.
 
@@ -55,7 +55,7 @@ fn addBindingFamily(
 }
 
 /// Keep cold Cargo compilation and Deno dependency resolution outside the
-/// bounded live proof. The row remains the command authority; this derives
+/// bounded live proof. The row remains the command authority. This derives
 /// only the cache/build prefix and never executes the scenario twice.
 fn addClientCaches(b: *std.Build, client: BindingClientRow, run: *std.Build.Step.Run) void {
     for (client.argv, 0..) |word, cargo_index| {
@@ -88,7 +88,7 @@ fn addClientCaches(b: *std.Build, client: BindingClientRow, run: *std.Build.Step
 // One emitter over every `bindings-*` aggregate: Goblins interop/handoff/gift,
 // iroh loop/handoff/redeem/reachability, and keyed-tcp restart. Row order is
 // deno → python → rust → racket wherever a language is present. Native
-// one-offs (`goblins-interop`, `goblins-handoff`, `tcp-loop`) stay above —
+// one-offs (`goblins-interop`, `goblins-handoff`, `tcp-loop`) stay above,
 // they are Zig drivers, not binding clients.
 
 // Each binding drives the same keyed conversation against a real Goblins
@@ -350,7 +350,7 @@ const keyed_tcp_restart_clients = [_]BindingClientRow{
 
 // Keyed-relay rendezvous proof (ADR-0088): the binding cold-dials a
 // registered non-listening peer by key designator through the reference
-// relay's rendezvous bridge — the core classifies the locator as the
+// relay's rendezvous bridge, the core classifies the locator as the
 // rendezvous dial shape, and the host's configured relay mapping opens it.
 // The shared harness stands up the relay and the registered Deno peer.
 const keyed_relay_rendezvous_clients = [_]BindingClientRow{

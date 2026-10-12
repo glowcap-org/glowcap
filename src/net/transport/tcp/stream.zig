@@ -1,7 +1,7 @@
 //! The blocking TCP byte path: where a raw socket becomes an engine
 //! `Connection` or a peer-less `FrameStream`, in both directions.
 //!
-//! It stays thin on purpose. A locator or address becomes a `std.Io.net.Stream`,
+//! It stays thin. A locator or address becomes a `std.Io.net.Stream`,
 //! which the caller's `std.Io` already hands back as a reader and writer. From
 //! there the stream goes to one of two places: a `Connection`, where it's wired to
 //! a borrowed `*engine.Peer` that validates and applies as it reads, or a
@@ -47,7 +47,7 @@ pub const OperationOptions = struct {
     stream: StreamOptions = .{},
 };
 pub const RawConnection = runtime.Connection;
-/// What a raw connect can refuse, in std's own names; `classifyConnect`
+/// What a raw connect can refuse, in std's own names. `classifyConnect`
 /// projects it onto the netlayer's dial vocabulary.
 pub const ConnectRawError = IpAddress.ConnectError || runtime.ConfigurationError;
 
@@ -62,7 +62,7 @@ pub fn connectRaw(
 }
 
 /// One accepted or dialed TCP stream, pinned for the `Connection`'s life. The
-/// shared raw-connection shell; its cost is argued at
+/// shared raw-connection shell. Its cost is argued at
 /// `netlayer_support.PinnedRawStream`.
 const TcpStream = netlayer.PinnedRawStream(runtime.Connection);
 
@@ -75,13 +75,13 @@ pub fn connectionOverRaw(
 
 /// The transport symbol carried in a `model.PeerLocator`. `tcp` is what the
 /// OCapN conformance TCP netlayer (and Goblins' `^tcp-netlayer`) matches on, so
-/// the two peers can address each other; the bytes are cleartext.
+/// the two peers can address each other. The bytes are cleartext.
 const known_transport = model.transport.Known.tcp;
 pub const transport_name = known_transport.metadata().symbol;
 
 /// Open a TCP stream to `address` and weld it to `peer`. `io` is named once,
 /// here, and captured by the connection's stream reader/writer. The caller owns
-/// `read_buf` / `write_buf`; `read_buf` sizes the steady per-connection memory,
+/// `read_buf` / `write_buf`. `read_buf` sizes the steady per-connection memory,
 /// not the largest admissible frame (a larger frame spills, bounded by
 /// `max_frame_bytes`).
 /// Post-admission TCP connect: `address` must already be a host:port admitted
@@ -136,7 +136,7 @@ pub fn locator(designator: []const u8) model.PeerLocator {
 
 /// As `connectAddress`, resolving `locator`'s `host:port` designator (the
 /// `acceptable-location` a peer advertises for reconnect). The locator's
-/// `transport` is expected to be `transport_name`; this is the adapter-level
+/// `transport` is expected to be `transport_name`. This is the adapter-level
 /// mapping from designator to address.
 pub fn connect(
     io: std.Io,
@@ -167,8 +167,8 @@ pub fn connectFrameStream(
 }
 
 /// Project the std connect fault onto the DialError retry axis (ADR-0081): a
-/// refused partner, a missing route, and a timeout are distinct retryable arms;
-/// OutOfMemory is transient local pressure; everything else stays ConnectionLost.
+/// refused partner, a missing route, and a timeout are distinct retryable arms.
+/// OutOfMemory is transient local pressure. Everything else stays ConnectionLost.
 pub fn classifyConnect(err: (ConnectRawError || std.mem.Allocator.Error)) netlayer.DialError {
     return switch (err) {
         error.OutOfMemory => error.OutOfMemory,
@@ -201,7 +201,7 @@ pub fn classifyAccept(err: runtime.AcceptError) netlayer.AcceptError {
 }
 
 /// Profile adapter over the canonical raw TCP listener for the plain `tcp`
-/// profile. It adds only the engine/frame projections; socket ownership and
+/// profile. It adds only the engine/frame projections. Socket ownership and
 /// concurrency stay in `runtime.Listener`.
 pub const Listener = struct {
     profile: profile_listener.Listener,
@@ -269,7 +269,7 @@ pub const Listener = struct {
     }
 
     /// Borrow this typed listener as a contract `netlayer.Listener`. `close` is
-    /// a no-op; the caller still owns this `Listener`.
+    /// a no-op. The caller still owns this `Listener`.
     pub fn asNetlayer(self: *Listener) NetLayerListener {
         return BorrowedShell.listener(self);
     }

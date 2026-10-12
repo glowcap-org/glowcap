@@ -23,10 +23,9 @@ docker network create llm-backend-net  # only if another stack has not created i
 bash .devcontainer/bin/configure.sh --egress-net llm-backend-net
 ```
 
-Custom networks are external authority: startup requires them to exist and
-never creates a misspelled name. Delete the ignored `.devcontainer/.env` and
-run `configure.sh` again to change between the isolated default and a custom
-network.
+Startup requires a custom network to exist and never creates one. Delete the
+ignored `.devcontainer/.env` and run `configure.sh` again to change between the
+isolated default and a custom network.
 
 The Rooms deployment's example override publishes its web surface on host
 loopback port 8080. It shares `glowcap-rooms-net` with the devcontainer.
@@ -35,8 +34,8 @@ Development bindings cannot use host port 8080, even when production is down.
 Development host ports come from one baseline table plus a worktree offset.
 The web baseline is 9080: main uses offset 0, while offsets 10000, 20000,
 and 30000 give web ports 19080, 29080, and 39080. These sets do not overlap.
-The devcontainer reserves its published host ports for its entire lifetime,
-including when no development server is running inside it.
+The devcontainer reserves its published host ports for its whole lifetime,
+even when no development server runs inside it.
 
 Existing ignored `.devcontainer/.env` files keep their assignments when
 `configure.sh` runs. To adopt the development baselines, set the primary
@@ -55,8 +54,8 @@ For each linked worktree, add its offset to all six values above. Preserve
 every checkout's other configuration, including its paths and egress network.
 Check the proposed ports against the host's running containers and listeners,
 then run `bash .devcontainer/bin/up.sh --rebuild` from each changed checkout on
-the host. This recreates that devcontainer and disconnects its sessions;
-it does not change the Rooms deployment or its volumes. Editing `.env` alone
+the host. This recreates that devcontainer and disconnects its sessions.
+It does not change the Rooms deployment or its volumes. Editing `.env` alone
 does not release the old host bindings.
 
 ## How the rooms peer connects
@@ -66,8 +65,8 @@ Inside `glowcap-rooms-net`, a rooms peer fetches its bootstrap locator from
 then dials the returned `ocapn://<nodeid>.iroh` locator through iroh discovery.
 
 Port 8080 serves the browser UI and locator endpoint inside the container.
-CapTP traffic does not travel through that HTTP port. Compose publishes every
+CapTP traffic uses a different port. Compose publishes every
 canonical service port onto host loopback at the host port selected in this
-worktree's ignored `.env`; the editor does not add a second forwarding layer.
+worktree's ignored `.env`.
 Publishing on loopback leaves the same port numbers free on the machine's
 tailnet addresses for a listener such as Tailscale Serve.

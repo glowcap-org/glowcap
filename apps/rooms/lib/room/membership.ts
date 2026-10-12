@@ -14,10 +14,10 @@ export function isRoomMembershipKind(value: unknown): value is RoomMembershipKin
 
 /** What `subscribe` answers: the membership seat, which kind of seat it is,
  * and two facets the room hands over or withholds. Every later membership
- * verb (`post`, `leave`, `away`, `typing`) goes to the seat, never to the
+ * verb (`post`, `leave`, `away`, `typing`) goes to the seat and not to the
  * room reference the seat was answered for. `topic` is the authority to set
  * what the room is about. `files` is the authority to stage files against the
- * room's storage and publish them, which `attach` and `postFiles` go to; a
+ * room's storage and publish them, which `attach` and `postFiles` go to. A
  * room that cannot hold bytes answers null there, and a client that holds
  * nothing draws no attach control. */
 export interface RoomMembershipAnswer {

@@ -16,7 +16,7 @@ const SessionOptions = client.SessionOptions;
 /// Dial the peer `locator` names into one owned session: build a private
 /// single-session host under `identity` over the transports `transports`
 /// names, dial, and pump the keyed handshake under `opts.handshake`. The
-/// returned `*Session` is freed by `Session.deinit`; whatever `transports`
+/// returned `*Session` is freed by `Session.deinit`. Whatever `transports`
 /// borrows must outlive the whole session, because later handoff redemption
 /// dials through the same runtime. Multi-session applications build one
 /// `driver.HostRuntime` and adopt its sessions instead.

@@ -2,21 +2,21 @@
 //! served from one readiness loop (ADR-0057), the Rust sibling of the Zig
 //! `zig build iroh-loop` gate.
 //!
-//! The iroh netlayer has one I/O model — an event-driven readiness loop. This
+//! The iroh netlayer has one I/O model: an event-driven readiness loop. This
 //! gate proves it through the binding: one [`Server`] runs a single readiness
 //! loop (an `AsyncFd` over the endpoint's readiness fd, ADR-0057) and serves
 //! every accepted connection's peer from the one tokio current-thread runtime.
 //! Many clients dial it at once, each over its own iroh endpoint, fetch the
 //! published greeter, and call it several times. Every reply must come back
-//! correct — so the one server loop is provably multiplexing all the connections
+//! correct: so the one server loop is provably multiplexing all the connections
 //! at once.
 //!
 //! It exercises the whole loop surface live through the binding: the readiness
 //! fd, the records `drain_ready` returns, non-blocking `try_accept`, and
 //! `try_read` / `try_write` with their `WOULD_BLOCK` re-arming. Teardown is
-//! non-blocking by construction — no parked read races a release.
+//! non-blocking by construction: no parked read races a release.
 //!
-//! Needs `cargo` plus the iroh ABI companion library (`zig build iroh-abi`); run
+//! Needs `cargo` plus the iroh ABI companion library (`zig build iroh-abi`). Run
 //! via `zig build rust-iroh-loop`.
 
 use std::rc::Rc;

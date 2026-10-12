@@ -1,14 +1,14 @@
 # OCapN protocol diagrams
 
 These pages draw OCapN and CapTP one transaction or state change at a time.
-Start with the topic you need; the diagram IDs are stable, so tests and design
+Start with the topic you need. The diagram IDs are stable, so tests and design
 notes can cite one directly.
 
 The [OCapN draft specifications](https://github.com/ocapn/ocapn/tree/main/draft-specifications)
 are the main source. Diagrams marked `[goblins-canonical]` show behavior from a
 live Spritely Goblins peer where the draft has not caught up. Diagrams marked
 `[glowcap-next]` show glowcap's negotiated prototype vocabulary
-([ADR-0125](../decisions/adr/ADR-0125-identity-route-multihome.md)); the
+([ADR-0125](../decisions/adr/ADR-0125-identity-route-multihome.md)). The
 pinned draft does not specify it, and a baseline session never sees it.
 
 ## Conventions

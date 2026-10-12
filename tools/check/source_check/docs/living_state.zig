@@ -1,7 +1,7 @@
 //! The living-state registry: every surface that describes the repository as
-//! it is now and must change in the same diff as the state it describes. The
+//! it is and must change in the same diff as the state it describes. The
 //! [doc-drift rule](../../../../.agents/rules/doc-drift.md) governs these
-//! surfaces; `registry.zig` holds this table to the tree in both directions.
+//! surfaces, `registry.zig` holds this table to the tree in both directions.
 //! A glob entry covers every path under its fixed prefix.
 
 pub const surfaces = [_][]const u8{

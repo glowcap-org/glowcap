@@ -70,7 +70,7 @@ pub const Runtime = opaque {
 
     /// Load the platform trust store once, copy its validated DER certificates
     /// into Mbed TLS, then release the filesystem/Keychain scan. Connections
-    /// share only the resulting immutable runtime; none rescans the process
+    /// share only the resulting immutable runtime. None rescans the process
     /// environment or retains a path.
     pub fn initSystemRoots(io: std.Io, allocator: std.mem.Allocator) InitOutcome {
         var bundle: std.crypto.Certificate.Bundle = .empty;
@@ -193,8 +193,8 @@ fn runtimeInit(io: std.Io, allocator: std.mem.Allocator, trust: TrustSource) Ini
     } };
 }
 
-/// Open a client engine. The hostname is both SNI and the verification name;
-/// passing a resolved address in its place is a caller contract bug.
+/// Open a client engine. The hostname is both SNI and the verification name.
+/// Passing a resolved address in its place is a caller contract bug.
 fn runtimeOpen(self: *RuntimeImpl, hostname: []const u8) OpenOutcome {
     if (!validHostname(hostname)) return failedOpen(error.InvalidTlsHostname, null);
     const implementation = self.allocator.create(ClientImpl) catch
@@ -376,7 +376,7 @@ fn parseDerRoots(roots: *c.mbedtls_x509_crt, bytes: []const u8) ParseTrustOutcom
 }
 
 /// Length of one definite-length DER object, including tag and length bytes.
-/// The platform bundle has already validated each certificate; this framing
+/// The platform bundle has already validated each certificate. This framing
 /// walk exists only because Mbed TLS accepts one DER certificate per call.
 fn derObjectLength(bytes: []const u8) ?usize {
     if (bytes.len < 2 or bytes[0] != 0x30) return null;

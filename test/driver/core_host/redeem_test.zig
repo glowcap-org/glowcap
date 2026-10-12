@@ -274,7 +274,7 @@ test "core host: select-or-dial enlivens over a live session, and parks on a sta
     try std.testing.expectEqual(@as(usize, 0), dials.items.len);
 
     // DIAL: an unreached peer parks the enliven on a staged dial, which
-    // reaches the embedder as the ordinary `dial` action — one ticket space,
+    // reaches the embedder as the ordinary `dial` action, one ticket space,
     // so the embedder's dial arm is unchanged.
     var second = test_host.init(allocator, @as([32]u8, @splat(0x0c)), Host.Options.withFrameCap(frame_cap));
     defer second.deinit();
@@ -361,7 +361,7 @@ test "core host: a select-or-dial enliven breaks when its staged dial fails" {
     _ = dials.orderedRemove(0);
 
     // The embedder could not open it: the parked vow breaks rather than
-    // stranding, and it breaks host-scoped — no session ever existed.
+    // stranding, and it breaks host-scoped, no session ever existed.
     try client.dialFailed(ticket, 0, "connection refused");
     var broke = false;
     while (try client.nextAction()) |action| {

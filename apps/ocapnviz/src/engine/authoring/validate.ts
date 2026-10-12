@@ -1,7 +1,7 @@
 /**
  * Pre-flight an intent without mutating the engine.
  *
- * `Engine.validate` is the door; this module is the check. Today it
+ * `Engine.validate` is the door. This module is the check. Today it
  * covers rename collisions and a user-supplied `add-peer` id, which
  * the ToolOptionsBar surfaces inline before the drop. Paste still
  * validates inside `cascadePaste`.

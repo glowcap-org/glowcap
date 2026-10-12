@@ -129,7 +129,7 @@ async fn uncertain_erase_keeps_bytes_until_the_committed_journal_is_recovered() 
 	fs::rename(temp.file(), &backup).unwrap();
 	fs::create_dir(temp.file()).unwrap();
 	// The journal write's outcome was never observed, so the caller is told the
-	// state is unknown rather than that the erase simply failed.
+	// state is unknown rather than that the erase failed.
 	assert!(matches!(
 		archive.clear().await.unwrap_err(),
 		rooms_runtime::Error::Uncertain(_)

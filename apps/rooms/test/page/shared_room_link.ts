@@ -2,7 +2,7 @@
 
 // A room sturdyref pasted into an attached view remains room authority. The
 // durable workspace, not that browser, owns the directory session and the room
-// membership; every attached view receives the resulting conversation.
+// membership. Every attached view receives the resulting conversation.
 
 import type { Page } from "playwright";
 import { Directory, Room } from "../../lib/room/client.ts";
@@ -27,7 +27,7 @@ export async function proveSharedRoomLink(directory: Directory, views: readonly 
 		await joining.fill("#nick", "durable-member");
 		await joining.click("#joinBtn");
 		for (const view of views) {
-			await namedRoomRow(view, ROOM).waitFor({ timeout: 30_000 })
+			await namedRoomRow(view, ROOM, true, "membership-joined").waitFor({ timeout: 30_000 })
 				.catch(async () => {
 					const states = await Promise.all(views.map((page) => page.evaluate(() => document.body.innerText)));
 					fail(
@@ -36,6 +36,12 @@ export async function proveSharedRoomLink(directory: Directory, views: readonly 
 						}`,
 					);
 				});
+			// Acquisition can project before navigation commits. Both viewers must
+			// observe the completed opening before the next scene opens a form.
+			await view.waitForFunction((room) => {
+				const line = document.querySelector<HTMLTextAreaElement>("#line");
+				return document.querySelector("#roomName")?.textContent === room && line != null && !line.disabled;
+			}, ROOM);
 		}
 	} finally {
 		await witness.leave();

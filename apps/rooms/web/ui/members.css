@@ -30,7 +30,7 @@
 		transform: none;
 	}
 }
-/* Drawn by the label rule both rails share; only the heading's own default
+/* Drawn by the label rule both rails share. Only the heading's own default
    margin is this list's to answer for. */
 .members h2 {
 	margin: 0;
@@ -48,22 +48,22 @@
 	display: flex;
 	flex-direction: column;
 	gap: var(--gap-hair);
-	/* Content of the pane, not a scroller of its own — `.members-body` is
+	/* Content of the pane, not a scroller of its own, `.members-body` is
 	   the region that scrolls, the way `.sidebar-body` is on the other side. */
 	flex: none;
 }
 /* The rail's row, with a presence dot where a room has its sigil and a person's
-   name where a room has its own. The mark column is the rail's; the gap after
+   name where a room has its own. The mark column is the rail's. The gap after
    it is the page's --mark-gap, so a name here starts on the same vertical as a
    name in the other rail. */
 #members li {
 	display: grid;
 	/* One cell, and everything in the row stands in it. The direct-line mark is
-	   a sibling of the row's own button, never inside it — a control within a
-	   control is a shape no assistive software can announce — but it stands
+	   a sibling of the row's own button, never inside it, a control within a
+	   control is a shape no assistive software can announce, but it stands
 	   over the same cell rather than in a column beside it. So the button is
 	   the row's full width, and pointing anywhere along the row is pointing at
-	   one thing. The rooms rail is built this way; the two lists a reader sees
+	   one thing. The rooms rail is built this way. The two lists a reader sees
 	   side by side now answer a pointer alike. */
 	grid-template-columns: minmax(0, 1fr);
 	position: relative;

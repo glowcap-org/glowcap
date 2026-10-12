@@ -1,10 +1,9 @@
 /**
  * Event-side helpers for the engine. Pure functions over
- * `TimelineEvent`; no dependencies on the engine or the world.
+ * `TimelineEvent`. No dependencies on the engine or the world.
  *
- * Reference-walking used to live here too (`eventReferencesPeer`
- * etc.) — that knowledge has moved to the schema-driven primitives
- * in `engine/schema/`. For ref walks, use `findEventRefs` from
+ * Reference-walking lives in the schema-driven primitives in `engine/schema/`,
+ * not here. For ref walks, use `findEventRefs` from
  * `engine/schema/walk.ts` instead.
  */
 
@@ -22,11 +21,11 @@ import { type EngineError, validationError } from "./errors.ts";
 import { endpointStageId, SESSION_SIDES } from "../schema/session-end.ts";
 
 /** Generic order-by-rowOrder. Listed ids come first in the given
- * order; unlisted items keep their original (insertion) order
+ * order. Unlisted items keep their original (insertion) order
  * behind. Unknown ids in the override (e.g. a saved entry whose
  * entity no longer exists) are silently dropped. Used by the
  * Engine's `orderedPeers/Sessions/Messages` so ECS consumers
- * don't have to remember to sort; also reused by `applyRowOrder`
+ * don't have to remember to sort. Also reused by `applyRowOrder`
  * for the id-only call sites in the Timeline. */
 export function orderByRowOrder<T>(
 	items: readonly T[],
@@ -52,7 +51,7 @@ export function orderByRowOrder<T>(
 	return result;
 }
 
-/** Id-list specialization of `orderByRowOrder` — same contract,
+/** Id-list specialization of `orderByRowOrder`, same contract,
  * shorter call site for the common case where the input is
  * already a list of ids (Timeline lane bundles, etc.). */
 export function applyRowOrder(
@@ -63,7 +62,7 @@ export function applyRowOrder(
 }
 
 /** Find a `message-sent` event by id, scanning the doc. The world
- * only carries in-flight messages; once delivered they're gone, but
+ * only carries in-flight messages. Once delivered they're gone, but
  * the doc still has them and that's what `update-message` wants. */
 export function findMessageInDoc(
 	doc: TimelineDocument,
@@ -90,9 +89,9 @@ export function findPeerJoinedEvent(
 	return null;
 }
 
-/** A peer's authored position — the pin the force layouts hold.
+/** A peer's authored position. The pin the force layouts hold.
  * Definition first (source of truth), `peer-joined` event mirror
- * second; null means the layout owns the peer's placement. The one
+ * second. Null means the layout owns the peer's placement. The one
  * lookup the no-op guards and the Inspector share. */
 export function authoredPeerPosition(
 	doc: TimelineDocument,
@@ -155,13 +154,13 @@ export function findPeerLeftEvent(
  *
  * Two kinds, and they say different things: the peer DEPARTED
  * (`left`, a fact about the network), or the viewer stopped being
- * able to see it (`unobserved`, the viewer losing it — the network
+ * able to see it (`unobserved`, the viewer losing it, the network
  * said nothing).
  *
  * A row has ONE ending, so every reader that needs "when did this
  * stop" asks here rather than remembering how many kinds there are.
  * The earliest wins, which is the rule the projection derives the
- * span from — that is the point of one answer. */
+ * span from. That is the point of one answer. */
 export function peerEnding(
 	doc: TimelineDocument,
 	peerId: string,
@@ -183,7 +182,7 @@ export function peerEnding(
 /** The moment an observation is, or null when it is not one: which
  * lane it paints on and which entity it belongs to. A session's
  * state change belongs to its session, a peer's update to its peer,
- * and an update that states nothing changes nothing — so it is not a
+ * and an update that states nothing changes nothing. So it is not a
  * moment at all.
  *
  * One function, read by everything with an opinion about diamonds:
@@ -210,12 +209,12 @@ export function momentOf(
 	return null;
 }
 
-/** Every update observation on a peer's trajectory, in time order —
+/** Every update observation on a peer's trajectory, in time order,
  * the moments it restated something about itself, which the
  * projection turns into its keyframe tracks. Reads the observations
  * rather than those tracks because the Inspector addresses each
  * moment by the event it came from. Updates that state nothing are
- * left out; `trajectory.ts` decides what counts. */
+ * left out, `trajectory.ts` decides what counts. */
 export function findPeerUpdateEvents(
 	doc: TimelineDocument,
 	peerId: string,
@@ -236,7 +235,7 @@ export function findPeerUpdateEvents(
 /** One row per property a peer stated, in the order the Inspector
  * and the timeline list them: by moment, then by the property order
  * `trajectory.ts` declares. One observation can state several
- * properties at one instant, and each gets its own row — a row is
+ * properties at one instant, and each gets its own row. A row is
  * "this property took this value here", which is what the reader is
  * looking at. */
 export function peerTrajectoryRows(
@@ -277,8 +276,8 @@ export function findSessionClosedEvent(
 }
 
 /** Where each moving event will land, by event id. One gesture
- * moves a whole entity — a peer with its updates and its departure,
- * a session with its state changes and its close — so an ordering
+ * moves a whole entity, a peer with its updates and its departure,
+ * a session with its state changes and its close, so an ordering
  * check reads a partner's time through this map. */
 export type PlannedTimes = ReadonlyMap<string, number>;
 
@@ -293,7 +292,7 @@ function plannedTimeOf(
 
 /** Validate that moving `ev` to `newT` doesn't violate the doc's
  * pairing / lifecycle ordering. Used by `move-event`. Returns `null`
- * when the move is OK; an `EngineError` the caller can surface
+ * when the move is OK. An `EngineError` the caller can surface
  * verbatim through `ctx.emitError` when the move would invert a
  * required ordering.
  *
@@ -322,7 +321,7 @@ export function checkMoveOrdering(
 			}
 		}
 	}
-	// An update must stay inside the peer's life — a peer cannot take
+	// An update must stay inside the peer's life. A peer cannot take
 	// a value before it arrives.
 	if (ev.kind === "peer-updated") {
 		const joined = events.find(
@@ -339,7 +338,7 @@ export function checkMoveOrdering(
 		}
 	}
 	// Every moment on a session's trajectory, and its close, must stay
-	// after its session-opened — a session cannot change state or gain
+	// after its session-opened. A session cannot change state or gain
 	// an end before it exists. Which observations are moments comes from
 	// `trajectory.ts`, so a fourth session property is covered here the
 	// day it is declared.
@@ -394,7 +393,7 @@ export function checkDeliveredOrdering(
 ): EngineError | null {
 	const delivered = events.find((e) => e.id === deliveredEventId);
 	if (!delivered || delivered.kind !== "message-delivered") return null;
-	// Find the matching send + the session-closed (if any) — a
+	// Find the matching send + the session-closed (if any), a
 	// delivered must precede a session-closed for its session.
 	const sent = events.find(
 		(e) => e.kind === "message-sent" && e.messageId === delivered.messageId,

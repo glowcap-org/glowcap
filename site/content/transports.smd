@@ -1,6 +1,6 @@
 ---
 .title = "Transports",
-.description = "A transport carries CapTP between two peers. The session above it stays the same; what changes is how a peer is named and how the bytes travel.",
+.description = "A transport carries CapTP between two peers. The session above it stays the same. What changes is how a peer is named and how the bytes travel.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
@@ -11,9 +11,6 @@ call, promises, and handoffs stay the same no matter which one you pick.
 What changes is how you name a peer and how the bytes get there: encrypted
 QUIC, a sealed TCP stream, a Tor circuit, a browser DataChannel, or a
 cleartext testing socket.
-
-Application code holds capabilities. A netlayer only moves the frames those
-capabilities travel in.
 
 # How a peer is named
 
@@ -32,11 +29,9 @@ locators and sturdyrefs in full.
 
 # What proves who answered
 
-Every CapTP session signs its hello with a fresh key. That
-signature proves the CapTP handshake held together. It does not prove who the
-durable peer is.
-
-Who answered is a fact the channel has to supply. On
+Every CapTP session signs its hello with a fresh key. That signature holds the
+handshake together but does not prove who the durable peer is. The channel has
+to supply that. On
 [Noise]($link.page('transports/noise')), completing the handshake proves the
 dialed key. On [iroh]($link.page('transports/iroh')), the QUIC handshake
 authenticates the node id. On [WebRTC]($link.page('transports/webrtc')), the
@@ -47,16 +42,11 @@ that proves possession of it.
 
 # Picking one
 
-How far you can trust a netlayer is about that byte path, not about whether
-CapTP works on it. Cleartext keyed transports still speak CapTP. Anyone who can
-see the path can also read and alter every frame.
-
+CapTP works the same on every netlayer, but on a cleartext one anyone who can
+see the path can read and alter every frame.
 [Choosing a transport]($link.page('transports/choosing')) is the decision
-table: every symbol glowcap ships, when to reach for it, how far you can trust
-it, and what the path proves. The Noise, iroh, WebRTC, and onion pages cover
-setup once you know which path you want. A browser that cannot open a native
-socket uses the [relay]($link.page('relay')) as a WebSocket that forwards bytes
-to a peer that already has a transport name.
+table. A browser that cannot open a native socket uses the
+[relay]($link.page('relay')).
 
 One program can listen on several of these at once, but a standard locator
 names one transport, so two listeners look like two peers. [Multi-home peers]($link.page('multihome'))

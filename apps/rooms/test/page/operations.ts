@@ -5,7 +5,7 @@
 // While anything is held, an Operations control leads the Settings head's
 // toggle row from the left and stands the reader on the /ops page: one
 // address per held capability, a pane nav from two onward, never a take form
-// inside a held pane — and an address arrived at cold gates on possession.
+// inside a held pane, and an address arrived at cold gates on possession.
 // The page keeps the shell: the rail stays, Settings opens over it, and the
 // rail's active row is the way back. The listeners
 // pane then has to tell the truth twice over: the listener serving this very
@@ -226,7 +226,7 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	await tab.click("#opsCapabilitySetSave");
 	await tab.waitForFunction(() =>
 		document.querySelectorAll('.capability-set-errors .said[data-kind="failure"]').length === 1 &&
-		!document.getElementById("opsCapabilitySetSave")?.hasAttribute("data-busy")
+		document.querySelector("#opsCapabilitySetSave:not([disabled])") !== null
 	);
 	if (
 		await tab.locator("#opsBtn").count() !== 0 ||
@@ -261,7 +261,7 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 	if (granted.checked !== "true") fail("a successful take did not land the toggle on");
 	if (granted.leads !== true) fail("the Operations control does not lead the toggle row from the left");
 
-	// One held capability: the page is that pane alone — no pane navigation, no take
+	// One held capability: the page is that pane alone, no pane navigation, no take
 	// form, one row per transport seat the server itself listed, each with the
 	// owning package's description. The serving tcp listener is up with a
 	// disabled switch and the marker, its locator there to copy; a seat the
@@ -277,7 +277,7 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 		fail("standing on operations still marks a room selected in the rail");
 	}
 	if (await tab.$("#opsNav") !== null) fail("one held capability still drew pane navigation");
-	if (await tab.$("#capabilityValueSwiss") !== null) fail("a held pane still carried the bundle value editor");
+	if (await tab.$("#capabilityValueUri") !== null) fail("a held pane still carried the bundle value editor");
 	await tab.waitForSelector("#listenersList");
 	const shown = await tab.evaluate(() => {
 		const row = (transport: string) => {
@@ -341,7 +341,7 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 		fail("a refused up still landed the keyed-relay switch on");
 	}
 
-	// Pointed back at this page's own relay — the field's prefilled default —
+	// Pointed back at this page's own relay, the field's prefilled default,
 	// the same switch brings a real rendezvous listener up, its locator
 	// naming the relay route, and takes it down again.
 	const ownRelay = await tab.evaluate(() =>
@@ -506,7 +506,7 @@ export async function run(tab: Page, statePath: string, foreignLocator: string):
 
 	// A reload keeps only what the reader asked this browser to remember: the
 	// listeners swiss auto-redeems on the home session coming up, so its
-	// toggle is simply on; diagnostics was removed from the saved set.
+	// toggle is on; diagnostics was removed from the saved set.
 	const before = await rememberedCaps();
 	if (before.length !== 1) fail(`expected exactly the listeners swiss remembered: ${JSON.stringify(before)}`);
 	await tab.reload();

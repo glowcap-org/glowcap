@@ -172,6 +172,7 @@ pub fn check(
     try ui.checkUiThemeParity(io, gpa, root, &violations);
     try rooms_ui.checkRoomsSelectors(io, gpa, root, &violations);
     try rooms_ui.checkRoomsTextCatalog(io, gpa, root, &violations);
+    try rooms_ui.checkRoomsTextVoice(io, gpa, root, &violations);
     try prose_file_claims.checkProseFileClaims(io, gpa, root, &violations);
     try rooms_session_access.checkRoomsSessionAccess(io, gpa, root, &violations);
     try rooms_rust_tasks.checkRoomsRustTasks(io, gpa, root, &violations);
@@ -379,4 +380,6 @@ test {
     _ = zig_docs;
     _ = signing_domain;
     _ = util;
+    _ = @import("source_check/docs/reader_voice.zig");
+    _ = @import("source_check/rooms_ui/text_voice.zig");
 }

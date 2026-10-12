@@ -1,13 +1,13 @@
 /**
- * Playback — the engine's only runtime mutator besides authoring.
+ * Playback, the engine's only runtime mutator besides authoring.
  *
  * Owns the playhead loop: drain intents, advance the clock, fold the
  * document into the world, and rebuild the frame's shared geometry so
  * layout and message flight read the same tables. The Engine remains
- * the public door (`tick`, `enqueue`, `seekTo`, `restart`); this
- * module holds the private loop state those methods used to keep.
+ * the public door (`tick`, `enqueue`, `seekTo`, `restart`). This module holds
+ * the private loop state those methods share.
  *
- * Document edits, undo, and builder dispatch stay off this class —
+ * Document edits, undo, and builder dispatch stay off this class,
  * they change what there is to play, not how a frame is produced.
  */
 
@@ -35,7 +35,7 @@ import type { GameWorld } from "./world.ts";
 /**
  * What playback needs from the Engine: the live document and the
  * systems that draw a frame from it. Projection may replace the doc
- * object; `rebindDoc` keeps authoring in step when that happens.
+ * object, `rebindDoc` keeps authoring in step when that happens.
  */
 export type PlaybackHost = {
 	getDoc(): TimelineDocument;
@@ -58,15 +58,15 @@ export class Playback {
 	// `tick()` skip per-frame interpolation when nothing moved
 	// (paused, no seek). NaN sentinel so the first tick always runs.
 	#lastUpdateT = Number.NaN;
-	/** Claim/bundle tables for the last stage update — Stage projects
+	/** Claim/bundle tables for the last stage update, Stage projects
 	 *  from these so flight and edges do not rebuild the same maps. */
 	#frameGeometry: FrameGeometry = EMPTY_FRAME_GEOMETRY;
 	/** Time bundles are observation-shaped. Playback and mid-drag leave
-	 *  observations alone, so the table stays; seek and a document
+	 *  observations alone, so the table stays. Seek and a document
 	 *  change mark it dirty and the next stage pass rebuilds. */
 	#timeBundlesDirty = true;
 	/** Claim targets + session bundles are membership-shaped. A playing
-	 *  frame that only lerps positions leaves them alone; materialize
+	 *  frame that only lerps positions leaves them alone. Materialize
 	 *  reports when the standing set changed. */
 	#pairTablesDirty = true;
 	#intents: EngineIntent[] = [];
@@ -79,7 +79,7 @@ export class Playback {
 		return this.#frameGeometry;
 	}
 
-	/** Observation edits land through Engine `#notify`; the next stage
+	/** Observation edits land through Engine `#notify`. The next stage
 	 *  pass must not keep simultaneity slots from the previous document. */
 	markDocumentChanged(): void {
 		this.#timeBundlesDirty = true;
@@ -93,13 +93,13 @@ export class Playback {
 
 	/** Advance by `wallDt` ms. The only runtime mutator. Returns simDt. */
 	tick(wallDt: number): number {
-		// Notify only when something observable changed — paused frames
+		// Notify only when something observable changed, paused frames
 		// would otherwise wake every `useEngineVersion` subscriber 60Hz
 		// for nothing.
 		let dirty = this.#intents.length > 0;
 		// Every authoring intent edits the document, so a non-empty queue counts as
 		// a document change without anyone reading the intents to find out. The
-		// default runs this way round on purpose: over-reporting costs a re-render
+		// default runs this way round: over-reporting costs a re-render
 		// nobody needed, while under-reporting leaves a panel showing a document
 		// that is no longer there.
 		let docChanged = this.#intents.length > 0;
@@ -107,7 +107,7 @@ export class Playback {
 			try {
 				this.#applyIntent(intent);
 			} catch (caught) {
-				// Keep draining — one bad intent shouldn't strand the rest of
+				// Keep draining. One bad intent shouldn't strand the rest of
 				// the queue. The error surfaces via `onError`; the UI decides
 				// whether to toast or modal based on the code.
 				this.host.emitError(internalError(caught));
@@ -128,7 +128,7 @@ export class Playback {
 			}
 			dirty = true;
 		}
-		// Skip layout / message updates when `t` hasn't advanced —
+		// Skip layout / message updates when `t` hasn't advanced,
 		// paused frames or repeated ticks at the same t would otherwise
 		// reinterpolate every peer back to the same coords.
 		if (tNow !== this.#lastUpdateT) {
@@ -161,7 +161,7 @@ export class Playback {
 	 * materialize reports a topology change or the document dirties claims.
 	 * Time bundles are observation-shaped: memoized across playback and
 	 * mid-drag. Session curves depend on positions, so they are rebuilt every
-	 * pass — once per session — and shared by flight and the Stage.
+	 * pass, once per session, and shared by flight and the Stage.
 	 */
 	runStageSystems(t: number): void {
 		this.host.layout.update(this.host.world, t);
@@ -295,7 +295,7 @@ export class Playback {
 	}
 
 	/** Fold the document forward to `toT`, and report whether the document
-	 *  itself changed on the way — which in playback is never, and in live mode
+	 *  itself changed on the way, which in playback is never, and in live mode
 	 *  is whenever an observation arrived. */
 	#drainEvents(fromT: number, toT: number): boolean {
 		// Reconciler-based replay: rather than walking events from
@@ -307,7 +307,7 @@ export class Playback {
 		// A recompute is warranted by the DOCUMENT changing, because that is the
 		// whole of what the keyframes are derived from: `recompute` reads the doc
 		// and the config and nothing else, and `KeyframeLayoutSystem.claims` says
-		// so where it is declared. Projection is what knows — it returns a fresh
+		// so where it is declared. Projection is what knows. It returns a fresh
 		// doc when it touched something and the original when it did not.
 		//
 		// Which topology the world holds AT `toT` is a different fact, and it was
@@ -357,7 +357,7 @@ export class Playback {
 	#resetWorld(): void {
 		for (const e of [...this.host.world]) this.host.world.remove(e);
 		this.#prevT = 0;
-		// Force the next tick's layout / messages update to run — the
+		// Force the next tick's layout / messages update to run, the
 		// entity world is empty so the cached "already updated for
 		// this t" promise no longer holds.
 		this.#lastUpdateT = Number.NaN;

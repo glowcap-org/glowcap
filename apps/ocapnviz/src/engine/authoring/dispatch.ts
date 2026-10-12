@@ -4,7 +4,7 @@
  * `Engine.dispatch` still owns snapshot, undo, and rollback. This module
  * owns the routing: spawn, entity authoring, visibility, rename, and the
  * four placement commands that must refresh the stage the same frame.
- * Those four stay a narrow host because a pin is not a ctx write — it
+ * Those four stay a narrow host because a pin is not a ctx write, it
  * recomputes layout and re-runs messages so in-flight dots follow the
  * dragged wire.
  */

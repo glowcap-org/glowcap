@@ -23,7 +23,7 @@ pub const RouteUriView = struct {
 };
 
 /// Allocation-free route-list reader shared by Session admission and the
-/// owned dial parser. URI and query-dictionary shape are complete here; a
+/// owned dial parser. URI and query-dictionary shape are complete here. A
 /// transport owner applies its own designator and hint semantics afterward.
 pub const RouteListIterator = struct {
     split: std.mem.SplitIterator(u8, .scalar),
@@ -56,18 +56,25 @@ pub fn validateCombinedListBytes(first: []const u8, second: []const u8) ViewErro
     if (total > max_route_list_bytes) return error.UnparseableLocator;
 }
 
-/// Available only to spans that came out of `uri_shape.inspect`, whose first
-/// act validates every escape in the whole URI: a `%` here always has two hex
-/// digits behind it, and that guarantee makes the slice and the parse
-/// infallible.
+/// One decoded byte at `at`, advancing past it. Every span that reaches here
+/// came through `uri_shape.inspect`, which refuses a `%` without two hex
+/// digits behind it, so the escape branch is the only one a validated span
+/// takes. The decoder still checks the two digits itself: a span that
+/// skipped that gate reads a bad or truncated escape as the literal `%`
+/// instead of slicing past the end, so this function is total and no caller
+/// has to remember the gate.
 fn decodedByte(bytes: []const u8, at: *usize) u8 {
-    if (bytes[at.*] != '%') {
-        defer at.* += 1;
-        return bytes[at.*];
+    const byte = bytes[at.*];
+    if (byte == '%' and at.* + 2 < bytes.len) {
+        const high = std.fmt.charToDigit(bytes[at.* + 1], 16) catch null;
+        const low = std.fmt.charToDigit(bytes[at.* + 2], 16) catch null;
+        if (high != null and low != null) {
+            at.* += 3;
+            return (high.? << 4) | low.?;
+        }
     }
-    const value = std.fmt.parseInt(u8, bytes[at.* + 1 .. at.* + 3], 16) catch unreachable;
-    at.* += 3;
-    return value;
+    at.* += 1;
+    return byte;
 }
 
 fn decodedEqual(left: []const u8, right: []const u8) bool {
@@ -87,7 +94,7 @@ fn decodedContains(bytes: []const u8, needle: u8) bool {
 
 /// The names of a route query's `name=value` segments, in order. An empty query
 /// is an empty hint map (the owned parser in `model.uri` reads it the same
-/// way), so it yields nothing rather than one nameless segment; a segment with
+/// way), so it yields nothing rather than one nameless segment. A segment with
 /// no `=` is a refusal, never an invariant. Both readers below walk a query
 /// through this one iterator, so they cannot disagree about what a segment
 /// is.
@@ -156,7 +163,7 @@ fn inspectRouteUri(uri_text: []const u8) ViewError!RouteUriView {
     };
 }
 
-/// One parsed dial path. Every field is owned by the enclosing bundle; `hints`
+/// One parsed dial path. Every field is owned by the enclosing bundle. `hints`
 /// stays complete because transport-specific residents may consume entries the
 /// generic dial planner does not know.
 pub const Path = struct {
@@ -251,7 +258,7 @@ fn pathHintsEqual(left: Path, right: Path) bool {
 }
 
 /// Whether two bundles would execute the same ordered physical dial plan.
-/// Canonical peer identity deliberately excludes hints; pending work may share
+/// Canonical peer identity excludes hints. Pending work may share
 /// that identity only when its retained route advice is also identical.
 pub fn samePaths(left: Owned, right: Owned) bool {
     if (left.paths.len != right.paths.len or
@@ -381,7 +388,7 @@ fn fromOwnedPrimary(
 }
 
 /// Parse the exporter URI a handoff give carried. The existing `alt-locators`
-/// hint remains fallback advice; this function only moves its parser and limits
+/// hint remains fallback advice. This function only moves its parser and limits
 /// to the route-bundle authority.
 pub fn fromExporterUri(
     allocator: std.mem.Allocator,
@@ -406,7 +413,7 @@ pub fn fromPeerLocator(
 }
 
 /// Build a route bundle by consuming an already-owned locator on every
-/// outcome. Non-id primary storage moves directly into the first path; id
+/// outcome. Non-id primary storage moves directly into the first path. Id
 /// storage is released after its concrete route list has been materialized.
 pub fn fromOwnedPeerLocator(
     allocator: std.mem.Allocator,
@@ -423,8 +430,8 @@ pub fn fromOwnedPeerLocator(
     return fromOwnedPrimary(allocator, locator, model.transport.hint_alt_locators);
 }
 
-/// Parse the id locator skin. Its designator is the peer identity;
-/// concrete carrier locators live in one required route-list hint.
+/// Parse the id locator skin. Its designator is the peer identity.
+/// Concrete carrier locators live in one required route-list hint.
 pub fn fromIdLocator(
     allocator: std.mem.Allocator,
     locator: model.PeerLocator,

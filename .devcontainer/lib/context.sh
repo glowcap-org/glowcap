@@ -2,8 +2,8 @@
 # Which side of the container boundary a shell is on.
 #
 # The image exports GLOWCAP_DEVCONTAINER_DIR, present both during the build
-# and inherited by every process in the running container — an attached
-# editor shell and a docker exec alike — so that one variable decides the
+# and inherited by every process in the running container, an attached
+# editor shell and a docker exec alike, so that one variable decides the
 # question. /.dockerenv and REMOTE_CONTAINERS deliberately do not count:
 # they mark any container at all, and a container that runs its own Docker
 # daemon (a cloud workspace, Docker-in-Docker) is a host for these scripts,

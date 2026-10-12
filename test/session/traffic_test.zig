@@ -201,7 +201,7 @@ test "inbound deliver reusing a live answer position is UnexpectedMessage" {
     try s.recordRecv(first);
 
     // Same answer still live (pending): a second wire deliver is a protocol
-    // violation, refused on recv — not deferred to our outbound resolve.
+    // violation, refused on recv, not deferred to our outbound resolve.
     const replay = model.Message{ .deliver = .{
         .target = .{ .near = .{ .export_position = .from(7) } },
         .args = &.{},
@@ -293,7 +293,7 @@ test "inbound deliver targets enforce descriptor role and answer liveness atomic
     try std.testing.expect(s.inboundAnswer(.from(1)) == null);
     try std.testing.expect(!s.hasImport(.from(9)));
 
-    // An answer descriptor must name a row the partner previously opened. As
+    // An answer descriptor must name a row the partner opened. As
     // above, refusal is pre-commit on the owned and borrowed paths.
     const dead_answer = model.Message{ .deliver = .{
         .target = .{ .promise = .{ .answer_position = .from(77) } },
@@ -360,9 +360,9 @@ test "partner introductions accept the complete u64 import space" {
 
 test "a reference inside a Struct argument crosses every session walk" {
     // Struct entries carry full argument values (ADR-0046), so a reference can
-    // ride inside one. Regression guard: the argument walkers previously
-    // recursed through list/set/tagged but skipped struct entries, so a
-    // struct-wrapped reference dodged outbound validation, introduced-import
+    // ride inside one. Every argument walker must recurse through struct
+    // entries as well as list/set/tagged, or a struct-wrapped reference dodges
+    // outbound validation, introduced-import
     // installation, and sent-export retention.
     const allocator = std.testing.allocator;
 
@@ -437,7 +437,7 @@ test "send-side deliver nested past max_nesting_depth is refused before any expo
 
     // args = [ near(1), list(list([])) ]. The walk validates the shallow near
     // first (which apply would retain), then the over-deep list. Deciding
-    // `NestingTooDeep` in validate — before apply mutates — keeps the retain
+    // `NestingTooDeep` in validate, before apply mutates, keeps the retain
     // walk all-or-nothing: export 1's refcount must be untouched.
     const too_deep = model.Message{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
@@ -470,7 +470,7 @@ test "send-side resolve fulfill nested past max_nesting_depth is refused before 
 
     // We resolve it with fulfill = list([ near(1), list(list([])) ]). The retain
     // walk would descend the list, retain the shallow near (export 1), then hit
-    // the over-deep sublist and trip NestingTooDeep — mid-mutation. Deciding the
+    // the over-deep sublist and trip NestingTooDeep, mid-mutation. Deciding the
     // depth in validate, before apply retains, keeps it all-or-nothing: export
     // 1's refcount must be untouched. This is the resolve twin of the deliver
     // depth guard; the fix that closed the deliver path had left this one open.

@@ -29,8 +29,8 @@ engineTest("an end attaches to a peer from a moment onward", () => {
 
 engineTest("every attribution a recording can hold can be authored", () => {
 	// The claim Build mode makes, held mechanically rather than in prose.
-	// A recording says what backed an end in two places — at the session's
-	// birth and at the moment something backed it — and a live producer
+	// A recording says what backed an end in two places, at the session's
+	// birth and at the moment something backed it, and a live producer
 	// reaches only some of the words: `verified-handoff` arrives partway
 	// through a session that opened loose, and nothing else can say it.
 	// So both places are authored here, for every word the schema admits,
@@ -86,7 +86,7 @@ engineTest(
 		// peer change must not quietly unsay the attribution beside it. The
 		// genesis end has behaved this way since it had an attribution at all
 		// (`updateSessionEndpoint` patches field by field), and a moment is the
-		// same end at a later time — two answers here would be the same
+		// same end at a later time, two answers here would be the same
 		// question answered twice.
 		const e = new Engine(looseDoc());
 		e.setSessionKeyframe("s1", "b", 3000, {

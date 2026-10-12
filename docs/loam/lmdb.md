@@ -1,9 +1,7 @@
 # LMDB operations
 
-LMDB is Loam's on-disk backend for Zig, C and Rust. This guide covers adding
-it to a build, watching how full a store is, growing and compacting it,
-closing it, and measuring it. [Stores, transactions and reads](store.md)
-covers the Store contract that every backend shares.
+LMDB is Loam's on-disk backend for Zig, C and Rust. [Stores, transactions and
+reads](store.md) covers the Store contract that every backend shares.
 
 ## Adding the backend
 
@@ -43,14 +41,14 @@ unchanged.
 `Lmdb.grow(new_map_bytes)` enlarges the map between backend operations. It
 refuses while another backend operation is active, and blocks new operations
 while it remaps. A held Loam record lease stays usable because it owns copied
-bytes. Choose a larger page-aligned size and commit normally; the next
-successful write persists the new map setting. Choosing the size belongs to
-your storage budget. Loam never retries with an unbounded map.
+bytes. Choose a larger page-aligned size and commit normally. The next
+successful write persists the new map setting. The size comes from your storage
+budget, and Loam never retries with an unbounded map.
 
 Settle outstanding write outcomes before any maintenance. If remapping fails,
 `ReopenRequired` fences the backend, because the old mapping may be gone.
 Close and reopen the backend and its Store through the normal opening path,
-rather than continuing with mapped memory that may be invalid.
+because the mapped memory may be invalid.
 
 ## Shrinking the file
 
@@ -96,29 +94,29 @@ holds the environment. Finish or abort that operation, join its worker, and
 close again.
 
 The lifetime lock file stays in the directory after close, so two processes
-can never lock different files at the same path. This advisory lock, BSD
-`flock` on macOS and Linux, coordinates cooperating Loam adapters for the
-whole time a store is open. Close explicitly releases the lock even while a
-spawned child retains inherited descriptors before exec. Native storage handles
-belong to their creating process and cannot be used in a forked child.
-LMDB separately serializes write transactions.
-Every writer must go through the adapter so Loam's cached state stays current;
-writing to the LMDB file directly is outside this profile.
+cannot lock different files at the same path. This advisory lock, BSD `flock` on
+macOS and Linux, coordinates cooperating Loam adapters for the whole time a
+store is open. Close explicitly releases the lock even while a spawned child
+retains inherited descriptors before exec. Storage handles belong to their
+creating process and cannot be used in a forked child. LMDB separately
+serializes write transactions. Every writer must go through the adapter so
+Loam's cached state stays current. Writing to the LMDB file directly is outside
+this profile.
 
 ## Measuring a workload
 
 `zig build bench-loam -Doptimize=ReleaseFast` runs ordinary actors and managed
 resources through the shipped Host, Vat and LMDB interfaces. It measures:
 
-- hot and cold calls, and unchanged records after edits;
-- wakeup bursts, and collection beside queued reads;
+- hot and cold calls, and unchanged records after edits
+- wakeup bursts, and collection beside queued reads
 - managed resource creation, use and control issuance, control chains, moves,
   child iteration, receipt-backed content edits and grant revocation, at
-  shallow and deep ancestry;
+  shallow and deep ancestry
 - sustained ordinary and managed calls on a shared four-worker executor, with
-  deterministic admission refusal and unrelated actor progress;
+  deterministic admission refusal and unrelated actor progress
 - foreign restoration through byte-fed sessions, larger held-facet working
-  sets, and offline compaction.
+  sets, and offline compaction
 
 Its smoke run, part of `zig build check`, validates replies, warm-record
 reuse, commit counts, revocation refusal and complete Zig memory release.

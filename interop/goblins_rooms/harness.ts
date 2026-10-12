@@ -2,7 +2,7 @@
 // both profiles at once.
 //
 // Every peer in a room is a glowcap peer, so the rooms fleet prefers glowcap's
-// own CapTP profile — `glowcap-next` over Cap'n Proto — and this run keeps one
+// own CapTP profile, `glowcap-next` over Cap'n Proto, and this run keeps one
 // glowcap member in the room to hold that end. The other member is a genuine
 // Goblins vat (`conformance/goblins-peer/racket/rooms-member.rkt`), which
 // speaks the OCapN v1.0 baseline over Syrup and nothing else. Since ADR-0103
@@ -15,7 +15,7 @@
 //      member's line come back through the capability the room calls it on.
 //   2. The glowcap member heard the Goblins vat's line the same way.
 //   3. The two sessions settled on *different* profiles. The proof is the
-//      server's own trace stream — the one ocapnviz's Live mode reads — where
+//      server's own trace stream, the one ocapnviz's Live mode reads, where
 //      each `ocapn.session-opened` names the codec and CapTP version the
 //      handshake decided, and the `ocapn.session-meta` the room emits when a
 //      member subscribes names which member that session carries.
@@ -23,7 +23,7 @@
 //      two ends name the session identically. The vat is pointed at the
 //      endpoint with `GLOWCAP_ROOMS_TRACE_URL`, so the wire it holds is described twice,
 //      once from each side. A viewer draws one edge per OCapN Session ID, and
-//      neither end is ever told that name — each derives it from the two
+//      neither end is ever told that name, each derives it from the two
 //      session keys the handshake exchanged. So this is where glowcap's
 //      derivation and Goblins's are held to the same bytes, and where the vat
 //      stops being a loose end on the picture.
@@ -72,7 +72,7 @@ function fail(message: string): never {
 /** Read the server's stderr until it announces its trace capability, then keep
  * draining it to the log so anything the server says afterwards is visible when
  * a member fails. The room's own locator comes off stdout through
- * `readAnnouncedLocator`; this is the other announcement, and it is a sturdyref
+ * `readAnnouncedLocator`. This is the other announcement, and it is a sturdyref
  * rather than an address: a viewer enlivens it, and it names where the endpoint
  * listens for the producers that write to it. */
 async function awaitTraceSturdyref(stream: ReadableStream<Uint8Array>): Promise<string> {
@@ -117,7 +117,7 @@ async function drainToLog(
 
 /** What the trace said about one session: the profile its handshake settled on,
  * the member the room annotated it with, and the two things that only matter
- * once more than one peer is reporting — who reported it, and the OCapN Session
+ * once more than one peer is reporting, who reported it, and the OCapN Session
  * ID both ends of it derive. */
 interface SessionRow {
 	codec?: string;
@@ -180,11 +180,11 @@ function sessionOf(rows: Map<string, SessionRow>, label: string): SessionRow {
 /** The one session the Goblins vat reported about ITSELF, or a failure naming
  * what the trace did hold instead.
  *
- * The room server reports every session it carries; the vat reports the one it
+ * The room server reports every session it carries. The vat reports the one it
  * holds. Both views reach this endpoint, and `a_profile` is what tells them
- * apart — the room server says `glowcap` of its own end, the vat says
+ * apart: the room server says `glowcap` of its own end, the vat says
  * `goblins`. Nothing else on a record can: the two views of one wire agree on
- * the session id by design, which is the whole point of it. */
+ * the session id, which is the whole point of it. */
 function vatSelfReport(rows: Map<string, SessionRow>): SessionRow {
 	const found = [...rows.values()].filter((r) => r.selfProfile === GOBLINS_PROFILE);
 	if (found.length !== 1) {
@@ -213,7 +213,7 @@ function expectProfile(
 }
 
 /** The transport and its proof are separate trace facts. An iroh connection
- * proves the endpoint key that answered; cleartext TCP names only an address. */
+ * proves the endpoint key that answered, cleartext TCP names only an address. */
 function expectTransport(row: SessionRow, label: string): void {
 	const transport = IROH ? "iroh" : "tcp";
 	const provenance = IROH ? "authenticated-transport" : "unauthenticated";
@@ -326,7 +326,7 @@ try {
 	// The vat is a PRODUCER here, not only a member: `GLOWCAP_ROOMS_TRACE_URL` above points
 	// it at the same endpoint the server publishes to, so the wire it holds is
 	// reported from both of its ends. What has to hold is that the two reports
-	// name one wire and not two — a viewer draws one edge per OCapN Session ID,
+	// name one wire and not two, a viewer draws one edge per OCapN Session ID,
 	// so if the vat and the server derived that name differently the room would
 	// be drawn with the vat twice over, once as a peer and once as a loose end.
 	//

@@ -3,8 +3,8 @@
 //! On every receive, a codec lays a borrowed `Body` over the decoded frame
 //! instead of building the whole owned `model.Message` tree. This view is the one
 //! shape both codecs produce, and it's the only message shape the engine looks
-//! at; the engine never touches a codec's private view types. You build the
-//! owned tree (`Body.toOwned`) only when you actually need a message to outlive
+//! at. The engine never touches a codec's private view types. You build the
+//! owned tree (`Body.toOwned`) only when you need a message to outlive
 //! its frame.
 //!
 //! ## Lifetimes, and how the lists work
@@ -17,7 +17,7 @@
 //! tiny table of `len` and `at` functions the codec hands it. That's what lets
 //! the view walk a list lazily without allocating a box per list, and it's also
 //! why this file never imports `codec`: the codec owns the parsing, the view just
-//! dispatches into it. On the owned-fallback path the backing is simply a slice.
+//! dispatches into it. On the owned-fallback path the backing is a slice.
 //!
 //! Nested containers (`Argument.list`, `.set`, `.tagged`) are themselves `Args`,
 //! so the whole tree stays borrowed and allocation-free right up until you call
@@ -50,7 +50,7 @@ pub const Error = ProjectError || std.mem.Allocator.Error;
 // ── Lazy sequences ───────────────────────────────────────────────────────────
 
 /// Codec-private cursor borrowing wire memory, shared by every lazy sequence.
-/// `bytes` is the codec's view of the list region; `w0`/`w1`/`w2` are
+/// `bytes` is the codec's view of the list region. `w0`/`w1`/`w2` are
 /// codec-interpreted scalars (e.g. a word offset, element stride, and element
 /// count). One shared type, so a codec can build a cursor once and hand it to
 /// `Args` or `PositionList` alike.
@@ -67,9 +67,9 @@ const SequenceCtx = struct {
 /// A sequence is backed one of two ways: by a plain `slice` of owned elements
 /// (the fallback path), or by a small codec-supplied table that reads them
 /// straight off the wire. Either way you only ever see `len`, `at`, and
-/// `iterator`; which backing it is stays hidden.
+/// `iterator`, which backing it is stays hidden.
 ///
-/// `OwnedElem` is the owned model element; `ViewElem` is its borrowed
+/// `OwnedElem` is the owned model element. `ViewElem` is its borrowed
 /// projection. When the two are the same type (the POD `u64` positions), the
 /// projection is the identity and materializing allocates nothing per element.
 fn LazySequence(comptime OwnedElem: type, comptime ViewElem: type) type {
@@ -85,11 +85,16 @@ fn LazySequence(comptime OwnedElem: type, comptime ViewElem: type) type {
 
         pub const Ctx = SequenceCtx;
 
+        /// An iterator position belonging to this immutable sequence. Save it
+        /// before `next` to revisit that member without scanning the prefix.
+        /// Tokens must come from this sequence. They are not element indices.
+        pub const Checkpoint = enum(u64) { _ };
+
         pub const VTable = struct {
             len: *const fn (Ctx) ProjectError!usize,
             at: *const fn (Ctx, usize) ProjectError!ViewElem,
             /// Forward cursor: read the element at the codec-interpreted `cursor`,
-            /// advance `cursor` past it, and return it; return `null` at the end.
+            /// advance `cursor` past it, and return it. Return `null` at the end.
             /// The single forward walk replaces a loop of `at(i)`, which on a
             /// byte-framed codec re-scans from the start each call (O(n^2)).
             next: *const fn (Ctx, *u64) ProjectError!?ViewElem,
@@ -108,6 +113,13 @@ fn LazySequence(comptime OwnedElem: type, comptime ViewElem: type) type {
                 slice: struct { items: []const OwnedElem, index: usize },
                 backed: struct { backed: Backed, cursor: u64 },
             },
+
+            pub fn checkpoint(self: *const Iterator) Checkpoint {
+                return @fromBackingInt(@intCast(switch (self.inner) {
+                    .slice => |s| s.index,
+                    .backed => |b| b.cursor,
+                }));
+            }
 
             pub fn next(self: *Iterator) ProjectError!?ViewElem {
                 switch (self.inner) {
@@ -181,6 +193,21 @@ fn LazySequence(comptime OwnedElem: type, comptime ViewElem: type) type {
             return switch (self.inner) {
                 .slice => |s| if (index < s.len) project(&s[index]) else error.MalformedView,
                 .backed => |b| b.vtable.at(b.ctx, index),
+            };
+        }
+
+        /// Project one member saved by this sequence's iterator. End positions
+        /// are refused. Replaying a codec-backed member costs its projection,
+        /// which can scan a nested value, but never the preceding members.
+        pub fn atCheckpoint(self: Self, checkpoint: Checkpoint) ProjectError!ViewElem {
+            const position = @backingInt(checkpoint);
+            const index = std.math.cast(usize, position) orelse return error.MalformedView;
+            return switch (self.inner) {
+                .slice => |s| if (index < s.len) project(&s[index]) else error.MalformedView,
+                .backed => |b| blk: {
+                    var cursor = position;
+                    break :blk (try b.vtable.next(b.ctx, &cursor)) orelse error.MalformedView;
+                },
             };
         }
 
@@ -268,12 +295,12 @@ pub const PromiseRef = struct {
 };
 
 /// Borrowed mirror of `model.Reference`. `near` / `far` carry POD ids by
-/// value; `sturdy` / `broken` borrow wire bytes.
+/// value. `sturdy` / `broken` borrow wire bytes.
 pub const Reference = union(enum) {
     near: model.NearRef,
     far: model.FarRef,
-    /// Borrowed projection of a node-local route. Codecs never decode this arm;
-    /// it exists so copying an application-owned value before Node lowering
+    /// Borrowed projection of a node-local route. Codecs never decode this arm.
+    /// It exists so copying an application-owned value before Node lowering
     /// preserves the explicit namespace without inventing a wire position.
     routed: model.RoutedRef,
     promise: PromiseRef,

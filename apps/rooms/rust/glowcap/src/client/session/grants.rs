@@ -2,7 +2,7 @@ use super::*;
 use rooms_application::grants::{Rights, protocol};
 
 /// A connection-scoped facet and the authority to revoke it. Dropping this
-/// handle releases local custody; only an acknowledged revoke or connection
+/// handle releases local custody. Only an acknowledged revoke or connection
 /// retirement revokes copies already passed to another holder.
 pub struct Facet<D> {
 	pub session: Session<D>,

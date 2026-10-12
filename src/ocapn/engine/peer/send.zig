@@ -3,7 +3,7 @@
 //! This is the Peer send chokepoint: semantic recording happens once through
 //! `engine/outbound.zig`, multi-hop delivery decomposition rejoins that same
 //! path, and encoding transfers one owned frame to the outbound queue. It adds
-//! no scheduler or storage authority; Peer and Session remain the owners.
+//! no scheduler or storage authority. Peer and Session remain the owners.
 
 const codec = @import("codec");
 const foundation = @import("foundation");
@@ -22,7 +22,7 @@ const Peer = engine.Peer;
 /// peer after `step` encodes them (or here, if recording fails). A settlement
 /// message is the exception: its resolution moves into the answer store at
 /// record time (`Session.applySentResolve`). V1.0 later encodes a resolver
-/// callback; next notifies the mandatory listener. The store frees it on
+/// callback. Next notifies the mandatory listener. The store frees it on
 /// overwrite or answer teardown. Borrowed or static input goes through
 /// `sendCopying` instead.
 pub fn send(self: *Peer, message: model.Message) !void {
@@ -94,7 +94,7 @@ pub fn pushEncoded(self: *Peer, message: model.Message) !void {
 }
 
 /// Encode the front staged carrier without removing it. Encoding and queue
-/// capacity may fail while the carrier remains retryable; the caller consumes
+/// capacity may fail while the carrier remains retryable. The caller consumes
 /// it only after this succeeds. No waterline stands here: the carrier's bytes
 /// were admitted at staging, and completion is what lets retained state drain
 /// (see `outbound/budget.zig`).

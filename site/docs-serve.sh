@@ -5,19 +5,19 @@
 # `zig build … docs-serve` from `site/`, which in turn launches Zine's
 # development server as a long-running grandchild. `zig build` does not
 # reap that subtree when it is interrupted, so the Zine server is easily left
-# orphaned — reparented to init, still bound to its port and serving stale
+# orphaned: reparented to init, still bound to its port and serving stale
 # content. We have repeatedly seen such orphans outlive the session.
 #
 # This launcher makes the teardown explicit. It runs the inner build in its own
-# process group and reaps that whole group — TERM, then KILL after a short
-# grace — on two triggers:
-#   1. a stop signal delivered to this launcher (INT/TERM/HUP) — the terminal
+# process group and reaps that whole group, TERM, then KILL after a short
+# grace, on two triggers:
+#   1. a stop signal delivered to this launcher (INT/TERM/HUP), the terminal
 #      Ctrl-C / close case, where the signal reaches every member of the
 #      foreground process group, this launcher included; and
-#   2. the disappearance of an ancestor build process — the "kill the build by
+#   2. the disappearance of an ancestor build process, the "kill the build by
 #      pid" / IDE-kill-terminal case, where the signal never reaches this
 #      launcher, detected by a background watcher.
-# It is the lifecycle detail of an existing step, not a new user command — the
+# It is the lifecycle detail of an existing step, not a new user command, the
 # public `zig build docs-serve` is unchanged.
 #
 # It also keeps generated site example tabs fresh. Zine watches `site/content`
@@ -27,13 +27,13 @@
 # preview does not stay stale until someone remembers the gen step. Expensive
 # steps such as `bench-site-report` stay opt-in.
 #
-# Residual limit: SIGKILL is untrappable — a SIGKILL of this launcher (or of an
+# Residual limit: SIGKILL is untrappable, a SIGKILL of this launcher (or of an
 # ancestor in a way that never lets the watcher run) cannot be intercepted, and
 # the isolated inner group may briefly outlive it. Likewise, a bare single-pid
 # SIGINT to a `zig build docs-serve` that was started as a *background* job is
 # masked by the shell's job-control SIGINT handling (async jobs inherit SIGINT
-# ignored) and so never reaches this subtree; an interactive terminal — Ctrl-C,
-# or any foreground signal — is unaffected and tears down cleanly.
+# ignored) and so never reaches this subtree; an interactive terminal, Ctrl-C,
+# or any foreground signal, is unaffected and tears down cleanly.
 #
 # Usage: docs-serve.sh <zig-exe> <build-args…>
 #   e.g. docs-serve.sh /usr/local/bin/zig --cache-dir <cache> \
@@ -127,7 +127,7 @@ examples_watch_loop &
 examples_watcher=$!
 
 # The inner build needs its own process group, so that the reap below can signal
-# the whole subtree — the inner zig build runner and the Zine server it spawns —
+# the whole subtree, the inner zig build runner and the Zine server it spawns,
 # as a unit, without touching this launcher's own group and so never signalling
 # the user's shell. Bash's job control does exactly that: with `set -m`, every
 # job bash starts becomes a process-group leader, so the child's pid is also the
@@ -140,7 +140,7 @@ examples_watcher=$!
 # have detached it. Nothing here wants that detachment: a terminal signal goes
 # to the foreground process group, which is this launcher's and not the inner
 # one, so the traps below are still what tears the server down, and a terminal
-# that disappears entirely can now reach the inner group too, which only helps.
+# that disappears entirely can reach the inner group too, which only helps.
 #
 # Zine's first `docs-serve` compiles the `zine` binary. `zig build` prints
 # nothing until that finishes, which looks like a hang. Say so before the

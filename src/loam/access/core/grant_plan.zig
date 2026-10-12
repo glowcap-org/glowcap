@@ -45,8 +45,8 @@ pub const GrantPlan = struct {
         event: types.Change,
     };
 
-    /// Trusted owner preparation. A fresh ID is reserved by the storage owner;
-    /// null denotes exhausted issuance capacity. The plan copies only changed
+    /// Trusted owner preparation. A fresh ID is reserved by the storage owner.
+    /// Null denotes exhausted issuance capacity. The plan copies only changed
     /// selections. No lifecycle edit allocates and no event is published here.
     /// The owner must reserve/check the base revision through commit. This
     /// value neither locks storage nor proves authority to submit a command.

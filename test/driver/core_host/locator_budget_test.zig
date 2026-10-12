@@ -1,5 +1,5 @@
 //! Host route preparation borrows until Node retains one independent snapshot.
-//! Warmed replacement excludes catalog growth; failure injection covers every
+//! Warmed replacement excludes catalog growth. Failure injection covers every
 //! allocation in replacement, including hint scratch beyond its inline budget.
 const std = @import("std");
 const glowcap = @import("glowcap");

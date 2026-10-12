@@ -43,6 +43,8 @@ const PreparedHome = struct {
 
     fn commit(self: *PreparedHome, node: *Node, provisional: bool) void {
         self.proxy.provisional = provisional;
+        // `prepare` found the home peer in this dispatch; only `abandon` may
+        // run after it is gone.
         const home = node.peer(self.key.home) orelse unreachable;
         home.session_state.recordPreparedSend(self.message);
         home.pushPendingAssume(self.reservation, .{ .message = self.message });
@@ -86,6 +88,7 @@ const PreparedRecipient = struct {
     }
 
     fn commit(self: *PreparedRecipient, node: *Node) void {
+        // `Prepared.commit` commits the home before its recipients.
         const proxy = node.promise_proxies.getPtr(self.home_key) orelse unreachable;
         proxy.recipients.appendAssumeCapacity(.{
             .peer = self.peer,

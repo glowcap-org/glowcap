@@ -72,7 +72,7 @@ async def run() -> None:
         "(pkarr-published; no direct addrs shared)"
     )
 
-    # ── Client: dial by node id ALONE — empty hints — over real n0 discovery ──────
+    # ── Client: dial by node id ALONE, empty hints, over real n0 discovery ──────
     runtime = await Runtime.open(provider=provider(IrohConfig(Reachability.DISCOVERY)))
     client = await runtime.connect(format_peer_uri(TRANSPORT_IROH, server_id))
     print("python-iroh-reachability: client dialed by node id alone and opened the keyed session")

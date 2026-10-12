@@ -34,6 +34,10 @@
 				<p>Start Rooms on your machine, join as two people, talk to someone with the room out of it, and open your session on your phone.</p>
 			</div>
 		</a>
+		<a class="card" href="$site.page('rooms/directories').link()">
+			<h2>Rooms across directories</h2>
+			<p>Hold rooms on any number of servers and message anyone you meet in them. The servers never link to each other.</p>
+		</a>
 		<a class="card" href="$site.page('rooms/architecture').link()">
 			<h2>How Rooms works</h2>
 			<p>Why a room is something you hold, what a click promises, how your browser is a peer, and how the code is divided.</p>

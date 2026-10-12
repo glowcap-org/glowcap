@@ -19,9 +19,9 @@ tab.
 | `rooms-services` | The room server, the session peer, the archive peer, the IRC bridge and front, the web front, and the interactive client | the four above |
 | `rooms-product` | Private executable entry points, workspace and roster supervision, and process proofs | `rooms-services` and its lower layers |
 | `rooms-browser` | The browser side of the adapters and the exports the page calls: session controllers, IndexedDB storage, WebRTC signaling, transports | `rooms-application`, `rooms-glowcap`, `rooms-runtime`, the Rust browser binding |
-| `rooms-contract-proofs` | The application contracts replayed from recorded fixtures, natively and as browser Wasm | `rooms-application`; the Rust binding on both targets |
+| `rooms-contract-proofs` | The application contracts replayed from recorded fixtures, natively and as browser Wasm | `rooms-application`. The Rust binding on both targets |
 
-`rooms-application` decides; the other crates carry its decisions to a host.
+`rooms-application` decides. The other crates carry its decisions to a host.
 A behavior that can be decided without a runtime belongs in the application
 crate, with a fixture that proves it on both targets. The dependency
 direction is held by `zig build source-check`: a service dependency never
@@ -50,20 +50,20 @@ record the boundary.
   blob digests, retention, merging across keepers, and shares.
 - `content::session` declares managed workspace, custody and effect schemas,
   permission requirements, presets and typed result routing. Shared Loam owns
-  grant semantics; `rooms-runtime::session::managed` owns receipt execution and
+  grant semantics. `rooms-runtime::session::managed` owns receipt execution and
   worker supervision. The [session guide](../../../docs/rooms/session.md) maps
   the production consumers.
 - `bridge`, `direct`, `directory`, and `signaling` are the wire vocabularies,
   each with its bounded reader and writer.
 - `server` is what a Rooms server hosts:
   - the server document, with its identity seed and room links (`document`,
-    `links`);
+    `links`)
   - the directory, and the live rooms with their members, lines, files,
-    invitations, and entrances;
-  - history retention;
+    invitations, and entrances
+  - history retention
   - operations: the journal, listener seats, the diagnostic snapshot, and the
-    operator inventories and pages;
-  - peering, IRC, and the live timeline.
+    operator inventories and pages
+  - peering, IRC, and the live timeline
 
    Connections and capabilities appear here only as the adapter's
   keys and tokens. Every verb returns the notices, releases, and history
@@ -79,10 +79,10 @@ them to another form. `ArgumentView` finds the capabilities an argument
 carries, so a verb can refuse ones it does not accept. Each client under
 `client` validates the replies to its verbs and owns what it keeps:
 
-- a membership subscribes and waits for its seat;
-- a line keeps its own authority, separate from the membership;
-- a file transfer advances only when acknowledged;
-- an invitation keeps one receipt across retries.
+- a membership subscribes and waits for its seat
+- a line keeps its own authority, separate from the membership
+- a file transfer advances only when acknowledged
+- an invitation keeps one receipt across retries
 `client::session` is the attached-session client: snapshots, watch delivery,
 commands, checkpoint replacement, files, grants, and archive shares. The
 clients take their deadlines and task spawning from the caller, so they run
@@ -159,7 +159,7 @@ fixtures, with optimization level 1, no LTO, and 16 codegen units. Native
 fixtures have a separate Cargo target directory and install as
 `zig-out/libexec/rooms-web-proof` and `rooms-server-proof`. Their sibling layout
 preserves shared-library discovery. Managed room and
-sharing journeys link `rooms-browser` directly; fixture contracts link their
+sharing journeys link `rooms-browser` directly. Fixture contracts link their
 own module. Each has separate generated glue and artifacts. Deployment builds
 keep the `release` profile, while native tests consume libraries without unused
 shared-library links. Channel proofs supply their module and start the native
@@ -168,7 +168,7 @@ web front with browser asset preparation disabled.
 Running a test binary by hand needs glowcap's shared libraries on the
 loader path: from `apps/rooms/rust`,
 `LD_LIBRARY_PATH=../../../zig-out/lib cargo test -p rooms-services --features processes`.
-Process tests live in `rooms-product`; `zig build rooms-peers-test rooms-web-test`
+Process tests live in `rooms-product`. `zig build rooms-peers-test rooms-web-test`
 supplies their installed runtimes and prepared assets. `zig build rooms-build` stages the complete installation,
 including private runtimes under `libexec` and prepared browser assets.
 

@@ -8,9 +8,9 @@
 //!
 //! `popHead` and `compactHead` are those rules, once. Both queue types in this
 //! engine ride them: the peer's four per-connection queues and the reserved
-//! FIFO below. They are separate types because their surfaces genuinely differ — one needs
+//! FIFO below. They are separate types because their surfaces differ, one needs
 //! `peek` and `backPtr` for the outbound spine, the other needs `unpopped` for
-//! a teardown sweep and infallible reserved appends — but there is one
+//! a teardown sweep and infallible reserved appends, but there is one
 //! implementation of the part that is the same, so their compaction and
 //! reclaim rules cannot drift apart again.
 //!
@@ -20,7 +20,7 @@
 //! is a byte count rather than a row count, so the bound means the same thing
 //! whatever `T` is.
 //!
-//! Rows are plain values; the FIFO owns the backing storage and nothing inside
+//! Rows are plain values. The FIFO owns the backing storage and nothing inside
 //! a row, so each owner keeps its own free choreography (a deferred last-popped
 //! free, a teardown sweep over `unpopped`) where its lifetime contract is
 //! visible.
@@ -45,7 +45,7 @@ pub fn compactHead(
 /// Dequeue the front row of a head-indexed queue, or null when it is drained.
 ///
 /// This is the whole shared mechanism. On an empty observation the head rewinds
-/// and burst capacity above `steady_bytes` is freed; the reclaim runs on every
+/// and burst capacity above `steady_bytes` is freed. The reclaim runs on every
 /// empty observation rather than only when the head is ahead, because the slide
 /// below can consume the last row with the head already at zero. On an ordinary
 /// pop, a dead prefix that has grown to dominate the backing slides forward, so
@@ -100,7 +100,7 @@ pub fn ActionFifo(comptime T: type) type {
         }
 
         /// Reserve room for `rows` more pushes so a later `pushReserved`
-        /// cannot fail — the fallible half of an infallible-fire contract.
+        /// cannot fail, the fallible half of an infallible-fire contract.
         pub fn reserve(self: *Self, allocator: std.mem.Allocator, rows: usize) !void {
             if (rows > self.list.capacity - self.list.items.len) compactHead(T, &self.list, &self.head);
             try self.list.ensureUnusedCapacity(allocator, rows);
@@ -150,7 +150,7 @@ pub fn ActionFifo(comptime T: type) type {
 
         /// Remove one live row by its offset within `unpopped`, preserving the
         /// order of every other row. Transaction rollback uses this after an
-        /// infallible reserved push whose later work failed; it never allocates
+        /// infallible reserved push whose later work failed. It never allocates
         /// and never touches rows already handed to a consumer.
         pub fn removeUnpopped(self: *Self, offset: usize) T {
             std.debug.assert(offset < self.list.items.len - self.head);

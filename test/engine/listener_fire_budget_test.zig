@@ -5,12 +5,12 @@
 //! fire queues a POD carrier (`engine.Outbound.listener_fire`). Queue-time
 //! session accounting runs on a borrowed stack message over the *stored*
 //! resolution, and `Peer.step` borrows the store back through `peekResolution`
-//! to encode. One stored resolution serves N listeners with no clone anywhere;
-//! each one-shot callback is immediately followed by the `op:gc-exports` that
+//! to encode. One stored resolution serves N listeners with no clone anywhere.
+//! Each one-shot callback is immediately followed by the `op:gc-exports` that
 //! releases its listener import. The only allocations in the fire window are
 //! those frame encodes plus fixed queue bookkeeping, pinned exactly below.
 //!
-//! `op:gc-answers` releases the partner's pipelining position; it does not
+//! `op:gc-answers` releases the partner's pipelining position. It does not
 //! cancel a listener already accepted under `op:listen`. A queued fire owns a
 //! reference to the exact answer incarnation, so GC and legal position reuse
 //! neither silence it nor redirect it to the replacement row.
@@ -27,7 +27,7 @@ const session = glowcap.ocapn.session;
 const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAllocator;
 const peer_fixture = @import("../support/peer_fixture.zig");
 
-/// A next peer. Settlement itself stays internal; only registered listener
+/// A next peer. Settlement itself stays internal. Only registered listener
 /// callbacks cross the wire.
 fn preSpecPeer(gpa: std.mem.Allocator) engine.Peer {
     return peer_fixture.openPeer(gpa);
@@ -39,7 +39,7 @@ const deliver_opening_answer = "<10'op:deliver<11'desc:export7+>[]42+>";
 
 /// One inbound `op:listen` on answer 42 nominating partner import-object `P` as
 /// the listener (the partner introduces its listener object as a descriptor we
-/// import; the fire reaches it as a far deliver).
+/// import. The fire reaches it as a far deliver).
 fn listenFrame(comptime position: []const u8) []const u8 {
     return "<9'op:listen<11'desc:answer42+><18'desc:import-object" ++ position ++ "+>3+>";
 }
@@ -99,12 +99,12 @@ test "resolving an answer with three listeners copies the resolution payload zer
 
     // The measured window: record the settlement, queue and encode all
     // three listener fires. Every stage is pinned separately so a drift names
-    // its own culprit — and none of the counts below is a payload copy.
+    // its own culprit, and none of the counts below is a payload copy.
     counter.allocs = 0;
     try peer.send(.{ .resolve = .{ .answer = .from(42), .resolution = resolution } });
     // 1: `pending_send` first-growth for the queued resolve carrier. The
     // resolution *moved* into the answer's payload row, which the listen
-    // installs already created — zero store allocations, zero copies.
+    // installs already created, zero store allocations, zero copies.
     try std.testing.expectEqual(@as(usize, 1), counter.allocs);
 
     // Apply the settlement, drain the listener table, and queue the three POD
@@ -122,7 +122,7 @@ test "resolving an answer with three listeners copies the resolution payload zer
     while ((try peer.step()) != .idle) {}
     // 8: six frame encodes at the codec's pinned 1 each (callback plus listener
     // release), and two `outbound` backing growths while publishing three
-    // atomic pairs. Zero per-listener payload clones — a reintroduced clone
+    // atomic pairs. Zero per-listener payload clones, a reintroduced clone
     // path would add 3+ here and fail.
     try std.testing.expectEqual(@as(usize, 8), counter.allocs);
 
@@ -488,7 +488,7 @@ test "answer-position reuse neither cancels nor redirects an accepted listener f
     }
 
     // We resolve the new question before the stale fire encodes, so the
-    // reused row holds "new" — the payload the stale fire must never ship
+    // reused row holds "new", the payload the stale fire must never ship
     // under the dead row's accounting.
     try peer.send(.{ .resolve = .{ .answer = .from(42), .resolution = .{
         .fulfill = .{ .bytes = try allocator.dupe(u8, "new") },

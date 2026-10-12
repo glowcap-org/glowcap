@@ -1,7 +1,7 @@
 // Map a TimelineEvent to the EntityRef of the entity it
 // observes. Both ends of a pair (peer-joined/-left, session-
 // opened/-closed, message-sent/-delivered) resolve to the same
-// ref — that's the point of the unified entity selection: one
+// ref, that's the point of the unified entity selection: one
 // click on either end selects the underlying entity, and the
 // Scrubber highlights both ends together.
 

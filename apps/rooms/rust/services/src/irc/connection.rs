@@ -29,7 +29,7 @@ impl Events {
 }
 
 /// A handle is tied to exactly one socket incarnation. A reconnect creates a
-/// new owner; queued commands never migrate to a replacement connection.
+/// new owner. Queued commands never migrate to a replacement connection.
 #[derive(Clone)]
 pub struct Connection {
 	writer: Writer,

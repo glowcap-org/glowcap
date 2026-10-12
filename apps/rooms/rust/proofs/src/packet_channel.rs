@@ -1,5 +1,5 @@
 //! Controlled authenticated message channel. The fixture supplies transport
-//! proof; it does not claim to exercise browser DTLS or SCTP.
+//! proof. It does not claim to exercise browser DTLS or SCTP.
 use glowcap::{
 	AcceptedTransport, Argument, Channel, ChannelClose, ChannelDesignator, Host, Locator, PacketRead, PacketWrite,
 	PendingWork, Session,

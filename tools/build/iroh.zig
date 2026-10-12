@@ -144,8 +144,8 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     // ── iroh netlayer (external siblings, plus hermetic Zig checks) ─────────
     // The iroh netlayer sidecar (ADR-0055): cargo builds the
     // `libglowcap_iroh_sidecar.a` staticlib, and the live gate runs two glowcap
-    // peers — each with its own
-    // real iroh endpoint — through the keyed handshake, a bootstrap fetch, and
+    // peers, each with its own
+    // real iroh endpoint, through the keyed handshake, a bootstrap fetch, and
     // a deliver/resolve over an encrypted QUIC stream, dialed by endpoint id
     // with direct-address hints. The Rust build is an explicit Cargo-requiring
     // sibling, never part of the hermetic Zig compile checks below. `--locked`
@@ -223,22 +223,22 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     // a driver's Zig is cargo-free because externs stay unresolved and nothing
     // links, so a core or model API change cannot silently rot a driver only the
     // cargo-gated steps run. Per-row posture:
-    //   iroh-interop  — live encrypted conversation, two glowcap peers over real
+    //   iroh-interop: live encrypted conversation, two glowcap peers over real
     //                   iroh endpoints, dialed by id with direct-address hints.
-    //   iroh-reachability — Milestone 1: dial by node id alone over n0's public
+    //   iroh-reachability: dial by node id alone over n0's public
     //                   relays and DNS/pkarr discovery, no hints. Touches public
     //                   discovery infrastructure with propagation timing, so it
     //                   is opt-in and never a hermetic gate.
-    //   iroh-loop     — Milestone 3 (ADR-0057): many concurrent connections
+    //   iroh-loop: many concurrent connections
     //                   served from one thread through the event-driven sidecar
-    //                   superset. Deterministic.
-    //   iroh-redeem   — three glowcap Servers and Sessions over iroh: a recipient
+    //                   superset (ADR-0057). Deterministic.
+    //   iroh-redeem: three glowcap Servers and Sessions over iroh: a recipient
     //                   redeems a handoff by dialing the exporter. Deterministic.
-    //   goblins-iroh  — a foreign protocol partner: a real Spritely
+    //   goblins-iroh: a foreign protocol partner: a real Spritely
     //                   Goblins vat over the iroh netlayer this repository wrote
     //                   for it, both directions. Needs racket + goblins as well
     //                   as cargo, as does goblins-handoff-iroh below.
-    //   bench-iroh    — round-trip latency/throughput over real keyed QUIC vs a
+    //   bench-iroh: round-trip latency/throughput over real keyed QUIC vs a
     //                   same-machine cleartext TCP baseline; reports numbers,
     //                   gates none, and forwards `-- <args>`. `bench-site-report`
     //                   runs it to refresh the performance page.

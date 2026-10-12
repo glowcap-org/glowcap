@@ -2,7 +2,7 @@
 //!
 //! The shared application owns what a message link means and what remote
 //! metadata may enter Rooms. Network adapters own DNS, HTTP, redirects, and
-//! bytes; presentations own gestures and rendering, never either grammar.
+//! bytes. Presentations own gestures and rendering, never either grammar.
 use crate::markdown::{Document, Node};
 use alloc::{collections::BTreeSet, string::String, vec::Vec};
 use serde::{Deserialize, Serialize};
@@ -20,7 +20,7 @@ pub const MAX_URL_BYTES: usize = 2_048;
 pub const WIRE_TAG: &str = "link-previews-v1";
 pub const WIRE_FIELDS: usize = 2;
 /// The room says whether these verbs are worth sending through what it
-/// carries (`crate::room::carries`); a room that does not name previews gets
+/// carries (`crate::room::carries`). A room that does not name previews gets
 /// the plain `post` and `postFiles`.
 pub const ROOM_POST_VERB: &str = "postWithPreviews";
 pub const ROOM_POST_FILES_VERB: &str = "postFilesWithPreviews";
@@ -33,7 +33,7 @@ pub struct Target {
 }
 
 /// The previews the sender kept for one exact authored message. Metadata is
-/// deliberately absent: every reader obtains and validates it through its own
+/// absent: every reader obtains and validates it through its own
 /// preview service, while this bounded selection is the durable user intent.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 #[serde(transparent)]
@@ -107,7 +107,7 @@ impl Selection {
 	}
 
 	/// Carry an existing removal decision through an edit. URLs still present
-	/// stay selected; removed URLs disappear; newly typed URLs require an
+	/// stay selected. Removed URLs disappear. Newly typed URLs require an
 	/// explicit new selection rather than silently gaining a network effect.
 	#[must_use]
 	pub fn retained_for(&self, text: &str) -> Self {
@@ -129,6 +129,7 @@ impl Selection {
 		}
 		// Vec<String> has no fallible serialization arm: there are no maps with
 		// non-string keys, floats, custom callbacks or I/O behind this formatter.
+		#[expect(clippy::expect_used, reason = "a Vec<String> has no failing serialization arm")]
 		serde_json::to_string(self).expect("a link preview selection encodes")
 	}
 
@@ -143,7 +144,7 @@ impl Selection {
 	}
 
 	/// Read a display-only additive suffix. Unknown or malformed extensions do
-	/// not erase the line before them; a recognized valid selection is the only
+	/// not erase the line before them. A recognized valid selection is the only
 	/// shape that can request reader-side network effects.
 	#[must_use]
 	pub fn read_suffix<A: crate::room::ArgumentView>(text: &str, args: &[A], start: usize) -> Self {
@@ -193,7 +194,7 @@ impl Document {
 
 /// Normalize the identity Rooms uses across discovery, cache, async outcome,
 /// and suppression. Credentials and fragments are never sent to a preview
-/// service; default ports and host case cannot create duplicate work.
+/// service. Default ports and host case cannot create duplicate work.
 #[must_use]
 pub fn normalize_url(value: &str) -> Option<String> {
 	if value.len() > MAX_URL_BYTES {

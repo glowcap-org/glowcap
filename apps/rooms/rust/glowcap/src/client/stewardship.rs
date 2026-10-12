@@ -1,4 +1,4 @@
-//! Live moderator custody. No state borrow survives an external call; one
+//! Live moderator custody. No state borrow survives an external call. One
 //! core-owned acquisition ticket prevents concurrent replacement and late revival.
 use super::{
 	manager::{Manager, PolicyUpdate},

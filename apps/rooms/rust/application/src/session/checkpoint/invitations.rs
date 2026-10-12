@@ -11,7 +11,7 @@ use super::{
 use crate::text::DocumentText;
 
 /// Each borrowed field is bounded before it is retained. The validated record
-/// intentionally has no Debug implementation because it contains bearer text.
+/// has no Debug implementation because it contains bearer text.
 pub struct RoomLinkInput<'a> {
 	pub id: &'a str,
 	pub directory: &'a str,

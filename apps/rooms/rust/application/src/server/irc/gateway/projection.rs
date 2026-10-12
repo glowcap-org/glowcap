@@ -5,7 +5,10 @@
 //! here.
 use super::{Bridge, FeedStatus, Gateway, Network};
 use crate::{
-	bridge::{Action, Answers, Field, Form, Leaf, SecretField, TextField, TextOptions, ToggleField, Tone},
+	bridge::{
+		Action, Answers, Error as BridgeError, Field, Form, Leaf, SecretField, TextField, TextOptions, ToggleField,
+		Tone,
+	},
 	fields::{List, Text},
 	server::irc::model::{MAX_NAME, MAX_NETWORK_NAME, NetworkChoice, Sasl},
 };
@@ -36,6 +39,10 @@ pub use crate::bridge::gateway::{
 use crate::bridge::{MAX_FORM_SAID, MAX_FORM_VALUE};
 
 fn text<const N: usize, const E: bool>(value: &str) -> Text<N, E> {
+	#[expect(
+		clippy::expect_used,
+		reason = "every caller passes a name bounded at admission or a value `shown` clipped to the bound"
+	)]
 	Text::new(value.into()).expect("a bounded gateway text")
 }
 
@@ -191,28 +198,37 @@ fn connection_row<C: Copy + Ord, R: Clone>(network: &Network, leases: Vec<&Bridg
 	Connection {
 		id: text(&choice.network),
 		title: text(&choice.network),
-		facts: List::new(facts).expect("four facts"),
+		facts: {
+			#[expect(
+				clippy::expect_used,
+				reason = "the pushes above number at most four, the list's bound"
+			)]
+			List::new(facts).expect("four facts")
+		},
 		status: network_status(network.status),
 		problem: text(&shown(&network.problem, MAX_FORM_SAID)),
-		leases: List::new(
-			leases
-				.into_iter()
-				.map(|bridge| Lease {
-					id: text(bridge.room.channel()),
-					title: text(bridge.room.channel()),
-					status: channel_status(bridge.status),
-					problem: text(&shown(&bridge.problem, MAX_FORM_SAID)),
-					room_name: Some(text(bridge.room.name())),
-					publication_id: text(bridge.room.publication_id()),
-				})
-				.collect(),
-		)
-		.expect("bounded leases"),
+		leases: {
+			#[expect(clippy::expect_used, reason = "the leases map a bounded lease list one to one")]
+			List::new(
+				leases
+					.into_iter()
+					.map(|bridge| Lease {
+						id: text(bridge.room.channel()),
+						title: text(bridge.room.channel()),
+						status: channel_status(bridge.status),
+						problem: text(&shown(&bridge.problem, MAX_FORM_SAID)),
+						room_name: Some(text(bridge.room.name())),
+						publication_id: text(bridge.room.publication_id()),
+					})
+					.collect(),
+			)
+			.expect("bounded leases")
+		},
 	}
 }
 
 /// Describe the whole IRC gateway as a bridge gateway.
-pub fn describe<C: Copy + Ord, R: Clone>(gateway: &Gateway<C, R>) -> Result<Description, String> {
+pub fn describe<C: Copy + Ord, R: Clone>(gateway: &Gateway<C, R>) -> Result<Description, Invalid> {
 	let connections = gateway
 		.networks()
 		.map(|network| {
@@ -239,9 +255,9 @@ pub fn describe<C: Copy + Ord, R: Clone>(gateway: &Gateway<C, R>) -> Result<Desc
 			keep: text("Keep channel"),
 			commit: text("Part channel"),
 		},
-		connection_form: connection_form().map_err(|e| e.to_string())?,
-		lease_form: lease_form().map_err(|e| e.to_string())?,
-		connections: List::new(connections).ok_or("too many IRC networks to describe")?,
+		connection_form: connection_form().map_err(Invalid::Bridge)?,
+		lease_form: lease_form().map_err(Invalid::Bridge)?,
+		connections: List::new(connections).ok_or(Invalid::TooManyNetworks)?,
 	})
 }
 
@@ -254,19 +270,17 @@ fn answer(answers: &Answers, id: &str) -> String {
 
 /// Read a connection-open submission back against the form above into
 /// IRC's own network choice.
-pub fn connection_choice(raw: &str) -> Result<NetworkChoice, String> {
-	let answers = Answers::decode(raw).map_err(|e| e.to_string())?;
+pub fn connection_choice(raw: &str) -> Result<NetworkChoice, Invalid> {
+	let answers = Answers::decode(raw).map_err(Invalid::Bridge)?;
 	let name = answer(&answers, NAME).trim().to_string();
 	let host = answer(&answers, HOST).trim().to_string();
 	let nick = answer(&answers, NICK).trim().to_string();
 	let realname = answer(&answers, REALNAME).trim().to_string();
 	if name.is_empty() || host.is_empty() || nick.is_empty() || realname.is_empty() {
-		return Err("a connection needs a name, a server, a nick, and a bot real name".into());
+		return Err(Invalid::ConnectionFields);
 	}
 	if name.encode_utf16().count() > MAX_NETWORK_NAME {
-		return Err(format!(
-			"a connection name stays within {MAX_NETWORK_NAME} characters so its channel room names fit"
-		));
+		return Err(Invalid::ConnectionNameLength);
 	}
 	let tls = answer(&answers, TLS) == "on";
 	let port_text = answer(&answers, PORT).trim().to_string();
@@ -277,7 +291,7 @@ pub fn connection_choice(raw: &str) -> Result<NetworkChoice, String> {
 			.parse::<u16>()
 			.ok()
 			.filter(|port| *port >= 1)
-			.ok_or("a connection needs a real port")?
+			.ok_or(Invalid::ConnectionPort)?
 	};
 	// A filled account is a login. Its password is left for the SASL
 	// validation the gateway runs, which names an empty one and the TLS
@@ -286,7 +300,7 @@ pub fn connection_choice(raw: &str) -> Result<NetworkChoice, String> {
 	let account = answer(&answers, ACCOUNT).trim().to_string();
 	let password = answer(&answers, PASSWORD);
 	if account.is_empty() && !password.is_empty() {
-		return Err("a password needs the account it logs into; fill Account or clear Password".into());
+		return Err(Invalid::PasswordWithoutAccount);
 	}
 	Ok(NetworkChoice {
 		network: name,
@@ -306,14 +320,14 @@ pub fn connection_choice(raw: &str) -> Result<NetworkChoice, String> {
 /// Read an add-lease submission into IRC's channel name with its leading
 /// `#`: the form draws the mark as a fixed prefix, so it is completed when
 /// the reader left it off and the typed characters are otherwise kept.
-pub fn lease_channel(raw: &str) -> Result<String, String> {
-	let answers = Answers::decode(raw).map_err(|e| e.to_string())?;
+pub fn lease_channel(raw: &str) -> Result<String, Invalid> {
+	let answers = Answers::decode(raw).map_err(Invalid::Bridge)?;
 	if answer(&answers, OPERATOR_PERMISSION) != "on" {
-		return Err("joining an IRC channel requires explicit permission from its operators".into());
+		return Err(Invalid::ChannelPermission);
 	}
 	let typed = answer(&answers, CHANNEL).trim().to_string();
 	if typed.is_empty() || typed.trim_start_matches('#').is_empty() {
-		return Err("a channel name is required".into());
+		return Err(Invalid::ChannelRequired);
 	}
 	let channel = if typed.starts_with('#') {
 		typed
@@ -321,15 +335,99 @@ pub fn lease_channel(raw: &str) -> Result<String, String> {
 		format!("#{typed}")
 	};
 	if channel.encode_utf16().count() > MAX_NAME {
-		return Err(format!("a channel name stays within {MAX_NAME} characters"));
+		return Err(Invalid::ChannelNameLength);
 	}
 	Ok(channel)
+}
+
+/// Why a description or a submitted form is refused. `Display` is the exact
+/// line the operator reads.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Invalid {
+	/// A form or its answers were refused by the bridge layer.
+	Bridge(BridgeError),
+	/// The gateway holds more networks than a description carries.
+	TooManyNetworks,
+	/// A connection is missing its name, server, nick, or bot real name.
+	ConnectionFields,
+	/// A connection name is too long for its channel room names.
+	ConnectionNameLength,
+	/// A connection port is missing or out of range.
+	ConnectionPort,
+	/// A password arrived with no account.
+	PasswordWithoutAccount,
+	/// A channel lease lacks the channel operators' permission.
+	ChannelPermission,
+	/// A channel lease has no channel name.
+	ChannelRequired,
+	/// A channel name is too long.
+	ChannelNameLength,
+}
+
+impl core::fmt::Display for Invalid {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		match self {
+			Self::Bridge(source) => write!(f, "{source}"),
+			Self::TooManyNetworks => f.write_str("too many IRC networks to describe"),
+			Self::ConnectionFields => f.write_str("a connection needs a name, a server, a nick, and a bot real name"),
+			Self::ConnectionNameLength => write!(
+				f,
+				"a connection name stays within {MAX_NETWORK_NAME} characters so its channel room names fit"
+			),
+			Self::ConnectionPort => f.write_str("a connection needs a real port"),
+			Self::PasswordWithoutAccount => {
+				f.write_str("a password needs the account it logs into; fill Account or clear Password")
+			}
+			Self::ChannelPermission => {
+				f.write_str("joining an IRC channel requires explicit permission from its operators")
+			}
+			Self::ChannelRequired => f.write_str("a channel name is required"),
+			Self::ChannelNameLength => write!(f, "a channel name stays within {MAX_NAME} characters"),
+		}
+	}
+}
+
+impl core::error::Error for Invalid {}
+
+impl From<Invalid> for String {
+	fn from(invalid: Invalid) -> Self {
+		invalid.to_string()
+	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
 	use crate::server::irc::model::channel_key;
+
+	#[test]
+	fn every_invalid_line_is_the_line_it_replaced() {
+		let lines = [
+			(Invalid::TooManyNetworks, "too many IRC networks to describe"),
+			(
+				Invalid::ConnectionFields,
+				"a connection needs a name, a server, a nick, and a bot real name",
+			),
+			(
+				Invalid::ConnectionNameLength,
+				"a connection name stays within 29 characters so its channel room names fit",
+			),
+			(Invalid::ConnectionPort, "a connection needs a real port"),
+			(
+				Invalid::PasswordWithoutAccount,
+				"a password needs the account it logs into; fill Account or clear Password",
+			),
+			(
+				Invalid::ChannelPermission,
+				"joining an IRC channel requires explicit permission from its operators",
+			),
+			(Invalid::ChannelRequired, "a channel name is required"),
+			(Invalid::ChannelNameLength, "a channel name stays within 128 characters"),
+		];
+		for (invalid, line) in lines {
+			assert_eq!(invalid.to_string(), line);
+		}
+	}
 
 	#[test]
 	fn answers_are_read_back_against_the_forms() {

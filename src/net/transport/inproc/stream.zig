@@ -2,7 +2,7 @@
 //!
 //! This module owns byte movement and duplex lifetime. The switchboard in
 //! `../inproc.zig` only matches dialers to listeners and transfers one shared
-//! `Duplex`; it does not know how the bytes are buffered or framed.
+//! `Duplex`. It does not know how the bytes are buffered or framed.
 
 const std = @import("std");
 
@@ -16,7 +16,7 @@ const Io = std.Io;
 const Buffers = netlayer.Buffers;
 
 /// A one-directional in-process byte FIFO. One endpoint writes, the other
-/// reads; a read blocks until bytes arrive or the writer closes.
+/// reads. A read blocks until bytes arrive or the writer closes.
 pub const Channel = struct {
     allocator: std.mem.Allocator,
     io: Io,
@@ -65,7 +65,7 @@ pub const Channel = struct {
 };
 
 /// The two pipes of one connection plus one reference per endpoint. A peer may
-/// drain buffered bytes after its partner closes; storage retires only after
+/// drain buffered bytes after its partner closes. Storage retires only after
 /// both endpoint owners release it.
 pub const Duplex = struct {
     allocator: std.mem.Allocator,

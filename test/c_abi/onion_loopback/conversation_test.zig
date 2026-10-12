@@ -1,6 +1,6 @@
 //! A whole conversation over the onion C-ABI endpoints, against fake Tor
 //! daemons: dial through the SOCKS fake to handshake, bootstrap fetch, and a
-//! shutdown that wakes a parked native read; accept of a forwarded circuit;
+//! shutdown that wakes a parked native read. Accept of a forwarded circuit,
 //! and the listen out-parameter length query.
 
 const std = @import("std");

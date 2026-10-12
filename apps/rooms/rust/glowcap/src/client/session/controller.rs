@@ -1,5 +1,5 @@
 //! Execute the shared coordinator against a live session view. Recovery reads
-//! admitted Rust snapshots directly; it never round-trips through a UI model.
+//! admitted Rust snapshots directly. It never round-trips through a UI model.
 use rooms_application::session::{
 	controller::{Authority, Commands, Pending, Step},
 	snapshot::Snapshot,

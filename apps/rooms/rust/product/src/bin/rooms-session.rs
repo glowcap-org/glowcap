@@ -1,6 +1,6 @@
 //! The host durable Rooms session peer. Options come from the command line
-//! or `GLOWCAP_ROOMS_SESSION_*`; the one stdout line announces the
-//! workspace use sturdyref, and everything else goes to stderr.
+//! or `GLOWCAP_ROOMS_SESSION_*`. Stdout announces separate workspace and
+//! management sturdyrefs, and diagnostics go to stderr.
 //!
 //! `--check-ready=<path>` is the deployment's healthcheck: it reads the
 //! readiness mirror a running peer wrote, prints the sturdyref when the file
@@ -11,7 +11,7 @@ use std::rc::Rc;
 #[path = "rooms-session/commands/mod.rs"]
 mod commands;
 
-/// A readiness mirror holds one sturdyref and a newline; anything larger is
+/// A readiness mirror holds one sturdyref and a newline. Anything larger is
 /// debris, not a longer link.
 const MAX_READINESS_BYTES: u64 = 2_048;
 
@@ -77,6 +77,7 @@ async fn start() -> Result<(), String> {
 				}
 			};
 		println!("ROOMS-SESSION-LISTENING {}", peer.link());
+		println!("ROOMS-SESSION-MANAGEMENT {}", peer.management_link());
 		let served = peer.serve(control.serve(stop)).await;
 		// A transport can end serving before the halt future resolves. Both
 		// exits drain local commands while the peer still owns a running Host.
@@ -104,9 +105,10 @@ async fn start() -> Result<(), String> {
 	session::run(
 		config,
 		stop,
-		|link| {
+		|link, management| {
 			println!("ROOMS-SESSION-LISTENING {link}");
-			eprintln!("rooms session: host peer ready over {transport}; management is in control.sturdyref");
+			println!("ROOMS-SESSION-MANAGEMENT {management}");
+			eprintln!("rooms session: host peer ready over {transport}");
 		},
 		report,
 	)

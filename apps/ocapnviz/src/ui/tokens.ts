@@ -46,8 +46,8 @@ export const c = {
 
 /**
  * The height every control stands at. `--ocv-control-h` in styles.css
- * is the value, and every class-styled control reads it from there;
- * this is for the few places that have to state it inline. They stand
+ * is the value, and every class-styled control reads it from there.
+ * This is for the few places that have to state it inline. They stand
  * in the same box instead of spelling a number of their own, which is
  * how the app came to have six control heights.
  */
@@ -65,7 +65,7 @@ export const CONTROL = {
  * rule about how a chosen cell is drawn hold for every one of them.
  * `segment-edges.test.ts` reads this function for that reason.
  *
- * The stage's is the one with nothing to choose — four actions, so it asks for
+ * The stage's is the one with nothing to choose, four actions, so it asks for
  * `false` every time. It comes through anyway rather than spelling the classes
  * itself, because what it wants is the row: the shared seams, the rounded outer
  * ends, and a focus mark that matches every other control. Hand-rolling those is
@@ -88,7 +88,7 @@ export function segmentCellClass(active: boolean): string {
  * is a second, independent thing about it.
  *
  * What it never carries is a chosen state. `segmentCellClass` takes a boolean
- * because one of a set of buttons is the answer; a value typed into a field is not
+ * because one of a set of buttons is the answer. A value typed into a field is not
  * one of a set.
  */
 export const SEGMENT_CELL = "is-segment";
@@ -96,9 +96,9 @@ export const SEGMENT_CELL = "is-segment";
 /**
  * Spacing, by what the gap is doing rather than by how big it is:
  *
- *   xs  inside one thing — a glyph and its label, a swatch and its word
+ *   xs  inside one thing, a glyph and its label, a swatch and its word
  *   sm  between siblings in a group
- *   md  a group's own inset — a section's padding, a panel's gutter
+ *   md  a group's own inset, a section's padding, a panel's gutter
  *   lg  between groups
  *
  * The steps are geometric so a reader can tell them apart: every one is
@@ -107,7 +107,7 @@ export const SEGMENT_CELL = "is-segment";
  * that distance grouping stops reading as grouping.
  *
  * The three small steps are the tight ones, because those are the gaps
- * that repeat and accumulate. `lg` deliberately does not move: taking
+ * that repeat and accumulate. `lg` does not move: taking
  * the slack out of the small end while the large end holds is what
  * makes the interface denser AND its grouping stronger, where shrinking
  * everything together would only make the same layout harder to read.
@@ -131,9 +131,9 @@ export const RADIUS = {
 /**
  * A panel: content sitting one step off the surface it is on.
  *
- * The one place that decision is made. Four surfaces had spelled it separately —
+ * The one place that decision is made. Four surfaces had spelled it separately,
  * the Inspector's field groups, the Legend's groups, the Reference's row blocks,
- * and the selection notes — and two of the four were character-for-character the
+ * and the selection notes, and two of the four were character-for-character the
  * same. A fifth would have been the document panel.
  *
  * `surfaceSubtle`, not `surfaceMuted`: the neutral chips a panel holds (a closed
@@ -145,7 +145,7 @@ export const RADIUS = {
  * closer together than what is beside it.
  *
  * Composed, not copied. A panel that needs a different inset or a border says so
- * on top of this — `{ ...PANEL, border: … }` — so what every panel shares stays
+ * on top of this, `{ ...PANEL, border: … }`, so what every panel shares stays
  * one fact and each variant reads as the one thing it changes.
  */
 export const PANEL = {
@@ -168,13 +168,13 @@ export const FONT = {
  * Type sizes, one notch below a webpage's scale so the chrome reads as
  * a tool. Four sizes, and each has one job:
  *
- *   xs    9   the tracked uppercase eyebrow — section titles, field
- *             keys, legend labels. Never body text; the treatment is
+ *   xs    9   the tracked uppercase eyebrow, section titles, field
+ *             keys, legend labels. Never body text. The treatment is
  *             what makes it a level, not the size.
- *   sm   10   data — a field's value, a chip, a list row.
- *   base 11   chrome — control labels, buttons, fields. `.ocv-btn` in
+ *   sm   10   data, a field's value, a chip, a list row.
+ *   base 11   chrome, control labels, buttons, fields. `.ocv-btn` in
  *             controls.css states the same 11 for class-styled controls.
- *   lg   13   a heading — the pane's entity title, the wordmark.
+ *   lg   13   a heading, the pane's entity title, the wordmark.
  *
  * There is no 12. Between 11 and 13 it is a step no reader can name,
  * and a scale whose neighbours are indistinguishable has levels only on

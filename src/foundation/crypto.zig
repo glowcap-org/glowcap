@@ -73,10 +73,10 @@ pub const PeerKey = struct {
     }
 
     /// Parse a locator designator back into a key, or null when `designator`
-    /// is not the canonical spelling. Strict on purpose: exactly
+    /// is not the canonical spelling. Strict: exactly
     /// `designator_len` characters, lowercase hex only, so a designator either
-    /// round-trips through `toDesignator` byte-for-byte or is refused — there
-    /// is no second spelling for a dialer to alias a key under.
+    /// round-trips through `toDesignator` byte-for-byte or is refused. There
+    /// is no second form for a dialer to alias a key under.
     pub fn fromDesignator(designator: []const u8) ?PeerKey {
         if (designator.len != designator_len) return null;
         var out: [PEER_KEY_BYTES]u8 = undefined;
@@ -124,8 +124,8 @@ pub const Signature = struct {
 
     /// Build a fixed-size signature from its two borrowed halves, `r` and `s`.
     /// An Ed25519 signature is `r || s` (RFC 8032), which is the shape the Syrup
-    /// `sig-val` view hands you. Same fixed-width copy as `PeerKey.fromSlice`;
-    /// here the two 32-byte halves get joined into one 64-byte value.
+    /// `sig-val` view hands you. Same fixed-width copy as `PeerKey.fromSlice`.
+    /// Here the two 32-byte halves get joined into one 64-byte value.
     pub fn fromParts(r: []const u8, s: []const u8) CryptoError!Signature {
         const half = SIGNATURE_BYTES / 2;
         if (r.len != half or s.len != half) return CryptoError.MalformedSignature;
@@ -154,7 +154,7 @@ pub const Signature = struct {
 /// You build one from a 32-byte seed you supply (`fromSeed`). The seed is where
 /// entropy lives: making a fresh one needs randomness, and the core doesn't do
 /// randomness. If you need to carry the key across a boundary, `seed` hands the
-/// bytes back out. That's deliberately a named call, so copying key material
+/// bytes back out. That's a named call, so copying key material
 /// never happens by accident.
 ///
 /// A `SecretKey` does not zeroize itself, and the signing paths take it by value.
@@ -165,7 +165,7 @@ pub const SecretKey = struct {
     keypair: Ed25519.KeyPair,
 
     /// Rebuild a secret key from a 32-byte seed. Where the seed came from is on
-    /// you; nothing here checks it.
+    /// you. Nothing here checks it.
     ///
     /// This can't fail. Deterministic generation from any 32-byte seed always
     /// yields a valid key pair, and the `unreachable` says exactly that: the
@@ -180,7 +180,7 @@ pub const SecretKey = struct {
         return self.keypair.secret_key.seed();
     }
 
-    /// Get the matching public key. It's cheap; Ed25519 keeps it on the pair.
+    /// Get the matching public key. It's cheap. Ed25519 keeps it on the pair.
     pub fn publicKey(self: *const SecretKey) PeerKey {
         return .{ .bytes = self.keypair.public_key.toBytes() };
     }
@@ -188,7 +188,7 @@ pub const SecretKey = struct {
 
 /// A raw X25519 key pair: the shape the Noise handshake in `noise.zig` works
 /// in. It is plain Diffie-Hellman material, never a signing key, and it never
-/// appears in a locator; a peer's durable identity stays the Ed25519
+/// appears in a locator. A peer's durable identity stays the Ed25519
 /// `PeerKey`, and this is that identity carried across the birational map for
 /// one handshake's key agreement.
 pub const X25519KeyMaterial = struct {
@@ -213,7 +213,7 @@ pub const X25519KeyMaterial = struct {
 /// X25519 point learned from a handshake cannot be turned back into the
 /// Ed25519 designator. The sealed handshake therefore carries the exact
 /// Ed25519 key plus a signature binding it to this mapped static and the
-/// handshake context; equality of mapped points alone is never identity proof.
+/// handshake context. Equality of mapped points alone is never identity proof.
 pub fn x25519FromPeerKey(key: PeerKey) ?[X25519.public_length]u8 {
     const ed = Ed25519.PublicKey.fromBytes(key.bytes) catch return null;
     return X25519.publicKeyFromEd25519(ed) catch null;
@@ -300,7 +300,7 @@ pub fn derivePublicIdentifier(key: PeerKey) id.PeerId {
 /// double-SHA256 over `"prot0"` and the sorted ids. Because of the sort, both
 /// ends land on the same value even though one side dialed and the other
 /// answered. A caller holding raw keys composes this with
-/// `derivePublicIdentifier` on each; the handoff layer, which already holds the
+/// `derivePublicIdentifier` on each. The handoff layer, which already holds the
 /// sides (each a `PeerId`), calls this directly, so the session a handoff names
 /// can never drift from the one a handshake derives.
 pub fn sessionIdFromPeerIds(peer_a: id.PeerId, peer_b: id.PeerId) id.SessionId {
@@ -342,7 +342,7 @@ fn updateByteString(hasher: *Sha256, bytes: []const u8) void {
 }
 
 /// Hash a decimal length prefix. The digits are formatted into a small stack
-/// buffer (a `usize` is at most 20 decimal digits) then streamed in; this is
+/// buffer (a `usize` is at most 20 decimal digits) then streamed in. This is
 /// integer-to-ASCII formatting, not a copy of any wire payload.
 fn updateLen(hasher: *Sha256, len: usize) void {
     var buf: [20]u8 = undefined;

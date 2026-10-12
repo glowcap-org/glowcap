@@ -15,6 +15,9 @@ impl Reader for Invalid {
 }
 struct Timeout;
 impl rooms_glowcap::client::Deadline for Timeout {
+	fn monotonic_millis(&self) -> u64 {
+		0
+	}
 	async fn within<T>(&self, _: u64, _: impl Future<Output = T>) -> Option<T> {
 		None
 	}

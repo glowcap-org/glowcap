@@ -42,7 +42,7 @@ Deno.test("pressed + small move → still pressed", () => {
  * The move that crosses the threshold both starts the drag AND is the drag's
  * first move, so it reports both.
  *
- * This used to emit `drag-start` alone, which loses the position it crossed at.
+ * Emitting `drag-start` alone would lose the position it crossed at.
  * A consumer following the pointer through `drag-move` hears nothing about it,
  * which is invisible while more moves follow and is the entire gesture when none
  * do: a browser coalesces moves as it likes, so a fast flick can cross the
@@ -51,7 +51,7 @@ Deno.test("pressed + small move → still pressed", () => {
  *
  * Measured in a browser before and after, driving the whole stage with one move
  * and a release: nothing selected, then all six entities, matching the same drag
- * delivered in thirty moves. The invariant is that last equality — what a gesture
+ * delivered in thirty moves. The invariant is that last equality, what a gesture
  * does must not depend on how the browser chose to batch it.
  */
 Deno.test("pressed + big move → dragging; starts and moves", () => {
@@ -68,7 +68,7 @@ Deno.test("pressed + big move → dragging; starts and moves", () => {
 	});
 	assertEquals(r.state.fsm.kind, "dragging");
 	assertEquals(r.effects.map((e) => e.kind), ["drag-start", "drag-move"]);
-	// The start is the press, and the move is where the pointer actually is —
+	// The start is the press, and the move is where the pointer is,
 	// reversing them, or reporting the press twice, is the defect in another form.
 	const [start, move] = r.effects;
 	assert(start?.kind === "drag-start" && "at" in start);

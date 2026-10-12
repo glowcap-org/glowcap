@@ -14,7 +14,7 @@ import type { PeerProperty, SessionProperty, SessionValue } from "../../engine/t
 /** When set, the Details section renders writable fields and the
  * delete affordance. App provides this only in build mode.
  * `beginEdit`/`endEdit` brackets a focus session so a typing burst
- * collapses to one undo step; the label becomes the action name in
+ * collapses to one undo step. The label becomes the action name in
  * the undo tooltip. `onDelete` cascades through the engine
  * (deleting a peer removes its sessions and their messages). */
 export type EditorBindings = {
@@ -27,13 +27,13 @@ export type EditorBindings = {
 		},
 	) => void;
 	/** Reposition (= pin) a peer from the inspector's coordinate
-	 * fields — same intent the stage drag dispatches. */
+	 * fields, same intent the stage drag dispatches. */
 	onRepositionPeer: (
 		peerId: string,
 		position: { x: number; y: number },
 	) => void;
 	/** Unpin a peer: drop its authored position so the force layout
-	 * places it again — the inverse of drag-to-pin. */
+	 * places it again. The inverse of drag-to-pin. */
 	onUnpinPeer: (peerId: string) => void;
 	/** Pin a session end nothing has attributed, by its `sessionId::side`
 	 * stage id. The endpoint sibling of `onRepositionPeer`, separate
@@ -49,7 +49,7 @@ export type EditorBindings = {
 		patch: {
 			codec?: Codec;
 			captpVersion?: CaptpVersion;
-			/** The netlayer the session runs over; `null` stops stating one. */
+			/** The netlayer the session runs over, `null` stops stating one. */
 			transport?: Transport | null;
 			state?: SessionState;
 		},
@@ -67,20 +67,20 @@ export type EditorBindings = {
 	 *  `resize-end` message right edge) declares exactly the inputs
 	 *  it needs. */
 	onMoveEvent: (move: MoveIntent) => void;
-	/** Retime a peer or session span addressed by entity — the write
+	/** Retime a peer or session span addressed by entity, the write
 	 *  path for spans with no anchor observation event (freshly
 	 *  authored entities), and the timeline drag's dispatch for them. */
 	onMoveEntitySpan: (move: MoveSpanIntent) => void;
 	/** Storage-shaped peer duration edit. Inspector dispatches this
-	 *  directly; the eternal-peer case stays a real option —
+	 *  directly. The eternal-peer case stays a real option,
 	 *  `onClearPeerEnd` removes the `peer-left` event entirely.
 	 *  Absolute-time end edits flow through `move-event` (drag) or
 	 *  the `set-peer-end` intent on the engine directly. */
 	onSetPeerDuration: (peerId: string, duration: number) => void;
 	onClearPeerEnd: (peerId: string) => void;
-	/** Opt-in START time for a peer — mirror of the end-time
+	/** Opt-in START time for a peer, mirror of the end-time
 	 * pair. `onClearPeerStart` makes the peer eternal-start
-	 * (no `peer-joined` event; identity stays in
+	 * (no `peer-joined` event, identity stays in
 	 * `doc.entities.peers`). `onSetPeerStart` re-anchors a start
 	 * time, reading identity from the entities map. */
 	onSetPeerStart: (peerId: string, t: number) => void;
@@ -97,13 +97,13 @@ export type EditorBindings = {
 	 *
 	 *  Row 0 is the value the session is BORN with, and it is not a
 	 *  moment: `onSetSessionInitialState` edits the genesis state, and
-	 *  `onUpdateSessionEndpoint` the genesis end — including detaching
+	 *  `onUpdateSessionEndpoint` the genesis end, including detaching
 	 *  it, which no moment can say. */
 	onSetSessionKeyframe: (
 		sessionId: string,
 		property: SessionProperty,
 		t: number,
-		/** What the property takes at `t`, in its own value channel — one
+		/** What the property takes at `t`, in its own value channel, one
 		 *  word, or the pair an end attaches by. */
 		value: SessionValue,
 	) => void;
@@ -117,18 +117,18 @@ export type EditorBindings = {
 		sessionId: string,
 		side: SessionSide,
 		patch: {
-			/** The peer this end attaches to; `null` detaches it and the
+			/** The peer this end attaches to, `null` detaches it and the
 			 *  end goes loose. */
 			peer?: string | null;
-			/** What the end claims to be; `null` drops the claim. */
+			/** What the end claims to be, `null` drops the claim. */
 			designator?: string | null;
-			/** What backed the claim; `null` means nothing did. */
+			/** What backed the claim, `null` means nothing did. */
 			attributedBy?: EndpointAttribution | null;
 		},
 	) => void;
 	/** Peer-trajectory edits, the peer sibling of the state
-	 *  trajectory. What a peer ARRIVES with is `onUpdatePeer` — a
-	 *  session's genesis state in peer form; each later moment states
+	 *  trajectory. What a peer ARRIVES with is `onUpdatePeer`, a
+	 *  session's genesis state in peer form. Each later moment states
 	 *  one property at its own `t`, addressed here the way state
 	 *  keyframes are addressed above. The property set lives in
 	 *  `engine/trajectory.ts`, so a second temporal peer property
@@ -147,7 +147,7 @@ export type EditorBindings = {
 	/** Session start / message start counterparts of the peer
 	 *  start pair. Clearing a session start makes its effective
 	 *  start cascade to `max(peerA.effectiveStart,
-	 *  peerB.effectiveStart)`; clearing a message start cascades
+	 *  peerB.effectiveStart)`. Clearing a message start cascades
 	 *  to its session's effective start. */
 	onSetSessionStart: (sessionId: string, t: number) => void;
 	onClearSessionStart: (sessionId: string) => void;
@@ -159,7 +159,7 @@ export type EditorBindings = {
 	endEdit: () => void;
 	onDelete: (selection: StageSelection) => void;
 	/** Pre-flight collision check for the Inspector ID cell. Pure
-	 *  read; no state change. Inspector calls this on blur before
+	 *  read. No state change. Inspector calls this on blur before
 	 *  dispatching `onRename` so the user sees the collision message
 	 *  inline rather than via the global error bus. */
 	validateRename: (
@@ -169,7 +169,7 @@ export type EditorBindings = {
 	) => EngineResult<void>;
 	/** Commit a rename. Cascades the new id through every reference
 	 *  site (entities map, cross-category endpoints, events,
-	 *  rowOrder / rowHidden lists) in one engine transaction —
+	 *  rowOrder / rowHidden lists) in one engine transaction,
 	 *  one undo step. Returns the result so the Inspector can show
 	 *  a collision message inline on the (rare) race where validate
 	 *  passed but dispatch racing rejected. App-side handler also

@@ -1,9 +1,10 @@
 // One interpretation of a new composer submission for every Rooms controller.
-// The result retains asynchronous command completion; admission is not success.
+// The result retains asynchronous command completion. Admission is not success.
 
+import * as z from "zod/mini";
 import { applicationModule } from "../application.ts";
 import type { CommandPowers } from "../commands.ts";
-import { applyCommandPlan, type Effect } from "../commands/execute.ts";
+import { applyCommandPlan, type Effect, EffectSchema } from "../commands/execute.ts";
 import { type Conv, conversationTakesFiles } from "../types.ts";
 import type { DraftPreview } from "../link_preview.ts";
 
@@ -36,6 +37,15 @@ type Prepared =
 	| { kind: "send"; text: string }
 	| { kind: "command"; plan: Effect };
 
+/** The plan grammar is Rust's. An answer outside it is a defect in the shared
+ * build, never a sendable shape. */
+const PreparedSchema: z.ZodMiniType<Prepared> = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("nothing") }),
+	z.object({ kind: z.literal("refused"), why: z.string() }),
+	z.object({ kind: z.literal("send"), text: z.string() }),
+	z.object({ kind: z.literal("command"), plan: EffectSchema }),
+]);
+
 export function prepareComposerSend(
 	conv: Conv | null,
 	draft: ComposerDraft,
@@ -48,7 +58,7 @@ export function prepareComposerSend(
 export function planComposerSend(conv: Conv | null, draft: ComposerDraft, powers: CommandPowers): ComposerPlan {
 	const original = draft.text;
 	const files = [...draft.files];
-	const prepared = JSON.parse(
+	const raw: unknown = JSON.parse(
 		applicationModule().prepareComposer(JSON.stringify({
 			text: original,
 			place: conv?.type === "dm" ? "direct" : conv?.type ?? "none",
@@ -63,7 +73,12 @@ export function planComposerSend(conv: Conv | null, draft: ComposerDraft, powers
 			})),
 			keeping: draft.keeping != null,
 		})),
-	) as Prepared;
+	);
+	const proven = z.safeParse(PreparedSchema, raw);
+	if (!proven.success) {
+		throw new Error(`the Rooms application answered an invalid composer plan:\n${z.prettifyError(proven.error)}`);
+	}
+	const prepared = proven.data;
 	if (prepared.kind === "nothing" || prepared.kind === "refused") return prepared;
 	if (prepared.kind === "command") {
 		return { ...prepared, original };

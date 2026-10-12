@@ -1,13 +1,13 @@
 //! Generates the expected struct sizes and field offsets every language
-//! binding's hand-mirrored FFI struct pins against — Rust's `#[repr(C)]`
+//! binding's hand-mirrored FFI struct pins against, Rust's `#[repr(C)]`
 //! `const` assert blocks, Python's `glowcap._pin.pin_struct`, and Racket's
 //! `pin-layout!` `want-size` argument.
 //!
 //! Every binding hand-declares its own struct *shape* (`#[repr(C)]`,
 //! `ctypes.Structure`, `define-cstruct`) because each language's FFI wants a
 //! symbolic declaration, not a byte-offset reader (that is what
-//! `tools/gen/binding/ts_abi.zig` is for). What used to drift was the *numbers* those
-//! declarations are checked against: three languages each hand-copied the
+//! `tools/gen/binding/ts_abi.zig` is for). The *numbers* those declarations
+//! are checked against are what drifts: three languages each hand-copied the
 //! same `@sizeOf`/`@offsetOf` values from the C headers' prose, so a Zig-side
 //! field change had to be swept by hand into three unrelated files with no
 //! compiler to catch a miss. Here the numbers come straight off
@@ -285,7 +285,7 @@ fn writeConstName(
 
 /// The target-independent names needed to generate Rust expectations from the
 /// actual wasm32 descriptor. Types, stems and field order come from the same
-/// archive contracts as native layouts; no pointer-width arithmetic is copied.
+/// archive contracts as native layouts. No pointer-width arithmetic is copied.
 fn generateWasmManifest(gpa: std.mem.Allocator) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(gpa);

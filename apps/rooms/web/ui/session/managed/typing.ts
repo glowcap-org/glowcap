@@ -9,35 +9,51 @@ export class ManagedTyping {
 	#sender: { id: string; selected: string; handle: RoomsManagedTyping } | null = null;
 	#running: Promise<void> | null = null;
 	#stopped = false;
+	#failed: string | null = null;
 	constructor(session: ManagedRoomsSession) {
 		this.#session = session;
 	}
 	set(id: string, selected: string, on: boolean): Promise<void> {
-		if (this.#stopped) return Promise.resolve();
+		if (this.#stopped || this.#failed === JSON.stringify([id, selected])) return Promise.resolve();
 		this.#desired = { id, selected, on };
-		return this.#running ??= this.#drain().finally(() => {
+		// One caller owns the refusal; keystrokes joining this drain do not
+		// each publish the same failure when its shared request settles.
+		if (this.#running != null) {
+			return this.#running.catch(() => {
+				// tolerant: the initiating caller reports this shared typing failure once.
+			});
+		}
+		return this.#running = this.#drain().finally(() => {
 			this.#running = null;
 		});
 	}
 	async #drain(): Promise<void> {
+		let failure: unknown;
 		while (!this.#stopped && this.#desired != null) {
 			const desired = this.#desired;
 			this.#desired = null;
-			if (this.#sender?.id !== desired.id || this.#sender.selected !== desired.selected) {
-				this.#sender?.handle.free();
-				this.#sender = null;
-				const handle: RoomsManagedTyping = await this.#session.workspace.typingSender(
-					desired.id,
-					desired.selected,
-				);
-				if (this.#stopped) {
-					handle.free();
-					return;
+			if (JSON.stringify([desired.id, desired.selected]) === this.#failed) continue;
+			try {
+				if (this.#sender?.id !== desired.id || this.#sender.selected !== desired.selected) {
+					this.#sender?.handle.free();
+					this.#sender = null;
+					const handle: RoomsManagedTyping = await this.#session.workspace.typingSender(
+						desired.id,
+						desired.selected,
+					);
+					if (this.#stopped) {
+						handle.free();
+						return;
+					}
+					this.#sender = { id: desired.id, selected: desired.selected, handle };
 				}
-				this.#sender = { id: desired.id, selected: desired.selected, handle };
+				await this.#sender.handle.set(desired.on);
+			} catch (error) {
+				this.#failed = JSON.stringify([desired.id, desired.selected]);
+				failure ??= error;
 			}
-			await this.#sender.handle.set(desired.on);
 		}
+		if (failure != null) throw failure;
 	}
 	stop(): void {
 		this.#stopped = true;

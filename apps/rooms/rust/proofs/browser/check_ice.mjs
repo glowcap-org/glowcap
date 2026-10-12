@@ -66,8 +66,8 @@ export function iceFixtures() {
 								const result = read.apply(this, args);
 								active++;
 								result.then(() => active--, () => active--);
-								// The first read consumes '['. The next is actually
-								// pending: the server deliberately never finishes it.
+								// The first read consumes '['. The next is
+								// pending: the server never finishes it.
 								if (++reads === 2) notify();
 								return result;
 							};

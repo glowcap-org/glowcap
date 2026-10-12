@@ -69,14 +69,14 @@ Deno.test("a wire drawn before its far end could be named learns who is on it", 
 	// The order that has no order-free answer. A member's own end of a direct
 	// session opens FIRST on the accepting side, which cannot name the dialer:
 	// a browser tab presents no address it can prove. So the picture draws that
-	// end loose — and then the dialer reports the same wire, says who it is, and
+	// end loose, and then the dialer reports the same wire, says who it is, and
 	// it is a peer already on stage from its room session. There is nothing
 	// derivable from the first observation that would have avoided this, so the
 	// picture has to be able to learn.
 	//
 	// What it must NOT do is report the learning as something the network did.
 	// One session opened and stayed open; nobody departed. So the session keeps
-	// its identity — the wire name both ends derived — and its end moves onto
+	// its identity, the wire name both ends derived, and its end moves onto
 	// the peer that spoke for it. Nothing is superseded, because nothing was
 	// ever drawn in that peer's place.
 	const convert = makeBaseEventConverter();
@@ -210,7 +210,7 @@ Deno.test("the same direct session in the other order needs no redraw", () => {
 
 Deno.test("a name claimed before an end attaches comes with it", () => {
 	// The accepting end annotates the connection with the nick it knows the
-	// dialer by, and it does so while that end is still loose — there is no peer
+	// dialer by, and it does so while that end is still loose. There is no peer
 	// yet for the nick to sit on. The claim is about whoever turns out to be
 	// there, so it waits on the end and transfers when the end attaches.
 	// Dropping it would leave the conversation nameless for no reason.
@@ -315,7 +315,7 @@ Deno.test("an end nobody could name attaches when its own producer speaks", () =
 	assertEquals(opened.b, sessionEndpoint({ designator: "127.0.0.1:0" }));
 
 	// The dialer reports the same wire, so the loose end is hers. She is drawn
-	// here for the first time — under her own designator, never under the claim
+	// here for the first time, under her own designator, never under the claim
 	// the accepting end could not back.
 	const dialed = convert({
 		v: 1,

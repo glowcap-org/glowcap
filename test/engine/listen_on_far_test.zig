@@ -318,7 +318,7 @@ test "a notification naming an answer the session does not hold is refused loudl
 // check, before anything is reserved, so this sweep is the only thing that runs
 // `nominateResolverExport`'s undo and `listenOnFar`'s. It arms the failure
 // at a fixed offset into the call itself, so each offset names one allocation
-// the call makes, and the offsets past the last one succeed — which is how the
+// the call makes, and the offsets past the last one succeed, which is how the
 // sweep proves it covered them all.
 //
 // Validated by injection. Caught: dropping the export release from

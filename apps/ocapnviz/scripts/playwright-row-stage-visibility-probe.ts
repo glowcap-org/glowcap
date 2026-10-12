@@ -1,10 +1,9 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-row-stage-visibility-probe.ts — Verifies that clicking
+ * playwright-row-stage-visibility-probe.ts: Verifies that clicking
  * the per-row eyeball in the Timeline gutter hides the corresponding
- * entity FROM THE STAGE (not from the timeline). The old semantics
- * collapsed the timeline row into a slim strip; new semantics keep
- * the row at full height and skip the entity in `Stage.renderFrame`.
+ * entity FROM THE STAGE (not from the timeline). The timeline row
+ * keeps its full height and the entity is skipped in `Stage.renderFrame`.
  */
 import { chromium } from "playwright";
 
@@ -64,7 +63,7 @@ const before = await page.evaluate(() => {
 });
 console.log("Before:", before);
 
-// Hide the first peer via the intent directly — simulating the
+// Hide the first peer via the intent directly, simulating the
 // gutter eyeball click. We test the *render* side, not the click
 // pipeline (which is covered by other probes).
 const peerId = await page.evaluate(() => {
@@ -125,7 +124,7 @@ await browser.close();
 
 // Correctness signals the human-eye diff backs up:
 //   1) the engine recorded the hide in `doc.rowHidden.peers`
-//   2) the ECS keeps the peer (entity unchanged — only Stage paint
+//   2) the ECS keeps the peer (entity unchanged, only Stage paint
 //      filters)
 const ok = after.docHidden.includes(peerId ?? "") &&
 	after.onStageInECS === (before?.onStage ?? -1);

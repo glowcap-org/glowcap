@@ -1,7 +1,8 @@
 //! Production Loam workspace on the existing continuously driven browser Host.
-//! IndexedDB owns authority; JavaScript receives separate use/control handles.
+//! IndexedDB owns authority. JavaScript receives separate use/control handles.
 mod acquisition;
 mod activity;
+mod admission;
 mod bridge;
 mod control;
 mod directories;
@@ -66,7 +67,11 @@ pub(super) struct Owner {
 	trace: std::rc::Rc<rooms_runtime::trace::Trace<Platform>>,
 }
 impl Owner {
-	pub async fn open(environment: &Environment, prepared: Prepared) -> Result<Self> {
+	pub async fn open(
+		environment: &Environment,
+		prepared: Prepared,
+		admission: rooms_application::admission::Settings,
+	) -> Result<Self> {
 		let limits = production_limits().map_err(|e| e.to_string())?;
 		let backend = crate::storage::PageArchive::open(environment.platform.clone())
 			.await
@@ -86,6 +91,7 @@ impl Owner {
 				environment.platform.clone(),
 				limits,
 				custody::MAX_CUSTODY_FIELDS as u32,
+				admission,
 				move |operation, error| {
 					trouble.report("Session activity", &format!("{operation}: {error}"));
 				},
@@ -244,16 +250,22 @@ fn coordinate<K>(role: custody::Role, key: custody::FieldKey<K>) -> custody::Coo
 pub struct RoomsManagedApplication {
 	driver: Driver,
 }
+
 #[wasm_bindgen]
 impl RoomsManagedApplication {
 	#[wasm_bindgen(constructor)]
-	pub fn new(tab: js_sys::JsString, trouble: js_sys::Function) -> std::result::Result<Self, JsValue> {
+	pub fn new(
+		tab: js_sys::JsString,
+		trouble: js_sys::Function,
+		admission: Option<String>,
+	) -> std::result::Result<Self, JsValue> {
+		let admission = admission::settings(admission.as_deref()).map_err(|e| js_error(&e))?;
 		let tab = scalar(tab, 64).map_err(|e| js_error(&e))?;
 		if tab.is_empty() || !tab.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-') {
 			return Err(js_error("Invalid Rooms tab identity"));
 		}
 		Ok(Self {
-			driver: Driver::start_managed(tab, trouble),
+			driver: Driver::start_managed(tab, trouble, admission),
 		})
 	}
 	pub fn workspace(&self) -> js_sys::Promise {
@@ -348,6 +360,7 @@ impl RoomsManagedApplication {
 	}
 	#[wasm_bindgen(js_name = savedWorkspace)]
 	pub fn saved_workspace(&self, id: js_sys::JsString) -> js_sys::Promise {
+		use rooms_glowcap::client::Deadline;
 		let id = match scalar(id, 1024) {
 			Ok(value) => value,
 			Err(error) => return rejected(error),
@@ -369,10 +382,18 @@ impl RoomsManagedApplication {
 				.find(|row| row.id.text().as_str() == Some(&id))
 				.and_then(|row| row.access)
 				.ok_or("No held workspace access for this row")?;
-			let mut held = opened
-				.session()
-				.restore_publication_custody(&[coordinate(custody::Role::SessionAccess, selected)])
+			let fields = [coordinate(custody::Role::SessionAccess, selected)];
+			let mut held = environment
+				.platform
+				.within(
+					rooms_application::room::authority::REQUEST_TIMEOUT_MS,
+					opened.session().restore_publication_custody(&fields),
+				)
 				.await
+				.ok_or_else(|| {
+					rooms_application::failure::FailureCode::SessionRestorationFailed
+						.line("Saved workspace connection timed out")
+				})?
 				.map_err(|e| e.to_string())?;
 			let (reference, uri) = held.remove(0);
 			let home = PublicationHome::restored(&driver, uri)?;
@@ -394,6 +415,7 @@ impl RoomsManagedApplication {
 	/// Descriptive inventory IDs are never accepted as restoration credentials.
 	#[wasm_bindgen(js_name = savedControl)]
 	pub fn saved_control(&self, id: js_sys::JsString) -> js_sys::Promise {
+		use rooms_glowcap::client::Deadline;
 		let id = match scalar(id, 1024) {
 			Ok(id) => id,
 			Err(error) => return rejected(error),
@@ -415,10 +437,18 @@ impl RoomsManagedApplication {
 				.find(|row| row.id.text().as_str() == Some(&id))
 				.and_then(|row| row.control)
 				.ok_or("No held management control for this row")?;
-			let mut held = opened
-				.session()
-				.restore_publication_custody(&[coordinate(custody::Role::SessionControl, selected)])
+			let fields = [coordinate(custody::Role::SessionControl, selected)];
+			let mut held = environment
+				.platform
+				.within(
+					rooms_application::room::authority::REQUEST_TIMEOUT_MS,
+					opened.session().restore_publication_custody(&fields),
+				)
 				.await
+				.ok_or_else(|| {
+					rooms_application::failure::FailureCode::SessionRestorationFailed
+						.line("Saved management connection timed out")
+				})?
 				.map_err(|e| e.to_string())?;
 			let (reference, uri) = held.remove(0);
 			let home = PublicationHome::restored(&driver, uri)?;
@@ -572,8 +602,8 @@ pub struct RoomsManagedAcquisition {
 }
 #[wasm_bindgen]
 impl RoomsManagedAcquisition {
-	/// Returns committed or conflict. A conflict installed no custody or content;
-	/// an unknown outcome rejects and requires replay of this exact candidate.
+	/// Returns committed or conflict. A conflict installed no custody or content.
+	/// An unknown outcome rejects and requires replay of this exact candidate.
 	pub fn submit(&self) -> js_sys::Promise {
 		let acquisition = self.acquisition.clone();
 		self.driver.submit(

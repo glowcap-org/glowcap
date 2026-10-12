@@ -76,8 +76,8 @@ Deno.test("grouping touches the hex lens alone", () => {
 	assertEquals(renderPayload("utf-8", b64, bytes, "capnp"), "Syrup!");
 });
 
-// A message the recording never carried bytes for used to render an
-// empty pane, which reads as a viewer that failed rather than as a
+// A message the recording never carried bytes for must not render an empty
+// pane, which reads as a viewer that failed rather than as a
 // payload nobody captured. These two hold the three readings apart.
 
 Deno.test("a message with no recorded frame gets a sentence, not silence", () => {

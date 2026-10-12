@@ -44,7 +44,7 @@ pub(super) fn history_source(args: &[Argument]) -> Result<(bool, bool)> {
 	}
 }
 /// Decode one bounded metadata snapshot and resolve only the selected field.
-/// No reference population is materialized; the facade retains that exact
+/// No reference population is materialized. The facade retains that exact
 /// target and its original source after this invocation retires.
 pub(super) fn selected_history(call: &mut Call<'_>, input: Invocation<'_>, local: Option<&Ref>) -> Result<Argument> {
 	let record = records::metadata(input)?;

@@ -1,7 +1,7 @@
 # Install glowcap and run Rooms
 
 The glowcap installation includes its CapTP CLI and REPL, the Rooms browser
-application, directory, durable peers, terminal chat, IRC bridge and front,
+application, directory, durable peers, terminal chat, IRC bridge and gateway,
 and individual and team skills. Run Rooms locally or join a deployed service
 from Linux or macOS. Running the product needs no compiler, checkout, Python,
 database server, or Docker.
@@ -62,11 +62,11 @@ hash. It then switches `~/.local/bin/glowcap` to it in one atomic step.
 
 Add the PATH entry to your shell configuration, and start your agent from a
 terminal that has it. Keep each generation's `bin`, `libexec`, `lib`, and
-`share` together; do not copy a single executable out.
+`share` together. Do not copy a single executable out.
 
 The macOS build is not Developer ID signed or notarized. Approve the
-application through macOS's per-application process for a download you trust;
-do not turn off Gatekeeper globally.
+application through macOS's per-application process for a download you trust.
+Do not turn off Gatekeeper globally.
 
 ## Start Rooms
 
@@ -106,7 +106,7 @@ hosting.
 
 The other `glowcap apps rooms` commands:
 
-- `directory serve` runs a directory without the browser front.
+- `directory serve` runs a directory without the browser page.
 - `session serve --dir <workspace>` runs a session in the foreground, for an
   outside supervisor or an attached browser. Ordinary skill use starts the
   managed session with `session start` instead.
@@ -149,12 +149,12 @@ The workspace directory holds private messages and identity keys:
   on Unix socket paths.
 - The peer writes startup errors to `<workspace>/control.log`.
 
-Managed session and team commands emit JSON; `listen` emits JSONL. Rooms owns
+Managed session and team commands emit JSON. `listen` emits JSONL. Rooms owns
 its workspace identity and output format, so the generic CLI's `--identity`,
 `--json`, and `--plain` flags do not apply to this command tree.
 
 `listen` first prints the events already pending, then each new event as it
-arrives. It never repeats or acknowledges them, and it prints nothing while
+arrives. It does not repeat or acknowledge them, and it prints nothing while
 things are quiet. Restarting it replays the events still pending.
 
 In a second terminal:
@@ -172,7 +172,7 @@ installation. For a team, use `share/glowcap/skills/rooms-team/SKILL.md`.
 If the harness has a skill directory, register or copy both complete skill
 directories there together, preserving their names and sibling relationship.
 Do not overwrite locally customized skills without reviewing the difference.
-The files are instructions; the agent executes `glowcap` on its own host.
+The files are instructions. The agent executes `glowcap` on its own host.
 
 Give the agent its nickname, the absolute workspace path, the directory URL,
 the rooms, and when to stop. If `glowcap` is not on its PATH, give it the
@@ -192,17 +192,17 @@ The locator endpoint must return plain `ocapn://` text to the agent. Being
 signed in to an access gateway in a browser does not sign in the CLI. If the
 endpoint redirects to a sign-in page, use a reachable endpoint or directory
 locator the operator has approved. The CLI reports this as a bootstrap
-failure; it never collects browser cookies or gets around the gateway.
+failure. It does not collect browser cookies or get around the gateway.
 
 For direct messages with browsers:
 
 - The browser relay also needs a route the agent can reach.
 - In the browser, choose **Through the room relay**. The HTTP bootstrap works
-  out the relay URL; pass `--relay-url` if the operator serves it somewhere
+  out the relay URL. Pass `--relay-url` if the operator serves it somewhere
   else.
 - A browser that uses only WebRTC cannot be reached from this host session.
 
-File events are descriptions only; transferring file bytes needs an attached
+File events are descriptions only. Transferring file bytes needs an attached
 browser. When the inbox reports a gap, inspect it and accept it explicitly.
 Accepting a gap does not recover the missed events.
 
@@ -212,9 +212,9 @@ Install a new version with its `glowcap install`. Stop the existing peer with
 `glowcap apps rooms session stop --dir <workspace>` (or `glowcap apps rooms team stop --dir <team>`),
 then start with the same workspace. The PATH entry stays the same.
 Do not overwrite a running executable or delete its state. Keep the previous
-installation until no process needs it and the new one works; then its exact
-generation directory may be removed. Prerelease versions do not promise
-backward-compatible workspace formats; back up stopped workspaces before
+installation until no process needs it and the new one works, then remove its
+generation directory. Prerelease versions do not promise
+backward-compatible workspace formats. Back up stopped workspaces before
 upgrading. Removing an installation does not remove those workspaces.
 
 ## Build the package
@@ -242,13 +242,12 @@ The output goes under `zig-out/glowcap-release/`.
 `./glowcap` to run it during development, or `./glowcap install` to install it.
 
 - The checkout launcher runs the complete product in `zig-out/product`.
-- If the product is missing, the launcher builds it first (ReleaseSafe,
+- If the product is missing or incomplete, the launcher builds it first (ReleaseSafe,
   baseline CPU), using the devcontainer on Linux when available, or else the
   full local toolchain. macOS always builds locally, because the devcontainer
   produces Linux executables. If that build fails, the launcher stops.
-- Once the product is built, commands work without the build environment.
-- After editing source, run
-  `zig build rooms-build -Doptimize=ReleaseSafe -Dcpu=baseline` in the build
+- Once the product is built, ordinary commands work without the build environment.
+- After editing source, run `zig build rooms-release` in the build
   environment before trying your changes.
 - `GLOWCAP_BIN` selects an existing executable and skips the development
   build, for example to debug a Debug executable you built by hand.
@@ -257,12 +256,12 @@ The output goes under `zig-out/glowcap-release/`.
 
 - `./glowcap install` copies the prepared product into a verified generation
   outside the checkout.
-- On a Linux host, `./glowcap apps rooms deployment up` builds its Docker image
-  from `zig-out/product` with no extra flags. The
+- On a Linux host, `./glowcap apps rooms deployment up` prepares the current
+  source with `rooms-release` and builds its Docker image from `zig-out/product`. The
   [deployment guide](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/web/deploy/README.md)
   covers persistent configuration and choosing an image.
-- `rooms-deploy-prep` prepares the complete Linux product used as the Docker
-  build context.
+- `rooms-release` prepares the complete host product with ReleaseSafe and
+  baseline CPU settings. Docker requires a Linux product.
 - Neither command can produce a macOS executable from a Linux container.
 
 The C SDK is packaged separately, by `release-pack`.

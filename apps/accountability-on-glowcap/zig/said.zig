@@ -3,7 +3,7 @@
 //! Minting a key event and walking a presented log hash and sign the same
 //! bytes. This module is that shared leaf: Ed25519 keys, CESR-shaped
 //! base64url SAIDs, draft blanking, and the rotation preimage. The AID/KEL
-//! controller lives in `identity.zig`; walking a presented log lives in `kel.zig`.
+//! controller lives in `identity.zig`, walking a presented log lives in `kel.zig`.
 //!
 //! What is NOT claimed: byte-for-byte CESR / keripy conformance. An `E`-prefixed
 //! Blake3-256 SAID rendered as base64url is KERI-*shaped* but does not reproduce
@@ -17,7 +17,7 @@ const Blake3 = std.crypto.hash.Blake3;
 pub const DIGEST_BYTES = 32;
 pub const SEED_BYTES = 32;
 
-/// A base64url-no-pad rendering of a 32-byte digest is 43 chars; an AID or SAID
+/// A base64url-no-pad rendering of a 32-byte digest is 43 chars. An AID or SAID
 /// carries a 1-char derivation code in front of it, for 44 total.
 pub const SAID_LEN = 44;
 
@@ -30,7 +30,7 @@ pub const Error = error{
 } || std.mem.Allocator.Error;
 
 /// One Ed25519 keypair plus the 32-byte seed it can be rebuilt from. Seeds are
-/// the only secret; everything else is public.
+/// the only secret. Everything else is public.
 pub const Key = struct {
     pair: Ed25519.KeyPair,
     seed: [SEED_BYTES]u8,
@@ -106,7 +106,7 @@ pub const blank = '#';
 /// from that SAID. Widths are fixed, so blanking is byte-exact.
 ///
 /// This is the one derivation for both directions. `incept` and `rotate` hash
-/// the draft they render; a verifier hashes the draft `draftOf` rebuilds from a
+/// the draft they render. A verifier hashes the draft `draftOf` rebuilds from a
 /// received event. Nothing else may derive a SAID.
 pub fn saidOf(draft: []const u8) [SAID_LEN]u8 {
     var out: [SAID_LEN]u8 = undefined;
@@ -160,8 +160,8 @@ pub fn rotationPreimage(
 }
 
 /// The next-key commitment: a digest over the next verkey, which is the
-/// pre-rotation discipline itself — commit to the key before exposing it. An
-/// event writes it; a verifier recomputes it over the key a later event reveals.
+/// pre-rotation discipline itself: commit to the key before exposing it. An
+/// event writes it. A verifier recomputes it over the key a later event reveals.
 pub fn nextKeyDigest(next_verkey: [32]u8) [SAID_LEN]u8 {
     var out: [SAID_LEN]u8 = undefined;
     encodeSaid('E', blake3(&next_verkey), &out);

@@ -1,5 +1,5 @@
 //! Typed handoff from the Zig command parser. Validate operation prerequisites
-//! before opening a workspace; argv syntax and discovery stay in the CLI.
+//! before opening a workspace. Argv syntax and discovery stay in the CLI.
 use super::Failure;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::PathBuf};

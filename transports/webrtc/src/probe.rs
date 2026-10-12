@@ -5,14 +5,14 @@
 //! four riskiest unknowns of the netlayer in this environment, before any engine
 //! integration exists:
 //!
-//! * the `webrtc` crate builds and drives a peer connection here;
+//! * the `webrtc` crate builds and drives a peer connection here.
 //! * ICE gathers usable candidates on loopback inside a headless container
-//!   (host candidates, no STUN — `with_include_loopback_candidate(true)`);
-//! * DTLS brings the encrypted channel up between Chromium and this crate;
+//!   (host candidates, no STUN, `with_include_loopback_candidate(true)`).
+//! * DTLS brings the encrypted channel up between Chromium and this crate.
 //! * bytes round-trip both directions over the open channel.
 //!
 //! Signaling is out of band, over stdio, one JSON object per line. This is *not*
-//! the OCapN signaling capability (that is ADR-0089 phase 5); it is a direct
+//! the OCapN signaling capability (see ADR-0089). It is a direct
 //! SDP/ICE exchange whose only job is to bring the channel up so the byte path
 //! can be proven. The Deno/Playwright harness in `test/` is the counterpart: it
 //! runs the browser peer, ferries these lines between the browser and this

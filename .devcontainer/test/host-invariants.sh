@@ -12,7 +12,7 @@ source "${dir}/lib/playwright.sh"
 # These tests build checkouts of their own and configure them. Run inside a
 # devcontainer, the surrounding checkout's identity is exported into this
 # process, and `validate_effective_env` is right to refuse a fixture whose
-# `.env` says something else — so the ambient identity is cleared here rather
+# `.env` says something else, so the ambient identity is cleared here rather
 # than the guard being weakened. The list is the one the guard reads.
 while IFS= read -r glowcap_compose_variable; do
     unset "${glowcap_compose_variable}"

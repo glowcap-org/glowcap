@@ -5,6 +5,136 @@ use tokio::{
 	net::UnixListener,
 };
 
+#[tokio::test]
+async fn admission_refusal_releases_local_observation_but_uncertainty_keeps_it() {
+	for uncertain in [false, true] {
+		let state = std::env::temp_dir().join(format!("rooms-refused-{}", operation().unwrap()));
+		tokio::fs::create_dir(&state).await.unwrap();
+		let listener = UnixListener::bind(state.join("control.sock")).unwrap();
+		let options = Options {
+			verb: "reply".into(),
+			state: state.clone(),
+			named: Default::default(),
+			arguments: Vec::new(),
+		};
+		let server = tokio::spawn(async move {
+			for verb in if uncertain {
+				&["command"][..]
+			} else {
+				&["command", "release-command"][..]
+			} {
+				let (stream, _) = listener.accept().await.unwrap();
+				let mut reader = BufReader::new(stream);
+				let mut line = String::new();
+				reader.read_line(&mut line).await.unwrap();
+				let request: Value = serde_json::from_str(&line).unwrap();
+				assert_eq!(request["verb"], *verb);
+				assert_eq!(request["id"], "original");
+				let response = if *verb == "release-command" {
+					json!({"ok": true})
+				} else if uncertain {
+					Failure::uncertain("lost admission observation").response()
+				} else {
+					Failure::new(
+						"rate-limited",
+						"soon",
+						"command: retry-after-ms=1000; scope=message; owner=session",
+					)
+					.response()
+				};
+				reader
+					.get_mut()
+					.write_all(format!("{response}\n").as_bytes())
+					.await
+					.unwrap();
+			}
+			assert!(
+				tokio::time::timeout(Duration::from_millis(100), listener.accept())
+					.await
+					.is_err(),
+				"no redispatch or premature release"
+			);
+		});
+		let failure = command_once(&options, "original", 7, "say", &["conversation".into(), "draft".into()])
+			.await
+			.unwrap_err();
+		assert_eq!(failure.class, if uncertain { "uncertain" } else { "rate-limited" });
+		assert!(failure.message.contains("operation original, base 7"));
+		tokio::time::timeout(Duration::from_secs(2), server)
+			.await
+			.unwrap()
+			.unwrap();
+		tokio::fs::remove_dir_all(state).await.unwrap();
+	}
+}
+
+#[tokio::test]
+async fn unsent_command_preserves_refusal_and_retains_uncertain_observation() {
+	for uncertain in [false, true] {
+		let state = std::env::temp_dir().join(format!("rooms-unsent-{}", operation().unwrap()));
+		tokio::fs::create_dir(&state).await.unwrap();
+		let listener = UnixListener::bind(state.join("control.sock")).unwrap();
+		let options = Options {
+			verb: "reply".into(),
+			state: state.clone(),
+			named: Default::default(),
+			arguments: Vec::new(),
+		};
+		let server = tokio::spawn(async move {
+			for verb in if uncertain {
+				&["command", "command-result"][..]
+			} else {
+				&["command", "command-result", "release-command"][..]
+			} {
+				let (stream, _) = listener.accept().await.unwrap();
+				let mut reader = BufReader::new(stream);
+				let mut line = String::new();
+				reader.read_line(&mut line).await.unwrap();
+				let request: Value = serde_json::from_str(&line).unwrap();
+				assert_eq!(request["verb"], *verb);
+				assert_eq!(request["id"], "original");
+				let response = match *verb {
+					"command" => json!({"ok":true,"status":"unsent"}),
+					"command-result" if uncertain => Failure::uncertain("lost result read").response(),
+					"command-result" => Failure::new(
+						"rate-limited",
+						"after-delay",
+						"retry-after-ms=1000; scope=message; owner=session",
+					)
+					.response(),
+					_ => json!({"ok":true}),
+				};
+				reader
+					.get_mut()
+					.write_all(format!("{response}\n").as_bytes())
+					.await
+					.unwrap();
+			}
+			assert!(
+				tokio::time::timeout(Duration::from_millis(100), listener.accept())
+					.await
+					.is_err(),
+				"no redispatch or premature release"
+			);
+		});
+		let failure = command_once(&options, "original", 7, "say", &["conversation".into(), "draft".into()])
+			.await
+			.unwrap_err();
+		assert_eq!(failure.class, if uncertain { "uncertain" } else { "rate-limited" });
+		assert!(failure.message.contains("operation original, base 7"));
+		assert!(failure.message.contains(if uncertain {
+			"retain both for exact replay"
+		} else {
+			"owner=session"
+		}));
+		tokio::time::timeout(Duration::from_secs(2), server)
+			.await
+			.unwrap()
+			.unwrap();
+		tokio::fs::remove_dir_all(state).await.unwrap();
+	}
+}
+
 #[test]
 fn direct_contact_retry_fences_registration_and_allows_standing_updates() {
 	let original = json!({"directories":[{"id":"directory", "access":"access", "source":"source", "name":"name", "inbox":"inbox", "standing":"here"}]});

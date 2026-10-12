@@ -2,7 +2,7 @@
 use super::*;
 use rooms_glowcap::client::{access::ObservationRequest, workspace::Workspace};
 
-struct FailingTarget(Rc<Cell<usize>>, bool);
+struct FailingTarget(Rc<Cell<usize>>, bool, bool);
 impl Content for FailingTarget {
 	fn requirement(&self, _: Invocation<'_>) -> Result<Requirement> {
 		Requirement::new(&[], &[])
@@ -12,12 +12,14 @@ impl Content for FailingTarget {
 		self.0.set(self.0.get() + 1);
 		if self.1 {
 			Ok(true.into())
+		} else if self.2 {
+			Err(loam::refusal("rate-limited: retry-after-ms=1000; scope=create"))
 		} else {
 			Err(loam::refusal("relay registration refused"))
 		}
 	}
 }
-fn registration(calls: Rc<Cell<usize>>, malformed: bool) -> Registration {
+fn registration(calls: Rc<Cell<usize>>, malformed: bool, admission_refused: bool) -> Registration {
 	Registration {
 		schema: TARGET.id,
 		version: 1,
@@ -26,7 +28,33 @@ fn registration(calls: Rc<Cell<usize>>, malformed: bool) -> Registration {
 			verb: "down".into(),
 			retry: Retry::ReadOnly,
 		}],
-		content: Box::new(FailingTarget(calls, malformed)),
+		content: Box::new(FailingTarget(calls, malformed, admission_refused)),
+	}
+}
+
+/// The commit can outlive its worker. Keep the actual settlement receiver in
+/// Work while interrupting its polling task after staging terminal uncertainty.
+struct InterruptSettlement {
+	inner: Box<dyn Content>,
+	worker: Rc<std::cell::RefCell<Option<tokio::task::AbortHandle>>>,
+	fired: Cell<bool>,
+}
+impl Content for InterruptSettlement {
+	fn dependent_requirement(&self, input: Invocation<'_>) -> Result<Requirement> {
+		self.inner.dependent_requirement(input)
+	}
+	fn requirement(&self, input: Invocation<'_>) -> Result<Requirement> {
+		self.inner.requirement(input)
+	}
+	fn references(&self, input: Invocation<'_>) -> Result<Vec<loam::ReferenceRequest>> {
+		self.inner.references(input)
+	}
+	fn invoke(&self, call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argument> {
+		let result = self.inner.invoke(call, input)?;
+		if input.verb == "settle-effect" && !self.fired.replace(true) {
+			self.worker.borrow().as_ref().expect("settlement worker").abort();
+		}
+		Ok(result)
 	}
 }
 async fn reason(host: &Host, source: &Ref, canonical: &str) -> String {
@@ -34,7 +62,9 @@ async fn reason(host: &Host, source: &Ref, canonical: &str) -> String {
 		.send(source, "effect-result", &["failed".into(), canonical.into()])
 		.await
 		.unwrap();
-	unknown_reason(&value).into()
+	let rows = value.as_list().expect("terminal diagnostic");
+	assert!(matches!(rows[0].as_str(), Some("unknown" | "refused")));
+	rows[1].as_str().unwrap().into()
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -43,7 +73,13 @@ async fn terminal_observation_wakes_original_source_and_preserves_reason_without
 	run().await;
 }
 pub(super) async fn run() {
-	for (malformed, interrupted_settlement) in [(false, false), (true, false), (true, true)] {
+	for (malformed, interrupted_settlement, interrupted_reply, admission_refused) in [
+		(false, false, false, false),
+		(true, false, false, false),
+		(true, true, false, false),
+		(false, false, true, false),
+		(false, false, false, true),
+	] {
 		tokio::task::LocalSet::new()
 			.run_until(async {
 				environment::within(10_000, async {
@@ -86,14 +122,28 @@ pub(super) async fn run() {
 						std::num::NonZeroUsize::new(8192).unwrap(),
 					);
 					let refuse_settlement = Rc::new(Cell::new(interrupted_settlement));
+					let settlement_worker = Rc::new(std::cell::RefCell::new(None));
 					let mut registration_owner = owner.registration();
 					registration_owner.content = Box::new(AbortAfterAdmission {
 						inner: registration_owner.content,
 						refuse: Rc::new(Cell::new(false)),
 						refuse_settlement: refuse_settlement.clone(),
 					});
+					if interrupted_reply {
+						registration_owner.content = Box::new(InterruptSettlement {
+							inner: registration_owner.content,
+							worker: settlement_worker.clone(),
+							fired: Cell::new(false),
+						});
+					}
 					let mut attachment = store
-						.attach(&host, vec![registration_owner, registration(calls.clone(), malformed)])
+						.attach(
+							&host,
+							vec![
+								registration_owner,
+								registration(calls.clone(), malformed, admission_refused),
+							],
+						)
 						.unwrap();
 					attachment.start_live(None, 32).unwrap();
 					let (root, control) = environment::restore(&attachment, resource).await;
@@ -116,6 +166,7 @@ pub(super) async fn run() {
 						mutate(&host, &root, "command", &args).await.unwrap().as_str(),
 						Some("pending")
 					);
+					*settlement_worker.borrow_mut() = platform.tasks.borrow().last().cloned();
 					let cursor = *observation.poll(None).await.unwrap().view().cursor;
 					let reader = host
 						.send(&root, "effect-reader", &["failed".into(), canonical.clone().into()])
@@ -124,7 +175,10 @@ pub(super) async fn run() {
 					let reader = Ref::try_from(&reader).unwrap();
 					let waiting = host.send(&reader, "read", &["failed".into(), root.clone().into()]);
 					platform.suspended.set(false);
-					assert_eq!(waiting.await.unwrap().as_str(), Some("unknown"));
+					assert_eq!(
+						waiting.await.unwrap().as_str(),
+						Some(if admission_refused { "unsent" } else { "unknown" })
+					);
 					if interrupted_settlement {
 						assert_eq!(
 							host.send(&root, "effect-result", &["failed".into(), canonical.clone().into()])
@@ -137,13 +191,34 @@ pub(super) async fn run() {
 						owner.resume_pending().unwrap();
 					}
 					observation.receive(&cursor).await.unwrap();
-					assert_eq!(finished(&host, &root, "failed", &root).await.as_str(), Some("unknown"));
+					assert_eq!(
+						finished(&host, &root, "failed", &root).await.as_str(),
+						Some(if admission_refused { "unsent" } else { "unknown" })
+					);
 					let original_reason = reason(&host, &root, &canonical).await;
+					if interrupted_reply {
+						let retained = workspace.effects().await.unwrap();
+						assert!(retained[0].resumable, "the settlement observer must remain retained");
+						let recovered = workspace.recover_effect("failed").await.unwrap().unwrap();
+						assert_eq!(
+							recovered.resume().await.unwrap(),
+							rooms_glowcap::client::workspace::EffectStatus::Unknown
+						);
+						while workspace.effects().await.unwrap()[0].resumable {
+							environment::yield_turn().await;
+						}
+						assert_eq!(reason(&host, &root, &canonical).await, original_reason);
+						assert_eq!(calls.get(), 1, "settlement recovery must not call the target again");
+					}
 					assert!(
 						original_reason.contains(if malformed {
 							"invalid effect result"
 						} else {
-							"ApplicationRefused"
+							if admission_refused {
+								"rate-limited: retry-after-ms=1000; scope=create"
+							} else {
+								"relay registration refused"
+							}
 						}),
 						"{original_reason}"
 					);
@@ -162,13 +237,16 @@ pub(super) async fn run() {
 					);
 					assert_eq!(
 						mutate(&host, &root, "command", &args).await.unwrap().as_str(),
-						Some("unknown")
+						Some(if admission_refused { "unsent" } else { "unknown" })
 					);
-					assert!(
-						host.send(&root, "resume-effect", &["failed".into(), canonical.clone().into()])
-							.await
-							.is_err()
-					);
+					let resumed = host
+						.send(&root, "resume-effect", &["failed".into(), canonical.clone().into()])
+						.await;
+					if admission_refused {
+						assert_eq!(resumed.unwrap().as_str(), Some("unsent"));
+					} else {
+						assert!(resumed.is_err());
+					}
 					assert_eq!(calls.get(), 1, "failure never authorizes redispatch");
 					observation.cancel().await.unwrap();
 					drop(observation);
@@ -188,17 +266,23 @@ pub(super) async fn run() {
 					let mut attachment = store
 						.attach(
 							&host,
-							vec![owner.registration(), registration(calls.clone(), malformed)],
+							vec![
+								owner.registration(),
+								registration(calls.clone(), malformed, admission_refused),
+							],
 						)
 						.unwrap();
 					let (root, control) = environment::restore(&attachment, resource).await;
 					owner.bind(root.clone(), control).unwrap();
 					assert_eq!(reason(&host, &root, &canonical).await, original_reason);
-					assert!(
-						host.send(&root, "resume-effect", &["failed".into(), canonical.into()])
-							.await
-							.is_err()
-					);
+					let resumed = host
+						.send(&root, "resume-effect", &["failed".into(), canonical.into()])
+						.await;
+					if admission_refused {
+						assert_eq!(resumed.unwrap().as_str(), Some("unsent"));
+					} else {
+						assert!(resumed.is_err());
+					}
 					assert_eq!(calls.get(), 1, "cold recovery never reconstructs dispatch");
 					owner.close().await.unwrap();
 					attachment.close().await.unwrap();

@@ -4,13 +4,13 @@
 //! A netlayer is a byte-stream provider plus a locator, and CapTP is transport
 //! agnostic, so nothing here changes what either side speaks. The Goblins vat
 //! runs its own CapTP, marshals its own Syrup, and keeps its own session keys.
-//! What is new is what carries the bytes: `conformance/goblins-peer/racket/
+//! Only the carrier differs: `conformance/goblins-peer/racket/
 //! iroh-netlayer.rkt` gives the vat an iroh endpoint through the glowcap Racket
-//! binding's byte-channel surface, where until now the only netlayer this
-//! repository wrote for Goblins was a cleartext socket.
+//! binding's byte-channel surface. The other netlayer this repository writes
+//! for Goblins is a cleartext socket.
 //!
 //! That makes iroh's first outside CapTP peer. `iroh-interop` is glowcap on both
-//! ends by construction; here the partner is a foreign implementation of the
+//! ends by construction. Here the partner is a foreign implementation of the
 //! protocol, reached over the same QUIC transport.
 //!
 //! The dialing bracket: glowcap spawns the Goblins vat (`goblins-iroh-host.rkt`),
@@ -61,7 +61,7 @@ const handshake_budget_ms: i32 = 60_000;
 /// How long the dialing bracket waits for the vat to print what its netlayer
 /// concluded about the session. The vat writes that line as it reads glowcap's
 /// hello, line-buffered, so it is already on the wire by the time the echo call
-/// has answered; the budget is only there so a vat that says nothing ends this
+/// has answered. The budget is only there so a vat that says nothing ends this
 /// wait instead of parking a driver whose child runs until it is killed.
 const session_line_budget_ms: i32 = 10_000;
 
@@ -81,8 +81,8 @@ const Greeter = harness.PositionalReplyActor(greeting_template);
 const expected_reply = std.fmt.comptimePrint(greeting_template, .{greeting_arg});
 
 /// The listening bracket's server half: accept one partner over iroh signing with
-/// `secret` — the endpoint's own key, so the designator the vat verifies is the
-/// endpoint id it dialed — publish the Greeter, and serve until the vat hangs up.
+/// `secret`: the endpoint's own key, so the designator the vat verifies is the
+/// endpoint id it dialed, publish the Greeter, and serve until the vat hangs up.
 const serveGreeter = harness.AcceptServeOne(
     Greeter,
     actor_swiss,
@@ -159,11 +159,11 @@ fn dialGoblinsVat(io: std.Io, allocator: std.mem.Allocator, environ_map: *std.pr
     };
 
     // What the vat's own netlayer concluded about the peer that just called it.
-    // The accept side is where a transport proof used to be unreadable: QUIC
-    // authenticated this dialer's endpoint id, and until the iroh C ABI handed
-    // that id out, the vat had nothing to weigh glowcap's claim against and
-    // reported an unproven partner. It reads the id off the connection now, so
-    // a hello claiming the endpoint QUIC verified is the transport's own word.
+    // The accept side is where a transport proof is readable: QUIC
+    // authenticated this dialer's endpoint id, and the iroh C ABI hands that id
+    // to the vat, which weighs glowcap's claim against it. Without the id the
+    // vat reports an unproven partner. A hello claiming the endpoint QUIC
+    // verified is the transport's own word.
     //
     // The partner name in the same line is what ties the verdict to this dialer.
     // An accessor answering some other connection's id, or a stale one, would

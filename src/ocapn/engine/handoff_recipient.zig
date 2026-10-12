@@ -1,6 +1,6 @@
 //! Recipient-side handoff helpers (ADR-0009): session/side naming, signed
 //! `desc:handoff-receive` construction, and the Peer outbound choreography
-//! that withdraws a gift. Crypto/session primitives stay at the top; the
+//! that withdraws a gift. Crypto/session primitives stay at the top. The
 //! withdraw free function over `*Peer` is the same shape as `inbound.zig` /
 //! `outbound.zig`.
 
@@ -36,7 +36,7 @@ pub const sessionName = handoff_names.sessionName;
 /// A signed `desc:handoff-receive` that owns its derived bytes, including the
 /// gifter's give it parsed from `give_bytes` (`give` carries both `raw_signed`,
 /// for a Syrup session's verbatim fast path, and the typed fields a Cap'n Proto
-/// session encodes instead — so the receive rides *this* session's codec, not
+/// session encodes instead, so the receive rides *this* session's codec, not
 /// just Syrup's). The session and side names and the signature live inline, so
 /// the `model.HandoffReceive` that `message` projects borrows only this value,
 /// no dangling stack references once the builder returns. The caller holds the
@@ -62,7 +62,7 @@ pub const SignedReceive = struct {
     }
 
     /// Release the give `signedReceiveFromGiveBytes` parsed and owns. Safe to
-    /// call once the withdraw `message()` projected has been encoded —
+    /// call once the withdraw `message()` projected has been encoded,
     /// `sendCopying` deep-copies before it returns, so the caller's one send
     /// call always finishes first.
     pub fn deinit(self: *const SignedReceive, allocator: std.mem.Allocator) void {
@@ -74,13 +74,13 @@ pub const SignedReceive = struct {
 /// a self-contained `SignedReceive` the caller keeps alive while it encodes the
 /// withdraw, then releases with `SignedReceive.deinit`. `give_bytes` is the
 /// Syrup-encoded `<desc:sig-envelope …>` a gifter returned (or a binding's
-/// `glowcap_build_handoff_give` built); it is parsed once here into a typed,
-/// codec-neutral give. `secret` is the recipient's session key — the one the
-/// gifter named as the give's recipient key — so the exporter verifies the
+/// `glowcap_build_handoff_give` built). It is parsed once here into a typed,
+/// codec-neutral give. `secret` is the recipient's session key, the one the
+/// gifter named as the give's recipient key, so the exporter verifies the
 /// receive against it. `handoff_count` is supplied by the owner of issuance.
 /// Ordinary peers mint it from their recipient-to-exporter session registry. A
 /// Node's V1 compatibility path may supply its host-lifetime cursor for Goblins
-/// reconnect interop; this changes emitted values, never replay authority.
+/// reconnect interop. This changes emitted values, never replay authority.
 pub fn signedReceiveFromGiveBytes(
     allocator: std.mem.Allocator,
     handoff_count: u64,
@@ -124,7 +124,7 @@ fn reconstructSignedHandoffGive(
 
 /// Project a give's exporter peer into the dialable `ocapn://…` URI a
 /// recipient hands its dialer, through the one core URI grammar. Materialize
-/// hints only when the lazy arm requires it; transport/designator stay
+/// hints only when the lazy arm requires it. The transport and designator stay
 /// borrowed for `writePeer`. The caller owns the returned bytes.
 pub const LocatorUriError = error{ OutOfMemory, MalformedLocatorRecord };
 pub fn exporterLocatorUri(
@@ -154,7 +154,7 @@ pub fn exporterLocatorUri(
 
 /// Signed give + dial URI for a fulfill that carries a handoff give.
 /// Soft failures leave `give` as `.absent` or `locator` as `.absent` /
-/// `.malformed`; only OOM errors out. Caller frees via `deinit`.
+/// `.malformed`. Only OOM errors out. Caller frees via `deinit`.
 pub const ProjectedRedeemGive = struct {
     give: union(enum) {
         borrowed: []const u8,
@@ -167,7 +167,7 @@ pub const ProjectedRedeemGive = struct {
         malformed,
     } = .absent,
 
-    /// Give octets when present; `null` when reconstruct/span failed (`.absent`).
+    /// Give octets when present. `null` when reconstruct/span failed (`.absent`).
     /// Callers must branch on this instead of treating an empty slice as absent.
     pub fn bytes(self: ProjectedRedeemGive) ?[]const u8 {
         return switch (self.give) {
@@ -223,9 +223,9 @@ pub fn projectGiveForRedeem(
 /// `desc:handoff-receive` over `give_bytes` keyed by `secret`, mint the
 /// monotonic handoff-count from this session or its Node's V1 compatibility
 /// issuer, and queue `withdraw-gift` to the exporter's bootstrap under
-/// `answer`. The exporter session must be open — its partner key names the
-/// receive's session — or this fails with `error.NoExporterKey`. This is the
-/// one definition of the withdraw deliver shape; the `Node` redeem path and
+/// `answer`. The exporter session must be open, its partner key names the
+/// receive's session, or this fails with `error.NoExporterKey`. This is the
+/// one definition of the withdraw deliver shape. The `Node` redeem path and
 /// the C ABI both drive it. `give_bytes` is borrowed for the call.
 pub fn sendWithdrawGift(
     peer: *Peer,
@@ -234,13 +234,13 @@ pub fn sendWithdrawGift(
     answer: model.AnswerPosition,
 ) !void {
     const exporter_key = peer.session_state.partnerSessionKey() orelse return error.NoExporterKey;
-    // Two different keys, deliberately (ADR-0097).
+    // Two different keys (ADR-0097).
     //
     // `secret` signs, and it is the key of the session the *give arrived
     // on*, because that is the identity the give named as its
     // `recipient_key` and the exporter verifies this receive against that
-    // name. The side and session names below are this session's — the
-    // recipient–exporter one — because they name where the withdrawal is
+    // name. The side and session names below are this session's, the
+    // recipient–exporter one, because they name where the withdrawal is
     // happening. Goblins draws the same distinction: its receive is signed
     // by the coordinator that received the give while its names come from
     // the exporter session's coordinator. Conflating them works only while

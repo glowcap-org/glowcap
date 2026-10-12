@@ -37,6 +37,8 @@ export interface RoomsBrowserController {
 	openOperations(): void;
 	/** Acknowledge a conversation after its selection settles, while this arrival remains current. */
 	showActiveConversation(selection: Promise<void>): Promise<void>;
+	/** Stop waiting for the current acquisition and prevent its late navigation. */
+	cancelConversationOpening(): void;
 	setOpsPane(pane: OpsCap): void;
 	changeLine(id: number, text: string): void;
 	changeFiles(id: number, caption: string, keeping: readonly AttachmentView[]): void;

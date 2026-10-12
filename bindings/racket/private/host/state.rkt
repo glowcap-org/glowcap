@@ -21,7 +21,7 @@
 ;; reentrant host lock every `glowcap_host_*` verb and action drain runs under;
 ;; `sessions` maps a session pointer's address to its live `session` (the FLUSH
 ;; action's routing table, and what keeps redeem-dialed exporter sessions
-;; alive); `progress` boxes the generation semaphore pumps wait on — bumped
+;; alive); `progress` boxes the generation semaphore pumps wait on. It is bumped
 ;; after every locked host operation, so a thread parked on one session
 ;; notices a settle another session's feed fired; `keep` strongly retains
 ;; every behavior closure registered with the host (a C trampoline stays alive
@@ -40,7 +40,7 @@
 ;; timeout included) instead of silently succeeding;
 ;; `released?` guards the handle against use after release; `driver-loop`
 ;; boxes the native loop this host is adopted over (ADR-0112), or #f for a
-;; byte-fed host — when set, the action drain, session release, and host
+;; byte-fed host. When set, the action drain, session release, and host
 ;; release all route through the loop via the hooks below.
 (struct host ([ptr #:mutable] context diagnostic-id seed lock lock-owner sessions progress keep vows dial-workers redeem-reachability runtime-failure close-result released? codec captp-version features driver-loop connectors))
 
@@ -215,7 +215,7 @@
     (recorder)))
 
 ;; ── The loop hooks (ADR-0112) ────────────────────────────────────────────────
-;; `loop/lifecycle.rkt` fills these at module load — a loop-adopted host exists only
+;; `loop/lifecycle.rkt` fills these at module load. A loop-adopted host exists only
 ;; after that module ran, so a set hook is guaranteed wherever `host-loop-of`
 ;; answers a loop. Hook boxes rather than requires, because the release path
 ;; is reachable from the FFI finalizer thread, where a lazy-require stub
@@ -328,7 +328,7 @@
 ;;
 ;; Snapshot and bump both run under the host lock so a waiter cannot observe a
 ;; generation the holder already retired between a failed reader CAS and the
-;; wait — that schedule left the waiter on an unposted semaphore forever.
+;; wait. That schedule left the waiter on an unposted semaphore forever.
 (define (host-progress-evt m)
   (call-with-host m
     (lambda () (semaphore-peek-evt (unbox (host-progress m))))))
@@ -383,8 +383,8 @@
        (or (host-session-for-ptr m ptr)
            ;; A loop-owned host redeems handoffs inside its own steps
            ;; (ADR-0112), so the exporter session it dialed exists with no
-           ;; wrapper yet. Wrap it lazily — the wrap registers it, so a
-           ;; repeat lookup answers this same object — and the loop stays
+           ;; wrapper yet. Wrap it lazily (the wrap registers it, so a
+           ;; repeat lookup answers this same object), and the loop stays
            ;; its release authority.
            (let ([lp (host-loop-of m)])
              (and lp ((unbox loop-wrap-session-hook) lp ptr))))))
@@ -408,7 +408,7 @@
 
 ;; ── The hint-less iroh redeem posture ─────────────────────────────────────────
 ;; The iroh reachability posture this host uses to redeem a hint-less handoff
-;; give — one whose exporter location names the exporter by node id alone, so
+;; give (one whose exporter location names the exporter by node id alone), so
 ;; the recipient must resolve it by id. Defaults to Discovery (1), the
 ;; maximal-reach choice; a relay-policy host lowers it to DiscoveryNoRelay. A
 ;; hinted give always dials Direct and ignores it. Stored as the numeric value

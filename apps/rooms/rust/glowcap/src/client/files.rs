@@ -1,4 +1,4 @@
-//! Owned transfer capabilities. Upload mutation is exclusive; independent blob
+//! Owned transfer capabilities. Upload mutation is exclusive. Independent blob
 //! readers may share the same session without sharing progress or cancellation.
 pub mod capture;
 use super::{Caller, Client, Deadline, Error};
@@ -99,7 +99,7 @@ impl<D: Deadline> Upload<D> {
 		Ok(())
 	}
 	/// Consume the local write authority. The returned result is the host's
-	/// actual discard acknowledgement; cancellation does not synthesize one.
+	/// actual discard acknowledgement. Cancellation does not synthesize one.
 	pub async fn discard(self) -> Result<(), Error> {
 		self.client
 			.call(
@@ -140,7 +140,7 @@ impl<D: Deadline> File<D> {
 		}
 	}
 	/// A domain owner can retain exact admission around every source read.
-	/// The reader owns that check and its deadline; File validates each chunk.
+	/// The reader owns that check and its deadline. File validates each chunk.
 	pub fn mediated<R: super::sources::Reader + 'static>(
 		attachment: Attachment<Ref>,
 		reader: R,
@@ -168,7 +168,7 @@ impl<D: Deadline> File<D> {
 	pub fn attachment(&self) -> &Attachment<Ref> {
 		&self.attachment
 	}
-	/// Keep the delivering client alive; the Host routes each held blob to its
+	/// Keep the delivering client alive. The Host routes each held blob to its
 	/// actual owner, including local facades and third-party handoffs.
 	pub fn received(client: Client<D>, attachment: Attachment<Ref>) -> Self {
 		Self::new(client, attachment)

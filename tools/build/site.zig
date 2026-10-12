@@ -5,7 +5,7 @@
 //! static site generator, so it lives behind its own build in
 //! `site/build.zig` and is compiled only when the site steps run, the same
 //! way the cargo, deno, and racket sibling steps reach for their tool at run
-//! time; the hermetic `check` graph never imports it. What does ride `check`
+//! time. The hermetic `check` graph never imports it. What does ride `check`
 //! is the snippet-staleness check, the Zig and TypeScript snippet checks,
 //! and the site output checker's own tests.
 

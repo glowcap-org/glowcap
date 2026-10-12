@@ -39,11 +39,11 @@ pub use worker::{Report, Worker};
 /// its own I/O failures, `Error::refused` for a capability it does not offer.
 pub trait Backend {
 	/// An independent read executor over committed blobs. File ingestion may
-	/// call back into this archive; these reads must not await the write queue.
+	/// call back into this archive. These reads must not await the write queue.
 	fn blob_access(&self) -> impl BlobAccess + use<Self> {
 		UnavailableBlobs
 	}
-	/// Trusted owner operation; archive facets have no wire erasure verb.
+	/// Trusted owner operation. Archive facets have no wire erasure verb.
 	fn clear(&mut self) -> impl Future<Output = Result<(), Error>> {
 		async { Err(Error::refused("archive backend does not support local erasure")) }
 	}
@@ -186,7 +186,7 @@ impl<P: Platform> Archive<P> {
 		(Self(state.clone()), Worker::new(state, rx, finished, backend))
 	}
 	/// Serialize local erasure after admitted writes. Cancelling this observation
-	/// leaves the worker owning the erasure; there is no remote clear authority.
+	/// leaves the worker owning the erasure. There is no remote clear authority.
 	pub async fn clear(&self) -> Result<(), Error> {
 		let request = Operation::Clear;
 		let permit = self.0.reserve(&request)?;
@@ -210,7 +210,7 @@ impl<P: Platform> Archive<P> {
 		Receiver(Rc::downgrade(&self.0))
 	}
 	/// Cancelling this observation leaves the owned worker draining. Close the
-	/// archive before its backend/Host/transport owners; no Session is closed here.
+	/// archive before its backend/Host/transport owners. No Session is closed here.
 	pub async fn close(&self) -> Result<Report, Error> {
 		self.0.stop.send_replace(true);
 		let mut done = self.0.done.clone();
@@ -275,7 +275,7 @@ impl<P: Platform> State<P> {
 }
 impl<P: Platform> Receiver<P> {
 	/// Root occurrences are created by the trusted parent. Descendants all use
-	/// the same issuer and backend admission; cloning Receiver creates neither.
+	/// the same issuer and backend admission. Cloning Receiver creates neither.
 	pub fn spawn(&self, session: &Session, facet: Facet) -> Result<Ref, Error> {
 		self.spawn_authorized(session, facet, Authority::Ordinary)
 	}

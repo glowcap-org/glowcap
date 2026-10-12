@@ -1,5 +1,5 @@
 /* Help: the card, its three tabs, and what each tab lays out. Split from
-   settings.css by subject; the modal machinery the card stands on stays there.
+   settings.css by subject. The modal machinery the card stands on stays there.
 
    A step wider than Settings, because the Writing tab is a table read across
    one row, source beside result, and at the panel step each half is too
@@ -156,7 +156,7 @@
 	line-height: 1.45;
 }
 /* The way into the parts catalog: the word "secret" in the glossary is the
-   door — tappable and focusable, and only the cursor gives it away. A
+   door, tappable and focusable, and only the cursor gives it away. A
    development surface earns an easter egg's affordance, not a button's. */
 .secret-door {
 	all: unset;
@@ -164,7 +164,7 @@
 	color: inherit;
 	cursor: pointer;
 }
-/* The ring is the base rule's; this only rounds the corners it follows. */
+/* The ring is the base rule's. This only rounds the corners it follows. */
 .secret-door:focus-visible {
 	border-radius: 4px;
 }

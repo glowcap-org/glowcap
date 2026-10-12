@@ -26,11 +26,15 @@ export function tabIdentity(): string {
 	return id;
 }
 
-export async function openManagedSession(report: (source: string, error: unknown) => void): Promise<{
+export async function openManagedSession(
+	report: (source: string, error: unknown) => void,
+	selection: "saved" | "local" = "saved",
+): Promise<{
 	session: ManagedRoomsSession;
 	local: boolean;
 }> {
-	const application = new (applicationModule().RoomsManagedApplication)(tabIdentity(), report);
+	const admission = document.documentElement.dataset.roomsSessionAdmission;
+	const application = new (applicationModule().RoomsManagedApplication)(tabIdentity(), report, admission);
 	let custody: RoomsManagedWorkspace | null = null;
 	let workspace: RoomsManagedWorkspace | null = null;
 	let session: ManagedRoomsSession | null = null;
@@ -50,7 +54,10 @@ export async function openManagedSession(report: (source: string, error: unknown
 		const heldCustody: RoomsManagedWorkspace = await application.workspace();
 		custody = heldCustody;
 		const home: WorkspaceSnapshot = await heldCustody.snapshot();
-		const local = !home.intent.accesses?.some((row) => row.id === ACTIVE_VIEW && row.access != null);
+		// Choosing a replacement must not depend on restoring the old peer.
+		// Local custody keeps the saved selection until the new choice commits.
+		const local = selection === "local" ||
+			!home.intent.accesses?.some((row) => row.id === ACTIVE_VIEW && row.access != null);
 		const heldWorkspace: RoomsManagedWorkspace = local
 			? await application.workspace()
 			: await application.savedWorkspace(ACTIVE_VIEW);
@@ -59,12 +66,14 @@ export async function openManagedSession(report: (source: string, error: unknown
 		await session.start();
 		// Restore management by the separately saved strong fields. The active
 		// view's inventory supplies no new control and cannot widen this set.
-		session.initializeManagement(
-			local,
-			(home.intent.accesses ?? [])
-				.filter((row) => row.control != null)
-				.map((row) => row.id),
-		);
+		if (selection === "saved") {
+			session.initializeManagement(
+				local,
+				(home.intent.accesses ?? [])
+					.filter((row) => row.control != null)
+					.map((row) => row.id),
+			);
+		}
 		return { session, local };
 	} catch (error) {
 		// Failed cleanup leaves the original owner available to the error's

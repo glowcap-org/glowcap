@@ -1,5 +1,5 @@
 //! Version-one JSONL snapshots and committed tails. Recovery produces a fresh
-//! index; the caller decides when a torn-tail repair becomes durable.
+//! index. The caller decides when a torn-tail repair becomes durable.
 use super::{
 	Error, MAX_RECORDS, Record,
 	index::{Entry, Index},
@@ -146,8 +146,8 @@ pub fn snapshot(index: &Index, max_bytes: usize) -> Result<Snapshot, Error> {
 	let header = row(
 		&Header {
 			archive: FORMAT.into(),
-			version: SafeInteger::new(1).unwrap(),
-			revision: SafeInteger::new(index.revision()).unwrap(),
+			version: SafeInteger::literal(1),
+			revision: SafeInteger::new(index.revision()).ok_or(Error::Revision)?,
 		},
 		max_bytes,
 	)?;

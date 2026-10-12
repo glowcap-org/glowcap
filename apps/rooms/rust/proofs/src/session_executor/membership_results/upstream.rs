@@ -15,6 +15,8 @@ struct Upstream {
 	nickname: std::cell::RefCell<String>,
 	standing: std::cell::RefCell<String>,
 	standing_calls: Cell<usize>,
+	refuse_standing: Cell<bool>,
+	standing_refusals: Cell<usize>,
 }
 impl Content for Upstream {
 	fn requirement(&self, _: Invocation<'_>) -> Result<Requirement> {
@@ -38,12 +40,21 @@ impl Content for Upstream {
 		match input.verb {
 			"away" => {
 				let [reason] = input.args else { panic!("one standing") };
+				if self.refuse_standing.replace(false) {
+					self.standing_refusals.set(self.standing_refusals.get() + 1);
+					return Err(loam::refusal("rate-limited: retry-after-ms=1; scope=room-transient"));
+				}
 				*self.standing.borrow_mut() = reason.as_str().unwrap().into();
 				self.standing_calls.set(self.standing_calls.get() + 1);
 				Ok(Argument::Void)
 			}
 			"last-standing" => Ok(self.standing.borrow().clone().into()),
 			"standing-count" => Ok((self.standing_calls.get() as i64).into()),
+			"refuse-next-standing" => {
+				self.refuse_standing.set(true);
+				Ok(Argument::Void)
+			}
+			"standing-refusals" => Ok((self.standing_refusals.get() as i64).into()),
 			"leave" => {
 				assert_eq!(
 					input.payload,
@@ -121,7 +132,7 @@ impl Content for Upstream {
 				self.notices.set(self.notices.get() + 1);
 				Ok(Argument::Void)
 			}
-			"typing" | "setTopic" | "post" => {
+			"typing" | "setTopic" | rooms_application::room::correlation::POST => {
 				self.acts.set(self.acts.get() + 1);
 				Ok(Argument::Void)
 			}
@@ -153,11 +164,13 @@ pub(in crate::session_executor) fn registration_with_retirement(
 			"typing",
 			"setTopic",
 			"notify",
-			"post",
+			rooms_application::room::correlation::POST,
 			"last-nickname",
 			"away",
 			"last-standing",
 			"standing-count",
+			"refuse-next-standing",
+			"standing-refusals",
 		]
 		.into_iter()
 		.map(|verb| Method {
@@ -190,6 +203,8 @@ pub(in crate::session_executor) fn registration_with_retirement(
 			nickname: Default::default(),
 			standing: Default::default(),
 			standing_calls: Cell::new(0),
+			refuse_standing: Cell::new(false),
+			standing_refusals: Cell::new(0),
 		}),
 	}
 }

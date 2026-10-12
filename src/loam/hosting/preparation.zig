@@ -2,6 +2,8 @@
 //! The portrait lease and retained arguments remain valid through deinit.
 const core = @import("loam_core");
 
+/// A preparation's lifecycle callbacks. Implementors are unknown at this
+/// declaration, so `advanceFn` and `completeFn` keep `anyerror` return sets.
 pub const Preparation = struct {
     context: *anyopaque,
     advanceFn: *const fn (*anyopaque) anyerror!Step,

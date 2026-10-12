@@ -31,14 +31,14 @@ against the selected path. Record identity remains authoritative after lookup.
 These pages participate in ordinary Loam transactions and tracing collection.
 They work with both current backends without a second index-commit protocol,
 backend-specific authority logic, or an untracked retention structure. The
-cost is additional record lookups and page updates above LMDB's physical tree;
-measure it before choosing an engine-specific secondary-index mechanism.
+cost is additional record lookups and page updates above LMDB's physical tree.
+Measure it before choosing an engine-specific secondary-index mechanism.
 This is an application identity index, not a replacement physical database.
 
 A read operation pins its bounded working set through Loam leases. Index
 traversal retains its position across storage misses, so a cache smaller than
 the directory path still makes progress. The operation carries the store's
-snapshot revision; a commit requires reopening it before further authority
+snapshot revision. A commit requires reopening it before further authority
 evaluation. Reads that consume composed owner proposals also bind the exact
 staging transaction and expire when it ends, even after abort or absent recovery.
 An uncertain write refuses reads until Loam resolves its receipt.
@@ -46,7 +46,7 @@ The embedding executes explicit read work and delivers completion. Close
 refuses while that operation still owns submitted storage work.
 
 New identities advance durable owner counters atomically with their records
-and directory entries. This profile never reuses committed slots; exhaustion
+and directory entries. This profile never reuses committed slots. Exhaustion
 refuses issuance. An aborted, unpublished proposal consumes no logical slot.
 Resource and grant IDs remain distinct from Loam object IDs. Policy
 descriptors persist stable keys and bound operators, preserving the meanings
@@ -61,19 +61,19 @@ Shared `GrantPlan` rules decide grant changes. Loam owns preparation, commit,
 uncertain outcomes, and recovery. No managed owner introduces an executor or
 independent write-completion state machine.
 
-> **Composition amendment (2026-09-22).** Transactions now compose several
+> **Composition amendment (2026-09-22).** Transactions compose several
 > managed changes into one owner mutation: each stage validates and stages
 > against the transaction's own composed state and re-proposes shared records
 > (the owner header, a parent grant row) in place, so the submitted batch still
 > holds exactly one mutation per record. The re-propose rule lives in the
-> [atomic mutations contract](../../planning/loam/api.md#atomic-mutations); the
+> [atomic mutations contract](../../loam/api.md#atomic-mutations). The
 > [owner transaction tests](../../../test/loam/access/owner_test.zig) and the
 > [LMDB composed reopen test](../../../test/loam/lmdb/owner_test.zig) hold the
 > evidence.
 
 One transaction stages at most one mutation per managed owner in the submitted
 batch. A prepared append borrows
-its read operation until explicit close; close refuses while submitted work
+its read operation until explicit close. Close refuses while submitted work
 still owns a buffer. The caller publishes proposed identities and events only
 after confirmed commit.
 
@@ -88,12 +88,12 @@ This profile establishes owner creation/opening, indexed resources and grants,
 bounded data loading, and local grant mutations. Durable native use/control
 bindings, publication restoration, resource reorganization/deletion, child
 listing indexes, and remote event delivery remain integration work in the
-[storage plan](../../planning/loam/access/storage.md).
+[storage plan](../../loam/access-storage.md).
 
 Portable tests exercise abort, mixed owners and generations, stale reads during
 mutation, malformed directory paths, allocation failure and cleanup, and a
 258-resource directory traversed with two cache slots. A read has at most 20 KiB
-of inline state plus one bounded binding allocation; an append has at most
+of inline state plus one bounded binding allocation. An append has at most
 52 KiB of inline path state. Loaded grant evaluation makes no allocator calls.
 These bounds exclude Store cache buffers and transaction staging.
 

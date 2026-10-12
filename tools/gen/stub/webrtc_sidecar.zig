@@ -8,10 +8,10 @@
 //! generator (`tools/gen/header/webrtc.zig`) only *reflects* over the module's
 //! types and signatures, never calling them, but the generator executable still
 //! has to link. These stubs satisfy the linker so
-//! `zig build gen-header-net-transport-webrtc{,-check}` runs cargo-free; the
+//! `zig build gen-header-net-transport-webrtc{,-check}` runs cargo-free. The
 //! real sidecar replaces them in `libglowcap_net_transport_webrtc`.
 //!
-//! Every body traps: linking these into anything that actually drives a
+//! Every body traps: linking these into anything that drives a
 //! DataChannel is a build-wiring mistake, and it should fail loud rather than
 //! silently no-op.
 

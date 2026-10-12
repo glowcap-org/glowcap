@@ -1,4 +1,4 @@
-//! Discovery uses the saved original source and never exposes directory powers.
+//! Viewer reads use their own grant. Discovery workers keep the saved source.
 use super::*;
 use rooms_glowcap::client::workspace::Workspace;
 
@@ -33,26 +33,71 @@ pub(super) async fn run(
 			&[],
 		)
 		.unwrap();
-	let (other, _) = owner.derive(terms, 0, ControlPowers::default()).await.unwrap();
+	let (other, other_control) = owner
+		.derive(
+			terms,
+			0,
+			ControlPowers {
+				pause: true,
+				resume: true,
+				revoke: true,
+				..Default::default()
+			},
+		)
+		.await
+		.unwrap();
+	assert_ne!(&other, source);
+	let viewer = Workspace::local(host.clone(), Platform::default(), other);
+	let viewer_reader = viewer.directory_reader("directory").await.unwrap();
+	let selection = rooms_application::content::session::workspace::DiscoverySelection::directory(
+		&original.directories.as_slice()[0],
+	)
+	.unwrap();
 	assert!(
-		Workspace::local(host.clone(), Platform::default(), other)
+		viewer.check_discovery(&selection).await.is_err(),
+		"viewer reading does not authorize the original discovery worker"
+	);
+	assert_eq!(viewer_reader.named_rooms("room").await.unwrap().len(), 1);
+	assert_eq!(
+		viewer_reader.member_registration("peer").await.unwrap().as_str(),
+		"00000000-0000-4000-8000-000000000001"
+	);
+	publication_results::lifecycle(host, &other_control, "pause").await;
+	assert!(viewer.directory_reader("directory").await.is_err());
+	assert!(viewer_reader.list().await.is_err());
+	assert_eq!(
+		reader.list().await.unwrap().len(),
+		1,
+		"viewer pause does not pause the directory worker"
+	);
+	publication_results::lifecycle(host, &other_control, "resume").await;
+	assert_eq!(viewer_reader.list().await.unwrap().len(), 1);
+	let denied = rooms_glowcap::policy::descriptor()
+		.unwrap()
+		.value_for_kind(session::KIND, &[], &[])
+		.unwrap();
+	let (denied, _) = owner.derive(denied, 0, ControlPowers::default()).await.unwrap();
+	assert!(
+		Workspace::local(host.clone(), Platform::default(), denied)
 			.directory_reader("directory")
 			.await
 			.is_err(),
-		"equal reading permission cannot substitute for the saved original source"
+		"reading requires ObserveWorkspace"
 	);
-	let raw = host
-		.send(source, "directory-reader", &["directory".into()])
-		.await
-		.unwrap();
-	let Argument::Reference(raw) = raw else {
-		panic!("exact discovery facade");
-	};
-	for method in ["register", "open", "introduce", "signalOffer", "watchPublications"] {
-		assert!(
-			host.send(&raw, method, &[]).await.is_err(),
-			"discovery exposed {method}"
-		);
+	for access in [source, viewer.reference()] {
+		let raw = host
+			.send(access, "directory-reader", &["directory".into()])
+			.await
+			.unwrap();
+		let Argument::Reference(raw) = raw else {
+			panic!("exact discovery facade");
+		};
+		for method in ["register", "open", "introduce", "signalOffer", "watchPublications"] {
+			assert!(
+				host.send(&raw, method, &[]).await.is_err(),
+				"discovery exposed {method}"
+			);
+		}
 	}
 	publication_results::lifecycle(host, control, "pause").await;
 	assert!(reader.list().await.is_err());
@@ -73,6 +118,11 @@ pub(super) async fn run(
 		custody::FieldKey::new(NonZeroU64::new(83).unwrap(), NonZeroU64::new(1).unwrap());
 	owner.replace_workspace(&changed).await.unwrap();
 	assert_eq!(reader.list().await.unwrap().len(), 1);
+	assert_eq!(
+		viewer_reader.list().await.unwrap().len(),
+		1,
+		"retained viewer reader keeps its original target"
+	);
 	assert!(
 		workspace
 			.directory_reader("directory")
@@ -88,5 +138,8 @@ pub(super) async fn run(
 		"a stale worker acquired replacement custody"
 	);
 	owner.replace_workspace(&original).await.unwrap();
+	publication_results::lifecycle(host, &other_control, "revoke").await;
+	assert!(viewer_reader.list().await.is_err());
+	assert!(viewer.directory_reader("directory").await.is_err());
 	super::directory_ingress::run(host, owner, source, replacement).await;
 }

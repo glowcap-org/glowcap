@@ -99,13 +99,15 @@ fn selection(request: &Request<'_, impl ArgumentView>, intent: &workspace::Inten
 		.as_str()
 		.ok_or_else(|| loam::refusal("invalid archive directory"))?
 		.to_owned();
-	let conversation = (kind != ShareKind::Standing).then(|| {
-		row.history_id()
-			.text()
-			.as_str()
-			.expect("scalar history identity")
-			.to_owned()
-	});
+	let conversation = (kind != ShareKind::Standing)
+		.then(|| {
+			row.history_id()
+				.text()
+				.as_str()
+				.map(str::to_owned)
+				.ok_or_else(|| loam::refusal("invalid archive conversation"))
+		})
+		.transpose()?;
 	let filter = Filter::shared(kind, directory.clone().into(), conversation.clone().map(Into::into))
 		.map_err(|error| loam::refusal(error.to_string()))?;
 	let durable = request.route() == Route::Effect(Effect::OfferDurableArchive);
@@ -219,14 +221,21 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 			None,
 		)?;
 	} else {
-		seat.start_archive(pending, source, canonical, selected.intent.expect("sharing intent"))?;
+		seat.start_archive(
+			pending,
+			source,
+			canonical,
+			selected
+				.intent
+				.ok_or_else(|| loam::refusal("archive sharing intent is absent"))?,
+		)?;
 	}
 	Ok("pending".into())
 }
 
 /// The two bounded calls keep their actual observations through interruption.
 /// Narrowing returns a source-restricted read facet. Delivery retains it until
-/// the recipient has acknowledged; no workspace authority row is synthesized.
+/// the recipient has acknowledged. No workspace authority row is synthesized.
 pub(super) struct Pipeline {
 	host: glowcap::Host,
 	continuation: Continuation,
@@ -266,7 +275,7 @@ impl Pipeline {
 		let result = self
 			.pending
 			.as_mut()
-			.expect("owned archive observation")
+			.ok_or_else(|| loam::refusal("private archive execution is absent"))?
 			.completed()
 			.await?;
 		Ok(result)
@@ -304,10 +313,19 @@ impl Pipeline {
 						let host = self.host.clone();
 						self.read = Some(Box::pin(async move { host.send(&reader, verb, &args).await }));
 					}
-					self.read_result = Some(self.read.as_mut().expect("retained archive read").await);
+					let reading = self
+						.read
+						.as_mut()
+						.ok_or_else(|| loam::refusal("archive read is not started"))?;
+					self.read_result = Some(reading.await);
 					self.read = None;
 				}
-				EffectResult::Ready(self.read_result.as_ref().expect("observed archive read").clone()?)
+				EffectResult::Ready(
+					self.read_result
+						.as_ref()
+						.ok_or_else(|| loam::refusal("archive read is not observed"))?
+						.clone()?,
+				)
 			};
 			match observed {
 				EffectResult::Ready(value) => {
@@ -334,11 +352,15 @@ impl Pipeline {
 				EffectResult::Pending => unreachable!("completed archive observation"),
 			}
 		}
+		let prepared = self
+			.prepared
+			.clone()
+			.ok_or_else(|| loam::refusal("prepared archive authority is absent"))?;
 		let args = [
 			self.intent.directory.clone().into(),
 			self.intent.kind.wire().into(),
 			self.intent.conversation.clone().map_or(Argument::Void, Into::into),
-			self.prepared.as_ref().expect("prepared archive authority").clone(),
+			prepared,
 		];
 		let verb = if self.intent.durable {
 			rooms_application::direct::OFFER_ARCHIVE

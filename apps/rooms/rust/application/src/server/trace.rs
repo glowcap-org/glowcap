@@ -1,8 +1,8 @@
 //! The live timeline endpoint's state: the producers publishing sessions
 //! into one feed, each scoped apart so two producers' identical ids stay
-//! two rows; the live topology a late viewer replays; and the stamping
+//! two rows. The live topology a late viewer replays, and the stamping
 //! every forwarded line carries. Sockets and the CapTP trace object are the
-//! adapter's; this decides what each line means and who hears it.
+//! adapter's. This decides what each line means and who hears it.
 pub mod records;
 
 use alloc::{
@@ -89,7 +89,7 @@ impl Endpoint {
 	pub fn epoch(&self) -> u64 {
 		self.epoch
 	}
-	/// Admit a producer. `remote` is one at a socket, bounded; the endpoint's
+	/// Admit a producer. `remote` is one at a socket, bounded. The endpoint's
 	/// own trace is a producer too, scoped like any other.
 	pub fn admit_producer(&mut self, remote: bool) -> Option<Scope> {
 		if remote {

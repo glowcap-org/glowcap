@@ -57,7 +57,7 @@ const body = {
 	minWidth: 0,
 } satisfies React.CSSProperties;
 
-/** Body padding when the title is absent — the title's own
+/** Body padding when the title is absent. The title's own
  *  `paddingTop` normally seeds the top edge of the section, so
  *  untitled sections need to take that over themselves to keep
  *  the same vertical rhythm as their titled siblings. */
@@ -72,7 +72,7 @@ const untitledBody = {
  * styles.css `.ocv-pane > section + section`), so the first section
  * has no top border. `title` is optional: the Inspector's Details
  * section omits it because the selected entity's heading (e.g.
- * `alice ↔ carol`) already labels the pane — a "DETAILS" header
+ * `alice ↔ carol`) already labels the pane. A "DETAILS" header
  * above the entity name was just visual noise, and the body's
  * own `FieldGroup` titles ("Details" / "Timing") still carry
  * the same vocabulary further down.

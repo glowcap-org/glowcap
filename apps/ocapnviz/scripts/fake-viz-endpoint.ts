@@ -6,7 +6,7 @@
  * It speaks what the real endpoint forwards: two producers, each reporting
  * its own side of one shared wire, replayed as a snapshot and closed with
  * `trace.replay-end`, then a steady trickle of messages. That is the rooms
- * shape — every peer publishes its own trace — so a viewer pointed here sees
+ * shape, every peer publishes its own trace, so a viewer pointed here sees
  * the same topology it sees against a live room, at a rate you choose.
  *
  *     deno run -A scripts/fake-viz-endpoint.ts 9111 20

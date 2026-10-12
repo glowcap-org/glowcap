@@ -1,12 +1,12 @@
 /**
- * The commands in the Tools pane — the row of text buttons under the
+ * The commands in the Tools pane, the row of text buttons under the
  * tool strip, and the one button face they share.
  *
  * A tool is a mode you sit in and a command is an act that runs once,
  * so a command is not another icon square in the strip: a sixth square
  * would read as a sixth tool. They are text buttons, because none of
  * these three has a picture a reader would recognize, and they share a
- * wrapping row for the same reason the tool strip above them does —
+ * wrapping row for the same reason the tool strip above them does,
  * they fit across the pane at its usual width, and a pane dragged down
  * to its 200px floor wraps them rather than shaving their labels.
  * They wear the bordered button face their neighbours in this section
@@ -18,7 +18,7 @@
  * command vocabulary is one read.
  *
  * Build only, because a command mutates the document and Build is the
- * mode that holds mutation authority — the rule `toolsForMode` already
+ * mode that holds mutation authority, the rule `toolsForMode` already
  * states for the authoring tools. Deciding it in the shared button
  * rather than at each call site means a command added later cannot
  * forget it.
@@ -66,9 +66,9 @@ export function ToolCommandButton(
 		label: string;
 		/** Whether the command has anything to do right now. */
 		ready: boolean;
-		/** Tooltip while it does — what running it would change. */
+		/** Tooltip while it does, what running it would change. */
 		whenReady: string;
-		/** Tooltip while it does not — why, in a sentence. */
+		/** Tooltip while it does not, why, in a sentence. */
 		whenInert: string;
 		/** Asked before running, for a command that cannot be taken back.
 		 *  Absent means the act is recoverable and asks nothing. */
@@ -107,7 +107,7 @@ const commandRow = {
 } satisfies React.CSSProperties;
 
 // Each button takes an equal share of the row and may grow past its
-// label, but never shrinks below it — which is what makes the row wrap
+// label, but never shrinks below it, which is what makes the row wrap
 // at a narrow pane instead of clipping "Discard all" to "Discard a…".
 const buttonStyle = {
 	flex: "1 1 auto",
@@ -120,7 +120,7 @@ const buttonStyle = {
  * The Inspector position row's ✕ swept across the composition: same
  * verb, same two kinds of pin (a peer's authored position and a
  * session end's), one undo step. The sweep is `clearAllPins` in
- * `builder/selection-history.ts`; this is the affordance.
+ * `builder/selection-history.ts`. This is the affordance.
  */
 export function UnpinAllButton(
 	{ engine, mode }: { engine: Engine; mode: AppMode },
@@ -146,7 +146,7 @@ export function UnpinAllButton(
 }
 
 /**
- * Walk the whole history back — undo, held down.
+ * Walk the whole history back, undo, held down.
  *
  * The recoverable one of the two whole-composition commands: every
  * step crosses to the redo side, so the author can walk forward again,
@@ -163,7 +163,7 @@ export function UndoAllButton(
 	},
 ) {
 	// Whether any step is left to walk back, so it goes inert once the
-	// reader reaches the beginning — where `DiscardAllButton` is still
+	// reader reaches the beginning, where `DiscardAllButton` is still
 	// live, because the history it would throw away is still there.
 	const version = useDocVersion(engine);
 	const steps = useMemo(() => engine.canUndo, [engine, version]);
@@ -183,10 +183,10 @@ export function UndoAllButton(
  * Put the composition back to the document the buffer was built from.
  *
  * The strong half of the pair. Where `UndoAllButton` walks the history
- * back and keeps it, this goes to the whole document as it arrived —
+ * back and keeps it, this goes to the whole document as it arrived,
  * past both of the limits the history runs into, since the stack holds
  * a hundred entries and each restores only the fields a `DocSnapshot`
- * carries — and throws the history away with the edits. That is what
+ * carries, and throws the history away with the edits. That is what
  * it costs, so this is the one command in Build that asks before it
  * runs, exactly as switching source does for the same loss.
  */

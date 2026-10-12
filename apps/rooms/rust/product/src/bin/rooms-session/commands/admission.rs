@@ -73,7 +73,18 @@ async fn command_once(options: &Options, id: &str, base: u64, name: &str, args: 
 	let completed = async {
 		let deadline = tokio::time::Instant::now() + Duration::from_secs(25);
 		loop {
-			let mut response = request(&options.state, envelope.clone()).await?;
+			let mut response = match request(&options.state, envelope.clone()).await {
+				Ok(response) => response,
+				Err(failure)
+					if matches!(
+						failure.class.as_str(),
+						"rate-limited" | "admission-busy" | "request-too-large"
+					) =>
+				{
+					return Err(retire_refusal(options, id, failure).await);
+				}
+				Err(failure) => return Err(failure),
+			};
 			response["base"] = json!(base);
 			match response["status"].as_str() {
 				Some("conflict") => {
@@ -96,6 +107,20 @@ async fn command_once(options: &Options, id: &str, base: u64, name: &str, args: 
 				Some("pending") if tokio::time::Instant::now() < deadline => {
 					tokio::time::sleep(Duration::from_millis(100)).await;
 				}
+				Some("unsent") => {
+					// Observe the original outcome without dispatching it again.
+					let result = request(
+						&options.state,
+						json!({"verb":"command-result","id":id,"base":base,"name":name,"args":args}),
+					)
+					.await;
+					let failure = result
+						.err()
+						.unwrap_or_else(|| Failure::new("refused", "after-state-change", "command was not sent"));
+					// A lost result read still needs its exact observation. A
+					// confirmed refusal can retire it without hiding the reason.
+					return Err(retire_refusal(options, id, failure).await);
+				}
 				_ => {
 					return Err(Failure::uncertain(format!(
 						"command outcome requires recovery: {}",
@@ -106,12 +131,32 @@ async fn command_once(options: &Options, id: &str, base: u64, name: &str, args: 
 		}
 	};
 	completed.await.map_err(|mut error: Failure| {
-		error.message = format!(
-			"operation {id}, base {base}: {}; retain both for exact replay",
-			error.message
-		);
+		error.message = if error.class == "uncertain" {
+			format!(
+				"operation {id}, base {base}: {}; retain both for exact replay",
+				error.message
+			)
+		} else {
+			format!("operation {id}, base {base}: {}", error.message)
+		};
 		error
 	})
+}
+
+/// Known absence retires only the socket observation. A missed answer keeps
+/// that observation. Failed retirement preserves both refusal and cleanup.
+async fn retire_refusal(options: &Options, id: &str, failure: Failure) -> Failure {
+	if failure.class == "uncertain" {
+		return failure;
+	}
+	match request(&options.state, json!({"verb":"release-command","id":id})).await {
+		Ok(_) => failure,
+		Err(cleanup) => Failure::new(
+			"cleanup",
+			"after-state-change",
+			format!("{failure}; local observation release failed: {cleanup}; retain the original request for cleanup"),
+		),
+	}
 }
 
 #[cfg(test)]

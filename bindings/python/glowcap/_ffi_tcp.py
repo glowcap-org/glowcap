@@ -6,7 +6,7 @@ its own thread-local last-error (``glowcap_tcp_last_error`` / ``_clear``). This
 module loads only that archive, reusing the shared ``Structure`` types from
 :mod:`glowcap._ffi_ocapn` by layout, so importing :mod:`glowcap.tcp` adds the TCP
 archive on top of the core without pulling in any other transport. Nothing here
-is public; :mod:`glowcap.tcp` is the ergonomic surface over it.
+is public. :mod:`glowcap.tcp` is the ergonomic surface over it.
 """
 
 from __future__ import annotations

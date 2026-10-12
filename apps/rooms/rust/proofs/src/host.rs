@@ -115,6 +115,12 @@ pub fn run() {
 		let seed = [0x5a; 64];
 		let rust_buffer = vec![0xa5; 2 * 1024 * 1024];
 		std::hint::black_box(&rust_buffer);
+		// SAFETY: `allocator` is a local `Allocator` whose `user_data` is `counts_ptr`, the address of the local
+		// `counts`, which outlives the context and host (both released inside this block, before `counts` is read);
+		// `seed` is a 64-byte local array viewed as its full 64 bytes and, for the designator, its first 32, and
+		// `designator` is a 64-byte local array viewed with its own length; `b"rooms"` is a 5-byte literal; `context`
+		// and `host` are local out-parameters the callees fill, each handle is used only after its constructor returned
+		// 0 (asserted), and the host is released before the context.
 		unsafe {
 			assert_eq!(glowcap_context_new_with_allocator(&allocator, &mut context), 0);
 			assert_eq!(

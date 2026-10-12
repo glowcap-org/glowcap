@@ -9,11 +9,11 @@ import { engineTest } from "./harness.ts";
 // Every test in this section was written red against a confirmed
 // defect before its fix landed: a no-op guard consulting the live
 // world (or a stored bound the resolvers ignore) where the authored
-// doc — the state the mutation actually writes — is the fact; the
+// doc, the state the mutation writes, is the fact; the
 // undo snapshot missing `doc.duration`; and the layout system
 // holding the pre-projection doc object.
 
-/** Doc whose only peer joins mid-timeline — at t=0 (where every
+/** Doc whose only peer joins mid-timeline, at t=0 (where every
  *  dispatch in these tests happens) the peer exists in the authored
  *  doc but not in the materialized world. */
 const latePeerDoc = () =>
@@ -302,7 +302,7 @@ engineTest(
 		// question: a removal takes the declaration standing at that
 		// instant, so an instant with none is an instant with nothing to
 		// take. The session lane is the one that is easy to get wrong,
-		// because the session is plainly in some state at 2000 — but no
+		// because the session is plainly in some state at 2000, but no
 		// moment there says so.
 		const e = new Engine(bornOpenDoc());
 		e.dispatch({
@@ -328,7 +328,7 @@ engineTest(
 		// clear-peer-start keeps the last stored start (1000) for
 		// toggle-back, but the painted start becomes the world's 0. The
 		// mutation derives duration from the painted start, so the
-		// guard must too — stored-value arithmetic declares a real edit
+		// guard must too, stored-value arithmetic declares a real edit
 		// a no-op exactly when retained-start + duration lands on t.
 		const e = new Engine(TimelineDocument.parse({
 			id: "cleared-start-peer",

@@ -48,8 +48,8 @@
 
 ;; Bind one of the loop's per-transport listeners. The kernel's designator (the bound
 ;; host:port, an ephemeral port resolved) reads back through the canonical
-;; locator; listen policy — wildcard refusal, the
-;; advertised address — stays with the public `listen` in `listen.rkt`.
+;; locator. Listen policy (wildcard refusal, the
+;; advertised address) stays with the public `listen` in `listen.rkt`.
 (define (loop-listen! lp transport designator [options #f])
   (define tb (string->bytes/utf-8 transport))
   (define db (string->bytes/utf-8 designator))
@@ -275,7 +275,7 @@
     (define lp (loop-server-lp s))
     (when (loop-running? lp)
       (define accepts (loop-listener-close! lp (loop-server-listener s)))
-      ;; The C ABI preserves committed accepts. This server no longer has an
+      ;; The C ABI preserves committed accepts. This server has no
       ;; acceptor, so release every unclaimed handle before publishing terminal
       ;; state; sessions already wrapped live in the Host registry and remain.
       (when accepts

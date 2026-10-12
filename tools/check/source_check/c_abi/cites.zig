@@ -1,6 +1,6 @@
 //! Documentation surfaces over the C ABI: the served-surface list, the
 //! deleted-projection guard, and every `glowcap_*` citation in the docs held
-//! to a symbol the headers actually export.
+//! to a symbol the headers export.
 
 const std = @import("std");
 const util = @import("../util.zig");
@@ -223,7 +223,7 @@ fn extractGlowcapCiteToken(span: []const u8) ?[]const u8 {
 
 /// ADRs preserve the exact spelling of surfaces they decided, including a
 /// surface a later ADR explicitly retired. Current guides and site content get
-/// no exception; this is a closed historical vocabulary, not a general stale-
+/// no exception. This is a closed historical vocabulary, not a general stale-
 /// cite allowlist.
 fn isRetiredAdrCAbiToken(path: []const u8, token: []const u8) bool {
     if (!std.mem.startsWith(u8, path, "docs/decisions/adr/")) return false;

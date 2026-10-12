@@ -32,7 +32,7 @@ pub(super) fn metadata(requested_url: &str, final_url: &str, content_type: &str,
 
 /// Tokenize once into only the metadata Rooms can admit. A DOM and selector
 /// engine retain the whole page even though previews need a bounded handful of
-/// attributes and text nodes; this sink drops every unrelated token as it arrives.
+/// attributes and text nodes. This sink drops every unrelated token as it arrives.
 fn extract(source: &str) -> Extraction {
 	let input = BufferQueue::default();
 	input.push_back(StrTendril::from_slice(source));

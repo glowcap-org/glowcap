@@ -136,7 +136,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			};
 			worker.run(snapshot).await
 		});
-		budget.identify(&id, identity);
+		budget.identify(&id, identity)?;
 		Ok(DirectoryWatch {
 			lifetime,
 			snapshot: Some(receiving),

@@ -49,7 +49,7 @@ impl Drop for PreparedGrant {
 }
 
 /// Evidence that storage acknowledged this exact mutation. Only this value can
-/// commit it; dropping the acknowledgement also requires recovery.
+/// commit it. Dropping the acknowledgement also requires recovery.
 #[must_use]
 pub struct PersistedGrant(PreparedGrant);
 

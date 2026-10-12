@@ -23,7 +23,7 @@ const FALLBACK_ORDER = [TRANSPORT_ONION, TRANSPORT_TCP, TRANSPORT_KEYED_TCP, TRA
  * An identity route and each transport that proves its Host key name the same
  * peer when their designators match. Weak fallback transports remain separate:
  * reaching the same process over cleartext TCP does not prove it is the holder
- * of an `id` route's key. This shares `ROUTE_ORDER`, the route composer's one
+ * of an `id` route's key. This shares `ROUTE_ORDER`, the route composer's
  * authority for that distinction. */
 export function roomsPeerAuthority(locator: Locator): string {
 	const provesHost = locator.transport === TRANSPORT_ID ||
@@ -33,7 +33,7 @@ export function roomsPeerAuthority(locator: Locator): string {
 
 /** Compose the identity-first location a Rooms host may advertise.
  *
- * Key-proving listeners establish the identity; baseline listeners remain weak
+ * Key-proving listeners establish the identity. Baseline listeners remain weak
  * handoff fallbacks for peers that do not speak the route vocabulary. One
  * proving route without added reachability stays a concrete locator. */
 export function roomsIdentityRoute(hostKey: string, locatorUris: readonly string[]): Locator | null {

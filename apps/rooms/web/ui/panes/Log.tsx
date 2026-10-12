@@ -170,7 +170,7 @@ function LogPane(
 	// The key is taken out of the conversation before the verbs close over it,
 	// because the key is the whole of what they use. `conv` itself is a fresh
 	// object on every arriving line, so a verb that captured it would either
-	// rebind on every line — redrawing the rows these are memoised for — or
+	// rebind on every line, redrawing the rows these are memoised for, or
 	// hold a stale object and depend on a comment to say why that is harmless.
 	// Closing over the string is the same behavior with none of that to argue.
 	const browser = useRoomsBrowser();

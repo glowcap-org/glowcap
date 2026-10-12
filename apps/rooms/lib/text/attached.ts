@@ -3,10 +3,8 @@
 // file that outlived its connection, a stream that skipped, a save the
 // browser refused.
 //
-// A refusal here does the three jobs `failure.ts` names: what happened, in
-// the reader's terms, what to do next when there is something, and the exact
-// cause kept beside it when one arrived. Moved here verbatim from the
-// session modules so the product's voice can be read in one place.
+// A refusal here does the three jobs `failure.ts` names: what happened, what
+// to do next, and the exact cause when one arrived.
 
 /** A control pressed on a conversation that is no longer there. */
 export const roomNoLongerOpen = "That room is no longer open.";
@@ -97,11 +95,10 @@ export function filesLeftOut(max: number, over: number): string {
 		over === 1 ? "one file was" : `${over} files were`
 	} left out. Send this one and the rest can follow.`;
 }
-/** A file pasted or dropped into a conversation that has no way to carry
- * one. Said in the log at the moment it matters, because the attach control
- * is simply absent there and absence explains nothing. The bridge's badge
- * names the reason when there is one: "IRC" says why better than "this
- * room" can. */
+/** A file pasted or dropped into a conversation that cannot carry one. The
+ * log says it at that moment, because the attach control is absent there and
+ * absence explains nothing. The bridge's badge names the reason when there is
+ * one: "IRC" says why better than "this room" can. */
 export function filesNotCarried(badge: string | null): string {
 	return badge === null
 		? "Files can't be sent to this room."

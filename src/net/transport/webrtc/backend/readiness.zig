@@ -44,7 +44,7 @@ pub fn Machine(comptime Self: type, comptime Signaling: type, comptime Connectio
             self.foreign_poll = .{ .user_data = user_data, .fd = fd, .interest = interest };
         }
 
-        /// Retire an armed foreign poll; false when `target` names another.
+        /// Retire an armed foreign poll. False when `target` names another.
         pub fn cancelForeignPoll(self: *Self, cancel_user_data: u64, target_user_data: u64, fd: i32) !bool {
             const armed = self.foreign_poll orelse return false;
             if (armed.user_data != target_user_data or armed.fd != fd) return false;

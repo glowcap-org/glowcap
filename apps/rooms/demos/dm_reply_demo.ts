@@ -1,11 +1,11 @@
 // A Host publication replies to its live caller over the arriving connection,
-// with no dial-back — the receiver half of a fully bidirectional browser peer.
+// with no dial-back: the receiver half of a fully bidirectional browser peer.
 //
 // A `Host.publish` object is bound to no single session: the same object
 // answers calls on every connection, so it cannot close over one the way a
 // `Session.spawn` actor does. `currentSession()` gives a Host publication the connection
 // its current call arrived on, so it can send to a reply capability the caller
-// handed it — the caller never has to be dialable.
+// handed it: the caller never has to be dialable.
 //
 //   Bob    publishes a Host publication `dm(text, reply)` and listens (TCP).
 //   Alice  dials Bob, fetches `dm`, hands it a reply inbox she hosts on this
@@ -44,7 +44,7 @@ let bobAccepts = 0;
 // Bob's Host publication: record the message, then reply to the caller on the connection
 // this call arrived on. The reply is a fresh eventual-send on a later turn (the
 // host refuses a driving verb inside the callback frame), and `currentSession()`
-// is captured synchronously because it is null once the turn returns — all owned
+// is captured synchronously because it is null once the turn returns, all owned
 // by the shared `recordingReplyDm`.
 const dmBehavior = recordingReplyDm(bobInbox, (text) => `re: ${text}`);
 

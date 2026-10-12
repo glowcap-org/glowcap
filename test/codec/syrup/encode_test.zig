@@ -73,8 +73,8 @@ test "Syrup locator encoding uses typed locator and preserves empty false hints"
 test "Syrup start-session carries hint entries canonically and signs over the same bytes" {
     // A keyed-tcp responder's location names its socket address in a
     // `direct-addresses` hint (ADR-0075), so the start-session encoder renders
-    // hint entries as a canonical `{…}` dict — never dropping them, which
-    // would put a different locator on the wire than the caller named — and
+    // hint entries as a canonical `{…}` dict, never dropping them, which
+    // would put a different locator on the wire than the caller named, and
     // the location-signature domain embeds the identical bytes, so signer and
     // wire cannot disagree.
     const allocator = std.testing.allocator;
@@ -245,7 +245,7 @@ test "Syrup materializes hints by skipping exotic values Cap'n Proto cannot expr
     const view = glowcap.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
     const body = try syrup.decodeBody(view);
     try std.testing.expect(body.start_session.acceptable_location.hints == .lazy);
-    // Materialize keeps only the known-shaped entries (host, port) — not `extra`.
+    // Materialize keeps only the known-shaped entries (host, port), not `extra`.
     const owned = try body.toOwned(allocator);
     defer {
         allocator.free(owned.start_session.session_pubkey.bytes);
@@ -548,8 +548,8 @@ test "Syrup near-promise payload encodes desc:import-promise and round-trips kin
 }
 
 // R1 apex: the keyed self-locator hint spelling is a wire invariant Goblins
-// signs, so `model.Hints.forDirectAddresses` — the one place the empty-vs-entry
-// decision lives — must reproduce the exact `#f` empty spelling. A future edit
+// signs, so `model.Hints.forDirectAddresses`, the one place the empty-vs-entry
+// decision lives, must reproduce the exact `#f` empty spelling. A future edit
 // that spells empty hints as `{}` (or drifts the entry) fails loud here.
 test "forDirectAddresses signs #f for empty, an entry for present — the exact Goblins-signed spelling" {
     const allocator = std.testing.allocator;
@@ -567,7 +567,7 @@ test "forDirectAddresses signs #f for empty, an entry for present — the exact 
     defer allocator.free(bytes_empty);
     try std.testing.expectEqualStrings("<10'ocapn-peer9'keyed-tcp3\"abcf>", bytes_empty);
 
-    // Byte-identical to a hand-written `emptyFalse` locator — the helper
+    // Byte-identical to a hand-written `emptyFalse` locator, the helper
     // reproduces the signed spelling exactly, not a lookalike.
     const loc_false: model.PeerLocator = .{ .transport = "keyed-tcp", .designator = "abc", .hints = model.Hints.emptyFalse() };
     const bytes_false = try syrup.encodePeerLocatorRecord(allocator, loc_false);

@@ -364,7 +364,7 @@ test "the relay provider registers and dials an authenticated noise-relay sessio
             try std.testing.expectEqual(cdrv.GLOWCAP_TRANSPORT_EXEC_MULTIPLEXED, entry.execution_model);
             const original: *const cdrv.GlowcapMultiplexedTransport = @ptrCast(@alignCast(entry.implementation.?));
             try std.testing.expectEqual(original_table, original);
-            // All profiles in this package deliberately share one resident.
+            // All profiles in this package share one resident.
             // Preserve that identity while replacing the one callback under
             // test; distinct copied table addresses would falsely describe
             // distinct resident owners to the registry.
@@ -382,7 +382,7 @@ test "the relay provider registers and dials an authenticated noise-relay sessio
 
         const owned_client = try newLoop(0x5b);
         defer owned_client.deinit();
-        // The provider default is deliberately unreachable. The complete
+        // The provider default is unreachable. The complete
         // listener locator must carry the actual rendezvous route into the
         // multiplexed provider; reconstructing only transport + designator would
         // fail this dial.

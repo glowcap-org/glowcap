@@ -34,7 +34,7 @@ const NAMED_CHUNKS = [
 /** Payload ceilings protect the two waits visible on an ordinary visit: boot
  * reaches the opening screen, while returning adds the established session
  * shell. Named operations and setup chunks remain outside both graphs. A new
- * feature must fit that loading model or change it deliberately; this test is
+ * feature must fit that loading model or change it. This test is
  * not a changelog for incremental budget raises. */
 const MAX_BOOT_MINIFIED_BYTES = 826_000;
 const MAX_BOOT_GZIP_BYTES = 265_000;

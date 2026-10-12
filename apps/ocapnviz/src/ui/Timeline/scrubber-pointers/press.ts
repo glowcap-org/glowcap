@@ -46,7 +46,7 @@ export function onScrubberPointerDown(
 		onSeek,
 	} = h;
 	if (e.button !== 0) return; // left mouse only
-	// Cross-surface lock — bail if another surface (e.g. Stage)
+	// Cross-surface lock, bail if another surface (e.g, stage)
 	// owns the gesture. The root guard normally suppresses this
 	// event before it reaches us, but defending here costs
 	// nothing and keeps invariants honest under tests.
@@ -90,7 +90,7 @@ export function onScrubberPointerDown(
 
 	// 0) Gutter-edge drag handle: a few pixels straddling the
 	// gutter's right edge resize the gutter live. Pre-empts
-	// everything below — the user explicitly grabbed the seam.
+	// everything below. The user explicitly grabbed the seam.
 	if (resolved.verb.kind === "resize-gutter") {
 		dragRef.current = {
 			kind: "gutter-resize",
@@ -128,7 +128,7 @@ export function onScrubberPointerDown(
 			return;
 		}
 		if (gutterHit?.kind === "row-drag") {
-			// The order of THIS category — captured at drag-start
+			// The order of THIS category, captured at drag-start
 			// so a mid-drag prop change doesn't drift the math.
 			const startOrder = [...orderedEntities[gutterHit.category]];
 			const startIndex = startOrder.indexOf(gutterHit.entityId);
@@ -160,7 +160,7 @@ export function onScrubberPointerDown(
 	}
 
 	hoverTRef.current = null;
-	// Entity hit-test wins over EVERY non-gutter branch — pan, scrub,
+	// Entity hit-test wins over EVERY non-gutter branch, pan, scrub,
 	// rubber-band all only fire if the pointer didn't land on a pill.
 	// Routing this first means shift/alt/cmd-click on a pill always
 	// reach the selection-mode resolution below; they no longer get
@@ -172,7 +172,7 @@ export function onScrubberPointerDown(
 		// gesture captures the hit so endDrag can dispatch the select
 		// on release, but the move handler ignores displacement so an
 		// unselected pill body cannot translate. The user must click a
-		// second time once the entity is selected to drag — matches
+		// second time once the entity is selected to drag, matches
 		// the "select then act" convention used across the Inspector
 		// and Stage halo. Add/remove/toggle gestures skip this gate: a
 		// modifier-click is unambiguously a selection-set edit, not a
@@ -232,7 +232,7 @@ export function onScrubberPointerDown(
 	// to the rubber-band branch, where the stage's modifier map
 	// decides the commit (shift = add, shift+option = remove).
 	// Pan losing the bare-shift modifier is the price of giving
-	// shift back to "add to selection" — alt alone is the
+	// shift back to "add to selection", alt alone is the
 	// timeline's pan key.
 	if (resolved.verb.kind === "pan-view") {
 		dragRef.current = {
@@ -273,9 +273,9 @@ export function onScrubberPointerDown(
 		mode,
 		moved: false,
 	};
-	// The empty lane's own default verb (§ 4.5) — the same marquee the
+	// The empty lane's own default verb (§ 4.5). The same marquee the
 	// empty stage sweeps, carrying the mode this drag latched, so the
-	// cursor names the gesture this handler is actually running.
+	// cursor names the gesture this handler is running.
 	inFlightRef.current = {
 		surface: "timeline-lane-empty",
 		verb: { kind: "rubber-band", mode },
@@ -300,7 +300,7 @@ export function endScrubberDrag(h: ScrubberPointerHost): void {
 		regionSizeRef,
 		scrollYRef,
 	} = h;
-	// Always release the gesture-router lock first — pointerdown
+	// Always release the gesture-router lock first, pointerdown
 	// may have claimed without ever setting `dragRef` (e.g.
 	// pointer landed on a non-actionable region). Releasing
 	// before the early-return keeps the lock honest.
@@ -322,7 +322,7 @@ export function endScrubberDrag(h: ScrubberPointerHost): void {
 			// The mode's set arithmetic lives in `selectionActionFor`;
 			// this surface only forwards the hit. The replace arm keeps
 			// its surface extras: Inspector follow, and sub-selection
-			// focus (#16) — a glyph (moment) hit parks focus on the
+			// focus (#16). A glyph (moment) hit parks focus on the
 			// keyframe, body / edge hits reset it.
 			onEditSelection(new Set([key]), drag.selectMode);
 			if (drag.selectMode === "replace") {
@@ -348,8 +348,8 @@ export function endScrubberDrag(h: ScrubberPointerHost): void {
 				commitRowReorder?.(drag.category, next);
 			}
 		} else {
-			// Tap-to-select on the entity row label — the previously
-			// dead spot in the gutter. Picks the parent entity so the
+			// Tap-to-select on the entity row label, a spot in the gutter.
+			// Picks the parent entity so the
 			// click has a visible effect (Inspector follows + stage
 			// halo lights up) and matches what clicking the entity
 			// anywhere else does.
@@ -381,7 +381,7 @@ export function endScrubberDrag(h: ScrubberPointerHost): void {
 				// Clamp to the SAME plot bounds the paint loop uses
 				// (`scrubberPlotBounds`) so the committed selection rect
 				// is pixel-identical to the marching-ants band the user
-				// saw — gutter, left pad, right pad, and ruler are all
+				// saw, gutter, left pad, right pad, and ruler are all
 				// dead zone for the marquee. Then shift y by `scrollY` so
 				// the rect lands in unscrolled row coords (rows from
 				// `iterateRows` are unscrolled).

@@ -28,7 +28,7 @@ The evidence is current only when the
 [checks workflow](https://github.com/jimisaacs/glowcap/actions/workflows/check.yml)
 is green for the commit you are evaluating. The
 [repository stability page](https://github.com/jimisaacs/glowcap/blob/main/docs/stability.md)
-owns the row-by-row matrix, including what each check does not prove.
+has the full table, including what each check does not prove.
 [Community review](https://github.com/jimisaacs/glowcap/blob/main/docs/community-review.md)
 is the outside-peer brief.
 

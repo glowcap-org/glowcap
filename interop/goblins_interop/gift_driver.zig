@@ -10,15 +10,15 @@
 //!                              greeter, redeems glowcap's give, and calls Bob
 //!                              directly.
 //!
-//! Needs `racket` + the `goblins` collection on PATH; runs as the sibling step
+//! Needs `racket` + the `goblins` collection on PATH, runs as the sibling step
 //! `zig build goblins-gift`, not in the in-tree check.
 //!
 //! With `--hinted-exporter` (the sibling step `zig build goblins-gift-hints`),
 //! Bob's advertised location carries an opaque `route-token` entry in a hints
 //! mapping. The glowcap gifter embeds that hinted
-//! location verbatim in its signed give; Carol decodes the mapping-shaped
+//! location verbatim in its signed give, Carol decodes the mapping-shaped
 //! hints through the upstream unmarshaller, dials the hinted node, and
-//! re-encodes the give inside her signed `desc:handoff-receive`; Bob then
+//! re-encodes the give inside her signed `desc:handoff-receive`, Bob then
 //! verifies the gifter's give signature over his own re-encoding. A green run
 //! therefore proves a mapping-shaped hinted locator survives live Goblins
 //! decode, session-table lookup, and byte-exact re-canonicalization at both
@@ -27,7 +27,7 @@
 //! unhinted locator. (The give's locator must equal the exporter's
 //! hello-declared location hints-and-all: Goblins keys its withdrawal
 //! session lookup by the full node value, so a hint the hello did not carry
-//! breaks redemption — the pinned finding beside the hints-type one.)
+//! breaks redemption: the pinned finding beside the hints-type one.)
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -131,7 +131,7 @@ fn readCarolOk(io: std.Io, child: *std.process.Child, expect_hint: bool) !void {
     }
     if (!saw_ok) return error.GiftFailed;
     // A hinted run that redeems without the trace marker means the hinted
-    // locator never reached Carol's dial — vacuous, so it fails.
+    // locator never reached Carol's dial, vacuous, so it fails.
     if (expect_hint and !saw_hint) return error.HintNotObserved;
 }
 

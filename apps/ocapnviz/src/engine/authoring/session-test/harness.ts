@@ -52,7 +52,7 @@ export function buildDoc(): TimelineDocument {
 	});
 }
 
-/** A session with one end attached and one loose — the shape a live
+/** A session with one end attached and one loose. The shape a live
  *  feed reports before anything has backed the far end's claim, and
  *  the shape these tests attach, detach, and edit. */
 export function looseDoc(): TimelineDocument {

@@ -2,7 +2,7 @@
 //!
 //! Completion payloads are consumed once, borrowed buffers recycle once, and
 //! outbound front storage stays frozen for the backend borrow. Terminal abort
-//! projection remains here because it is the final outbound transaction; slot
+//! projection remains here because it is the final outbound transaction. Slot
 //! and descriptor retirement remain in lifecycle.
 
 const std = @import("std");
@@ -28,7 +28,7 @@ pub fn Machine(
 
         /// Encode and submit work queued on any connection, including one the
         /// loop is not currently serving. Safe mid-dispatch and idempotent for
-        /// the currently served slot; a drive failure closes only that slot.
+        /// the currently served slot. A drive failure closes only that slot.
         pub fn armOutbound(self: *Self, slot: usize) void {
             affinity.assertOwnerOrUnclaimed(self);
             if (self.tearing_down) return;
@@ -39,7 +39,7 @@ pub fn Machine(
             };
             // A cross-connection arm lands here when pump work touched this
             // session, and that work may have been what released the retained
-            // bytes a saturated park was waiting on — with no send completion
+            // bytes a saturated park was waiting on, with no send completion
             // on this connection to carry the resume. Re-evaluate the park
             // here so a pump-side drain wakes the read it throttled.
             resumeIfDrained(self, slot, c);
@@ -48,7 +48,7 @@ pub fn Machine(
         /// Close `slot` after flushing the engine's already-projected terminal
         /// bytes. A projection or send failure remains in its `CloseReport`.
         ///
-        /// The first call waits for the partner to read; a second call hard
+        /// The first call waits for the partner to read. A second call hard
         /// closes. The ordinary wait is bounded by `Options.drain_kill_ms`.
         pub fn closeSlot(self: *Self, slot: usize) void {
             affinity.assertOwnerOrUnclaimed(self);
@@ -87,7 +87,7 @@ pub fn Machine(
         /// admission already refuses at that line, so the loop tier throttles
         /// there too instead of letting inbound overrun it. With `fan_in_throttle`, a parked sink also parks every
         /// other connection's reads so many-A-to-one-B sources slow (ADR-0082).
-        /// Protocol frames are never dropped; the queue is bounded at the mark
+        /// Protocol frames are never dropped. The queue is bounded at the mark
         /// plus the replies of frames already buffered.
         pub fn armOrPark(self: *Self, slot: usize, c: *Conn) !void {
             if (state.pendingOut(c) > self.outbound_high_water_bytes or
@@ -121,7 +121,7 @@ pub fn Machine(
             std.debug.assert(c.read == .idle or c.read == .parked);
             const was_parked = c.read == .parked;
             // State first, hook last. The hook receives `slot` so it may call
-            // back in — `closeSlot` is public — and anything it does must land
+            // back in, `closeSlot` is public, and anything it does must land
             // on a seat that already reads `.parked`, not be overwritten after.
             c.read = .parked;
             if (!was_parked) Lifecycle.linkOnto(self, &self.parked_head, slot);
@@ -210,9 +210,9 @@ pub fn Machine(
         /// Act on `onRecvConsume`'s verdict, after the completion's pool
         /// buffer has been recycled.
         pub fn onRecvFinish(self: *Self, slot: usize, verdict: RecvVerdict) void {
-            // The .close and .fail arms skip the `liveConn` guard on purpose:
+            // The .close and .fail arms skip the `liveConn` guard:
             // a non-.done verdict was minted under it in `onRecvConsume`, and
-            // this slot cannot have been *reclaimed* in between — its recv op
+            // this slot cannot have been *reclaimed* in between, its recv op
             // stays counted across this call, so no teardown can reach it. Its
             // state can still have changed: the recycle resumes a starved
             // connection, that can park one, and `on_park` is a public hook
@@ -271,7 +271,7 @@ pub fn Machine(
         }
 
         /// Park a connection whose recv found the shared pool empty. Distinct
-        /// from deliberate ADR-0042 backpressure; starvation ends when a
+        /// from ADR-0042 backpressure. Starvation ends when a
         /// buffer recycles.
         pub fn parkStarved(self: *Self, slot: usize, c: *Conn) void {
             // Only an idle read seat parks starved: the caller's recv
@@ -290,16 +290,16 @@ pub fn Machine(
             if (freed_recv) resumeStarved(self, .one);
         }
 
-        /// Re-arm starved connections. `.one` re-arms the first that can read —
+        /// Re-arm starved connections. `.one` re-arms the first that can read,
         /// the per-recycle cadence, since exactly one buffer just freed. `.all`
-        /// drains the list — the end-of-poll-batch cadence, when every pool
+        /// drains the list, the end-of-poll-batch cadence, when every pool
         /// buffer the batch carried has been recycled: a connection parked by a
         /// starved completion dispatched *after* the batch's recycles would
         /// otherwise wait for a recycle that already happened. Either way, one
         /// whose outbound crossed the high-water mark re-parks under ADR-0042
         /// (its drain re-arms it) without consuming a freed buffer, and a
-        /// re-armed read that loses the race for a buffer simply completes
-        /// starved again; it is never dropped.
+        /// re-armed read that loses the race for a buffer completes
+        /// starved again. It is never dropped.
         pub fn resumeStarved(self: *Self, comptime scope: enum { one, all }) void {
             while (self.starved_head < self.conns.len) {
                 const slot = self.starved_head;
@@ -401,9 +401,9 @@ pub fn Machine(
 
         /// Resolve a per-connection failure the way the blocking pump does
         /// (`connection.pumpOver`): encode and flush whatever the engine
-        /// projected — typically an `op:abort` — then close this one
+        /// projected, typically an `op:abort`, then close this one
         /// connection. A failure producing or submitting those terminal bytes
-        /// is retained as the abort-delivery consequence; one bad partner
+        /// is retained as the abort-delivery consequence. One bad partner
         /// still tears down only its own connection.
         pub fn failConn(self: *Self, slot: usize, c: *Conn) void {
             if (c.state != .open) return;
@@ -554,8 +554,8 @@ pub fn Machine(
                 }
                 return;
             }
-            // Bytes queued on `back` while this write was in flight — and any
-            // reply this drive encodes — swap into the emptied front and go
+            // Bytes queued on `back` while this write was in flight, and any
+            // reply this drive encodes, swap into the emptied front and go
             // out now (`flushOutbound`).
             driveOut(self, slot, c) catch |err| {
                 failConnWith(self, slot, c, err);
@@ -589,7 +589,7 @@ pub fn Machine(
         /// window: for the length of the walk a slot reads `.parked` while
         /// unreachable from `parked_head`, which is exactly the state
         /// `unlinkParked` treats as a corrupt chain, and a hook re-entering the
-        /// loop meanwhile would hit it — `free_conn_ctx` drains host actions,
+        /// loop meanwhile would hit it, `free_conn_ctx` drains host actions,
         /// and one of them can close a sibling. In place there is no window,
         /// and a re-park pushes onto the head the walk has already passed, so
         /// it still terminates.
@@ -598,7 +598,7 @@ pub fn Machine(
             while (next < self.conns.len) {
                 const slot = next;
                 const c = &self.conns[slot];
-                // It left the list under us — a hook re-entered through the
+                // It left the list under us, a hook re-entered through the
                 // previous iteration's close and reached this slot. Its link
                 // word is no longer a parked-list link: `teardown` hands it to
                 // the free list, and a re-adopting `dial` zeroes it, which

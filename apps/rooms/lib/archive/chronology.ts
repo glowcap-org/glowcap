@@ -1,6 +1,6 @@
 // One archived line keeps the time and conversation order with which it first
 // entered its recorder. Edits, refiles, and withdrawals replace content at the
-// same coordinates; they do not move the message through history.
+// same coordinates and do not move the message through history.
 
 import type { ArchiveLine } from "./protocol.ts";
 

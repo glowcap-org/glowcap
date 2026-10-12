@@ -27,7 +27,7 @@ Use `glowcap apps rooms session` to participate in an existing deployment and
 ## Build and develop
 
 From the repository root, `zig build rooms-build` stages that installation
-under `zig-out/product`. For a contributor-run browser front:
+under `zig-out/product`. To run the web page from a checkout while you work on it:
 
 ```sh
 zig build rooms-web
@@ -47,9 +47,9 @@ zig build rooms-web -Dtransport=tcp     # cleartext loopback, for local testing
 zig build rooms-web -Dtransport=onion   # a Tor onion service; needs tor
 ```
 
-TCP proves nothing about who is on the other end and hides nothing, so use
-it to look around or to reach a peer that speaks nothing else, never on a
-network you do not trust. `-Dport=` pins the HTTP port, and server flags
+TCP does not show who is on the other end and hides nothing. Use it to look
+around or to reach a peer that speaks nothing else, and only on a network you
+trust. `-Dport=` pins the HTTP port, and server flags
 such as `--history` or `--diagnostics` follow `--`.
 
 For day-to-day development, start with every operator capability minted and
@@ -60,13 +60,13 @@ zig build rooms-dev
 ```
 
 Vite serves source modules with React Fast Refresh and proxies Rooms traffic to the
-real web front. The browser still exercises the web relay, link
+web server. The browser still exercises the web relay, link
 preview, ICE, and directory services. It keeps its identity, room links, and
 capability swiss numbers under `.local/.state/rooms`, so a restart brings back
 the same server. Ctrl-C retires both development processes.
 
 Use `zig build rooms-dev -Dhot-reload=false` to serve compiled browser
-generations through the web front with the same state and operator grants.
+generations through the web server with the same state and operator grants.
 The [development guide](developing.md#browser-compiler-boundary) explains the
 compiler boundary and how to switch bundlers.
 
@@ -94,12 +94,12 @@ compiler boundary and how to switch bundlers.
 
 `glowcap apps rooms serve` keeps its directory state outside the installation
 by default. Message history is opt-in with `--history`. Standalone services
-take explicit state directories; keep each service's identity and state together:
+take explicit state directories. Keep each service's identity and state together:
 
 | Service | Keeps | Start |
 | --- | --- | --- |
-| Directory | The directory, its rooms, room links, and operator capabilities; with `--history`, each listed room's recent lines | `glowcap apps rooms directory serve --state=<dir> --history` |
-| Session | One person's whole workspace, so several browsers can open the same session | `glowcap apps rooms session serve --dir=<dir>` |
+| Directory | The directory, its rooms, room links, and operator capabilities. With `--history`, each listed room's recent lines | `glowcap apps rooms directory serve --state=<dir> --history` |
+| Session | One person's workspace, so several browsers can open the same session | `glowcap apps rooms session serve --dir=<dir>` |
 | Archive | A member's own message history, behind a sturdyref | `glowcap apps rooms archive serve --state=<dir>` |
 
 [Operating Rooms](operating.md) describes each one, the history limits, the
@@ -123,24 +123,24 @@ both places.
 | [`web/deploy/`](web/deploy/) | The Compose template and Linux image recipe used by the CLI deployment |
 | [`lib/`](lib/) | The Rooms protocol as TypeScript, read by the Deno client, the demos, and the tests |
 | [`clients/`](clients/) | One terminal client per language, each beside its generated protocol table |
-| [`irc/`](irc/) | The IRC bridge and front |
+| [`irc/`](irc/) | The IRC bridge and gateway |
 | [`demos/`](demos/), [`test/`](test/) | The scripted scenarios and the checks |
 
-The protocol itself is a handful of objects and the calls they answer. There
-is no HTTP API and no schema negotiation: the server publishes one object by
-name, `directory`, and every other reference is handed back from it.
+The protocol is a handful of objects and the calls they answer. The server
+publishes one object by name, `directory`, and every other reference is handed
+back from it. There is no HTTP API and no schema negotiation.
 [The Rooms protocol](https://jimisaacs.github.io/glowcap/rooms/protocol/)
-lists each object; [Developing Rooms](developing.md) covers the build steps,
+lists each object. [Developing Rooms](developing.md) covers the build steps,
 the scenarios, and the source map.
 [What Rooms ships](shipped.md) describes each part of the implementation as
 it stands.
 
 ## Prerelease
 
-Rooms ships from this repository at an exact Git commit. There is no
-published versioned package or application image yet. The server, session, and
-archive stores accept their current schema and refuse an older one. A release names its commit, its green
-checks, and any state reset that commit requires.
+Rooms ships from this repository at a Git commit. There is no published
+versioned package or application image yet. The server, session, and archive
+stores accept their current schema and refuse an older one. A release names
+its commit, its green checks, and any state reset that commit requires.
 
 Project provenance and upstream-contact policy live in
 [`PROVENANCE.md`](../../PROVENANCE.md).

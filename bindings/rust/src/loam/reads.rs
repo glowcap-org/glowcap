@@ -24,6 +24,9 @@ impl ReadScopeBounds {
 	pub fn size_bound(&self, arguments: ValueBounds, source_verb_bytes: usize) -> Result<usize> {
 		let mut bytes = 0;
 		check(
+			// SAFETY: this query takes no handle; `&arguments.raw()` is a temporary `GlowcapLoamValueBounds` that lives
+			// to the end of this statement, the other arguments are plain integers, and `bytes` is a local
+			// out-parameter the callee writes.
 			unsafe {
 				ffi::glowcap_loam_read_scope_size_bound(
 					&arguments.raw(),
@@ -46,16 +49,23 @@ impl Call<'_> {
 	/// into shared custody, then declare a facade over this exact target. Later
 	/// calls and recursive results recheck source and upstream authority. Effect
 	/// verbs belong to receipt execution and must not appear in these declarations.
-	/// The returned Ref borrows this callback; ordinary reply custody owns it.
+	/// The returned Ref borrows this callback. Ordinary reply custody owns it.
 	pub fn disclose_reads_copying(
 		&mut self,
 		target: &Ref,
 		interfaces: &[ReadInterface<'_>],
 		role: usize,
 	) -> Result<Ref> {
+		// SAFETY: `GlowcapReference` is a plain C struct of integers and null pointers; all-zero is a valid value, and
+		// the callee fills it before it is read.
 		let mut reference = unsafe { core::mem::zeroed() };
 		declarations(interfaces, |declarations| {
 			check(
+				// SAFETY: `self.raw` is the call handle the C side passed to the enclosing read callback, which
+				// `Call`'s lifetime ties to that callback; `&target.to_sys()?` is a temporary `GlowcapReference` that
+				// lives to the end of this statement, `declarations` is the closure's slice of read declarations, whose
+				// verb and role pointers borrow `interfaces` for the call, and the callee copies it; `reference` is a
+				// local out-parameter.
 				unsafe {
 					ffi::glowcap_loam_call_disclose_reads_copying(
 						self.raw,
@@ -78,9 +88,15 @@ impl Continuation {
 	/// Shared custody keeps the original admitted intent alive after this
 	/// executor observer drops. Recipients receive no other target methods.
 	pub fn project_reads_copying(&self, index: usize, interfaces: &[ReadInterface<'_>], role: usize) -> Result<Ref> {
+		// SAFETY: `GlowcapReference` is a plain C struct of integers and null pointers; all-zero is a valid value, and
+		// the callee fills it before it is read.
 		let mut reference = unsafe { core::mem::zeroed() };
 		declarations(interfaces, |declarations| {
 			check(
+				// SAFETY: `self.raw` is this `Continuation`'s handle from `PendingContinuation::try_take`, released
+				// only by its `Drop`; `declarations` is the closure's slice of read declarations, whose verb and role
+				// pointers borrow `interfaces` for the call, and the callee copies it; `reference` is a local
+				// out-parameter the callee fills.
 				unsafe {
 					ffi::glowcap_loam_continuation_project_reads_copying(
 						self.raw,
@@ -99,7 +115,7 @@ impl Continuation {
 }
 
 /// Two temporary POD spines, regardless of interface count. Capacity is final
-/// before pointers are exposed; all verb and role leaves stay borrowed.
+/// before pointers are exposed. All verb and role leaves stay borrowed.
 fn declarations<T>(
 	interfaces: &[ReadInterface<'_>],
 	call: impl FnOnce(&[ffi::GlowcapLoamReadInterface]) -> Result<T>,

@@ -104,8 +104,8 @@ impl<T> Steps<T> {
 		let mut data = self.0.data.borrow_mut();
 		apply(data.as_mut().ok_or(Error::Closed)?)
 	}
-	/// A cursor reuses its callback. Simple writes need no success callback;
-	/// their errors abort the transaction and reach the same terminal owner.
+	/// A cursor reuses its callback. Simple writes need no success callback.
+	/// Their errors abort the transaction and reach the same terminal owner.
 	pub fn request(
 		&self,
 		request: IdbRequest,

@@ -62,8 +62,8 @@ impl core::fmt::Display for Error {
 }
 impl core::error::Error for Error {}
 
-/// One bounded acquisition. Dropping it frees admission; notices invalidate it
-/// without freeing its seat before the outstanding observation actually ends.
+/// One bounded acquisition. Dropping it frees admission. Notices invalidate it
+/// without freeing its seat before the outstanding observation ends.
 pub struct Attempt(Rc<Cell<bool>>);
 impl Attempt {
 	pub fn check(&self) -> Result<(), Error> {

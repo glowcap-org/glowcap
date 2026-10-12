@@ -1,4 +1,4 @@
-// Idiomatic JavaScript/TypeScript API for glowcap — a full OCapN/CapTP host
+// Idiomatic JavaScript/TypeScript API for glowcap: a full OCapN/CapTP host
 // over the symbol-disjoint `libglowcap_host` and `libglowcap_driver`
 // archives (ADR-0112), with `libglowcap_ocapn` owning their shared value and
 // locator vocabulary (ADR-0059). Host owns `glowcap_host_*`; driver exports
@@ -6,16 +6,16 @@
 // runs on Deno and Bun; the runtime-specific FFI and sockets are isolated
 // behind `./internal/ffi/runtime.ts`.
 //
-// The library owns every CapTP decision — routing, three-party redemption,
+// The library owns every CapTP decision: routing, three-party redemption,
 // gift origination, far vows. On Deno a provider-backed `Runtime.connect` rides a
 // stepping native loop (`./driver_loop.ts`) that owns the socket and the
 // pumping; for explicit embedder-supplied channels the binding moves transport
 // packets itself: each `Session`'s serve loop feeds the Host transport seam
 // and honors the host's action queue (dial, flush, entropy,
 // settle). A transport
-// that links its own glowcap archive lives in its own module beside this one —
+// that links its own glowcap archive lives in its own module beside this one:
 // `@glowcap/tcp`, `@glowcap/inproc`, `@glowcap/onion`, and the optional
-// `@glowcap/iroh` package — exactly as a C consumer links archives à la carte.
+// `@glowcap/iroh` package, as a C consumer links archives à la carte.
 //
 // The implementation is split by responsibility into sibling modules; this
 // file is the barrel that re-exports the public surface, so `@glowcap/runtime`'s

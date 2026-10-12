@@ -32,7 +32,7 @@ fn js_error(value: JsValue) -> crate::Error {
 }
 
 /// One task owns each transaction through its terminal event. The oneshot is
-/// only an observer; cancellation leaves callback and C handle custody intact.
+/// only an observer. Cancellation leaves callback and C handle custody intact.
 pub(super) async fn retained<T: 'static>(future: impl Future<Output = Result<T>> + 'static) -> Result<T> {
 	let (answer, result) = tokio::sync::oneshot::channel();
 	wasm_bindgen_futures::spawn_local(async move {
@@ -49,7 +49,7 @@ fn deliver<T>(answer: tokio::sync::oneshot::Sender<Result<T>>, outcome: Result<T
 	}
 }
 
-/// Physical tasks survive LocalSet teardown; Host delivery belongs to the
+/// Physical tasks survive LocalSet teardown. Host delivery belongs to the
 /// existing LocalSet. Admit this relay before starting I/O, so cancellation of
 /// the public observer cannot strand cleanup or run it on the browser executor.
 /// One task/channel and Host registration own delivery, without another runtime.
@@ -69,7 +69,7 @@ pub(super) async fn retained_on_host<T: 'static>(
 		// Keep the admitted relay until consumption or abandonment, so dropping
 		// that buffer cannot strand cleanup after the relay has ended.
 		if let Some(handoff) = handoff {
-			// Raw IDs have ordinary reference lifetime now. An unpolled result
+			// Raw IDs have ordinary reference lifetime. An unpolled result
 			// must not block Host retirement after physical work has finished.
 			drop(registration);
 			let _ = handoff.await;
@@ -237,7 +237,7 @@ impl StoreInner {
 
 impl Store {
 	/// Join database and Web Lock retirement. Dropping the observer leaves the
-	/// close owner alive; successful return permits an immediate reopen.
+	/// close owner alive. Successful return permits an immediate reopen.
 	pub async fn close(&mut self) -> Result<()> {
 		let inner = Rc::clone(&self.inner);
 		retained(async move { inner.backend.close(inner.store).await }).await
@@ -246,8 +246,8 @@ impl Store {
 	pub fn storage_statistics(&self) -> StorageStatistics {
 		*self.inner.backend.statistics.borrow()
 	}
-	/// Claim one origin database exclusively. Creation and reopening are explicit;
-	/// unsupported locking or durability refuses, with no memory fallback.
+	/// Claim one origin database exclusively. Creation and reopening are explicit.
+	/// Unsupported locking or durability refuses, with no memory fallback.
 	pub async fn open(
 		name: &str,
 		identity: [u8; 16],
@@ -485,7 +485,7 @@ impl Attachment {
 	}
 }
 
-/// Rc preserves Rust allocation; this obligation also prevents explicit C
+/// Rc preserves Rust allocation. This obligation also prevents explicit C
 /// retirement through both restore transactions and terminal handling. The
 /// fixed counter and call-owned guard add no allocation or record copy.
 struct RestoreCustody(Rc<super::AttachmentInner>);
@@ -513,7 +513,7 @@ impl Drop for RestoreCustody {
 
 /// Two separately retained occurrences, even when their IDs coincide. Physical
 /// completion keeps only POD IDs. Abandonment and partial restoration park each
-/// occurrence exactly once; the admitted Host relay owns their actual release.
+/// occurrence exactly once. The admitted Host relay owns their actual release.
 struct RestoredOccurrences {
 	host: Rc<crate::host::HostShared>,
 	consumed: Option<tokio::sync::oneshot::Sender<()>>,

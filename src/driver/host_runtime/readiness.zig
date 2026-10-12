@@ -10,7 +10,7 @@ const HostRuntime = runtime.HostRuntime;
 const Internal = runtime.Internal;
 
 /// The one pollable descriptor of a stepped runtime. It has existed since
-/// construction, so this only reads; the blocking face has no descriptor to
+/// construction, so this only reads. The blocking face has no descriptor to
 /// hand out and refuses.
 pub fn readinessDescriptor(self: *HostRuntime) !i32 {
     try Internal.admitApplicationOperation(self);

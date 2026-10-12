@@ -102,7 +102,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 	}
 
 	/// The authority successor a topic change persists first, when the room
-	/// has a durable name; `Ok(None)` when the topic already stands so.
+	/// has a durable name. `Ok(None)` when the topic already stands so.
 	pub fn prepare_topic(
 		&self,
 		room: &RoomKey,

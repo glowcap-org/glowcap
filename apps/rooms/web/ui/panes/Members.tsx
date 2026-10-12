@@ -1,4 +1,4 @@
-// Who is in the room. On a wide screen this is the right-hand column; on a phone
+// Who is in the room. On a wide screen this is the right-hand column. On a phone
 // it is a sheet that slides up over the conversation. Both are this component.
 //
 // The header's count button reads the same roster, through `rosterOf` below, so
@@ -22,6 +22,8 @@ import {
 	presenceAway,
 	presenceOffline,
 	presenceOnline,
+	rosterHere,
+	rosterHereOf,
 	rosterJoinARoom,
 	rosterManageIdentity,
 	rosterMessageDirectly,
@@ -78,7 +80,9 @@ function MemberRow(
 	const openModalFrom = useOpenModal();
 	// The line being opened to this member spins on the button that asked for
 	// it. A boolean selector repaints only the row whose answer changes.
-	const opening = useRoomsState((state) => state.navigationTarget === name);
+	const opening = useRoomsState((state) =>
+		state.navigationTarget?.kind === "direct" && state.navigationTarget.peer === name
+	);
 	// Away is a third thing to be, and it is about somebody who is here rather
 	// than a way of being absent: the pip says away, and the reason goes beside
 	// the name where it answers the question the pip raises.
@@ -113,7 +117,7 @@ function MemberRow(
 					{
 						/* The mark sits beside the name rather than inside it. Inside,
 						    it shared the name's box, so a name long enough to need an
-						    ellipsis took the mark away with it — and a bridged member
+						    ellipsis took the mark away with it, and a bridged member
 						    is exactly who carries a long name, so the mark went missing
 						    where it was most worth having. Out here the name is the
 						    only part that gives way. */
@@ -194,15 +198,9 @@ function MembersPane(
 		? paused ? nothingWhilePaused : rosterJoinARoom
 		: roster.rows.length === 0
 		? rosterWaiting
-		// "Seen" is a read receipt everywhere else a person has used a chat, so
-		// "4 seen" invites "four people have read it". The distinction is worth
-		// drawing — who is here now against everyone the room knows — and "here"
-		// is the word this app already uses for it, on the topbar and under a
-		// name in the rail. When everybody known is here there is no second
-		// number to give.
 		: roster.online === roster.rows.length
-		? roster.online + " here"
-		: roster.online + " of " + roster.rows.length + " here";
+		? rosterHere(roster.online)
+		: rosterHereOf(roster.online, roster.rows.length);
 	return (
 		<aside className="members" id="memberPane" aria-label={membersTitle}>
 			<div className="members-body">

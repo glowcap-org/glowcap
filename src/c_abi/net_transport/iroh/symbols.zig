@@ -1,10 +1,10 @@
-//! The annotated symbol inventory of `libglowcap_net_transport_iroh` — the
+//! The annotated symbol inventory of `libglowcap_net_transport_iroh`, the
 //! crossing semantics a language FFI table cannot reflect from the C
 //! signature alone.
 //!
 //! Every export has a row here (in the TS loader's reading order) or an
 //! omission reason on its row. The steady-state loop surface returns
-//! immediately; endpoint construction and graceful teardown may wait on the
+//! immediately. Endpoint construction and graceful teardown may wait on the
 //! sidecar runtime and are marked for host runtimes accordingly. Outbound dial
 //! completion is correlated by request id through the readiness stream.
 

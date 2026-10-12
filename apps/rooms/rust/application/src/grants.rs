@@ -1,6 +1,6 @@
 //! Durable session grant policy and commit ordering. Storage execution is an
 //! adapter effect. The native durable owner and shared contract proofs consume
-//! this ledger; no browser or transport adapter owns grant policy.
+//! this ledger. No browser or transport adapter owns grant policy.
 mod model;
 pub(crate) use model::{validate_id, validate_label};
 pub mod protocol;
@@ -36,8 +36,8 @@ pub struct GrantLedger {
 }
 
 impl GrantLedger {
-	/// Decode an existing document. Absence is handled by the storage owner;
-	/// malformed state must never be interpreted as an empty session.
+	/// Decode an existing document. Absence is handled by the storage owner.
+	/// Malformed state must never be interpreted as an empty session.
 	pub fn restore(bytes: &[u8]) -> Result<Self, Error> {
 		if bytes.len() > MAX_DOCUMENT_BYTES {
 			return Err(Error::DocumentTooLarge);
@@ -250,6 +250,10 @@ impl GrantLedger {
 /// The caller owns root-entropy custody and publication through glowcap.
 pub fn derive_entropy(root: &[u8; 16], id: &str) -> Result<[u8; 16], Error> {
 	model::validate_id(id)?;
+	#[expect(
+		clippy::expect_used,
+		reason = "HMAC accepts a key of any length; new_from_slice refuses only fixed-key MACs"
+	)]
 	let mut mac = Hmac::<Sha256>::new_from_slice(root).expect("HMAC accepts a 16-byte key");
 	mac.update(b"glowcap Rooms session grant\0");
 	mac.update(id.as_bytes());

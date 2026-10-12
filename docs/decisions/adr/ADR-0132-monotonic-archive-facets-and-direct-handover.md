@@ -14,31 +14,30 @@ amended_by: [ADR-0136, ADR-0140]
 
 ## Context
 
-ADR-0129 made a member archive passable, but its whole object can read and write
+A member archive (ADR-0129) is passable, but its whole object can read and write
 every record. ADR-0131 lets the browser select that bearer as its recorder and
 keeps it below presentation state. Giving the same bearer to another member
 would grant unrelated conversations and mutation authority.
 
-The narrowed object also has to remain an ordinary capability on the shipped
-v1/Syrup floor. A method that answers a capability must therefore return its
-new actor during the call turn. Deferring actor creation through an asynchronous
-backend operation would turn the answer into data rather than a projected
-reference.
+The narrowed object must remain an ordinary capability on the shipped
+v1/Syrup floor, so a method that answers a capability returns its new actor
+during the call turn. Deferring actor creation through an asynchronous backend
+operation would turn the answer into data instead of a projected reference.
 
 ## Decision
 
 The archive behavior adds `narrow(filter, access)`. The filter uses the same
 bounded exact dimensions as `read`: source, generation, record kind,
 conversation kind, directory, and conversation. A narrowed read intersects its
-request with the facet's filter. Conflicting dimensions return an empty page;
-an omitted dimension cannot widen the facet. A facet created from a read-only
+request with the facet's filter. Conflicting dimensions return an empty page.
+An omitted dimension cannot widen the facet. A facet created from a read-only
 facet cannot regain write authority. `put` succeeds only on a read-write facet
 whose filter matches the record.
 
 `narrow` validates its arguments and synchronously spawns the forwarding actor
 on the current session. One session may mint at most 256 facets over its
 lifetime. Release does not refill that budget because actor churn still spends
-monotonic export positions. Storage remains behind `put` and `read`; narrowing
+monotonic export positions. Storage remains behind `put` and `read`. Narrowing
 does not call or copy a backend. The same behavior runs in the tab and
 standalone archive peer.
 
@@ -94,8 +93,7 @@ surface exercises ordinary three-party handoff without retaining a whole bearer
 or teaching the directory about message history. A recipient has a bounded,
 visible custody choice and every terminal path has an explicit release owner.
 
-Long-lived or revocable sharing needs another authority shape. It is not hidden
-inside this live-session facet.
+Long-lived or revocable sharing needs another authority shape.
 
 ## Evidence
 

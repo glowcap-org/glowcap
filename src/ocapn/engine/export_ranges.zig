@@ -1,7 +1,7 @@
 //! Disjoint per-session export numbering for one `Node` (the "Names carry
 //! three things" defence): the node-slot arithmetic, the per-session range
 //! allocator, and the recycle queue a released session's range returns
-//! through. `Node` aliases each function as its own; the fields live on
+//! through. `Node` aliases each function as its own. The fields live on
 //! `Node` because they are node state, and this file owns the operations
 //! over them.
 
@@ -21,7 +21,7 @@ const Node = node_mod.Node;
 /// A near reference is one integer, and it means whatever the session
 /// reading it says it means, so the same number names a different object on
 /// every session. An application holds capabilities from several sessions
-/// at once — `sendRedeeming` hands it two in one call — and offering one to
+/// at once, `sendRedeeming` hands it two in one call, and offering one to
 /// the wrong session is a one-word mistake. Disjoint ranges make that
 /// mistake name a position no session holds, so the held-export check
 /// refuses it, instead of it landing on whatever that session keeps at the
@@ -32,17 +32,17 @@ const Node = node_mod.Node;
 /// both past what the connection budget admits. The node bits come from the
 /// node's own identity rather than a shared counter, because a counter
 /// would be process-wide mutable state in a layer whose whole point is not
-/// to have any — and two nodes in one process must still number their
+/// to have any, and two nodes in one process must still number their
 /// sessions apart, since an application can hold capabilities from both.
 const export_range_bits: u6 = 24;
 const export_node_shift: u6 = 44;
 /// Sixteen bits of node identity. This defensive export partition is
-/// independent of routed-capability ids; their namespaces are distinct.
+/// independent of routed-capability ids. Their namespaces are distinct.
 const export_node_slots: u64 = 1 << 16;
 const export_range_span: u64 = 1 << export_range_bits;
 comptime {
     // The fields must tile without overlapping, and the slots must tile the
-    // configured export-allocation span exactly — a partial top slot would let the last node's
+    // configured export-allocation span exactly, a partial top slot would let the last node's
     // counter stop somewhere the arithmetic above does not describe. Held
     // here rather than in the prose above, because prose does not fail a
     // build.
@@ -54,18 +54,18 @@ comptime {
 }
 
 /// This node's first range. The node bits come from its own identity, so
-/// two nodes in one process usually land in different slots — usually, not
+/// two nodes in one process usually land in different slots, though not
 /// always: sixteen bits of hash collide by birthday somewhere around three
 /// hundred nodes in one process, and colliding nodes number their sessions
 /// alike again. That is the same defence-in-depth the ranges give a session
 /// pair, not a guarantee, and a process running hundreds of nodes should
 /// read it that way.
 ///
-/// The `| export_range_span` skips slot zero's zeroth range on purpose: a
+/// The `| export_range_span` skips slot zero's zeroth range: a
 /// base of 0 would have the first session mint export position 0, which is
 /// `session.BOOTSTRAP_POSITION`, aliasing the bootstrap export the session
 /// installs at open. Every other slot's first range starts above zero
-/// already; paying one span in every slot keeps the rule uniform.
+/// already. Paying one span in every slot keeps the rule uniform.
 pub fn initialExportBase(seed: [crypto.SEED_BYTES]u8) u64 {
     const node_slot: u64 = std.hash.Wyhash.hash(0, &seed) % export_node_slots;
     return (node_slot << export_node_shift) | export_range_span;
@@ -105,7 +105,7 @@ pub fn exportBaseEndFor(base: u64) u64 {
 ///
 /// Refuses rather than carrying past the node's slot. Reaching that needs
 /// this node to hold every range in its slot at once, which the connection
-/// budget stops first; a node that merely churns connections recycles.
+/// budget stops first. A node that merely churns connections recycles.
 pub fn takeExportBase(self: *Node) !u64 {
     if (self.freed_export_bases.pop(self.allocator)) |base| return base;
     if (self.next_export_base >= self.export_base_end) return session_mod.Error.ExportRangeExhausted;

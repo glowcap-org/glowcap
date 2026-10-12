@@ -229,14 +229,14 @@ pub fn run() {
 		.unwrap()
 		.bind(&shared_intent)
 		.unwrap();
-	assert_eq!(sent.verb, rooms_application::open_graph::ROOM_POST_VERB);
-	assert_eq!(sent.args, [caption, previews]);
+	assert_eq!(sent.verb, rooms_application::room::correlation::POST);
+	assert_eq!(sent.args, [caption, previews, "effect"]);
 	let (_, sent) = dispatch("say", &["conversation", caption, "[]"])
 		.unwrap()
 		.bind(&shared_intent)
 		.unwrap();
-	assert_eq!(sent.verb, "post");
-	assert_eq!(sent.args, [caption]);
+	assert_eq!(sent.verb, rooms_application::room::correlation::POST);
+	assert_eq!(sent.args, [caption, "[]", "effect"]);
 	for args in [
 		vec!["conversation", caption, "null"],
 		vec!["conversation", "no link", previews],

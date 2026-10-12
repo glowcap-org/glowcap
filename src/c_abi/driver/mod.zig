@@ -1,13 +1,13 @@
 //! `libglowcap_driver` (ADR-0112): the driver archive. It exports only the
 //! `glowcap_driver_*` loop family that owns the transport-to-host
-//! choreography every binding used to re-implement: park on one readiness
+//! choreography every binding would otherwise re-implement: park on one readiness
 //! descriptor, step, drain one event queue.
 //!
 //! A native-loop consumer composes `libglowcap_host`, `libglowcap_driver`, and
 //! the transport archives it selects. Symbol families stay disjoint.
 //!
 //! The private `loop.zig` state aggregate and `loop/` transition owners compose
-//! here; this root owns the public C types and exact symbol index the header
+//! here. This root owns the public C types and exact symbol index the header
 //! generator and bindings reflect.
 
 const std = @import("std");
@@ -155,8 +155,8 @@ pub const GLOWCAP_LIFECYCLE_CLOSED = c_abi_host.GLOWCAP_LIFECYCLE_CLOSED;
 
 /// A stepping CapTP loop over one multi-session host: the host, its
 /// transports, its listeners, and one readiness descriptor. Created with
-/// `glowcap_driver_take_host`; released with `glowcap_driver_release`. One thread
-/// drives one loop; `glowcap_driver_wake` is the one cross-thread verb.
+/// `glowcap_driver_take_host`. Released with `glowcap_driver_release`. One thread
+/// drives one loop. `glowcap_driver_wake` is the one cross-thread verb.
 pub const GlowcapDriverLoop = opaque {};
 pub const GLOWCAP_DRIVER_FAILURE_ABI_VERSION = failure_output.abi_version;
 pub const GlowcapDriverFailure = failure_output.GlowcapDriverFailure;
@@ -165,6 +165,9 @@ pub const GlowcapDriverFailure = failure_output.GlowcapDriverFailure;
 pub const GLOWCAP_DRIVER_OPTIONS_ABI_VERSION: u32 = 1;
 /// Largest positive wait budget representable by `driver.Budget`.
 pub const GLOWCAP_DRIVER_MAX_WAIT_MS: u32 = std.math.maxInt(i32);
+/// A `handshake_ms`, `listener_setup_ms`, or `settle_ms` value with no
+/// deadline. SECURITY.md asks deployments to set a finite one.
+pub const GLOWCAP_DRIVER_WAIT_UNBOUNDED: u32 = 0;
 /// Default bytes retained for each stream direction or multiplexed read staging.
 pub const GLOWCAP_DRIVER_DEFAULT_WIRE_BUFFER_BYTES: usize = driver.default_wire_buffer_bytes;
 /// Default maximum transport connects and CapTP handshakes admitted at once.
@@ -176,49 +179,49 @@ pub const GLOWCAP_DRIVER_DEFAULT_LISTENER_SETUP_MS: u32 = @intCast(driver.defaul
 /// Default application-answer progress budget in milliseconds.
 pub const GLOWCAP_DRIVER_DEFAULT_SETTLE_MS: u32 = @intCast(driver.default_settle_ms);
 /// Construction policy for the native driver face. A zero wait budget is the
-/// explicit unbounded form; nonzero values bound progress in milliseconds.
+/// explicit unbounded form. Nonzero values bound progress in milliseconds.
 /// `wire_buffer_bytes` is retained
 /// once for each stream direction, or once for multiplexed read staging, per live
 /// session. `max_pending_opens` bounds pre-open session and wire memory across
-/// every transport route. The layout fields must identify this record; every
+/// every transport route. The layout fields must identify this record. Every
 /// buffer and admission limits must be positive.
 pub const GlowcapDriverOptions = extern struct {
     abi_version: u32,
     struct_size: usize,
     wire_buffer_bytes: usize,
     max_pending_opens: usize,
-    /// Handshake progress budget in milliseconds; zero waits unbounded.
+    /// Handshake progress budget in milliseconds. `GLOWCAP_DRIVER_WAIT_UNBOUNDED` waits unbounded.
     handshake_ms: u32,
-    /// Listener-construction budget in milliseconds; zero waits unbounded.
+    /// Listener-construction budget in milliseconds. `GLOWCAP_DRIVER_WAIT_UNBOUNDED` waits unbounded.
     listener_setup_ms: u32,
-    /// Application-answer budget in milliseconds; zero waits unbounded.
+    /// Application-answer budget in milliseconds. `GLOWCAP_DRIVER_WAIT_UNBOUNDED` waits unbounded.
     settle_ms: u32,
 };
 
 // ── Event queue vocabulary ───────────────────────────────────────────────────
 
 /// `GlowcapDriverEvent.kind`: a dial or external adoption reached an open
-/// session; `operation_id` identifies the operation and `session` the handle.
+/// session. `operation_id` identifies the operation and `session` the handle.
 pub const GLOWCAP_DRIVER_EVENT_OPENED: u32 = 0;
-/// A dial or external adoption failed; `operation_id` names it and the
+/// A dial or external adoption failed. `operation_id` names it and the
 /// primary/secondary fields preserve its typed failure chain.
 pub const GLOWCAP_DRIVER_EVENT_OPEN_FAILED: u32 = 1;
-/// A listener accepted a session; `listener_id` is the id from
+/// A listener accepted a session. `listener_id` is the id from
 /// `glowcap_driver_listen` and `session` the live handle.
 pub const GLOWCAP_DRIVER_EVENT_ACCEPTED: u32 = 2;
 /// A session's wire closed inside the step. Clean EOF carries
-/// `GLOWCAP_OK` and empty failure fields; a transport fault, truncated frame,
+/// `GLOWCAP_OK` and empty failure fields. A transport fault, truncated frame,
 /// or protocol refusal carries its stable primary and consequence facts. The
-/// handle stays valid until `glowcap_driver_session_release`; its vows are
+/// handle stays valid until `glowcap_driver_session_release`. Its vows are
 /// already broken.
 pub const GLOWCAP_DRIVER_EVENT_SESSION_CLOSED: u32 = 3;
-/// A vow settled with no in-process listener; `action` carries the byte-fed
+/// A vow settled with no in-process listener. `action` carries the byte-fed
 /// queue's own SETTLE/FAIL shape (`GlowcapHostAction`), so a binding's
 /// existing completion decoding applies unchanged.
 pub const GLOWCAP_DRIVER_EVENT_COMPLETION: u32 = 4;
 /// Listener construction completed and `listener_id` is active.
 pub const GLOWCAP_DRIVER_EVENT_LISTENER_READY: u32 = 5;
-/// Listener construction or an active listener's accept infrastructure failed;
+/// Listener construction or an active listener's accept infrastructure failed.
 /// `listener_id` is retired before publication and the failure fields retain
 /// the primary plus first consequence and total count. Sessions and ACCEPTED
 /// events already yielded by the listener remain valid.
@@ -226,12 +229,12 @@ pub const GLOWCAP_DRIVER_EVENT_LISTENER_FAILED: u32 = 6;
 pub const GLOWCAP_DRIVER_ADOPT_DIALED: u32 = 0;
 pub const GLOWCAP_DRIVER_ADOPT_ACCEPTED: u32 = 1;
 
-/// One drained loop event. Unused fields are zero/null per `kind`; borrowed
+/// One drained loop event. Unused fields are zero/null per `kind`. Borrowed
 /// failure-name views and the views inside `action` stay valid until the next
 /// `glowcap_driver_next_event` call on the same loop.
 pub const GlowcapDriverEvent = extern struct {
     kind: u32,
-    /// Stable C result for the primary failure; zero for success events.
+    /// Stable C result for the primary failure. Zero for success events.
     primary_result: i32,
     /// Stable C result for the first consequence, when present.
     secondary_result: i32,
@@ -326,6 +329,7 @@ pub const glowcap_driver_detach_thread = loop_drive.glowcap_driver_detach_thread
 pub const glowcap_driver_wake = loop_drive.glowcap_driver_wake;
 pub const glowcap_driver_next_event = loop_events.glowcap_driver_next_event;
 pub const glowcap_driver_claim_reference_exporter = loop_sessions.glowcap_driver_claim_reference_exporter;
+pub const glowcap_driver_claim_exporter_session = loop_sessions.glowcap_driver_claim_exporter_session;
 pub const glowcap_driver_session_close = loop_sessions.glowcap_driver_session_close;
 pub const glowcap_driver_session_lifecycle_state = loop_sessions.glowcap_driver_session_lifecycle_state;
 pub const glowcap_driver_session_serve = loop_sessions.glowcap_driver_session_serve;
@@ -335,6 +339,6 @@ pub const glowcap_driver_clear_last_error = loop.glowcap_driver_clear_last_error
 
 comptime {
     // Force only the loop family's `export fn`s into this archive. Host
-    // implementation imports are deliberately not export roots.
+    // implementation imports are not export roots.
     _ = loop;
 }

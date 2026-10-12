@@ -21,7 +21,7 @@ const KEY_STEP_COARSE_PX = 64;
  * rAF-batched because each `onDelta` cascades through React state
  * → grid-template change → ResizeObserver → scene re-paint → Pixi
  * `renderer.resize` (GPU-buffer reallocation). 120 Hz pointer
- * events into that cascade pegs a CPU core; coalescing caps the
+ * events into that cascade pegs a CPU core. Coalescing caps the
  * work at one cascade per display frame.
  *
  * Uses pointer capture so fast drags don't lose the cursor. Sets
@@ -112,7 +112,7 @@ export function useResizeHandle(
 		(event: React.PointerEvent<HTMLDivElement>) => {
 			// A move with no button held is a pointer-up that went
 			// missing, and `watchGestureEnd` has already released the
-			// lease by the time this bubbles here — so the live claim is
+			// lease by the time this bubbles here. So the live claim is
 			// the whole guard.
 			if (surface.pointer() !== event.pointerId) return;
 			lastPosRef.current = axis === "x" ? event.clientX : event.clientY;
@@ -139,7 +139,7 @@ export function useResizeHandle(
 	// window watch in `useGestureSurface`, which every gesture surface
 	// shares. A pending rAF only ever exists inside a claimed gesture,
 	// because `onPointerMove` schedules one only for the pointer this
-	// surface holds — so that one teardown is also the only place the
+	// surface holds. So that one teardown is also the only place the
 	// frame needs cancelling.
 
 	// Force the body cursor while dragging so it stays correct over
@@ -161,7 +161,7 @@ export function useResizeHandle(
 	//
 	// No gesture-surface claim and no rAF here. A press is one discrete
 	// delta rather than a stream, so there is nothing to coalesce and no
-	// pointer for another surface to contend over — and a key repeat is
+	// pointer for another surface to contend over, and a key repeat is
 	// already paced by the OS.
 	const onKeyDown = useCallback(
 		(event: React.KeyboardEvent<HTMLDivElement>) => {

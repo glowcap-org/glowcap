@@ -1,6 +1,6 @@
 //! The Rooms operator: the server-wide inventories a holder reads in
 //! bounded pages under one revision, the search that cuts them server-side,
-//! and the acts each row offers. The policy names every act exactly; the
+//! and the acts each row offers. The policy names every act exactly. The
 //! adapter performs it and answers what changed.
 pub mod inventory;
 pub mod page;
@@ -9,7 +9,10 @@ pub mod rows;
 pub mod view;
 
 use crate::room::{ArgumentView, ListArgument};
-use alloc::{string::String, vec::Vec};
+use alloc::{
+	string::{String, ToString},
+	vec::Vec,
+};
 
 /// Rows one page carries.
 pub const MAX_PAGE: u64 = 32;
@@ -148,16 +151,72 @@ pub enum SnapshotAsk {
 	},
 }
 
+/// Why an operator ask is refused. `Display` is the exact line the holder
+/// reads.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Invalid {
+	/// The arguments miss the verb's shape, which the caller names.
+	Shape(String),
+	/// `operatorSnapshot`'s whole-inventory search is not one text.
+	SnapshotSearch,
+	/// `operatorSnapshot`'s reference kind is not one.
+	SnapshotKind,
+	/// `operatorSnapshot`'s cursor or limit is out of range.
+	SnapshotRange,
+	/// `operatorSnapshot`'s category is unknown.
+	SnapshotCategory,
+	/// A reference kind was given for a category other than references.
+	SnapshotKindCategory,
+	/// `operatorSnapshot`'s query is over the limit.
+	SnapshotQueryLength,
+	/// `operatorRetireMatching`'s category is unknown.
+	RetireCategory,
+	/// `operatorRetireMatching`'s query is over the limit.
+	RetireQueryLength,
+	/// `operatorRetireMatching`'s batch limit is out of range.
+	RetireLimit,
+	/// A reference kind was given for a category other than references.
+	RetireKindCategory,
+}
+
+impl core::fmt::Display for Invalid {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		match self {
+			Self::Shape(shape) => f.write_str(shape),
+			Self::SnapshotSearch => f.write_str("operatorSnapshot takes one optional search"),
+			Self::SnapshotKind => f.write_str("operatorSnapshot reference kind is invalid"),
+			Self::SnapshotRange => f.write_str("operatorSnapshot cursor or limit is out of range"),
+			Self::SnapshotCategory => f.write_str("operatorSnapshot category is unknown"),
+			Self::SnapshotKindCategory => f.write_str("operatorSnapshot reference kind is invalid for this category"),
+			Self::SnapshotQueryLength => f.write_str("operatorSnapshot query is too long"),
+			Self::RetireCategory => f.write_str("operatorRetireMatching category is unknown"),
+			Self::RetireQueryLength => f.write_str("operatorRetireMatching query is too long"),
+			Self::RetireLimit => f.write_str("operatorRetireMatching batch limit is out of range"),
+			Self::RetireKindCategory => {
+				f.write_str("operatorRetireMatching reference kind is invalid for this category")
+			}
+		}
+	}
+}
+
+impl core::error::Error for Invalid {}
+
+impl From<Invalid> for String {
+	fn from(invalid: Invalid) -> Self {
+		invalid.to_string()
+	}
+}
+
 /// Read `operatorSnapshot`'s arguments. Two or fewer name the whole
-/// inventory; three to five name one page.
-pub fn read_snapshot<A: ListArgument>(args: &[A]) -> Result<SnapshotAsk, String> {
+/// inventory. Three to five name one page.
+pub fn read_snapshot<A: ListArgument>(args: &[A]) -> Result<SnapshotAsk, Invalid> {
 	if args.len() <= 2 {
 		let query = match args.first() {
 			None => String::new(),
 			Some(query) => query
 				.text()
 				.filter(|query| query.chars().count() <= MAX_QUERY)
-				.ok_or("operatorSnapshot takes one optional search")?
+				.ok_or(Invalid::SnapshotSearch)?
 				.into(),
 		};
 		let kind = match args.get(1) {
@@ -165,38 +224,38 @@ pub fn read_snapshot<A: ListArgument>(args: &[A]) -> Result<SnapshotAsk, String>
 			Some(kind) => Some(
 				kind.text()
 					.and_then(ReferenceKind::parse)
-					.ok_or("operatorSnapshot reference kind is invalid")?,
+					.ok_or(Invalid::SnapshotKind)?,
 			),
 		};
 		return Ok(SnapshotAsk::Whole { query, kind });
 	}
 	let shape = "operatorSnapshot takes a category, cursor, limit, optional query, and optional reference kind";
 	if args.len() > 5 {
-		return Err(shape.into());
+		return Err(Invalid::Shape(shape.into()));
 	}
 	let (Some(category), Some(cursor), Some(limit)) = (args[0].text(), args[1].integer(), args[2].integer()) else {
-		return Err(shape.into());
+		return Err(Invalid::Shape(shape.into()));
 	};
 	let query = match args.get(3) {
 		None => "",
-		Some(query) => query.text().ok_or(shape)?,
+		Some(query) => query.text().ok_or_else(|| Invalid::Shape(shape.into()))?,
 	};
 	if cursor < 0 || cursor > i128::from(i64::MAX) || limit < 1 || limit > i128::from(MAX_PAGE) {
-		return Err("operatorSnapshot cursor or limit is out of range".into());
+		return Err(Invalid::SnapshotRange);
 	}
-	let category = Category::parse(category).ok_or("operatorSnapshot category is unknown")?;
+	let category = Category::parse(category).ok_or(Invalid::SnapshotCategory)?;
 	let kind = match args.get(4) {
 		None => None,
 		Some(kind) => {
 			let kind = kind.text().and_then(ReferenceKind::parse);
 			if kind.is_none() || category != Category::References {
-				return Err("operatorSnapshot reference kind is invalid for this category".into());
+				return Err(Invalid::SnapshotKindCategory);
 			}
 			kind
 		}
 	};
 	if query.chars().count() > MAX_QUERY {
-		return Err("operatorSnapshot query is too long".into());
+		return Err(Invalid::SnapshotQueryLength);
 	}
 	Ok(SnapshotAsk::Page {
 		category,
@@ -217,27 +276,27 @@ pub struct RetireAsk {
 	pub kind: Option<ReferenceKind>,
 }
 
-pub fn read_retire<A: ArgumentView>(args: &[A]) -> Result<RetireAsk, String> {
+pub fn read_retire<A: ArgumentView>(args: &[A]) -> Result<RetireAsk, Invalid> {
 	let shape = "operatorRetireMatching takes a category, query, batch limit, and optional reference kind";
 	if args.len() < 3 || args.len() > 4 {
-		return Err(shape.into());
+		return Err(Invalid::Shape(shape.into()));
 	}
 	let (Some(category), Some(query), Some(limit)) = (args[0].text(), args[1].text(), args[2].integer()) else {
-		return Err(shape.into());
+		return Err(Invalid::Shape(shape.into()));
 	};
-	let category = Category::parse(category).ok_or("operatorRetireMatching category is unknown")?;
+	let category = Category::parse(category).ok_or(Invalid::RetireCategory)?;
 	if query.chars().count() > MAX_QUERY {
-		return Err("operatorRetireMatching query is too long".into());
+		return Err(Invalid::RetireQueryLength);
 	}
 	if limit < 1 || limit > i128::from(MAX_RETIRE_BATCH) {
-		return Err("operatorRetireMatching batch limit is out of range".into());
+		return Err(Invalid::RetireLimit);
 	}
 	let kind = match args.get(3) {
 		None => None,
 		Some(kind) => {
 			let kind = kind.text().and_then(ReferenceKind::parse);
 			if kind.is_none() || category != Category::References {
-				return Err("operatorRetireMatching reference kind is invalid for this category".into());
+				return Err(Invalid::RetireKindCategory);
 			}
 			kind
 		}
@@ -251,21 +310,24 @@ pub fn read_retire<A: ArgumentView>(args: &[A]) -> Result<RetireAsk, String> {
 }
 
 /// One text argument, exactly.
-pub fn one_text<A: ArgumentView>(args: &[A], shape: &str) -> Result<String, String> {
+pub fn one_text<A: ArgumentView>(args: &[A], shape: &str) -> Result<String, Invalid> {
 	let [value] = args else {
-		return Err(shape.into());
+		return Err(Invalid::Shape(shape.into()));
 	};
-	value.text().map(String::from).ok_or_else(|| shape.into())
+	value
+		.text()
+		.map(String::from)
+		.ok_or_else(|| Invalid::Shape(shape.into()))
 }
 
 /// Two text arguments, exactly.
-pub fn two_texts<A: ArgumentView>(args: &[A], shape: &str) -> Result<(String, String), String> {
+pub fn two_texts<A: ArgumentView>(args: &[A], shape: &str) -> Result<(String, String), Invalid> {
 	let [first, second] = args else {
-		return Err(shape.into());
+		return Err(Invalid::Shape(shape.into()));
 	};
 	match (first.text(), second.text()) {
 		(Some(first), Some(second)) => Ok((first.into(), second.into())),
-		_ => Err(shape.into()),
+		_ => Err(Invalid::Shape(shape.into())),
 	}
 }
 
@@ -305,4 +367,41 @@ pub fn whole_pages<'a>(
 			(category, page(category, query, kind))
 		})
 		.collect()
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn every_invalid_line_is_the_line_it_replaced() {
+		let lines = [
+			(Invalid::Shape("shape line".into()), "shape line"),
+			(Invalid::SnapshotSearch, "operatorSnapshot takes one optional search"),
+			(Invalid::SnapshotKind, "operatorSnapshot reference kind is invalid"),
+			(
+				Invalid::SnapshotRange,
+				"operatorSnapshot cursor or limit is out of range",
+			),
+			(Invalid::SnapshotCategory, "operatorSnapshot category is unknown"),
+			(
+				Invalid::SnapshotKindCategory,
+				"operatorSnapshot reference kind is invalid for this category",
+			),
+			(Invalid::SnapshotQueryLength, "operatorSnapshot query is too long"),
+			(Invalid::RetireCategory, "operatorRetireMatching category is unknown"),
+			(Invalid::RetireQueryLength, "operatorRetireMatching query is too long"),
+			(
+				Invalid::RetireLimit,
+				"operatorRetireMatching batch limit is out of range",
+			),
+			(
+				Invalid::RetireKindCategory,
+				"operatorRetireMatching reference kind is invalid for this category",
+			),
+		];
+		for (invalid, line) in lines {
+			assert_eq!(invalid.to_string(), line);
+		}
+	}
 }

@@ -1,5 +1,5 @@
 //! A private Tor belongs to the web supervisor, across directory restarts.
-//! Planning names real endpoints without creating files; startup acquires the
+//! Planning names real endpoints without creating files. Startup acquires the
 //! private directory atomically. Externally supplied Tor remains external.
 use super::process::{Process, Temporary};
 use std::{
@@ -104,9 +104,7 @@ impl Tor {
 				return Ok(None);
 			}
 			Err(error) => {
-				return Err(
-					crate::cleanup::combine(Err(error), temporary.close().await).expect_err("Tor startup failed")
-				);
+				return Err(crate::cleanup::failed(error, temporary.close().await));
 			}
 		};
 		let mut tor = Self { process, temporary };
@@ -140,13 +138,16 @@ impl Tor {
 				tor.close().await?;
 				Ok(None)
 			}
-			Err(error) => Err(crate::cleanup::combine(Err(error), tor.close().await).expect_err("Tor startup failed")),
+			Err(error) => Err(crate::cleanup::failed(error, tor.close().await)),
 		}
 	}
 
-	pub async fn ended(&mut self) -> Result<(), String> {
-		let status = self.process.child.wait().await.map_err(|e| e.to_string())?;
-		Err(format!("private Tor exited: {status}"))
+	/// Why the private Tor process is gone. It is never expected to end.
+	pub async fn ended(&mut self) -> String {
+		match self.process.child.wait().await {
+			Ok(status) => format!("private Tor exited: {status}"),
+			Err(error) => error.to_string(),
+		}
 	}
 	pub async fn close(mut self) -> Result<(), String> {
 		self.process.close().await?;

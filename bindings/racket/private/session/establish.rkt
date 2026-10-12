@@ -97,7 +97,7 @@
 ;; keyed-tcp/iroh; unused for tcp); `accepted-local-addr` is what accept
 ;; reported. The host resolves what this accept signs and retains it without
 ;; displacing an explicitly selected advertised locator (ADR-0078); no locator
-;; policy lives in this binding. The handshake is bounded by default — see
+;; policy lives in this binding. The handshake is bounded by default: see
 ;; `accept-next-session`, which every listening surface goes through.
 (define (establish-accepted-session m transport-name server-designator transport
                                        #:accepted-local-addr [accepted-local-addr ""]
@@ -136,13 +136,13 @@
         (session-bind-verified-channel-key! c verified-channel-key))
       (finish-establish! c handshake-timeout-ms))))
 
-;; The one accept rule every listening surface shares — tcp, keyed-tcp, and
-;; iroh all reach the wire through here. `next-partner` blocks for the next
+;; The one accept rule every listening surface shares (tcp, keyed-tcp, and
+;; iroh) all reach the wire through here. `next-partner` blocks for the next
 ;; partner and returns two values: its `async-transport` and the local address
 ;; accept reported.
 ;;
 ;; Both halves of the rule protect the listener from a partner it did not
-;; choose. A rude probe — connect and hang up, a port scan, a key mismatch —
+;; choose. A rude probe (connect and hang up, a port scan, a key mismatch)
 ;; fails its own handshake, and a partner that connects and then says nothing
 ;; never fails at all, so only `HANDSHAKE-TIMEOUT-MS` ends that wait. Either
 ;; costs this one accept and the loop moves to the next partner, matching the
@@ -153,8 +153,8 @@
 ;;
 ;; The handler predicate is `converts-to-broken?`, not a catch-all, so a
 ;; `break-thread` aimed at the accepting thread still terminates it instead of
-;; being absorbed into a retry. What `next-partner` itself raises — a closed
-;; listener — propagates: that ends the loop, as it should.
+;; being absorbed into a retry. What `next-partner` itself raises (a closed
+;; listener) propagates: that ends the loop, as it should.
 (define (accept-next-session m transport-name server-designator next-partner
                                 #:designator-scheme [designator-scheme #f]
                                 #:time-travel? [time-travel? #f]

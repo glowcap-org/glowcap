@@ -7,7 +7,7 @@ const util = @import("../util.zig");
 const appendViolation = util.appendViolation;
 const expectFileContains = util.expectFileContains;
 
-/// The public dogfood root is intentionally a thin aggregate, while its
+/// The public dogfood root is a thin aggregate, while its
 /// scenario modules stay outside the package. Hold all three facts together:
 /// every scenario is required once, no stale aggregate entry survives, and
 /// catalog installation omits the complete test tree.
@@ -164,7 +164,7 @@ test "Racket aggregate parser ignores comments and rejects duplicate scenario li
 /// balanced s-expressions. The hermetic gate cannot run Goblins, so a script
 /// with an unclosed paren ships silently, and every live step that spawns it
 /// watches a dialer die at parse. Reader-level only: strings, `;` line
-/// comments, and `#\` char literals are skipped; this is not an expander.
+/// comments, and `#\` char literals are skipped. This is not an expander.
 pub fn checkRacketScriptBalance(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -195,7 +195,7 @@ pub fn checkRacketScriptBalance(
     }
 }
 
-/// Net open-parens at end of file (positive: unclosed openers; negative: an
+/// Net open-parens at end of file (positive: unclosed openers, negative: an
 /// extra closer, reported at first dip), or null when balanced. Treats (),
 /// [], {} uniformly and skips strings, `;` comments, and `#\` char literals.
 fn racketParenImbalance(contents: []const u8) ?isize {

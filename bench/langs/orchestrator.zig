@@ -16,7 +16,7 @@
 //! Being native Zig, it needs no Racket. Racket joins only as two of the client
 //! rows (the binding row and the Goblins reference), each skipped with a note
 //! when its runtime is absent. The substrate bench (`bench-goblins`) and the
-//! site report keep their Racket orchestration; this one stands on the Zig
+//! site report keep their Racket orchestration. This one stands on the Zig
 //! toolchain so the Zig-only smoke runs with nothing else installed.
 //!
 //!   orchestrator <host-exe> <zig-client-exe> [--smoke] [--client=NAME] [--port=N]
@@ -70,7 +70,7 @@ const roster = [_]ClientDef{
 
 /// One measured client's results. Latency/throughput/connection fields hold the
 /// client's own NDJSON strings verbatim (so the report reproduces what the
-/// client reported); the orchestrator computes per_conn_kb and cold_ms.
+/// client reported). The orchestrator computes per_conn_kb and cold_ms.
 pub const Row = struct {
     name: []const u8,
     runtime: []const u8,
@@ -192,8 +192,8 @@ fn fail(message: []const u8) error{Usage} {
 
 // ── Roster availability ──────────────────────────────────────────────────────
 /// Why a client is not in the run. A missing runtime is an expected, benign
-/// skip; a client that will not build is a defect in this repository, and the
-/// two must never print the same sentence — a build failure reported as an
+/// skip. A client that will not build is a defect in this repository, and the
+/// two must never print the same sentence, a build failure reported as an
 /// absent runtime hides a stale client behind a routine-looking line.
 pub const Availability = union(enum) {
     ready,
@@ -256,7 +256,7 @@ fn onPath(io: Io, alloc: std.mem.Allocator, environ: ?*const std.process.Environ
 }
 
 /// Build the Rust bench client (release) against the installed archives. Cargo
-/// output goes to our stdout/stderr so a failure is visible; the dependency's
+/// output goes to our stdout/stderr so a failure is visible. The dependency's
 /// build.rs finds zig-out/lib from its own manifest.
 fn buildRust(ctx: *Ctx) !bool {
     try out(ctx.io, "bench-langs: building rust client (cargo build --release) ...\n", .{});
@@ -288,7 +288,7 @@ fn goblinsPresent(ctx: *Ctx) !bool {
 /// Precompile every present Racket client script to bytecode before the
 /// cold-start runs. Without this, each spawn of the `racket` row pays Racket
 /// recompiling the glowcap binding from source (~650 ms here), which lands
-/// entirely in its cold-start number and — absurdly — makes the thin binding
+/// entirely in its cold-start number and, absurdly, makes the thin binding
 /// look slower to start than all of Spritely Goblins, whose collection ships
 /// precompiled `.zo` bytecode. Compiling the scripts puts both Racket rows on
 /// the same footing: a spawn loads bytecode, so cold-start measures real
@@ -493,7 +493,7 @@ fn runConnections(ctx: *Ctx, def: ClientDef, port: u16, n: usize) !ConnResult {
 }
 
 /// Cold start: spawn a fresh client in `cold` mode and time from just-before
-/// spawn to the `cold-done` marker. Repeat `samples` times; return the median
+/// spawn to the `cold-done` marker. Repeat `samples` times, return the median
 /// (ms, two decimals, arena-owned).
 fn runCold(ctx: *Ctx, def: ClientDef, port: u16, samples: usize) ![]const u8 {
     const times = try ctx.arena.alloc(f64, samples);

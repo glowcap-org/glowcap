@@ -1,5 +1,5 @@
 //! Promise listener callbacks and settled-value captures shared by actor and
-//! driver tests. These cover the plain "listen, drive, assert" shape; a
+//! driver tests. These cover the plain "listen, drive, assert" shape. A
 //! listener whose firing is itself the scenario (re-entrant drives, nested
 //! serves) stays local to its test.
 
@@ -22,7 +22,7 @@ pub fn captureBroken(ctx: ?*anyopaque, resolution: actors.Resolution) void {
     slot.* = resolution == .broken;
 }
 
-/// Copy a fulfilled `.bytes` reply into an inline buffer; a break or give
+/// Copy a fulfilled `.bytes` reply into an inline buffer. A break or give
 /// only sets the flag, so the assertion that follows fails on empty text.
 pub const CapturedBytes = CapturedText(.bytes);
 
@@ -90,7 +90,7 @@ pub const CapturedRef = struct {
     }
 };
 
-/// Capture a fulfilled integer reply; anything else leaves `value` null.
+/// Capture a fulfilled integer reply. Anything else leaves `value` null.
 pub const CapturedInt = struct {
     value: ?i64 = null,
 

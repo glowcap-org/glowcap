@@ -1,7 +1,7 @@
 // A loopback port nothing is listening on.
 //
 // Bind port zero, read what the kernel handed out, and release it. The window
-// between release and the server's own bind is the ordinary race; a stateful
+// between release and the server's own bind is the ordinary race. A stateful
 // server that must come back on the same number retries the one refusal that
 // window produces (see `restartStatefulServer`).
 

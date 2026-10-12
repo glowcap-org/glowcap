@@ -1,7 +1,7 @@
 // The combined archive view's store seam (ADR-0144): re-reading one shared
-// account revises what it showed — edits replace, withdrawals empty, new lines
-// join their section — and never prepends a second copy. A section that only
-// grew keeps its one divider; the reader's own live traffic is untouched.
+// account revises what it showed, edits replace, withdrawals empty, new lines
+// join their section, and never prepends a second copy. A section that only
+// grew keeps its one divider. The reader's own live traffic is untouched.
 
 /// <reference lib="dom" />
 

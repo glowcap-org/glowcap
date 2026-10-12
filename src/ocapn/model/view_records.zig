@@ -21,9 +21,9 @@ pub const BreakReason = struct {
     }
 };
 
-/// Lazy hint-entry packing left by a codec. Cap'n Proto fills `w0`/`w1`/`w2`;
-/// Syrup leaves them zero. The only owned path is `materialize` (one walk —
-/// Cap'n caches the frame reader; Syrup re-parses once). No `len`/`at`: those
+/// Lazy hint-entry packing left by a codec. Cap'n Proto fills `w0`/`w1`/`w2`,
+/// Syrup leaves them zero. The only owned path is `materialize` (one walk,
+/// Cap'n caches the frame reader, Syrup re-parses once). No `len`/`at`: those
 /// invited O(n) from-start re-walks nobody on the production path called.
 pub const HintList = struct {
     bytes: []const u8 = &.{},
@@ -43,7 +43,7 @@ pub const HintList = struct {
     };
 };
 
-/// Borrowed hint shape: exactly one arm — empty spelling, projected entries, or
+/// Borrowed hint shape: exactly one arm, empty spelling, projected entries, or
 /// a lazy codec list.
 pub const BorrowedHints = union(enum) {
     empty: model.Hints.WireForm,
@@ -150,7 +150,7 @@ pub const Signature = union(enum) {
 
     /// Whether two signatures spell the same bytes, whichever arm each codec
     /// filled. Syrup carries the halves and Cap'n Proto the concatenation, so
-    /// two views of one signature can disagree on arm and agree on value; a
+    /// two views of one signature can disagree on arm and agree on value. A
     /// comparison that reads either arm directly answers wrongly at best and
     /// panics on the arm that is not there. Total and allocation-free: the
     /// cross-arm case walks the raw bytes in two spans rather than joining the

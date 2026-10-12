@@ -8,7 +8,7 @@
 //!
 //! One reorganization here left three of these, and they stood until a sweep by
 //! hand went looking. The [doc-drift rule](../../../.agents/rules/doc-drift.md)
-//! asks for that sweep; this asks the build instead, which is the half that
+//! asks for that sweep. This asks the build instead, which is the half that
 //! runs every time.
 //!
 //! Scoped to the trees that pass it today. A tree joins `roots` in the same

@@ -17,7 +17,7 @@ const PeerHandle = @import("../peer_handle.zig").PeerHandle;
 
 /// Where one redeemed give settles. An answer is the traditional returned
 /// handoff. A deferred id is Host-owned promise authority for a give found
-/// inline in a Passable value; the sans-I/O node carries the opaque id back in
+/// inline in a Passable value. The sans-I/O node carries the opaque id back in
 /// exactly one terminal action.
 pub const Destination = union(enum) {
     answer: struct { recipient_peer: PeerHandle, answer: model.AnswerPosition },
@@ -32,7 +32,7 @@ pub fn recipientPeer(dest: Destination) PeerHandle {
 }
 
 /// Project a redeem settlement target into the action-owned failure shape.
-/// This is cross-file vocabulary only; `Node.FailureDestination` remains the
+/// This is cross-file vocabulary only. `Node.FailureDestination` remains the
 /// supported action type.
 pub fn failureDestination(dest: Destination) Node.FailureDestination {
     return switch (dest) {
@@ -48,7 +48,7 @@ pub fn failureDestination(dest: Destination) Node.FailureDestination {
 }
 
 /// Every mutable fact in one Node's recipient-side redeem scheduler.
-/// The aggregate is embedded; it adds no box, callback object, or indirection.
+/// The aggregate is embedded. It adds no box, callback object, or indirection.
 pub const State = struct {
     dials: dials.State = .{},
     withdrawals: withdrawals.State = .{},

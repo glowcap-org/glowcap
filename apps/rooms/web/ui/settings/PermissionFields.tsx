@@ -11,7 +11,7 @@ import { Checkbox } from "../Checkbox.tsx";
 import { Said } from "../Said.tsx";
 
 type SessionPermission = typeof SESSION_CONTENT.declaration.permissions[number];
-// Every permission a session declares has a reader name; the type says so.
+// Every permission a session declares has a reader name. The type says so.
 const names: Record<SessionPermission, string> = {
 	observeWorkspace: text.observeWorkspace,
 	interactWorkspace: text.interactWorkspace,

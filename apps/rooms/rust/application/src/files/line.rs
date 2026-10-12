@@ -13,7 +13,7 @@ pub enum FileLineError {
 }
 
 /// One exact room generation owns the line. The holder may be on a different
-/// connection; its staged files must still come from this room's membership.
+/// connection. Its staged files must still come from this room's membership.
 #[derive(Debug)]
 pub struct HostedLine {
 	room: Key,
@@ -55,7 +55,13 @@ impl FileStore {
 				return Err(FileError::WrongRoom);
 			}
 		}
-		let line = Line::new(id, from, core::mem::take(files)).expect("admitted file count");
+		let line = match Line::new(id, from, core::mem::take(files)) {
+			Ok(line) => line,
+			Err(returned) => {
+				*files = returned;
+				return Err(FileError::StagedLimit);
+			}
+		};
 		Ok(HostedLine {
 			room: room.key.clone(),
 			line,

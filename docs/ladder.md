@@ -6,11 +6,11 @@ more ways to reach a peer.
 
 | Milestone | Standing |
 | --- | --- |
-| 1. Protocol conformance | In progress. Live Goblins over testing TCP, and the upstream suite, cover the main conversation and handoff paths; several edge cases still lack outside-peer evidence. |
-| 2. Performance at scale | Met. Memory and latency budgets run on main and dev pushes and pull requests; a release-mode run held 500,000 signed sessions live over loopback TCP. |
+| 1. Protocol conformance | In progress. Live Goblins over testing TCP, and the upstream suite, cover the main conversation and handoff paths. Several edge cases still lack outside-peer evidence. |
+| 2. Performance at scale | Met. Memory and latency budgets run on main and dev pushes and pull requests. A release-mode run held 500,000 signed sessions live over loopback TCP. |
 | 3. Hosted applications | Met. Native and cross-language applications exercise the public API. |
 | 4. C ABI and bindings | Met. All four bindings dial Goblins and are dialed by it through the C ABI. |
-| 5. Transport reachability | In progress. The first-party provider seams, routed browser cold dial, and recurring macOS runtime suite ship; Windows support and a deployed public-certificate relay proof remain. |
+| 5. Transport reachability | In progress. The first-party provider seams, routed browser cold dial, and recurring macOS runtime suite ship. Windows support and a deployed public-certificate relay proof remain. |
 
 [The vision](vision.md) defines the destination. [What ships](shipped.md) is
 the current inventory, and the [roadmap](roadmap.md) lists the unfinished work.
@@ -19,18 +19,17 @@ the current inventory, and the [roadmap](roadmap.md) lists the unfinished work.
 
 The protocol core is split into one-way Zig modules. The build rejects a codec
 that imports another codec, protocol code that reaches into an adapter, or
-portable code that imports `std.Io` or platform calls. These checks make the
-architecture a property of the build rather than a convention
+portable code that imports `std.Io` or platform calls
 ([ADR-0040](decisions/adr/ADR-0040-layer-modules-as-import-law.md)).
 
 ## 1. Protocol conformance
 
 glowcap checks its protocol behavior three ways:
 
-- the upstream OCapN suite runs against the production host;
+- the upstream OCapN suite runs against the production host
 - live Spritely Goblins peers call glowcap and accept calls from it,
-  recurring over testing TCP;
-- in-tree scenarios cover message arms, failure paths, limits, and both codecs.
+  recurring over testing TCP
+- in-tree scenarios cover message arms, failure paths, limits, and both codecs
 
 The live checks cover calls, promises, sturdyrefs, garbage collection in both
 directions, answer release, and all three roles in a three-party handoff.
@@ -43,9 +42,9 @@ matrix.
 
 ## 2. Performance at scale
 
-This milestone is met. The target is 500,000 live sessions on one node.
+The target is 500,000 live sessions on one node.
 
-The build checks these session and Host costs; Host-wide rows say so
+The build checks these session and Host costs. Host-wide rows say so
 explicitly:
 
 | Cost | Checked limit |
@@ -58,22 +57,20 @@ explicitly:
 | WebRTC completion-adapter row | exactly 104 bytes per open DataChannel |
 | Completion-resident connection row (stream wires on HostRuntime) | exactly 152 bytes per connection, holding no buffer while idle |
 | Host session shell | at most 528 bytes, including indexed listeners for cancellable bulk failure |
-| Shared enliven index | 24 bytes per Host; sessions gain none |
+| Shared enliven index | 24 bytes per Host. Sessions gain none |
 | Turn failure notifications | 40 bytes per Host plus 16-byte answer slots, retaining at most 4 KiB after a turn |
 | Host session locator identity | one owned transport/designator block per session |
 | Warm local Vat queue batch | zero general-purpose allocations |
 | Retained queue spare in the Host-owned Vat | one chunk per Host: its row array within one 4 KiB list page plus a small header, its payload arena at most 4 KiB |
 | Steady delivery to a live export | one owned-frame allocation |
 
-These are Debug and ReleaseSafe measurements: Debug is where the checks run,
-and ReleaseSafe is what `release-pack` asks for. In those modes every embedded standard-library list or
-map header carries a one-word pointer-stability lock that ReleaseFast and
-ReleaseSmall drop, so a fast build measures a word less per container.
+These are Debug and ReleaseSafe sizes. ReleaseFast and ReleaseSmall drop a
+one-word lock from each standard-library list or map header, so they measure a
+word less per container.
 
-A busy connection can also retain two 16 KiB outbound buffers. That 32 KiB
-ceiling is much larger than the protocol state, so it matters more when sizing
-a loaded server. Idle connections do not retain those buffers or a dedicated
-read buffer.
+A busy connection can also hold two 16 KiB outbound buffers, which matters more
+than protocol state when sizing a loaded server. An idle connection holds
+neither, and no read buffer.
 
 ReleaseFast checks also keep a warm inbound turn below 2,000 ns, an answered
 outbound send below 8,000 ns, and garbage-collection work from growing faster
@@ -81,14 +78,12 @@ than 3× when the answer count grows from 1,000 to 8,000. These are regression
 limits, not portable benchmark results.
 
 `zig build bench-peer-scaling -- --live` measures real loopback sockets at
-increasing connection counts. Its server and load generator are separate
-processes with 32 shards each and no connection-owned thread. The server runs
-the product path: each shard is a `HostRuntime` serving TCP through a
-completion resident
+increasing connection counts. The server and load generator are separate
+processes with 32 shards each. Each server shard is a `HostRuntime` serving TCP
+through a completion resident
 ([ADR-0202](decisions/adr/ADR-0202-stream-transports-join-hostruntime-as-a-completion-resident.md)).
-Every client has a unique signed session identity and must fetch the server's
-published capability before the barrier opens; all sessions remain open while
-RSS is sampled.
+Every client signs its own session and fetches a published capability before
+the barrier opens, and all sessions stay open while RSS is sampled.
 
 On 2026-08-24, a ReleaseFast run reached 500,000 sessions on Linux
 6.17.0-1029-nvidia, aarch64, 20 logical CPUs, 121.7 GiB RAM, and 16 GiB swap.
@@ -100,14 +95,11 @@ The server grew from 573,828 KiB to 4,548,376 KiB RSS: 3,974,548 KiB
 15.720 seconds, or 31.4 microseconds per session when amortized across the run.
 The figure is a same-machine capacity measurement, not WAN latency.
 
-The host's connection-tracking table was capped below the target, so the run
-used an isolated user/network namespace and exempted its loopback traffic from
-connection tracking. The benchmark itself spreads the clients over 32
-listeners so one ephemeral-port range is not mistaken for session capacity.
-Each listener was its own Host on the completion loop (`Bridge(TcpLoop)`),
-the server this run used, and all 32 shared one identity key. The connections
-are plain TCP: each handshake is signed, but the bytes are not encrypted.
-HostRuntime has not yet run at this size.
+That run's 32 listeners were each a `Bridge(TcpLoop)` Host sharing one identity
+key. `HostRuntime` has not run at this size. The connections are plain TCP, so
+each handshake is signed but the bytes are not encrypted. The host's
+connection-tracking table was smaller than the target, so the command below
+runs in its own user and network namespace with loopback tracking turned off.
 
 On a 16-CPU, 7 GiB Linux container with io_uring, the two servers measured
 side by side in ReleaseSafe:
@@ -119,9 +111,8 @@ side by side in ReleaseSafe:
 | `Bridge(TcpLoop)` | 100,000 | 995,036 KiB | 41.9 |
 | `HostRuntime` + TCP completion resident | 100,000 | 950,304 KiB | 43.8 |
 
-The HostRuntime server holds about 4.5% less memory at 100,000 sessions, with
-no read buffer and no send staging on an idle wire, and each round trip takes
-about 4.5% longer.
+At 100,000 sessions `HostRuntime` uses about 4.5% less memory and each round
+trip takes about 4.5% longer.
 
 ```sh
 unshare -Urn sh -eu -c '
@@ -137,19 +128,13 @@ exec zig build -Doptimize=ReleaseFast bench-peer-scaling -- --live --live-max=50
 
 ## 3. Hosted applications
 
-This milestone is met.
-
-The accountability application hosts a capability over a real TCP session,
-records who invoked it, and proves across three owning Hosts that an introduced
-capability attributes the recipient rather than the introducer. The rooms,
-tasks, and tools applications run the same
-session API from Zig, Rust, TypeScript, Python, and Racket. Together they cover
-connection setup, hosting, calls, promises, capability passing, and handoff at
-the level an application uses them.
+The accountability application records who invoked a hosted capability and
+attributes an introduced call to the recipient, not the introducer. The rooms,
+tasks, and tools applications run one session API from Zig, Rust, TypeScript,
+Python, and Racket, covering setup, hosting, calls, promises, capability
+passing, and handoff as an application uses them.
 
 ## 4. C ABI and bindings
-
-This milestone is met.
 
 The C headers are generated from Zig and checked for drift. Rust, TypeScript,
 Python, and Racket consume the same ABI and archives through generated function
@@ -163,26 +148,19 @@ actor's exact reply.
 
 ## 5. Transport reachability
 
-The transport contract supports plain TCP, keyed TCP, noise TCP and noise
-relay (ADR-0107's sealed channel), keyed relay, in-process pipes, iroh,
-WebRTC, and onion (the standardized Tor netlayer). TCP, iroh, WebRTC, and
-outbound keyed-relay have Host completion-loop integrations. The WebRTC path
-adopts signaled peers through a completion backend
-(`zig build webrtc-loop`). Native three-party redeem over a bare `webrtc`
-give is proved by `zig build webrtc-redeem`.
+glowcap supports plain TCP, keyed TCP, noise TCP, noise relay, keyed relay,
+in-process pipes, iroh, WebRTC, and onion. In recurring CI, a native peer
+cold-dials a Chromium-hosted actor over local WSS with end-to-end Noise, and
+every native binding follows a locator-carried relay route. macOS runs the
+native test suite. The external-runtime matrix runs on Linux.
 
-The remaining work covers native Session provider setup, managed WebRTC
-adapters, deployment evidence, and operating systems. A native peer cold-dials a Chromium-hosted actor
-over local WSS and end-to-end Noise in recurring CI, and every native
-binding follows a locator-carried rendezvous route. The recurring macOS job
-executes the native test suite, while the full external-runtime matrix remains
-on Linux.
+Remaining work:
 
 - extend native Session/Server setup to multiplexed providers and complete
-  managed WebRTC setup across the native fronts;
-- add a Windows completion backend;
+  managed WebRTC setup across the native fronts
+- add a Windows completion backend
 - repeat the native-to-browser relay proof at a deployed hostname with a
-  public certificate;
+  public certificate
 
 [Known limitations](boundaries.md) explains the consequences today. The
 [roadmap](roadmap.md) lists the work needed to close them.

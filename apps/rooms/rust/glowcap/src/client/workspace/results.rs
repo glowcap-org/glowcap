@@ -8,18 +8,25 @@ use std::rc::Rc;
 
 /// Preserve the receipt's diagnostic after the C callback boundary, which
 /// carries only an application refusal code. Move the received reason into
-/// the error; no secondary diagnostic string or capability lookup is needed.
+/// the error. No secondary diagnostic string or capability lookup is needed.
 pub(super) fn observed(value: Argument) -> core::result::Result<Argument, Error> {
 	match value {
-		Argument::List(mut values) if values.first().and_then(Argument::as_str) == Some("unknown") => {
+		Argument::List(mut values)
+			if matches!(values.first().and_then(Argument::as_str), Some("unknown" | "refused")) =>
+		{
 			if !matches!(values.as_slice(), [Argument::String(_), Argument::String(reason)] if rooms_application::fields::Text::<{ custody::MAX_OBSERVATION_REASON_UNITS }, true>::accepts_utf16(reason.encode_utf16()))
 			{
 				return Err(loam::refusal("invalid terminal observation diagnostic").into());
 			}
-			let Argument::String(reason) = values.pop().expect("checked diagnostic") else {
-				unreachable!()
+			let refused = values[0].as_str() == Some("refused");
+			let Some(Argument::String(reason)) = values.pop() else {
+				return Err(loam::refusal("invalid terminal observation diagnostic").into());
 			};
-			Err(Error::Observation(reason))
+			Err(if refused {
+				Error::RefusedObservation(reason)
+			} else {
+				Error::Observation(reason)
+			})
 		}
 		value => Ok(value),
 	}
@@ -54,9 +61,9 @@ pub(super) async fn receive<D: Deadline>(
 }
 
 /// Seven fixed arguments plus bounded mapping/release spines. Original operation
-/// and canonical intent copy once from Command; candidate encoding has the same
-/// aggregate limit as ordinary acquisition. Capability results stay in Loam;
-/// this request contains only their exact typed coordinates.
+/// and canonical intent copy once from Command. Candidate encoding has the same
+/// aggregate limit as ordinary acquisition. Capability results stay in Loam.
+/// This request contains only their exact typed coordinates.
 #[derive(Clone)]
 pub struct ResultAcquisition<D> {
 	caller: Caller<D>,
@@ -153,7 +160,7 @@ pub(super) fn prepare<D: Deadline + Clone>(
 }
 impl<D: Deadline + Clone> ResultAcquisition<D> {
 	/// Creation adopts only its returned room. Unrelated workspace changes cannot
-	/// invalidate an append; the transaction checks the receipt's exact directory
+	/// invalidate an append. The transaction checks the receipt's exact directory
 	/// target instead. Keep one bounded room recipe, not the caller's snapshot.
 	pub fn created_room(mut self) -> Result<Self> {
 		let mut intent = Intent::decode(self.arguments[5].as_str().unwrap_or(""))

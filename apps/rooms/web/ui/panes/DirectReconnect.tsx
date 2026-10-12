@@ -31,8 +31,15 @@ export function DirectReconnect({ conv }: { conv: DmConv }) {
 		<div className="actions">
 			{available && permitted
 				? (
-					<Button id="dmReconnect" type="button" busy={busy} disabled={busy} onClick={reconnect}>
-						{busy ? directReconnecting : directReconnect}
+					<Button
+						id="dmReconnect"
+						type="button"
+						busy={busy}
+						busyLabel={directReconnecting}
+						disabled={busy}
+						onClick={reconnect}
+					>
+						{directReconnect}
 					</Button>
 				)
 				: !available && <p>{directPeerUnavailable}</p>}

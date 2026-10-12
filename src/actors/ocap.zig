@@ -2,19 +2,19 @@
 //! revocable forwarder) and an *attenuator* (a verb-allow-list forwarder).
 //!
 //! Both are forwarding proxies built on `Turn.forward`, so they wrap any
-//! reference the holder has — local *or* far. That is the point: handing a
+//! reference the holder has, local *or* far. That is the point: handing a
 //! partner an attenuated or revocable view of a capability you imported over the
 //! wire is the core move of capability networking, and these make the two
-//! commonest shapes one call (ADR-0064). They compose — put a caretaker over an
-//! attenuator's proxy for a revocable, read-only view — because each is just an
+//! commonest shapes one call (ADR-0064). They compose, put a caretaker over an
+//! attenuator's proxy for a revocable, read-only view, because each is just an
 //! actor whose handle forwards (or refuses) and whose proxy is an ordinary
 //! `Ref` you delegate like any other.
 //!
 //! Refusals are typed breaks: a revoked caretaker breaks every call with
 //! `Revoked`, an attenuator breaks an out-of-list verb with `Attenuated`. Over
-//! the wire those surface to the partner as a broken answer; in-process they
+//! the wire those surface to the partner as a broken answer. In-process they
 //! propagate from `near`. The refused authority is *unrepresentable*, not
-//! permission-checked after the fact — an attenuated reference cannot express a
+//! permission-checked after the fact, an attenuated reference cannot express a
 //! verb it does not forward.
 
 const std = @import("std");
@@ -34,13 +34,13 @@ pub const Error = error{
 };
 
 /// A revoke flag shared by a caretaker's proxy actor and its `Caretaker` handle.
-/// It lives with — and is freed by — the proxy actor, so it stays valid for the
+/// It lives with, and is freed by, the proxy actor, so it stays valid for the
 /// vat's lifetime, which a `Caretaker` never outlives.
 const RevokeCell = struct { live: bool };
 
 /// A caretaker: a forwarding proxy you can switch off. Hand `proxy` to a
-/// partner; keep the `Caretaker` and call `revoke()` to sever it. Until revoked
-/// the proxy forwards every call to its target (local or far); after, every call
+/// partner. Keep the `Caretaker` and call `revoke()` to sever it. Until revoked
+/// the proxy forwards every call to its target (local or far). After, every call
 /// through `proxy` breaks with `Revoked`.
 pub const Caretaker = struct {
     /// The reference to delegate. Forwards to the target until revoked.

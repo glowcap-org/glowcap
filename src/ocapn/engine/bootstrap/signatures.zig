@@ -1,6 +1,6 @@
 //! Handoff-certificate verification for bootstrap withdrawal.
 //!
-//! The bootstrap registry owns gift lifetime and replay authority; this leaf
+//! The bootstrap registry owns gift lifetime and replay authority. This leaf
 //! owns only canonical signing bytes and cryptographic verification. Malformed
 //! certificates are a deterministic `false`, while allocation pressure remains
 //! a host failure so it cannot be mislabeled as a peer protocol violation.

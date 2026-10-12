@@ -98,10 +98,7 @@ fn behavior(
 		let mut state = shared.borrow_mut();
 		let authority = publication.authority.borrow();
 		if state.irc.stopping || !publication.active.get() || !authority.issued || authority.generation != generation {
-			return Err(format!(
-				"{}: this IRC moderator capability was retired",
-				FailureCode::NotSteward.wire()
-			));
+			return Err(FailureCode::NotSteward.line("this IRC moderator capability was retired"));
 		}
 		drop(authority);
 		match (verb, args) {
@@ -194,26 +191,21 @@ pub(super) async fn update(
 	if !publication.active.get() {
 		return Err(retired());
 	}
-	let entropy = if revoke.is_some() {
-		Some(commands::draw()?)
-	} else {
-		None
-	};
+	let revocation = revoke
+		.map(|token| commands::draw().map(|entropy| (token, entropy)))
+		.transpose()?;
 	store
 		.change(
 			|current| {
 				let mut next = current.clone();
-				if let Some(token) = revoke {
+				if let Some((token, entropy)) = revocation {
 					if publication.steward.borrow().as_deref() != Some(token) {
-						return Err(format!(
-							"{}: this IRC moderator capability was retired",
-							FailureCode::NotSteward.wire()
-						));
+						return Err(FailureCode::NotSteward.line("this IRC moderator capability was retired"));
 					}
 					next.revoke_irc_bridge_steward(
 						&publication.id,
 						&publication.authority.borrow().steward_entropy,
-						|| entropy.expect("revocation entropy"),
+						entropy,
 					)
 					.map_err(|e| e.to_string())?;
 				} else {
@@ -225,7 +217,7 @@ pub(super) async fn update(
 			|document| {
 				*publication.authority.borrow_mut() = document
 					.irc_bridge_authority(&publication.id)
-					.expect("committed bridge authority")
+					.ok_or("the committed IRC bridge has no authority")?
 					.clone();
 				if let Some(token) = revoke {
 					publication.steward.borrow_mut().take();

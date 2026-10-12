@@ -17,7 +17,7 @@ impl Content for AbortAfterAdmission {
 	}
 	fn references(&self, input: Invocation<'_>) -> Result<Vec<loam::ReferenceRequest>> {
 		let requests = self.inner.references(input)?;
-		// Every operation declares only the authority it will actually invoke.
+		// Every operation declares only the authority it will invoke.
 		// Workspace replacement and local release require no upstream restoration.
 		if matches!(input.verb, "replaceWorkspace" | "release") {
 			assert!(requests.is_empty());

@@ -1,5 +1,5 @@
 //! One directory discovery worker per exact saved selection. This registry
-//! owns views only; the session retains each worker and upstream cancellation.
+//! owns views only. The session retains each worker and upstream cancellation.
 use super::super::{DirectoryWatch, MembershipEvent, MembershipReceiver, MembershipReport, MembershipTarget, Session};
 use glowcap::Result;
 use rooms_application::content::session::workspace::{self, Intent};
@@ -69,7 +69,14 @@ impl<P: Tasks + Deadline + Clone + 'static> Discoveries<P> {
 				})
 				.map(|(id, _)| id.clone());
 			let Some(id) = obsolete else { break };
-			match self.0.get_mut(&id).unwrap().watch.close().await {
+			let Some(entry) = self.0.get_mut(&id) else {
+				report.failures.push((
+					MembershipTarget::Discovery(id),
+					glowcap::loam::refusal("directory discovery observer is not retained"),
+				));
+				continue;
+			};
+			match entry.watch.close().await {
 				Ok(()) => {
 					self.0.remove(&id);
 				}
@@ -106,7 +113,13 @@ impl<P: Tasks + Deadline + Clone + 'static> Discoveries<P> {
 					}
 				}
 			}
-			let entry = self.0.get_mut(id).unwrap();
+			let Some(entry) = self.0.get_mut(id) else {
+				report.failures.push((
+					target,
+					glowcap::loam::refusal("directory discovery observer is not retained"),
+				));
+				continue;
+			};
 			if let Some(failure) = &entry.failure {
 				let closed = entry.watch.close().await;
 				let failure = failure.clone().with_cleanup(closed.clone());
@@ -148,7 +161,10 @@ impl<P: Tasks + Deadline + Clone + 'static> Discoveries<P> {
 					.await
 					.map_err(|error| glowcap::loam::refusal(error.to_string()))?;
 				(entry.receive.borrow_mut())(MembershipEvent::DirectorySnapshot {
-					snapshot: entry.snapshot.as_ref().unwrap(),
+					snapshot: entry
+						.snapshot
+						.as_ref()
+						.ok_or_else(|| glowcap::loam::refusal("directory snapshot is not held"))?,
 					origin: entry.watch.origin(),
 				})
 				.map_err(glowcap::loam::refusal)?;

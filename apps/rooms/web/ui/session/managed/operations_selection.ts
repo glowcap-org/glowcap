@@ -4,6 +4,18 @@ import type { Coordinate, WorkspaceIntent } from "./model.ts";
 
 export const operationKind = (cap: OpsCap): string => cap === "irc" ? "ircGateway" : cap;
 
+/** The command a capability's actions run through, and the coordinate
+ * encoding that command expects: `operator` takes the bare coordinate key,
+ * while the shared `operations` command takes the full coordinate. */
+export function operationCommand(
+	cap: OpsCap,
+	row: { coordinate: Coordinate },
+): { name: "operator" | "operations"; coordinate: string } {
+	return cap === "operator"
+		? { name: "operator", coordinate: JSON.stringify(row.coordinate.key) }
+		: { name: "operations", coordinate: JSON.stringify(row.coordinate) };
+}
+
 export function operationSelection(intent: WorkspaceIntent | undefined, cap: OpsCap): string | null {
 	const held = operationHolding(intent, cap);
 	return held == null ? null : JSON.stringify([held.coordinate.role, held.coordinate.key, held.kind]);

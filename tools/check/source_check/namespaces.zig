@@ -9,14 +9,14 @@
 //! That gap is the single most expensive class of bug this core has had. Each
 //! instance was one missing dimension:
 //!
-//! - *whose*: a near from one session named an object on another; a resolve
-//!   minted an export outside the session's own range; two gifters reusing one
-//!   gift id landed on one row; the handoff replay counter keyed on bytes the
+//! - *whose*: a near from one session named an object on another. A resolve
+//!   minted an export outside the session's own range. Two gifters reusing one
+//!   gift id landed on one row. The handoff replay counter keyed on bytes the
 //!   withdrawing peer supplied.
 //! - *when*: a projection settled an answer position the partner had released
-//!   and reasked; an enrolled token outlived the import row it named.
+//!   and reasked. An enrolled token outlived the import row it named.
 //!
-//! Every fix that held added a dimension — disjoint ranges, identity stamps,
+//! Every fix that held added a dimension, disjoint ranges, identity stamps,
 //! domain separation, a token that dies with its row. Every fix that had to be
 //! taken back tried to *police* the collision instead: refusing a re-deposit
 //! invented an ownership rule the protocol does not have and broke the upstream
@@ -52,7 +52,7 @@ const Table = struct {
     /// Whose namespace the key lives in, and why one party's name cannot reach
     /// another's row.
     owner: []const u8,
-    /// What keeps a name from meaning one thing and later another — or why
+    /// What keeps a name from meaning one thing and later another, or why
     /// reuse cannot happen here.
     epoch: []const u8,
 };
@@ -376,9 +376,9 @@ const registered = [_]Table{
 
 /// Named types that are integer handles in disguise. The compiler sees a name,
 /// but the value is a number an operating system or a peer chose, so both
-/// questions still apply — an fd in particular is reused the moment it closes.
+/// questions still apply: an fd in particular is reused the moment it closes.
 /// Add one here rather than teaching this to resolve aliases: the list is short
-/// because a genuinely distinct key type is the shape to prefer.
+/// because a distinct key type is the shape to prefer.
 const bare_handle_types = [_][]const u8{ "Fd", "c.fd_t", "std.posix.fd_t", "posix.fd_t", "PendingId" };
 
 /// Whether `key` names a shape that carries no owner and no epoch of its own.

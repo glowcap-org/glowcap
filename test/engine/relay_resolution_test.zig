@@ -2,7 +2,7 @@
 //!
 //! Stamp/GC and resolve-once edge cases for `Peer.applyRelayedResolution` and
 //! `installThirdPartyImport`. The production introducing-session path is
-//! `Node.proxyForeignPromiseFulfill` (Host-driven); Node scenarios live in
+//! `Node.proxyForeignPromiseFulfill` (Host-driven). Node scenarios live in
 //! `test/engine/node/`. Enroll-stamped `row_id` covers the deferred
 //! window these units open by applying after session mutation.
 
@@ -391,7 +391,7 @@ test "a second relay before the first fire encodes is refused and every listener
     try p1.session_state.registerImport(.from(export_pos.int()));
     try p1.session_state.registerExport(.from(9));
 
-    // First relay queues listener 9's fire carrier — nothing steps yet, so
+    // First relay queues listener 9's fire carrier. Nothing steps yet, so
     // the fire has not encoded.
     try applyRelayed(&p2, export_pos.int(), .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "first") } });
 
@@ -463,7 +463,7 @@ test "a fire staled by row teardown and re-registration at the same import posit
     try applyRelayed(&peer, 5, .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "new-promise") } });
 
     // The stale fire's row-identity stamp misses the re-registered row, so
-    // listener 9 — a listener on the dead promise, not this one — never
+    // listener 9, a listener on the dead promise, not this one, never
     // receives "new-promise". Its consumed one-shot listener mention is still
     // released before the explicitly queued release of import 5.
     while ((try peer.step()) != .idle) {}
@@ -486,7 +486,7 @@ test "a fire staled by row teardown and re-registration at the same import posit
 // F-A apex: the RECORD side of the same hazard the test above pins for the FIRE
 // side. A relayed resolution stamped against a third-party import row, then
 // applied after that row is torn down and a *different* third-party promise
-// re-registers at the position, must be dropped as moot — never written to the
+// re-registers at the position, must be dropped as moot, never written to the
 // new promise's row nor fired to its listeners. `recordRelayedResolution`
 // checks the enroll stamp, exactly as `settled_answer` / `listener_fire` do at
 // encode. The test opens the enroll→apply window a production Node opens by
@@ -501,7 +501,7 @@ test "a relayed resolution staled by row teardown and re-registration at the sam
     try peer.session_state.retainImportForSession(.from(9));
     try peer.session_state.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .mode = .settling_only });
 
-    // Capture R1's stamp, then hold the resolution without applying — the
+    // Capture R1's stamp, then hold the resolution without applying, the
     // window Node opens between enroll and home-listen fire.
     const stale_row_id = peer.session_state.importedPromiseRowId(.from(5)).?;
     const stale = model.Resolution{ .fulfill = .{ .bytes = try allocator.dupe(u8, "stale-promise") } };
@@ -515,14 +515,14 @@ test "a relayed resolution staled by row teardown and re-registration at the sam
     try peer.session_state.retainImportForSession(.from(11));
     try peer.session_state.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(11) }, .mode = .settling_only });
 
-    // Applying the stale stamp against R2: moot — neither stored on R2 nor
+    // Applying the stale stamp against R2: moot, neither stored on R2 nor
     // fired to R2's listener.
     try peer.applyRelayedResolution(.from(5), stale_row_id, stale);
 
     // R2 was never resolved by the stale relay: no wrong payload written.
     try std.testing.expect(peer.session_state.importedPromiseResolution(.from(5)) == null);
 
-    // Nothing fired to R2's listener 11 — only the gc frame, and the stale
+    // Nothing fired to R2's listener 11, only the gc frame, and the stale
     // payload never touches the wire.
     while ((try peer.step()) != .idle) {}
     var frames: usize = 0;

@@ -3,7 +3,7 @@ id: ADR-0043
 status: superseded
 date: 2026-06-10
 tags: [net, driver, transport, architecture]
-decision: "A netlayer is a runtime resident vtable the driver dispatches against by transport symbol, over a transport-generic Connection; tcp is its first resident."
+decision: "A netlayer is a runtime resident vtable the driver dispatches against by transport symbol, over a transport-generic Connection. tcp is its first resident."
 supersedes: []
 superseded_by: [ADR-0062]
 amended_by: [ADR-0113]
@@ -19,25 +19,23 @@ amended_by: [ADR-0113]
 
 ## Context
 
-Before this decision tcp was the only transport, and it was privileged in two
-ways the vision's "Pluggable By Contract" principle forbids. First,
-`net.Connection` welded `std.Io.net.Stream.Reader`/`Writer` into its fields and
-reached into `reader.stream.socket.handle` and `reader.stream.close`, so only a
-real TCP socket could drive the engine seam: even though the framing core
-`pumpOver` was already generic over `*std.Io.Reader`/`*std.Io.Writer`. Second,
-the driver named the literal `"tcp"` at its dial/host constructors, so a locator
-carrying any other transport had nowhere to go. The OCapN locator carries its
-transport as a runtime symbol parsed from a URI or read off an inbound
-`op:start-session`, so dispatch on it must be runtime; a comptime transport
-parameter would re-privilege whichever transports were known at build time. This
-sits on the architecture's core/adapter boundary and on the "no hidden runtime /
-explicit ownership" principle: the netlayer set is a value the host owns, not a
-process global.
+tcp was the only transport, and it was privileged in two ways the vision's
+"Pluggable By Contract" principle forbids. First, `net.Connection` welded
+`std.Io.net.Stream.Reader`/`Writer` into its fields and reached into
+`reader.stream.socket.handle` and `reader.stream.close`, so only a real TCP
+socket could drive the engine seam, although the framing core `pumpOver` was
+already generic over `*std.Io.Reader`/`*std.Io.Writer`. Second, the driver named
+the literal `"tcp"` at its dial/host constructors, so a locator carrying any
+other transport had nowhere to go. The OCapN locator carries its transport as a
+runtime symbol parsed from a URI or read off an inbound `op:start-session`, so
+dispatch on it must be runtime. A comptime transport parameter would privilege
+the transports known at build time. The netlayer set is a value the host owns,
+not a process global.
 
 ## Decision
 
 A netlayer is a runtime vtable, `net.netlayer.Contract`, that turns a locator
-into a live `Connection` (`dial`) and binds a `Listener` (`listen`); the host
+into a live `Connection` (`dial`) and binds a `Listener` (`listen`). The host
 holds a `net.netlayer.Registry` and the driver's `connectVia` / `acceptVia`
 dispatch on the locator's transport symbol against it, failing closed with
 `error.UnknownTransport` rather than defaulting to any transport. `Connection`
@@ -48,72 +46,70 @@ drives the one framing core unchanged. Because `Connection` borrows the
 interface pointers and is moved by value, the producing transport must keep its
 concrete reader/writer at a stable address for the connection's life,
 `std.Io.Reader`'s vtable recovers the concrete reader from `&interface` by field
-offset: so tcp pins a small per-connection stream wrapper on the peer's
+offset, so tcp pins a small per-connection stream wrapper on the peer's
 allocator and frees it through the handle. tcp is the contract's first resident
 (`tcp.Resident`, `tcp.netlayer`), reached only through the vtable under the
 symbol `tcp`. The tcp-named conveniences (`connectTcp`, `acceptTcp`, `dial`)
-stay as they are: they pick tcp explicitly and honestly, which is
-not the privilege the vision forbids: that privilege lived in the _generic_
-path, which now dispatches. Owned by `src/net/netlayer.zig`,
-`src/net/connection.zig`, `src/net/transport/tcp.zig`, and `src/driver/mod.zig`.
+stay: they pick tcp explicitly, which is not the privilege the vision forbids.
+That privilege lived in the generic path, which now dispatches. Owned by
+`src/net/netlayer.zig`, `src/net/connection.zig`, `src/net/transport/tcp.zig`,
+and `src/driver/mod.zig`.
 
 ## Scope (what this does not decide)
 
-The completion `Loop` is deliberately _outside_ the contract. It multiplexes raw
-kernel fds through an io_uring/kqueue backend and never builds a `Connection`,
-so it cannot drive a userspace UDP transport; it is a tcp-and-fd affordance
-beside the contract, not a capability every netlayer must offer. ADR-0051 adds
-outbound dialing to that fd loop without changing this boundary: a userspace
-transport still scales by running many `Connection` pumps on its own loop. No
-second transport is implemented here: a QUIC/iroh resident is not built, and
-confidentiality stays unimplemented (tcp is still cleartext). The contract's
-error sets are coarse on purpose (`InvalidAddress` / `ConnectionLost` /
-`BindFailed`); a transport's private cause is not surfaced through them.
+The completion `Loop` is outside the contract. It multiplexes raw kernel fds
+through an io_uring/kqueue backend and never builds a `Connection`, so it cannot
+drive a userspace UDP transport. It is a tcp-and-fd affordance beside the
+contract, not a capability every netlayer must offer. ADR-0051 adds outbound
+dialing to that fd loop without changing this boundary: a userspace transport
+still scales by running many `Connection` pumps on its own loop. No second
+transport is implemented here, and confidentiality is out of scope (tcp is
+cleartext). The contract's error sets are coarse (`InvalidAddress` /
+`ConnectionLost` / `BindFailed`). A transport's private cause is not surfaced
+through them.
 
 ## Alternatives Considered
 
-- **Comptime/generic netlayer parameter**: zero indirection. Rejected because
-  the transport symbol is a runtime value, so this cannot select a transport
-  from a URI or an inbound handshake without re-privileging build-time
-  transports.
-- **One fat vtable that includes the completion Loop**: a tidier "one contract"
-  story. Rejected because a userspace transport cannot implement OS-completion
-  over fds; the slot would be a lie or would drag the transport's own loop into
-  the core.
-- **Keep the stream inline in a type-erased buffer**: avoids the per-connection
-  wrapper allocation. Rejected because a moved `Connection` would leave the
-  interface pointers (recovered by field offset) dangling: the wrapper must be
-  pinned outside the movable connection.
+- **Comptime/generic netlayer parameter** (zero indirection). Rejected: the
+  transport symbol is a runtime value, so this cannot select a transport from a
+  URI or an inbound handshake without privileging build-time transports.
+- **One vtable that includes the completion Loop.** Rejected: a userspace
+  transport cannot implement OS-completion over fds, so the slot would be
+  unusable or would pull the transport's own loop into the core.
+- **Keep the stream inline in a type-erased buffer** (avoids the per-connection
+  wrapper allocation). Rejected: a moved `Connection` would leave the interface
+  pointers (recovered by field offset) dangling, so the wrapper must be pinned
+  outside the movable connection.
 
 ## Consequences
 
-- Adding a transport is new files plus one registration call: no edit to the
+- Adding a transport is new files plus one registration call, with no edit to the
   core (foundation/model/codec/session/engine), to `src/driver`, or to
   `connection.zig` / `completion/loop.zig` / `transport/tcp.zig`.
-  `test/driver/pluggability_test.zig` proves this now: a transport defined in
+  `test/driver/pluggability_test.zig` proves this: a transport defined in
   test code under the symbol `x-loopback` dials and hosts through `connectVia` /
   `acceptVia` with the verified handshake, with no core or driver change.
 - One named per-connection allocation on the blocking path: tcp pins its stream
-  wrapper on the peer's allocator (recorded in the memory rule's load-bearing
-  list). The completion `Loop` path is untouched: peer-scaling memory is
-  unchanged (0.65 GiB warmed at 500k).
-- `Connection.socketHandle()` then returned `?Handle`. The owning application
-  faces refused fd-less per-connection streams because their waits were
-  poll-based; the lower `driver.BlockingSession` remained the explicit
-  owner-and-pump path for such a stream. ADR-0112 later added provider-owned
-  multiplexed execution behind one readiness descriptor, and ADR-0113 named
-  that owning face `driver.HostRuntime`.
-- `net.netlayer.Listener` is now the contract's pluggable listener; the concrete
+  wrapper on the peer's allocator (recorded in the memory rule). The completion
+  `Loop` path is untouched: peer-scaling memory is unchanged (0.65 GiB warmed at
+  500k).
+- `Connection.socketHandle()` returns `?Handle`. The owning application faces
+  refuse fd-less per-connection streams because their waits are poll-based, and
+  `driver.BlockingSession` is the explicit owner-and-pump path for such a
+  stream. ADR-0112 added provider-owned multiplexed execution behind one
+  readiness descriptor, and ADR-0113 named that owning face
+  `driver.HostRuntime`.
+- `net.netlayer.Listener` is the contract's pluggable listener. The concrete
   bound TCP socket is `net.tcp.Listener`.
-- Live Goblins interop passes both directions over the refactored wire path.
+- Live Goblins interop passes in both directions.
 
 ## Forward compatibility
 
 A QUIC/iroh resident slots in as `src/net/quic.zig` implementing
 `Netlayer.VTable`. `dial` opens a QUIC stream and builds a `Connection` over
-its reader/writer with a `TransportHandle` whose `socketHandle` returns null;
-`transport_name = "quic"`; the node id is the dialable designator. The host
-registers it; the driver already dispatches `quic` by symbol. The
+its reader/writer with a `TransportHandle` whose `socketHandle` returns null.
+`transport_name = "quic"`. The node id is the dialable designator. The host
+registers it. The driver already dispatches `quic` by symbol. The
 key-as-designator identity such a transport carries is the seam iroh and
 `noise-tcp` later supplied
 ([ADR-0055](ADR-0055-iroh-netlayer-sidecar.md),

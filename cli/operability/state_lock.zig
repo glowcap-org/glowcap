@@ -88,7 +88,7 @@ pub fn mapError(err: anyerror) u8 {
 ///
 /// Another glowcap holding the lock is the expected case and reads as such.
 /// Anything else is almost always the state directory being unwritable, and
-/// that used to exit silently: `init` is the first command in the quickstart,
+/// a silent exit would hide it: `init` is the first command in the quickstart,
 /// so a bare exit code and no output leaves a new user with nothing to go on.
 pub fn refuseLockFailure(io: Io, err: anyerror, identity_path: []const u8) u8 {
     if (err == error.Busy) {

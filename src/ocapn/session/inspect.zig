@@ -1,6 +1,6 @@
 //! Read-only session table walks for inspect / status surfaces.
 //!
-//! `Session` remains the authority boundary; this module owns only the
+//! `Session` remains the authority boundary. This module owns only the
 //! borrowed view shapes and the non-mutating walkers over export, import,
 //! and answer tables.
 
@@ -144,7 +144,7 @@ pub fn inboundAnswerSlot(self: *Session, id: model.AnswerPosition) ?slot.Slot {
     return answers.answerSlot(id, cell.status());
 }
 
-/// Whether `id` is a known inbound answer — the existence probe the
+/// Whether `id` is a known inbound answer, the existence probe the
 /// pipeline's guards read, without materializing an `AnswerView`.
 pub fn hasInboundAnswer(self: *const Session, id: model.AnswerPosition) bool {
     return self.hasInboundAnswerNamed(.fromWire(id));
@@ -155,7 +155,7 @@ pub fn hasInboundAnswerNamed(self: *const Session, id: model.AnswerName) bool {
 }
 
 /// The identity stamp of the live inbound-answer row at `id`, or null when
-/// absent — the value a queued listener-fire carrier compares at encode to
+/// absent, the value a queued listener-fire carrier compares at encode to
 /// tell this row instance from a released-and-reused position.
 pub fn inboundAnswerRowId(self: *Session, id: model.AnswerPosition) ?u64 {
     return self.inboundAnswerRowIdNamed(.fromWire(id));

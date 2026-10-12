@@ -1,4 +1,4 @@
-// Client custody for one passable room-manager sturdyref.
+// Client ownership of one passable room-manager sturdyref.
 
 import { Ref, retainCleanupFailures, type Session } from "@glowcap/runtime";
 import { ask } from "../ask.ts";
@@ -38,7 +38,7 @@ export class RoomManager {
 	}
 
 	/** Validate before retaining the string. The imported occurrences are only
-	 * proof work; the sturdyref remains the durable authority. */
+	 * proof work. The sturdyref remains the durable authority. */
 	static async take(session: Session, room: Ref, sturdyref: string): Promise<RoomManager> {
 		const manager = await session.enliven(sturdyref);
 		try {

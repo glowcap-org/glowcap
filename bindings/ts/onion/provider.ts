@@ -17,7 +17,7 @@ import { checkOnion, type NetlayerOptions, openNetlayer } from "./native.ts";
 /** Install one configured onion package into a native driver.
  *
  * Registration retains the package before this function releases only the
- * constructor's reference. It deliberately does not call netlayer shutdown:
+ * constructor's reference. It does not call netlayer shutdown:
  * the driver lease keeps the callback runtime live until driver teardown. */
 export async function installProvider(loop: ProviderTarget, options: NetlayerOptions): Promise<void> {
 	const raw = openNetlayer(options);

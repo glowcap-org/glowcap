@@ -9,11 +9,11 @@ const sectionBody = util.sectionBody;
 const collectBulletSpans = util.collectBulletSpans;
 
 /// Each `@glowcap/*` workspace member under `bindings/ts/` is a publishable
-/// package. Its directory is the ship surface; tests, harnesses, smokes,
+/// package. Its directory is the ship surface, tests, harnesses, smokes,
 /// benches, and probes live under that package's `test/` (or the workspace
 /// `dogfood/`). A co-located `*_test.ts` next to `mod.ts` makes a broad
 /// `publish.include` of `**/*.ts` ship test code unless someone remembers an
-/// exclude — and remembering is not a gate.
+/// exclude, and remembering is not a gate.
 pub fn jsonWithoutComments(gpa: std.mem.Allocator, contents: []const u8) ![]u8 {
     const out = try gpa.dupe(u8, contents);
     var at: usize = 0;

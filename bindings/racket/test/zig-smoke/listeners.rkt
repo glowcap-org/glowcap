@@ -49,7 +49,7 @@
          racket/tcp)
 
 ;; ── A rude probe cannot close the listener ────────────────────────────────────
-;; A rude TCP probe — connect, say nothing, hang up — is that connection's
+;; A rude TCP probe (connect, say nothing, hang up) is that connection's
 ;; failure, not the listener's. `accept` completes the keyed handshake, so the
 ;; probe fails inside the accept; the accept skips it, waits for the next
 ;; partner, and returns the real client to the caller. Without that isolation

@@ -15,8 +15,8 @@
  * and never by remembering to close one.
  *
  * This is for a run that begins and ends in one call. A gesture that
- * opens on one event and closes on another — a drag, a scrub, a typing
- * burst — cannot use it, and takes the Inspector's `editBracket`
+ * opens on one event and closes on another, a drag, a scrub, a typing
+ * burst, cannot use it, and takes the Inspector's `editBracket`
  * instead, which knows whether it is open and closes itself when its
  * control goes away.
  */

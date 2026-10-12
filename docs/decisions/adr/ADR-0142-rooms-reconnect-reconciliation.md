@@ -15,15 +15,15 @@ amended_by: []
 ## Context
 
 A browser may resume and establish a new directory connection before the server observes the suspended transport's
-terminal edge. Treating the still-live nickname row as a stranger's claim refused the reconnect; retrying for a fixed
+terminal edge. Treating the still-live nickname row as a stranger's claim refused the reconnect. Retrying for a fixed
 number of seconds only made correctness depend on teardown timing. An attached shared-session view has the symmetric
 ordering problem: after suspension, its archive read can contain messages newer than the live rows already projected.
 Prepending every archive answer put those missed messages at the top until reload started from an empty timeline.
 The archive and attached delivery queue also stamped the same event separately. Queue delay therefore changed its time,
 and replacing an archived row during an edit could move the original message to the edit time.
 
-Both failures came from treating reconstruction as replay from an empty state instead of reconciliation with a live,
-partially stale owner.
+Both failures treat reconstruction as replay from an empty state instead of reconciliation with a live, partially
+stale owner.
 
 ## Decision
 
@@ -41,7 +41,7 @@ and live fan-out. Archive replacement keeps a line's first time, and the live co
 ties that millisecond time cannot distinguish. Archive coordinates remain identity-only. Ordinary room-retained history
 and separately shared archives remain explicit prefix operations because those sources do not claim to fill a gap in the
 attached session's own event stream.
-Attached topology snapshots and line events share one delivery order; snapshots may coalesce but cannot overtake an
+Attached topology snapshots and line events share one delivery order. Snapshots may coalesce but cannot overtake an
 older line. Any bounded history operation that trims the unread anchor moves it to the oldest retained row, or clears it
 with an emptied log.
 
@@ -49,7 +49,7 @@ with an emptied log.
 
 An unauthenticated connection without the live registration's voucher retains the collision rule until the old
 connection closes. A new browser Host, another tab, and a later holder of the same nickname do not inherit the claim or
-direct-message history. This decision does not make timestamps global ordering authority across peers; it orders one
+direct-message history. This decision does not make timestamps global ordering authority across peers. It orders one
 session archive against that session's own projected event times.
 
 ## Alternatives Considered
@@ -63,8 +63,8 @@ session archive against that session's own projected event times.
 
 `RoomLiveIndex` owns authenticated claim comparison for room membership, directory registration, and WebRTC designator
 collision checks. The directory's name capability owns one-use continuity for relayed browser sessions. The browser
-store owns history reconciliation as an operation distinct from prefix hydration. The presentation layer no longer
-carries a timed room reconnect-claim state machine.
+store owns history reconciliation as an operation distinct from prefix hydration. The presentation layer carries no
+timed room reconnect-claim state machine.
 
 ## Evidence and gate
 
@@ -73,7 +73,7 @@ reconnecting authenticated peer from a different peer. The server name-voucher
 scenario moves a live registration before its old connection closes.
 `apps/rooms/test/attached/archive_projection_test.ts` resumes an attached projection with missing archive rows on both
 sides of an existing live line, including an edit and withdrawal missed during suspension. The archive backend scenarios
-hold creation time across replacement and restart; the attached-delivery scenario holds the pre-queue event time, and
+hold creation time across replacement and restart. The attached-delivery scenario holds the pre-queue event time, and
 orders snapshots behind earlier line events. Store scenarios give equal timestamps their conversation order without
 interpreting opaque archive identity and keep unread rules anchored after reconciliation trims. The repository gate
 remains `zig build check`.

@@ -28,8 +28,8 @@ executor. Shared Zig owns grant semantics and capability identity.
 
 Use and management are independent capabilities. Explicit grouped permissions
 govern observation, interaction, custody, recovery and upstream operations.
-Controls govern only their admitted branch. Presets expand into those permissions;
-a view label or an inventory row cannot confer them.
+Controls govern only their admitted branch. Presets expand into those permissions.
+A view label or an inventory row cannot confer them.
 
 Commit original effect intent and target custody before dispatch. Retain exact
 returned results through settlement and recovery. Unknown non-idempotent work
@@ -38,7 +38,7 @@ execution remains owned. The [effect contract](../../rooms/session-effects.md)
 owns dispatch, cancellation and replay details.
 
 Observe workspace intent and activity through bounded source-checked receivers.
-Drafts and shared selection belong to the workspace; theme, modal state and rail
+Drafts and shared selection belong to the workspace. Theme, modal state and rail
 presentation belong to each page. Membership, direct and signaling workers
 retain the original source and retire exact live registrations on replacement.
 A detached view cannot retire sibling workers or erase the session's receipts.
@@ -50,7 +50,7 @@ retain separate storage owners and explicit acquisition boundaries.
 ## Evidence and costs
 
 The [executor scenarios](../../../apps/rooms/rust/proofs/src/session_executor.rs)
-exercise actual source/target custody on Linux and Chromium. The
+exercise source and target custody on Linux and Chromium. The
 [shared-session journey](../../../apps/rooms/test/proofs/shared_session_proof.ts)
 uses two production pages, files, shared drafts, process restart and access
 management. [Cost measurements](../../../bench/rooms/session-costs.md) record

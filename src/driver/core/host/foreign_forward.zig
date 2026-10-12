@@ -7,9 +7,10 @@ const local = @import("local_delivery.zig");
 const delivery = @import("delivery.zig");
 
 /// One completion box contains the existing Actors answer transfer plus its
-/// actual wire home and strong original producer. The wire vow owns this box;
-/// no child Call, resolver pair, result buffer or intermediate Value is created.
-/// Input lowering and the wire row retain their existing independent budgets.
+/// actual wire home and strong original producer. The wire vow owns this box.
+/// No child Call, resolver pair, result buffer or intermediate Value is
+/// created. Input lowering and the wire row retain their existing independent
+/// budgets.
 const ForeignForward = struct {
     transfer: actors.Turn.AnswerTransfer,
     source: *local.Producer,

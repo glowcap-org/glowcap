@@ -20,7 +20,7 @@ function assert(condition: unknown, message: string): asserts condition {
 	if (!condition) throw new Error(message);
 }
 
-/** The offer path defers one microtask; run it. */
+/** The offer path defers one microtask. Run it. */
 function settle(): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, 0));
 }

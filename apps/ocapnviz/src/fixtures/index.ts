@@ -23,7 +23,7 @@ import { threeVatHandoffMixed } from "./three-vat-handoff-mixed.ts";
  * Two titling rules hold across the set: a title is an imperative verb phrase
  * so the picker reads as a list of things to watch, and a description is a
  * few plain sentences saying what happens and why it is worth watching. The
- * Sidebar renders a description as plain text, so it carries no markup —
+ * Sidebar renders a description as plain text, so it carries no markup,
  * backticks and asterisks appear on screen exactly as typed.
  */
 export const scenarios: readonly TimelineDocument[] = [

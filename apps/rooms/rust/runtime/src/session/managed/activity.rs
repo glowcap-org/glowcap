@@ -1,5 +1,5 @@
 //! One session-owned event journal for local and attached consumers. Retained
-//! callback origins reauthorize queued data; tokens never reconstruct authority.
+//! callback origins reauthorize queued data. Tokens never reconstruct authority.
 mod archive;
 mod origin;
 mod outgoing;
@@ -56,7 +56,7 @@ enum History {
 impl History {
 	/// A direct edit reserves archive identity backing before the line changes.
 	/// Three bounded UTF-16 identities may require three UTF-8 bytes per unit.
-	/// Recording fills that reservation synchronously at commit; file actors can
+	/// Recording fills that reservation synchronously at commit. File actors can
 	/// already share the immutable event without forcing a second event copy.
 	fn bytes(&self) -> usize {
 		match self {
@@ -121,6 +121,10 @@ impl<P: Tasks> PreparedEvent<P> {
 	fn commit(self) {
 		let activity = &self.activity;
 		let id = activity.next.get();
+		#[expect(
+			clippy::expect_used,
+			reason = "a u64 event counter does not reach its ceiling in a process lifetime, and a wrap would alias event identities"
+		)]
 		activity
 			.next
 			.set(id.checked_add(1).expect("synchronously admitted event identity"));
@@ -140,7 +144,7 @@ impl<P: Tasks> PreparedEvent<P> {
 	}
 }
 /// Backlog and direct-line lifetime have separate budgets. Display eviction
-/// cannot retire an editable direct line; withdrawal and session close do.
+/// cannot retire an editable direct line. Withdrawal and session close do.
 pub struct Activity<P: Tasks> {
 	host: glowcap::Host,
 	platform: P,
@@ -239,9 +243,9 @@ impl<P: Tasks + Deadline + Clone + 'static> Activity<P> {
 			.ok_or_else(|| loam::refusal("activity lifetime is not confirmed"))?;
 		let mut token = String::with_capacity(103);
 		for byte in marker.encode() {
-			write!(&mut token, "{byte:02x}").expect("String writing");
+			let _ = write!(&mut token, "{byte:02x}");
 		}
-		write!(&mut token, ":{cursor}").expect("String writing");
+		let _ = write!(&mut token, ":{cursor}");
 		Ok(token)
 	}
 	pub(super) fn parse_token(&self, token: &str) -> Result<u64> {

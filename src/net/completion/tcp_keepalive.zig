@@ -1,11 +1,11 @@
-//! Opt-in TCP keepalive — explicit idle/interval/count, both socket paths.
+//! Opt-in TCP keepalive, explicit idle/interval/count, both socket paths.
 //!
 //! This is a kernel backstop, not an application-liveness detector. It serves:
 //! (1) holding NAT/firewall mappings open on long-idle CapTP connections, and
 //! (2) reclaiming local resources when the *remote host* is gone (crash, cable
 //! pull, partition) and no clean TCP close arrives. It does **not** reap a
-//! live-but-orphaned local process that still holds the socket — that process
-//! ACKs probes; fix that with process supervise/exit (and app heartbeats when
+//! live-but-orphaned local process that still holds the socket, that process
+//! ACKs probes. Fix that with process supervise/exit (and app heartbeats when
 //! the protocol has them). Turning on `SO_KEEPALIVE` alone is also insufficient:
 //! the OS idle default is measured in hours. When this option is set, all three
 //! timers are required so the failure mode is chosen at the API boundary, not
@@ -13,20 +13,20 @@
 //!
 //! Configuration is transactional and fallible. If `SO_KEEPALIVE` enables but
 //! a timer `setsockopt` then fails, keepalive is rolled back off and the refusal
-//! reaches the caller; a requested liveness window is never silently absent or
+//! reaches the caller. A requested liveness window is never silently absent or
 //! left riding the OS multi-hour default. Platform differences
 //! stay named: Linux `TCP_KEEPIDLE` vs
 //! Darwin `TCP_KEEPALIVE` for the idle second. Option numbers are written as
 //! named locals (not a platform OS module import) so this file stays under the
-//! portable `std.posix` arch-check rule; the numbers match the kernel ABIs.
+//! portable `std.posix` arch-check rule. The numbers match the kernel ABIs.
 
 const std = @import("std");
 const builtin = @import("builtin");
 
-/// Opt-in TCP keepalive. Every field is required when this is set — there is no
+/// Opt-in TCP keepalive. Every field is required when this is set. There is no
 /// "just enable keepalive" mode that rides the OS default (often multi-hour idle).
-/// Callers set idle/interval/count for NAT hold-open or dead-remote-host reclaim;
-/// see the module doc. Off by default.
+/// Callers set idle/interval/count for NAT hold-open or dead-remote-host reclaim.
+/// See the module doc. Off by default.
 pub const Keepalive = struct {
     /// Seconds of idle before the first probe.
     idle_sec: u32,
@@ -62,7 +62,7 @@ pub fn apply(fd: std.posix.socket_t, ka: Keepalive) ApplyError!void {
         return rollbackKeepalive(fd, error.InvalidKeepalive);
 
     // Idle option name differs: Linux `TCP_KEEPIDLE` vs Darwin `TCP_KEEPALIVE`.
-    // Numbers from the Linux and Darwin TCP headers — keep them named here
+    // Numbers from the Linux and Darwin TCP headers, keep them named here
     // rather than importing a platform OS module (banned in portable net sources).
     const idle_opt: c_int = switch (builtin.os.tag) {
         .linux => 4, // TCP_KEEPIDLE
@@ -84,9 +84,9 @@ pub fn apply(fd: std.posix.socket_t, ka: Keepalive) ApplyError!void {
 
     // All three timers must take together. Leaving `SO_KEEPALIVE` enabled with a
     // timer unset would ride the OS multi-hour idle default under the appearance
-    // of the caller's configured window — the silent-default state ADR-0081
-    // forbids. On any timer failure, roll keepalive back off so the state stays
-    // honest: the full configured window, or nothing.
+    // of the caller's configured window, the silent-default state ADR-0081
+    // forbids. On any timer failure, roll keepalive back off so the state is
+    // exact: the full configured window, or nothing.
     std.posix.setsockopt(fd, std.posix.IPPROTO.TCP, idle_opt, std.mem.asBytes(&idle)) catch |err|
         return rollbackKeepalive(fd, err);
     std.posix.setsockopt(fd, std.posix.IPPROTO.TCP, intvl_opt, std.mem.asBytes(&intvl)) catch |err|

@@ -1,4 +1,4 @@
-//! A retired incoming witness refuses replay; a fresh opening gets new custody.
+//! A retired incoming witness refuses replay. A fresh opening gets new custody.
 use super::*;
 use rooms_application::content::session::workspace;
 use rooms_glowcap::client::workspace::Workspace;

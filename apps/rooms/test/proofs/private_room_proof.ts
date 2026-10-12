@@ -3,7 +3,7 @@ import { spawnWeb } from "../support/web_front.ts";
 //
 // A public room is reached by its name: the directory lists it, `enter` finds
 // it, and knowing what it is called is the whole of being able to walk in. A
-// private room is the same room with none of that — it is in no list, `enter`
+// private room is the same room with none of that. It is in no list, `enter`
 // does not find it, and its name is a label two of them may share. What is left
 // is the reference, and holding one is being in the room.
 //
@@ -17,7 +17,7 @@ import { spawnWeb } from "../support/web_front.ts";
 // room reuses the session the guest already holds and his name needs no proof.
 // A deployment where the spellings diverge opens a second session, and the
 // name-capability voucher seats him there; that half is pinned hermetically in
-// server_test.ts, where a byte pipe makes the divergence on purpose.
+// server_test.ts, where a byte pipe makes the divergence.
 //
 // So this drives the difference rather than the feature. Two tabs on one
 // directory:
@@ -31,7 +31,7 @@ import { spawnWeb } from "../support/web_front.ts";
 //
 // And then the link on its own, which is the part no directory has to be in on.
 // A second room server stands beside the page's own, di makes a room there and
-// reads its link out, and bo — who holds only the directory his page serves —
+// reads its link out, and bo, who holds only the directory his page serves,
 // pastes it. The link names its own peer, so that is the peer the room is
 // redeemed on: the tab opens that directory beside the one it had. The two ways
 // a link can be no good are told apart on the way, and neither leaves a server
@@ -131,9 +131,9 @@ try {
 	if (await ada.locator(".conv-intro .hash svg").count() !== 1) {
 		fail("a private room's welcome title did not wear the lock");
 	}
-	// The private room's spoken name — the label with no hash — is the rail
-	// row's and the intro panel's, both pinned above. The rail foot no longer
-	// names rooms at all: it is the reader's identity-and-standing lockup, so
+	// The private room's spoken name, the label with no hash, is the rail
+	// row's and the intro panel's, both pinned above. The rail foot does not
+	// name rooms at all: it is the reader's identity-and-standing lockup, so
 	// there is no third spelling to hold to the same authority.
 	await say(ada, PRIVATE_LINE);
 	await ada.waitForFunction(
@@ -158,7 +158,7 @@ try {
 
 	// And to somebody who was not here when it was made. Bo's list was built
 	// from the changes the directory pushed him, which is one of the two ways a
-	// room can be offered; a tab arriving now is handed the whole list at once,
+	// room can be offered; a tab arriving later is handed the whole list at once,
 	// which is the other, and a guard on one of them is not a guard.
 	const cy = await joinAs(browser, httpPort, "cy");
 	await say(cy, "/list");
@@ -232,7 +232,7 @@ try {
 	// He arrives under his own name, and ada is still here to see it. Both
 	// halves of this assertion have caught a real defect: a room behaviour that
 	// closed over the session it was spawned for blamed bo's subscribe on ada's
-	// connection, which silently replaced her own membership — she vanished
+	// connection, which silently replaced her own membership, she vanished
 	// from her own room, and bo arrived into an empty roster.
 	await ada.waitForFunction(
 		() => [...document.querySelectorAll("#members li")].some((row) => row.textContent?.includes("bo")),
@@ -258,7 +258,7 @@ try {
 	// ── A public room handed over stays public ───────────────────────────
 	// The same gesture from bo's listed "plans": /invite hands the reference,
 	// but a listed room is its name on the directory. Taking the offer up
-	// seats ada in the listed room, beside — never inside — the private room
+	// seats ada in the listed room, beside, never inside, the private room
 	// wearing the same label.
 	const handedPublicLine = "handed over, and still the listed room";
 	await openRailRoom(bo, LABEL, false);
@@ -297,7 +297,7 @@ try {
 	// ── The link on its own ──────────────────────────────────────────────
 	// An invitation through the rail is one channel; the link under it is the
 	// authority, and it works with no channel at all. Ada reads hers out. Cy
-	// `/join`s that locator and nothing else — the same paste a person makes —
+	// `/join`s that locator and nothing else, the same paste a person makes,
 	// and lands in the room under the name it already has, not an invented one.
 	const shown = await roomLink(ada, "ada");
 	await say(ada, `/join ${shown}`);
@@ -485,8 +485,8 @@ try {
 		fail(`declining an invitation put the reader in the room anyway: ${JSON.stringify(afterDeclining)}`);
 	}
 
-	// The join card's own way in: a reader arriving cold — at this directory or
-	// a foreign one, the branch is the same — makes a private room without first
+	// The join card's own way in: a reader arriving cold, at this directory or
+	// a foreign one, the branch is the same, makes a private room without first
 	// announcing themselves in a listed room. The card's lock is pressed, the
 	// join lands in a room whose intro says it is private, and the other tab's
 	// live list never shows it.

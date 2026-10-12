@@ -80,7 +80,7 @@ async def _start_relay(target_port: int, rewrite=None, observe=None):
 async def _live_trace_produces_timeline() -> None:
     """The live timeline producer: the veneer stamps and forwards the native
     tap's facts, one flat record per fact -- session-opened with the codec
-    the handshake actually negotiated, the same verb outbound at the client
+    the handshake negotiated, the same verb outbound at the client
     and inbound at the server, and session-closed. Endpoint labeling belongs
     to the consumer, so the records carry only the session and direction."""
     from glowcap import annotate_session, enable_trace
@@ -139,9 +139,9 @@ async def _live_trace_produces_timeline() -> None:
     # a consumer must not read an implementation off the fact that a record
     # arrived, so a glowcap host says so in words.
     assert all(ev["a_profile"] == "glowcap" for ev in opened)
-    # Identity and label are two facts. ``a`` is the host's own key designator
-    # -- the name a partner knows it by, and so the only name two producers can
-    # agree on -- and the label never stands in for it.
+    # Identity and label are two facts. ``a`` is the host's own key designator,
+    # the name a partner knows it by and so the only name two producers can
+    # agree on, and the label never stands in for it.
     assert all(re.fullmatch(r"[0-9a-f]{64}", ev["a"]) for ev in opened)
     # The OCapN Session ID is what lets a consumer merging two producers'
     # feeds tell one session watched twice from two unrelated ones: both peers
@@ -253,7 +253,7 @@ async def _async_behavior_defers() -> None:
 async def _allocator_context_round_trip() -> None:
     """The basic round-trip: publish a counter, fetch it, drive it with sends.
     The server Host lives in a caller-supplied allocation context, so every
-    byte the host owns routes through the custom allocator — proving
+    byte the host owns routes through the custom allocator: proving
     :class:`Context` against the byte-fed host, released in the documented
     order (Host before context)."""
     stats = {"allocs": 0}
@@ -366,7 +366,7 @@ async def _allocator_context_round_trip() -> None:
 async def _capnp_codec_round_trip() -> None:
     """The codec selector end-to-end: both nodes minted with the Cap'n Proto
     wire grammar complete the keyed handshake and carry a deliver whose
-    arguments round-trip through the capnp codec — a big integer past int64 and
+    arguments round-trip through the capnp codec: a big integer past int64 and
     a Keyword included, so the two rare marshal arms are witnessed alongside
     the codec."""
     big = 2**80
@@ -428,7 +428,7 @@ async def _empty_codec_is_not_the_default() -> None:
 
 class _InjectTransport:
     """A transport that delivers nothing, so a scene can feed bytes through the
-    session's own feed seam — a binding-internal probe, the sibling of the
+    session's own feed seam: a binding-internal probe, the sibling of the
     Racket smoke's ``feed-bytes!``."""
 
     designator_scheme = DESIGNATOR_SCHEME_ADDRESS
@@ -456,7 +456,7 @@ def _dial_injected(host: Host):
 async def _feed_refusals_are_typed() -> None:
     """Bounded inbox and typed abort causes over the byte-fed host. A frame
     declaring more than the frame cap is a typed refusal the moment that is
-    knowable, never "read more" (ADR-0041); a refused frame names its typed
+    knowable, never "read more" (ADR-0041). A refused frame names its typed
     cause (the flat GlowcapError code says the failure family, the attached
     AbortDetail says the member)."""
     from glowcap import _pump
@@ -494,7 +494,7 @@ async def _feed_refusals_are_typed() -> None:
 async def _tightened_admission_cap_refuses() -> None:
     """``Host.set_session_limits`` moves the admission cap the sessions minted
     after it are held to (ADR-0082). One frame decides it: at the default cap a
-    4000-byte declaration is simply incomplete, and at a tightened 1024 the same
+    4000-byte declaration is incomplete, and at a tightened 1024 the same
     prefix is a typed over-cap refusal."""
     from glowcap import _pump
 
@@ -529,7 +529,7 @@ async def _tightened_admission_cap_refuses() -> None:
 async def _disconnect_rejects_pending_send() -> None:
     """An outstanding ``send`` rejects when the connection drops, rather than
     hanging on a reply that can never arrive. The server serves one call and
-    then closes without warning; the client's next awaited send settles with a
+    then closes without warning. The client's next awaited send settles with a
     typed rejection once the disconnect lands."""
     server = await tcp.listen("127.0.0.1", 0)
     closed = asyncio.Event()

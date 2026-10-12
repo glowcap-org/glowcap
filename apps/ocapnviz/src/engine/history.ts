@@ -2,7 +2,7 @@
  * Undo/redo stack for the engine's mutable doc state. Split from
  * `engine.ts` because it's a tight, self-contained collection that
  * has nothing to do with the engine's tick / world / clock
- * concerns — just snapshot push/pop bookkeeping.
+ * concerns, just snapshot push/pop bookkeeping.
  */
 
 import type { TimelineDocument } from "./timeline.ts";
@@ -12,13 +12,13 @@ import { deepEqual } from "./deep-equal.ts";
  * the three `row*Hidden` arrays are per-category timeline-view
  * overrides (Flash-grade timeline) that the engine mutates through
  * `reorder-row` and the row-visibility intents, so they need to
- * round-trip through undo too. `duration` is authoring-mutable —
+ * round-trip through undo too. `duration` is authoring-mutable,
  * edits landing past the end grow it (`growDurationToFit` /
- * `commitEntityAuthoring`) — so it rounds-trip too. Other doc
+ * `commitEntityAuthoring`), so it rounds-trip too. Other doc
  * fields (id, layoutMode) are construction-time and not
  * snapshotted.
  *
- * The three hidden lists are MUTUALLY EXCLUSIVE per entity id —
+ * The three hidden lists are MUTUALLY EXCLUSIVE per entity id,
  * `rowHidden` = both body+label off, `rowLabelHidden` = label
  * off only, `rowBodyHidden` = body off only. An id absent from
  * all three is fully visible on stage. */
@@ -30,10 +30,10 @@ export type DocSnapshot = {
 	rowBodyHidden: TimelineDocument["rowBodyHidden"];
 	allVisMode: TimelineDocument["allVisMode"];
 	categoryVisMode: TimelineDocument["categoryVisMode"];
-	/** Recording layer — `primaryObservations(doc)` writes into
+	/** Recording layer, `primaryObservations(doc)` writes into
 	 *  `recording.sources[0].observations`, so the whole field must
 	 *  round-trip through undo. Authoring mutates the per-source
-	 *  observation arrays in place; snapshot/restore deep-clones so
+	 *  observation arrays in place, snapshot/restore deep-clones so
 	 *  rollback restores the exact pre-mutation list. */
 	recording: TimelineDocument["recording"];
 	/** Identity-side of the entity model (see `Entities` in
@@ -54,15 +54,15 @@ export type DocSnapshot = {
 	 *  for exactly that reason: setting it is an edit a reader presses for, so it is
 	 *  an edit they can take back.
 	 *
-	 *  Nothing writes it as the camera moves. Looking around is not an edit — a
+	 *  Nothing writes it as the camera moves. Looking around is not an edit, a
 	 *  wheel gesture is one gesture and a reader who is only reading should not be
-	 *  building a history — so the camera stays the camera until the Opens-at row's
+	 *  building a history, so the camera stays the camera until the Opens-at row's
 	 *  button says to record it (`Engine.setOpeningView`). */
 	initialView: TimelineDocument["initialView"];
 };
 
 /** History stack entry. `label` is the forward-direction action
- * name ("Add peer", "Move peer"); the UI prefixes it with "Undo "
+ * name ("Add peer", "Move peer"). The UI prefixes it with "Undo "
  * / "Redo " for tooltips. */
 export type HistoryEntry = {
 	snapshot: DocSnapshot;
@@ -70,8 +70,8 @@ export type HistoryEntry = {
 };
 
 /**
- * Bounded undo/redo stack — text-editor model. `past` holds
- * snapshots recorded before each mutation; `future` holds entries
+ * Bounded undo/redo stack, text-editor model. `past` holds
+ * snapshots recorded before each mutation, `future` holds entries
  * banked by `undo()`. A fresh action clears `future`. Oldest
  * entries drop off the bottom of `past` at the `limit`.
  */
@@ -101,8 +101,8 @@ export class History {
 	/**
 	 * Walk all the way back, in one move.
 	 *
-	 * Exactly the bookkeeping of pressing undo until it stops — every
-	 * entry crosses to `future` with the state it was taken from — so
+	 * Exactly the bookkeeping of pressing undo until it stops, every
+	 * entry crosses to `future` with the state it was taken from, so
 	 * redo walks forward again step by step and nothing is lost. What it
 	 * saves is the walk itself: the caller applies one snapshot rather
 	 * than every intermediate one, and each of those costs a layout
@@ -157,7 +157,7 @@ export class History {
  *
  * It compares the snapshot whole rather than field by field, so a
  * field added to `DocSnapshot` is compared without anyone remembering
- * to extend a list here — which is the defect this shape replaced: the
+ * to extend a list here, which is the defect this shape replaced: the
  * per-category row overrides had to be added by hand before a reorder
  * that changed nothing was recognized as changing nothing. `deepEqual`
  * owns what "the same" means for the shapes a document is made of. */

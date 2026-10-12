@@ -224,7 +224,7 @@
                      (void))])
     (cleanup)))
 
-;; Execute one DIAL action, post-lock — the drain parks it among the fires,
+;; Execute one DIAL action, post-lock: the drain parks it among the fires,
 ;; because the dial is a connect syscall plus a whole keyed handshake and
 ;; would otherwise hold the host lock across both, parking every thread that
 ;; shares the host behind one slow exporter. The executor takes the lock only
@@ -232,8 +232,8 @@
 ;; its own locked drain window, so the withdraw legs the report queues
 ;; (deposits, settles, flushes) drain as that report's own effects. A failed
 ;; dial breaks every waiting redeem with the reason. The exporter connection
-;; is kept pumped by a background serve so the withdraw's resolution — and
-;; any later routed traffic — is read.
+;; is kept pumped by a background serve so the withdraw's resolution and
+;; any later routed traffic are read.
 (define (run-dial! m ticket route-index [cancelled? (lambda () #f)])
   ;; Clone the concrete attempt's parsed locator, then dial. The
   ;; dynamic-wind after-thunk is the terminal guard: a break aimed at the

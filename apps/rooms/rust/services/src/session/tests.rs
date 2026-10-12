@@ -1,5 +1,6 @@
 //! Production managed peer startup, TCP use, durable restart and retirement.
 use super::*;
+mod recovery;
 use glowcap::PendingWork;
 use std::{
 	path::PathBuf,
@@ -26,6 +27,7 @@ impl Drop for Temp {
 }
 fn tcp_config(state: PathBuf) -> Config {
 	Config {
+		admission: rooms_application::admission::Settings::defaults(4096, 8),
 		state,
 		transport: Transport::Tcp {
 			bind: "127.0.0.1".into(),
@@ -35,6 +37,7 @@ fn tcp_config(state: PathBuf) -> Config {
 		checkpoint: None,
 		readiness_file: None,
 		relay_url: None,
+		relay_alias_url: None,
 		dial_transports: vec!["tcp".into()],
 	}
 }
@@ -51,7 +54,7 @@ async fn start_session(state: PathBuf) -> Running {
 		async {
 			let _ = stopped.await;
 		},
-		|link| {
+		|link, _management| {
 			ready.send(link.to_owned()).unwrap();
 		},
 		std::rc::Rc::new(|_| {}),
@@ -86,6 +89,66 @@ fn session_peer_configuration_requires_state_and_resolves_explicit_transport_opt
 	assert_eq!(tcp.readiness_path(), PathBuf::from("place/workspace.sturdyref"));
 	assert!(parse(&["--state=place", "--transport=no"]).is_err());
 	assert!(parse(&["--state=place", "--state=again"]).is_err());
+}
+
+#[test]
+fn session_relay_alias_requires_a_configured_registry_and_resolves_environment() {
+	let config = Config::parse(["--state=place".into()], |key| match key {
+		"GLOWCAP_ROOMS_SESSION_RELAY_URL" => Some("ws://directory:8080/relay".into()),
+		"GLOWCAP_ROOMS_SESSION_RELAY_ALIAS_URL" => Some("wss://rooms.example/relay".into()),
+		_ => None,
+	})
+	.unwrap()
+	.unwrap();
+	assert_eq!(config.relay_alias_url.as_deref(), Some("wss://rooms.example/relay"));
+	assert!(transports::Needs::configured(&[], config.relay_url, config.relay_alias_url).is_ok());
+	assert!(transports::Needs::configured(&[], None, Some("wss://rooms.example/relay".into())).is_err());
+}
+
+#[tokio::test]
+async fn readiness_retains_session_custody_until_its_owner_retires() {
+	let temp = Temp::new();
+	let custody = rooms_platform::storage::session::Custody::acquire(&temp.0).unwrap();
+	let readiness = super::readiness::Readiness::clear(temp.0.join("ready"), custody.directory().clone())
+		.await
+		.unwrap();
+	drop(custody);
+	assert!(rooms_platform::storage::session::Custody::acquire(&temp.0).is_err());
+	readiness.publish("one complete publication").await.unwrap();
+	readiness.remove().await.unwrap();
+	assert!(rooms_platform::storage::session::Custody::acquire(&temp.0).is_err());
+	drop(readiness);
+	let _next = rooms_platform::storage::session::Custody::acquire(&temp.0).unwrap();
+}
+
+#[tokio::test]
+async fn refused_startup_clears_stale_readiness_after_acquiring_custody() {
+	tokio::task::LocalSet::new()
+		.run_until(async {
+			for external in [false, true] {
+				let temp = Temp::new();
+				let state = temp.0.join("state");
+				std::fs::create_dir(&state).unwrap();
+				let mut config = tcp_config(state.clone());
+				if external {
+					config.readiness_file = Some(temp.0.join("ready.sturdyref"));
+				}
+				let ready = config.readiness_path();
+				let management = state.join("control.sturdyref");
+				std::fs::write(&ready, "stale use").unwrap();
+				std::fs::write(&management, "stale management").unwrap();
+				std::fs::write(state.join("rooms-bootstrap"), "invalid metadata").unwrap();
+				assert!(Peer::open(config, std::rc::Rc::new(|_| {})).await.is_err());
+				assert!(!ready.exists(), "refused startup advertised stale use");
+				assert!(!management.exists(), "refused startup advertised stale management");
+				assert_eq!(
+					std::fs::read(state.join("rooms-bootstrap")).unwrap(),
+					b"invalid metadata"
+				);
+				let _custody = rooms_platform::storage::session::Custody::acquire(&state).unwrap();
+			}
+		})
+		.await;
 }
 
 #[tokio::test]

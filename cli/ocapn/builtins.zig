@@ -10,7 +10,7 @@ const driver = glowcap.driver;
 
 /// One row per demo verb: dispatch below and REPL Tab completion share this
 /// table, so a new verb lands in both in the same change. Say-verbs carry
-/// their balloon figure; the null-figure rows have bespoke arms in `handle`.
+/// their balloon figure. The null-figure rows have bespoke arms in `handle`.
 pub const DemoVerb = struct {
     name: []const u8,
     blurb: []const u8,
@@ -43,7 +43,7 @@ const Greeter = struct {
     }
 };
 
-/// Classic one-line cowsay balloon (CLI demo only — not a system cowsay).
+/// Classic one-line cowsay balloon (CLI demo only, not a system cowsay).
 const cow_figure =
     \\
     \\        \   ^__^
@@ -53,7 +53,7 @@ const cow_figure =
     \\                ||     ||
 ;
 
-/// Glowcap mushroom speech balloon (CLI demo — the product's own doodle).
+/// Glowcap mushroom speech balloon (CLI demo, the product's doodle).
 /// The cap wears a little face.
 const glowcap_figure =
     \\
@@ -65,7 +65,7 @@ const glowcap_figure =
     \\               |||
 ;
 
-/// Friendly goblin speech balloon (CLI demo doodle — not Spritely's mascot art).
+/// Friendly goblin speech balloon (CLI demo doodle, not Spritely's mascot art).
 /// Trailing spaces after `\` keep Zig from treating `\` as a line continue.
 const goblin_figure =
     \\
@@ -102,7 +102,7 @@ const Echo = struct {
 };
 
 /// The publishable built-in names, in `publishBuiltin`'s dispatch order. Tab
-/// completion consumes this list; the dispatch below stays an if-chain because
+/// completion consumes this list. The dispatch below stays an if-chain because
 /// each name binds a distinct actor type.
 pub const names = [_][]const u8{ "greeter", "echo" };
 

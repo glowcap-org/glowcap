@@ -98,7 +98,7 @@ def run() -> None:
     # trying to hop a dead event loop or touching the collected wrapper.
     async def make_finalizable_host() -> tuple[Host, int]:
         host = Host()
-        # Deliberately close the ownership cycle: Host -> behavior -> Host.
+        # Close the ownership cycle: Host -> behavior -> Host.
         # The process-global trampoline lookup must not turn it into a root.
         host.publish(
             "finalized",

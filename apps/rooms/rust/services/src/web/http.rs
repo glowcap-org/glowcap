@@ -1,5 +1,5 @@
 //! Bounded HTTP connections run independently of directory supervision.
-//! Hyper owns HTTP framing; handlers own only the Rooms resource contract.
+//! Hyper owns HTTP framing. Handlers own only the Rooms resource contract.
 use bytes::Bytes;
 use http_body_util::Full;
 use hyper::{Request, Response, StatusCode, body::Incoming, service::service_fn};
@@ -35,11 +35,12 @@ pub(super) async fn serve(
 		tokio::select! {
 			_ = stop.changed() => break Ok(()),
 			accepted = listener.accept(), if connections.len() < MAX_CONNECTIONS && retry.ready() => match accepted {
-				Ok((socket,_)) => {
+				Ok((socket,address)) => {
 					let environment = environment.clone();
 					let mut stopping = stop.clone();
 					connections.spawn_local(async move {
-						let service = service_fn(move |request| {
+						let service = service_fn(move |mut request| {
+							request.extensions_mut().insert(address.ip());
 							let environment = environment.clone();
 							async move { Ok::<_,Infallible>(reply(request, &environment).await) }
 						});
@@ -216,12 +217,18 @@ async fn resource(request: Request<Incoming>, environment: &Environment) -> Repl
 			.map_or_else(String::new, |(_, value)| value.clone());
 		let refresh = query.iter().any(|(key, value)| key == "refresh" && value == "1");
 		return if path == "/link-preview/image" {
-			environment.previews.image(&url).await
+			environment
+				.previews
+				.image(&url, request.extensions().get::<std::net::IpAddr>().copied())
+				.await
 		} else {
-			environment.previews.metadata(&url, refresh).await
+			environment
+				.previews
+				.metadata(&url, refresh, request.extensions().get::<std::net::IpAddr>().copied())
+				.await
 		};
 	}
-	if path == "/trace" || path == "/publish" {
+	if matches!(path, "/trace" | "/trace/locator" | "/trace/captp" | "/publish") {
 		let current = environment.location.borrow().clone();
 		let Some(current) = current else {
 			return response(
@@ -232,7 +239,7 @@ async fn resource(request: Request<Incoming>, environment: &Environment) -> Repl
 		};
 		let Some(port) = current.trace_port else {
 			return response(
-				if path == "/trace" {
+				if path == "/trace" || path == "/trace/locator" {
 					StatusCode::NO_CONTENT
 				} else {
 					StatusCode::NOT_FOUND
@@ -244,8 +251,22 @@ async fn resource(request: Request<Incoming>, environment: &Environment) -> Repl
 		if path == "/trace" && !request.headers().contains_key("upgrade") {
 			return response(StatusCode::OK, "text/plain", format!("{port}\n").into());
 		}
+		if path == "/trace/locator" {
+			return match current.trace_locator {
+				Some(locator) => response(StatusCode::OK, "text/plain", format!("{locator}\n").into()),
+				None => response(
+					StatusCode::SERVICE_UNAVAILABLE,
+					"text/plain",
+					"rooms: trace routing unavailable\n".into(),
+				),
+			};
+		}
 		let query = request.uri().query().map(|q| format!("?{q}")).unwrap_or_default();
-		let endpoint = if path == "/publish" { "/publish" } else { "/" };
+		let endpoint = match path {
+			"/publish" => "/publish",
+			"/trace/captp" => "/captp",
+			_ => "/",
+		};
 		return environment
 			.relay
 			.proxy(request, format!("ws://127.0.0.1:{port}{endpoint}{query}"));
@@ -272,10 +293,10 @@ async fn resource(request: Request<Incoming>, environment: &Environment) -> Repl
 }
 
 pub(super) fn response(status: StatusCode, content_type: &'static str, body: Bytes) -> Reply {
-	Response::builder()
-		.status(status)
-		.header("content-type", content_type)
-		.header("cache-control", "no-store")
-		.body(Full::new(body))
-		.expect("fixed response headers")
+	let mut reply = Response::new(Full::new(body));
+	*reply.status_mut() = status;
+	let headers = reply.headers_mut();
+	headers.insert("content-type", hyper::header::HeaderValue::from_static(content_type));
+	headers.insert("cache-control", hyper::header::HeaderValue::from_static("no-store"));
+	reply
 }

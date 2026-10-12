@@ -140,7 +140,7 @@ pub fn fetchCap(
 
 /// Enliven a sturdyref by its swiss-num over the live connection, exercising the
 /// engine's ADR-0012 dedup-cache API (`prepareEnliven`/`recordEnlivenment`) rather
-/// than a bare bootstrap fetch. Pumps a fresh enliven to settlement and caches it;
+/// than a bare bootstrap fetch. Pumps a fresh enliven to settlement and caches it,
 /// the caller owns the returned reference. The session must have negotiated the
 /// sturdyref feature (the negotiating peer offers `FeatureSet.full()`, so it has).
 pub fn enlivenCap(
@@ -185,8 +185,8 @@ pub fn enlivenCap(
     }
 }
 
-/// Pull the value out of a `"<key>":"<value>"` NDJSON line — pass the needle
-/// up to and including the opening quote, e.g. `"swiss":"` — or null if the
+/// Pull the value out of a `"<key>":"<value>"` NDJSON line, pass the needle
+/// up to and including the opening quote, e.g. `"swiss":"`, or null if the
 /// needle is absent.
 pub fn extractField(line: []const u8, needle: []const u8) ?[]const u8 {
     const start = (std.mem.indexOf(u8, line, needle) orelse return null) + needle.len;
@@ -197,8 +197,8 @@ pub fn extractField(line: []const u8, needle: []const u8) ?[]const u8 {
 
 /// Read the host's NDJSON stdout up to and including the first line carrying
 /// `needle`, returning every byte read. A host that announces itself over more
-/// than one line — an endpoint id on its `vat-ready` line and a swiss-num on the
-/// `cap-published` line after it — keeps them all here, so a caller reads each
+/// than one line: an endpoint id on its `vat-ready` line and a swiss-num on the
+/// `cap-published` line after it, keeps them all here, so a caller reads each
 /// field it needs out of the block with `extractField`. Caller owns the bytes.
 fn readReadinessBlock(
     io: std.Io,
@@ -238,7 +238,7 @@ pub const SpawnedHost = struct {
 /// Spawn a Racket host script (`argv_tail` follows the `racket` executable)
 /// and wait for its NDJSON readiness line. On failure this prints the missed
 /// `ready_what` readiness under `prefix`, dumps the child's stderr, and kills
-/// the child; on success the caller owns the child (kill it when done) and
+/// the child. On success the caller owns the child (kill it when done) and
 /// the swiss bytes.
 pub fn spawnHostAwaitSwiss(
     io: std.Io,
@@ -252,8 +252,8 @@ pub fn spawnHostAwaitSwiss(
 }
 
 /// The same bracket, with the child's stdin a pipe the caller writes to. A host
-/// that waits for a line before doing something — settling a promise it
-/// published unresolved — lets the driver choose the moment, so the scenario's
+/// that waits for a line before doing something, settling a promise it
+/// published unresolved, lets the driver choose the moment, so the scenario's
 /// ordering is the driver's to state rather than a sleep's to guess. The caller
 /// writes through `child.stdin.?` and owns the child exactly as above.
 pub fn spawnHostAwaitSwissWithStdin(
@@ -296,10 +296,10 @@ pub const SpawnedHostReadiness = struct {
 
 /// Spawn a Racket host script and wait for the readiness line carrying `needle`,
 /// answering with every line printed up to it. A host whose locator takes more
-/// than one field — an iroh endpoint id and its direct addresses beside the cap's
-/// swiss-num — announces them across those lines, and the caller reads each out
+/// than one field: an iroh endpoint id and its direct addresses beside the cap's
+/// swiss-num, announces them across those lines, and the caller reads each out
 /// of the block. On failure this prints the missed `ready_what` readiness under
-/// `prefix`, dumps the child's stderr, and kills the child; on success the caller
+/// `prefix`, dumps the child's stderr, and kills the child. On success the caller
 /// owns the child and the bytes.
 pub fn spawnHostAwaitReadiness(
     io: std.Io,
@@ -345,11 +345,11 @@ pub fn drainChildStdout(io: std.Io, child: *std.process.Child, scratch: []u8) us
 
 /// Wait for a line on the child's stdout carrying `needle`, and answer it
 /// without its newline. A host that keeps running has more to say after its
-/// readiness lines — what its own netlayer concluded about the session a driver
-/// just opened — and the driver reads that verdict back here.
+/// readiness lines: what its own netlayer concluded about the session a driver
+/// just opened, and the driver reads that verdict back here.
 ///
 /// Bounded by `budget_ms` and answering null when it expires: the child outlives
-/// this read by design, so a line that never comes must end the wait rather than
+/// this read, so a line that never comes must end the wait rather than
 /// park the driver forever. `scratch` accumulates everything read, so a line
 /// that arrives split across reads is still found whole, and null is also the
 /// answer once it fills.
@@ -394,7 +394,7 @@ fn lineWith(text: []const u8, needle: []const u8) ?[]const u8 {
 /// Best-effort dump of the child's stderr under `prefix`, to surface why
 /// Goblins died. The read end is flipped non-blocking first: a dead child
 /// EOFs immediately, while a live, silent child (a hung dialer, a bind race)
-/// yields whatever is buffered and then would-block — the dump path exists to
+/// yields whatever is buffered and then would-block, the dump path exists to
 /// explain a failure and must never park the driver itself. Call this before
 /// `child.kill` (the reap closes and nulls the pipes).
 pub fn dumpChildStderr(io: std.Io, prefix: []const u8, child: *std.process.Child) void {

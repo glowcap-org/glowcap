@@ -1,4 +1,4 @@
-//! Boot credentials are transient acquisition input; Loam saves exact custody.
+//! Boot credentials are transient acquisition input. Loam saves exact custody.
 use super::{Import, Session, custody};
 use glowcap::{CaptpVersion, Ref, Result, loam, parse_sturdyref};
 use rooms_application::{
@@ -19,12 +19,12 @@ pub struct OperationsBundle<'a> {
 impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 	/// Fetch only the pasted credential set through its actual exporter, then atomically replace the selected bundle. No bearer text
 	/// enters workspace intent, and partial acquisition cannot change selection.
-	/// The embedding supplies fresh data coordinates for this stable attempt;
-	/// replay keeps them, its expected revision, and its original snapshot.
-	/// Boot credentials independently authorize lookup; the supplied session
+	/// The embedding supplies fresh data coordinates for this stable attempt.
+	/// Replay keeps them, its expected revision, and its original snapshot.
+	/// Boot credentials independently authorize lookup. The supplied session
 	/// source must still admit custody and workspace replacement at commit.
 	/// Preparation owns at most the boot inventory's six bounded URI strings
-	/// and one coordinate spine across fetches. Strings move into Imports; no
+	/// and one coordinate spine across fetches. Strings move into Imports. No
 	/// copied credential map survives commit. The old intent clone is the bounded
 	/// transaction candidate. A release spine holds at most its selected fields.
 	pub async fn acquire_operations(

@@ -3,7 +3,7 @@
 //! A pending answer owns the consequences that arrived before its settlement:
 //! calls to redirect, listeners to notify, and projections to resolve. This
 //! module owns admission, bounded retention, and ownership transfer for those
-//! three collections. The concrete row and lazy payload live in `store.zig`;
+//! three collections. The concrete row and lazy payload live in `store.zig`,
 //! `Session` remains the authoritative aggregate.
 //!
 //! Every drain transfers the existing backing allocation to its caller. This
@@ -22,7 +22,7 @@ const Projection = session.Projection;
 const Session = session.Session;
 
 /// One queue seat prepared without attaching a call to the answer. A cold row's
-/// fresh empty payload is owned by the nested preparation until commit; a warm
+/// fresh empty payload is owned by the nested preparation until commit. A warm
 /// row has only grown private queue capacity, which carries no semantic state.
 pub const PreparedCallQueue = struct {
     payload: store.PreparedPendingPayload,
@@ -40,7 +40,7 @@ pub const PreparedCallQueue = struct {
 const max_mintable_outbound_answer = std.math.maxInt(u64) - 1;
 
 /// Reserve the next outbound answer position. Recording the carrying deliver
-/// installs the row; this operation only advances the collision-free cursor.
+/// installs the row. This operation only advances the collision-free cursor.
 pub fn allocateOutboundAnswer(self: *Session) Error!model.AnswerPosition {
     try ensureOutboundAnswerCapacity(self, 1);
     const id = model.AnswerPosition.from(self.next_outbound_answer);
@@ -78,7 +78,7 @@ pub fn enqueuePipelinedCallNamed(
 }
 
 /// Prepare one bounded queue append without consuming a message or changing
-/// answer semantics. This is the receive transaction's queue half; commit is
+/// answer semantics. This is the receive transaction's queue half. Commit is
 /// allocation-free after the frame's answer/import/resolver authority moves.
 pub fn preparePipelinedCallNamed(
     self: *Session,
@@ -129,7 +129,7 @@ pub fn takePipelinedCallsNamed(
 }
 
 /// Transfer calls already accepted for one exact answer incarnation. The
-/// payload may be detached after `op:gc-answers`; its row stamp, not the
+/// payload may be detached after `op:gc-answers`. Its row stamp, not the
 /// reusable wire name, remains their owner until settlement.
 pub fn takePayloadCalls(self: *Session, payload: *session.AnswerPayload) ![]model.Message {
     if (payload.queue.items.len == 0) return &.{};

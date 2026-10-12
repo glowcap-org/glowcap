@@ -1,5 +1,5 @@
 //! Native completion-listener address policy. The generic loop owns whether to
-//! listen and which port to request; the platform backend owns which local IPv4
+//! listen and which port to request. The platform backend owns which local IPv4
 //! interface is exposed.
 
 const std = @import("std");

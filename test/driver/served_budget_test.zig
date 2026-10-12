@@ -1,10 +1,10 @@
 //! `Served.drivePostBatch`: the loop drivers' amplification cap, pinned
 //! sans-io. A high-fan-out loop drives each connection's queued local turns
 //! within a caller-supplied budget and closes the connection on
-//! `error.LocalTurnLimitExceeded`; this holds the verdict mapping and the
+//! `error.LocalTurnLimitExceeded`. This holds the verdict mapping and the
 //! resume contract (a refused batch leaves the residual queue intact, so a
 //! later budget drains it) without a socket or a loop. The authority is a
-//! `driver_core` invariant; the live loop consumer is `iroh.Backend` + Bridge
+//! `driver_core` invariant. The live loop consumer is `iroh.Backend` + Bridge
 //! (`zig build iroh-loop`).
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -29,7 +29,7 @@ test "drivePostBatch refuses a batch past its budget and the residual drains und
     const counter = try vat.spawn(Counter, .{});
 
     // Queue more local turns than the budget admits. The budget is the
-    // caller's number — an operator knob, never the partner's.
+    // caller's number, an operator knob, never the partner's.
     const budget: usize = 4;
     const queued: usize = budget + 3;
     var i: usize = 0;
@@ -41,7 +41,7 @@ test "drivePostBatch refuses a batch past its budget and the residual drains und
     try std.testing.expectError(error.LocalTurnLimitExceeded, served.drivePostBatch(&vat, budget));
 
     // The refusal left the residual queue intact: a later post-batch with
-    // room drains it to quiescence, and every queued turn ran exactly once —
+    // room drains it to quiescence, and every queued turn ran exactly once,
     // read back through an ordinary near-call.
     try served.drivePostBatch(&vat, queued);
     const hits = try vat.near(counter, .{ .verb = "hit", .args = &.{} });

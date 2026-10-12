@@ -1,8 +1,8 @@
 //! Completion-loop onion adapter (ADR-0108).
 //!
-//! The adapter has two deliberately separate jobs. A dial is an ordinary inner
-//! connection to Tor's SOCKS endpoint followed by a byte-level SOCKS5 machine;
-//! the outer connect completion is not emitted until the complete reply,
+//! The adapter has two separate jobs. A dial is an ordinary inner
+//! connection to Tor's SOCKS endpoint followed by a byte-level SOCKS5 machine.
+//! The outer connect completion is not emitted until the complete reply,
 //! including its bound-address tail, has been consumed. Once that point is
 //! reached, application sends and receives delegate to the inner backend and
 //! retain no onion buffer. A listener first lets the inner backend bind its
@@ -13,7 +13,7 @@
 //! Only setup uses a synchronous wait: it is one bounded control conversation,
 //! not a connection worker. Every connection thereafter is driven by the same
 //! completion queue as the wrapped backend. Seat refusal, inner close
-//! progression, and final removal are the shared leg lifecycle; owed inner
+//! progression, and final removal are the shared leg lifecycle. Owed inner
 //! submissions are the shared submission debt.
 
 const std = @import("std");
@@ -24,8 +24,8 @@ const inner_leg = @import("../../completion/inner_leg.zig");
 const submission_debt = @import("../../completion/submission_debt.zig");
 const carrier_failure = @import("../../carrier_failure.zig");
 const model = @import("model");
-const completion_control = @import("completion/control.zig");
 const completion_listener = @import("completion/listener.zig");
+const leg_access = @import("completion/leg_access.zig");
 const completion_state = @import("completion/state.zig");
 const socks5 = @import("socks5.zig");
 
@@ -35,6 +35,10 @@ pub const DialResolver = completion_state.DialResolver;
 /// Bound refused inner submissions attempted in one poll turn.
 const submission_retry_batch: usize = 256;
 const submission_retry_ms: i32 = 50;
+
+/// The poll cadence a pending listener setup asks of the loop: its deadline
+/// and owed retries are enforced on those turns.
+const setup_turn_ms: i32 = 100;
 
 /// A completion backend that adds Tor SOCKS and onion-service publication to an
 /// existing platform backend.
@@ -55,82 +59,13 @@ pub fn InnerBackend(comptime Inner: type) type {
         const Identity = Types.Identity;
         const Conn = Types.Conn;
         const RetryState = submission_debt.State(Types);
-        const ControlTransaction = completion_control.Transaction(Self, Inner, Namespace, Types, Self.dispatchInternal);
-        const Listener = completion_listener.Machine(Self, Inner, ControlTransaction);
+        const Listener = completion_listener.Machine(Self, Inner, Types);
         pub const ListenTarget = Listener.Target;
         pub const ListenerAddress = Listener.Address;
 
         pub const connection_state_bytes = @sizeOf(Conn);
 
-        /// What the onion leg adds to the shared leg lifecycle: a retained
-        /// receive is returned as the row enters `closing`, a refused send
-        /// carries no borrowed failure, and every retry membership lives in
-        /// the submission-debt state.
-        const LegAccess = struct {
-            pub fn closeUserData(id: ConnId) u64 {
-                return Identity.userData(.close, id);
-            }
-
-            pub fn onClosing(self: *Self, _: *Inner, c: *Conn, _: inner_leg.Closing) void {
-                self.retries.clearDataRetries(&self.conns, c);
-                if (!c.borrowed) self.releaseHeld(c);
-            }
-
-            pub fn prepareClose(_: *Self, _: *Inner, _: *Conn) !void {}
-
-            pub fn closeRefused(_: *Self, _: *Inner, _: *Conn) void {}
-
-            pub fn refuseExternalSend(self: *Self, c: *Conn, cause: ?anyerror, _: carrier_failure.Phase) void {
-                const ud = c.external_send_ud orelse return;
-                self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1, .failure = cause });
-                c.external_send_ud = null;
-            }
-
-            pub fn startClose(self: *Self, inner: *Inner, c: *Conn) void {
-                Leg.beginInnerClose(self, inner, c);
-            }
-
-            pub fn owesClose(self: *Self, c: *Conn) bool {
-                return self.retries.owesSubmission(c, .close);
-            }
-
-            pub fn oweClose(self: *Self, c: *Conn) void {
-                self.retries.oweSubmission(&self.conns, c, .close);
-            }
-
-            pub fn clearOwedClose(self: *Self, c: *Conn) void {
-                self.retries.clearOwedRetries(&self.conns, c);
-            }
-
-            pub fn lendActive(c: *const Conn) bool {
-                return c.borrowed;
-            }
-
-            pub fn borrowFailure(_: *Self, _: *Conn) contract.Borrowed {
-                return .{};
-            }
-
-            pub fn prepareFinish(_: *Self, _: *Conn, _: bool) bool {
-                return false;
-            }
-
-            pub fn closeCause(_: *const Conn) ?anyerror {
-                return null;
-            }
-
-            pub fn hasBorrowedFailure(_: *const Self, _: *const Conn) bool {
-                return false;
-            }
-
-            pub fn retireRow(self: *Self, c: *Conn) void {
-                self.retries.clearOwedRetries(&self.conns, c);
-            }
-
-            pub fn deinitRow(_: *Self, inner: *Inner, c: *Conn) void {
-                c.deinit(inner);
-            }
-        };
-        const Leg = inner_leg.Lifecycle(Self, Inner, Types, LegAccess);
+        pub const Leg = inner_leg.Lifecycle(Self, Inner, Types, leg_access.Access(Self, Inner, Types));
 
         const ConnMap = Types.ConnMap;
         allocator: std.mem.Allocator,
@@ -190,9 +125,16 @@ pub fn InnerBackend(comptime Inner: type) type {
 
         /// An owed inner submission retries on `submission_retry_ms`.
         pub fn waitBoundMs(self: *const Self, requested_ms: i32) i32 {
-            const inner_ms = self.inner.waitBoundMs(requested_ms);
-            if (self.retries.submissionRetryCount() == 0) return inner_ms;
-            return if (inner_ms < 0) submission_retry_ms else @min(inner_ms, submission_retry_ms);
+            // A pending listener setup asks for its own turn cadence: the
+            // deadline and owed retries are enforced on those turns.
+            var bound = self.inner.waitBoundMs(requested_ms);
+            // A running setup turns for its deadline and owed retries; a
+            // settled row that still owes a seat turns for the delivery.
+            if (self.listener.setup != null or self.listener.ready_ud != null) {
+                bound = if (bound < 0) setup_turn_ms else @min(bound, setup_turn_ms);
+            }
+            if (self.retries.submissionRetryCount() == 0) return bound;
+            return if (bound < 0) submission_retry_ms else @min(bound, submission_retry_ms);
         }
 
         /// The loop's one listener is its published service.
@@ -202,6 +144,17 @@ pub fn InnerBackend(comptime Inner: type) type {
 
         pub fn openListener(self: *Self, target: ListenTarget) !Fd {
             return Listener.open(self, target);
+        }
+
+        /// Whether the listener on `fd` is still publishing its service.
+        pub fn listenerPending(self: *const Self, fd: Fd) bool {
+            return Listener.pending(self, fd);
+        }
+
+        /// Complete `user_data` when the listener's service exists or its
+        /// setup has failed.
+        pub fn submitListenReady(self: *Self, user_data: u64, fd: Fd) !void {
+            return Listener.submitReady(self, user_data, fd);
         }
 
         pub fn listenerAddress(self: *Self, fd: Fd) !ListenerAddress {
@@ -359,6 +312,9 @@ pub fn InnerBackend(comptime Inner: type) type {
         }
 
         pub fn poll(self: *Self, out: []completion.Completion, timeout_ms: i32) !usize {
+            // The listener setup turns on every poll: its deadline and owed
+            // submissions are enforced here, never by blocking a caller.
+            Listener.pump(self);
             // Pool starvation is an owed inner arm, but polling creates no
             // capacity. Retry only after a wrapped buffer is recycled.
             if (self.retries.takeRecvRecycleProgress()) self.retryRecvStarvation();
@@ -396,8 +352,9 @@ pub fn InnerBackend(comptime Inner: type) type {
         fn dispatchInternal(self: *Self, comp: completion.Completion) !void {
             const id = Identity.id(comp.user_data);
             if (id == 0) {
-                if (comp.borrowed.active()) self.inner.recycleBorrowed(comp);
-                return error.UnexpectedControlCompletion;
+                // Id-zero records belong to the listener's pending publish
+                // conversation, which consumes or drops them itself.
+                return Listener.advance(self, comp);
             }
             const c = self.conns.get(id) orelse {
                 if (comp.borrowed.active()) self.inner.recycleBorrowed(comp);
@@ -532,7 +489,7 @@ pub fn InnerBackend(comptime Inner: type) type {
         }
 
         /// Apply one received chunk to the SOCKS reply this leg is waiting
-        /// on. The accumulation is the state module's; this owns only what
+        /// on. The accumulation is the state module's. This owns only what
         /// each verdict costs: the borrowed chunk, the leg's fate, and the
         /// caller's connect seat.
         fn consumeReply(self: *Self, c: *Conn, comp: completion.Completion) void {
@@ -601,7 +558,7 @@ pub fn InnerBackend(comptime Inner: type) type {
             Leg.end(self, &self.inner, c, recv_result);
         }
 
-        fn releaseHeld(self: *Self, c: *Conn) void {
+        pub fn releaseHeld(self: *Self, c: *Conn) void {
             const held = c.held_recv orelse return;
             std.debug.assert(!c.borrowed);
             c.held_recv = null;

@@ -1,5 +1,5 @@
 //! Read-only nickname projection for keyboard-time feedback. The server's
-//! atomic register remains authoritative; this only interprets bounded live
+//! atomic register remains authoritative. This only interprets bounded live
 //! evidence already held by the browser.
 use rooms_application::directory::registration::{nickname_availability, suggested_nick};
 use wasm_bindgen::prelude::*;

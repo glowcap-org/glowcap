@@ -11,7 +11,7 @@
 //
 // Validated by breaking what it covers, since a suite that has only ever run
 // green has shown nothing. Weighing what this browser remembers above what the
-// act said — the original defect, exactly — fails five of these; letting an
+// act said, the original defect, exactly, fails five of these. Letting an
 // override outlive the act it was made under fails the sixth. What is not
 // covered here is which act each surface files, because that is a question
 // about the surfaces: `web/routes_test.ts` drives it through a real page.
@@ -316,8 +316,7 @@ Deno.test("what the reader typed applies to the act they typed it under, and no 
 	assert(mine.room.value === "somewhere-else", "an override of the link's room did not take");
 	assert(mine.room.from === "edited", "typing did not read as the reader's own");
 	// The reader goes somewhere else, which asks a different question. Nothing
-	// clears the override; it simply stops being an answer to what is now
-	// being asked.
+	// clears the override. It stops being an answer to what is being asked.
 	const later = card({ ...gate, room: named("departures"), seq: 5 }, {}, { seq: 4, room: "somewhere-else" });
 	assert(later.room.value === "departures", "an answer to an earlier question followed the reader");
 	assert(later.room.from === "named", "the new link's room did not read as named");
@@ -513,7 +512,7 @@ Deno.test("where a locator field is aimed is one answer, whoever is drawing it",
 	assert(aimed("ocapn://stranger.iroh", stranger).name === "stranger", "an address in no hand was not named");
 	// It wears a mark all the same, because everything the card colours reads
 	// the one property that mark sets, and an unmarked card let each of those
-	// choose for itself — the stripe choosing the mark this page's own
+	// choose for itself, the stripe choosing the mark this page's own
 	// directory wears.
 	assert(aimed("ocapn://stranger.iroh", stranger).mark === "unknown", "an unheld directory wore no mark");
 	assert(aimed("not an address", null).name === "that directory", "text that names nowhere claimed a destination");

@@ -1,5 +1,5 @@
 //! Decode the one structured provider-failure ABI into native failure values.
-//! Provider archives own immutable cause names; the driver validates the
+//! Provider archives own immutable cause names. The driver validates the
 //! stable result vocabulary once and projects it without allocating.
 
 const std = @import("std");

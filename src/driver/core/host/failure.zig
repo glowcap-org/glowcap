@@ -1,5 +1,5 @@
 //! Stable failure categories for byte-fed Host operations. The sans-I/O Host
-//! owns this semantic classification; adapters only project the category into
+//! owns this semantic classification. Adapters only project the category into
 //! their public error vocabulary. It lives with the Host subject that owns it.
 
 const std = @import("std");

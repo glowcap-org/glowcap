@@ -1,4 +1,4 @@
-//! Two kinds of identity, each a fixed 32 bytes. A `PeerId` names a peer; it's
+//! Two kinds of identity, each a fixed 32 bytes. A `PeerId` names a peer. It's
 //! the double-SHA256 hash that OCapN calls the public identifier. A `SessionId` names
 //! one direct session.
 //!

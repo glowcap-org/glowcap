@@ -6,23 +6,33 @@
 // reader has typed under it, and what this browser remembers. The whole
 // question can therefore be answered in a test without a page.
 
+import * as z from "zod/mini";
 import { type DirId, dirId, dirMarkIn, type DirView, liveRoomNames, type RoomDestination } from "./types.ts";
 import type { JoinNickTarget } from "./join_nick.ts";
 import { directoryName } from "./text.ts";
 import { applicationModule, inspectCapability, inspectDirectory } from "./application.ts";
-import { openRoomPolicy, privateRoomPolicy, type RoomPolicy, type RoomPreset, standingOffered } from "./room_policy.ts";
+import {
+	openRoomPolicy,
+	policyForRoomPreset,
+	privateRoomPolicy,
+	type RoomPolicy,
+	type RoomPreset,
+	standingOffered,
+} from "./room_policy.ts";
 import {
 	joinLeadLink,
 	joinLeadNamedDirectory,
 	joinLeadNamedRoom,
 	joinLeadPlain,
 	joinLeadPressedRoom,
+	joinPrivateRoomTaken,
 } from "../../lib/text/join.ts";
 import {
 	type Act,
 	type Answer,
 	current,
 	type Edits,
+	type Firmness,
 	type Given,
 	keepable,
 	type Remembered,
@@ -60,9 +70,7 @@ export function looksLikeRoomLink(value: string): boolean {
 export function privateRoomNameRefusal(name: string, liveNames: Iterable<string>): string | null {
 	const key = name.toLowerCase();
 	for (const live of liveNames) {
-		if (live.toLowerCase() === key) {
-			return `#${name} is already live here. Turn off Private to open it, or choose another name for a new private room.`;
-		}
+		if (live.toLowerCase() === key) return joinPrivateRoomTaken(name);
 	}
 	return null;
 }
@@ -70,9 +78,9 @@ export function privateRoomNameRefusal(name: string, liveNames: Iterable<string>
 /** The sturdyref in a `/join` argument, and any words the reader wrote after
  * it as a label. Null when the text is not a room link.
  *
- * The URI is found wherever it sits, so pasting `/link`'s whole answer — the
- * sentence and then the locator — still takes up the link rather than treating
- * "Anybody" as the first token. Words after the locator are a label; nothing
+ * The URI is found wherever it sits, so pasting `/link`'s whole answer, the
+ * sentence and then the locator, still takes up the link rather than treating
+ * "Anybody" as the first token. Words after the locator are a label. Nothing
  * after it means the room should say what it is called. */
 export function joinLinkIn(asked: string): { link: string; label: string } | null {
 	const destination = askedJoin(asked);
@@ -80,15 +88,22 @@ export function joinLinkIn(asked: string): { link: string; label: string } | nul
 }
 
 /** What `/join` does with its argument: take up a room link, or enter a room
- * by name. Null when the field is empty. Never "the room I am in" — a join is
- * a destination. */
-export type AskedJoin =
-	| { kind: "link"; link: string; label: string }
-	| { kind: "name"; name: string };
+ * by name. Null when the field is empty. Never "the room I am in": a join is
+ * a destination. The schema is the one definition: the type and the
+ * validator both derive from it. */
+export const AskedJoinSchema = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("link"), link: z.string(), label: z.string() }),
+	z.object({ kind: z.literal("name"), name: z.string() }),
+]);
+export type AskedJoin = z.infer<typeof AskedJoinSchema>;
 
 export function askedJoin(asked: string): AskedJoin | null {
 	const encoded = applicationModule().readRoomJoin(asked);
-	return encoded == null ? null : JSON.parse(encoded) as AskedJoin;
+	if (encoded == null) return null;
+	// A projection without the join shape is not a join, the same refusal the
+	// reader gives text that holds no destination.
+	const parsed = z.safeParse(AskedJoinSchema, JSON.parse(encoded));
+	return parsed.success ? parsed.data : null;
 }
 
 /** The conversation this tab is already in that a room link names, or null.
@@ -118,7 +133,7 @@ export function joinedForLink(
 
 /** Whether a link-join sits in the listed room.
  *
- * `listed` is what the occupancy said on arrival. Unknown — an older room —
+ * `listed` is what the occupancy said on arrival. Unknown, an older room,
  * is not a listed room: guessing from the name would open a public room that
  * merely shares a private occupancy's label. */
 export function listedOccupancy(listed: boolean | undefined, name: string): boolean {
@@ -141,8 +156,43 @@ export function typedRoomLink(locator: string, room: string): { link: string; la
 	return null;
 }
 
+/** What a submitted join names as its room: the label typed alongside a
+ * pasted link, nothing for a link still wearing a remembered name, or the
+ * room field itself, defaulting when empty. A remembered room name is from a
+ * previous join, not a name for this link. */
+export function submittedRoomName(
+	linked: { link: string; label: string } | null,
+	typedRoom: string,
+	roomFrom: Firmness,
+): string {
+	if (linked === null) return typedRoom || JOIN_DEFAULT_ROOM;
+	return roomFrom === "edited" || roomFrom === "named" ? linked.label : "";
+}
+
+/** The destination a submitted join acts on. A room link stays authority,
+ * and a fixed room already answers to its name: both carry their own
+ * standing, which this session is not the one that sets. Only an open choice
+ * carries the card's preset into the act. */
+export function submittedRoomDestination(
+	typedText: string,
+	typedRoom: string,
+	roomFrom: Firmness,
+	fixed: boolean,
+	roomPreset: RoomPreset,
+	context: DirectoryDestinationContext,
+	typedAs: DirId | null,
+): RoomDestination {
+	const locator = thisDirectoryLocator(typedText, context, typedAs);
+	const linked = typedRoomLink(locator, typedRoom);
+	const room = submittedRoomName(linked, typedRoom, roomFrom);
+	if (linked !== null || fixed) {
+		return { room, locator: linked?.link ?? locator, hidden: false, policy: undefined };
+	}
+	return { room, locator, hidden: roomPreset === "private", policy: policyForRoomPreset(roomPreset) };
+}
+
 /** One submitted join, classified before either the local or attached owner
- * performs it. A room sturdyref remains authority; it never falls through to
+ * performs it. A room sturdyref remains authority. It never falls through to
  * the directory-locator path merely because that owner is remote. */
 export type JoinDestinationPlan =
 	| { kind: "room-link"; link: string; label: string; directory: DirId; address: string }
@@ -165,7 +215,7 @@ export function planJoinDestination(destination: RoomDestination): JoinDestinati
 }
 
 /** Resolve the directory a room sturdyref names without consulting any page
- * state. The authority excludes route hints; the address retains them for the
+ * state. The authority excludes route hints. The address retains them for the
  * owner that may have to dial it. */
 export function roomLinkDestination(
 	link: string,
@@ -209,7 +259,7 @@ export function thisDirectoryLocator(
  * stripe, the card's opening line, and the rail panel's line are asking the
  * same question about the same field, and asking it separately is how they came
  * to disagree in front of a reader who was typing into one of them. The answer
- * is by identity — `typedAs` is what the text resolves to — so a hinted route
+ * is by identity, `typedAs` is what the text resolves to, so a hinted route
  * and a bare authority are one destination.
  *
  * The field is empty or names this page's own directory, it names another this
@@ -274,7 +324,7 @@ export function destination(
 }
 
 /** Every field of the card, each with the evidence behind it, and how the
- * reader got here. The source rides along because a caption is only honest
+ * reader got here. The source rides along because a caption is only accurate
  * beside it: the same firmness means something different when the reader
  * pressed a control from when a link decided. */
 export interface JoinAnswers {
@@ -290,7 +340,7 @@ export interface JoinAnswers {
  * The order is `intent.ts`'s and is not repeated here. What this adds is which
  * tiers each field has: a room and locator are worth offering back from a past
  * visit. A nickname is not. Its successful outcome belongs to the connected
- * directory and supplies the empty field's offer; treating that outcome as a
+ * directory and supplies the empty field's offer. Treating that outcome as a
  * new exact answer would make clearing a prefill reveal the same text as its
  * placeholder. A lock is not remembered either. A private room is minted for
  * good on submit, so a lock quietly remembered from last week would mint one
@@ -326,7 +376,7 @@ export function joinRoomOffers(
 }
 
 /** The nickname an empty join field means for the directory it is aimed at.
- * A connected directory supplies its granted name; an unreached destination
+ * A connected directory supplies its granted name. An unreached destination
  * falls back to the application's guest offer. Presentation and submission
  * share this answer. */
 export function suggestedJoinNick(
@@ -370,7 +420,7 @@ export function joinNickTarget(
  * Reading each tier through that rule before they are weighed is what makes an
  * act that implies home beat a remembered foreign address. The act implies the
  * empty field, and an empty field named by an act is an answer, where an empty
- * memory is only a habit nobody has formed. It also keeps the caption honest,
+ * memory is only a habit nobody has formed. It also keeps the caption accurate,
  * since a remembered locator that turns out to name this page would otherwise
  * present a blank field claiming to be what the reader used last. */
 function locatorAnswer(
@@ -465,12 +515,12 @@ export function resolveJoin(
  * A card reached by following an address is answering that address, and a card
  * opened from the rail is answering nothing in particular. Those are different
  * cards, and the one place a card explains itself is its opening line, so that
- * is where the difference is said — once, in a sentence, rather than as a note
+ * is where the difference is said, once, in a sentence, rather than as a note
  * beside every field that happens to be filled.
  *
  * Saying it per field was the first attempt and it was worse in two ways. It
  * repeated one idea three times, loudest exactly when the reader had the most
- * to read; and it left this paragraph claiming the card was for naming a room
+ * to read, and it left this paragraph claiming the card was for naming a room
  * in this page's directory while the fields underneath said it was for a
  * particular room somewhere else. One statement cannot contradict itself.
  *
@@ -487,8 +537,8 @@ export function joinLead(answers: JoinAnswers, where: string): string {
  * speaks up. A press that already named the room does too: the card is then a
  * gate on that room, and the missing answer is the name. What this browser
  * merely remembers is an offer, and describing an offer as though it were a
- * destination is how the card would start sounding certain about a guess —
- * which is why an offer answers null here and takes the plain lead. */
+ * destination is how the card would start sounding certain about a guess.
+ * Which is why an offer answers null here and takes the plain lead. */
 function aimedAt(answers: JoinAnswers, where: string): string | null {
 	if (typedRoomLink(answers.locator.value, answers.room.value) !== null) return joinLeadLink;
 	if (answers.source === "link") {
@@ -504,7 +554,7 @@ function aimedAt(answers: JoinAnswers, where: string): string | null {
 /** Hint in an empty locator field: this page's address, shortened so it reads
  * as a locator rather than as a value already typed. `address` is the shared
  * route every other surface hands out (`peer.dirAddress`), so the hint and the
- * copyable address name the same thing; null when the page has no home
+ * copyable address name the same thing. Null when the page has no home
  * directory yet. */
 export function joinLocatorPlaceholder(address: string | null): string {
 	if (address == null) return JOIN_LOCATOR_SHAPE;

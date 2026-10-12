@@ -1,7 +1,7 @@
 // The three-party handoff choreography the rooms DM demos share.
 //
 // A rendezvous room introduces two members who then talk *directly*, with the
-// room out of the message path — the headline of the direct-message story. It is
+// room out of the message path: the headline of the direct-message story. It is
 // the rooms-app face of `deno-gifter-handoff`: the same three-party handoff
 // (ADR-0009), dressed in the rooms protocol (`register`/`introduce` on the
 // directory, a member `dm` object) so the demo exercises the real server
@@ -13,8 +13,8 @@
 //   Bob    (member / exporter)    one Host that listens and dials the room,
 //                                 registers, and mints one inbox per peer the
 //                                 directory asks him for.
-//   Carol  (member / recipient)   registers too — the name the room grants her is
-//                                 what Bob's inbox is minted for — then asks to be
+//   Carol  (member / recipient)   registers too, the name the room grants her is
+//                                 what Bob's inbox is minted for, then asks to be
 //                                 introduced to Bob, redeems the gift, and DMs him
 //                                 over her own *direct* connection.
 //
@@ -23,13 +23,13 @@
 //      has not offered an inbox for her yet, and the retry after his offer works.
 //   2. Carol's DM arrives on the inbox Bob minted for Carol, so Bob knows who
 //      sent it without the message naming anyone.
-//   3. Bob accepts a brand-new inbound connection for the DM — Carol reached Bob
+//   3. Bob accepts a brand-new inbound connection for the DM, Carol reached Bob
 //      directly by the gift's locator, not through the room.
 //   4. Nobody dials Carol, so the DM travelled solely on Carol-to-Bob and the
 //      room carried none of it.
 //
 // Only the transport differs between the demos (loopback TCP, iroh Direct with
-// address hints, iroh Discovery by node id alone); each supplies a `DmTransport`
+// address hints, iroh Discovery by node id alone). Each supplies a `DmTransport`
 // and this runner drives the identical handoff and assertions over it.
 
 import process from "node:process";
@@ -58,20 +58,20 @@ interface MemberEndpoint {
 }
 
 /** One transport's flavour of the handoff: the wording, the deadline, and how to
- * stand Bob and the room up. Everything else — register, introduce, the three
- * assertions, the DM, teardown — is identical and lives in `runDmHandoff`. */
+ * stand Bob and the room up. Everything else (register, introduce, the three
+ * assertions, the DM, teardown) is identical and lives in `runDmHandoff`. */
 export interface DmTransport {
 	/** Prefix for the demo's FAILED/OK console lines, e.g. `"rooms-dm"`. */
 	label: string;
 	/** The private line Carol sends Bob once introduced. */
 	dmText: string;
-	/** Deadline for each wait; iroh Discovery over the real internet needs a
+	/** Deadline for each wait. Iroh Discovery over the real internet needs a
 	 * generous one. */
 	timeoutMs: number;
 	/** The "OK" bullets, transport-specific wording. */
 	bullets: readonly string[];
 	/** Stand up one member: a Host that listens for direct dials. Called once for
-	 * Bob and once for Carol — both register, because a name the room granted is
+	 * Bob and once for Carol. Both register, because a name the room granted is
 	 * what an inbox is minted for. Awaited by the caller, so a transport whose
 	 * setup is synchronous returns the endpoint directly rather than wrapping it
 	 * in an idle promise. */

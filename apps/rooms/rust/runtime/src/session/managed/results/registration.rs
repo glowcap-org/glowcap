@@ -5,10 +5,7 @@ use rooms_application::{content::session::results::Registration, directory::regi
 fn coordinate() -> Coordinate {
 	Coordinate {
 		role: custody::Role::DirectoryName,
-		key: FieldKey::new(
-			NonZeroU64::new(1).expect("result slot"),
-			NonZeroU64::new(1).expect("result generation"),
-		),
+		key: FieldKey::new(NonZeroU64::MIN, NonZeroU64::MIN),
 	}
 }
 pub(super) fn read(value: &Argument, intent: &str) -> Result<Settlement> {
@@ -31,8 +28,8 @@ pub(super) fn read(value: &Argument, intent: &str) -> Result<Settlement> {
 		.map_err(|_| loam::refusal("invalid registration identity"))?;
 	let coordinate = coordinate();
 	let data = serde_json::to_string(&Registration {
-		nick: Text::new(nick.into()).expect("validated nickname"),
-		id: Text::new(id.as_str().into()).expect("validated identity"),
+		nick: Text::new(nick.into()).ok_or_else(|| loam::refusal("invalid granted nickname"))?,
+		id: Text::new(id.as_str().into()).ok_or_else(|| loam::refusal("invalid registration identity"))?,
 		name: FieldKey::new(coordinate.key.slot(), coordinate.key.generation()),
 	})
 	.map_err(|_| loam::refusal("invalid registration result"))?;

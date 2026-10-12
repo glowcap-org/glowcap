@@ -1,5 +1,5 @@
-//! Structured-clone values, not CapTP references. Scalar syntax is small;
-//! document fields are admitted by their UTF-8 replacement length before copy.
+//! Structured-clone values, not CapTP references. Scalar syntax is small.
+//! Document fields are admitted by their UTF-8 replacement length before copy.
 use super::Error;
 use js_sys::{Array, JsString, Object, Reflect};
 use rooms_application::{

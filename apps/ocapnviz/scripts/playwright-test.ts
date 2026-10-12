@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-test.ts — Drive the running ocapnviz dev server with
+ * playwright-test.ts: Drive the running ocapnviz dev server with
  * Playwright. Verifies pan/zoom and basic interactions on the
  * Stage viewport.
  *
@@ -238,7 +238,7 @@ console.log(JSON.stringify(probeAfterZoom, null, 2));
 
 // Reset zoom / pan so the next interactions land on the (0, 0)
 // world neighborhood where the fixture's peers sit. Then attempt
-// a click on the largest visible peer body — verifies federated
+// a click on the largest visible peer body, verifies federated
 // hit-testing reaches sprite handlers, not just the bare viewport.
 await page.evaluate(() => {
 	const canvas = document.querySelector(

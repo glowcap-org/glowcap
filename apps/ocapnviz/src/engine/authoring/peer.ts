@@ -29,7 +29,7 @@ function defaultPeerTiming() {
 	return { start: implicitBound(0), duration: implicitBound(0) };
 }
 
-// Each sync helper writes through a `time-span.ts` authoring op —
+// Each sync helper writes through a `time-span.ts` authoring op,
 // the one vocabulary that produces authored spans (a derived span
 // loses its marker here, so projection stops re-deriving it).
 
@@ -84,12 +84,12 @@ export function updatePeer(
 		designator?: string;
 	},
 ): void {
-	// Identity write to the entities map first — this is what readers
+	// Identity write to the entities map first. This is what readers
 	// (Sidebar, peerInfo helper) consult. Works for eternal-start peers
 	// too (no peer-joined event to mutate).
 	patchPeerDefinition(ctx.doc, peerId, patch);
 	// Mirror to the peer-joined payload (if present) so the wire format
-	// stays consistent. This is the name the peer JOINS under — a
+	// stays consistent. This is the name the peer JOINS under, a
 	// session's `initialState` in peer form. Later renames are their
 	// own moments (`setPeerRename`) and this does not touch them, the
 	// same way editing a session's initial state leaves its state
@@ -109,7 +109,7 @@ export function updatePeer(
 	commitEntityAuthoring(ctx);
 }
 
-/** The peer's own update observation at exactly `t` — the moment a
+/** The peer's own update observation at exactly `t`. The moment a
  *  write lands on and a clear reads from. One observation carries
  *  every property the peer restated at that instant. */
 const peerUpdateAt = (peerId: string, t: number) => (ev: TimelineEvent): boolean =>
@@ -131,14 +131,14 @@ function updateAt(
 /** State `value` for one of the peer's temporal properties from `t`
  *  onward, replacing what it stated about that property at `t`. The
  *  peer's keyframe tracks derive from these observations on every
- *  projection run, so writing the observation IS the write — unlike
+ *  projection run, so writing the observation IS the write, unlike
  *  a session's state track, there is no second copy on the
  *  definition to keep in step. The value the peer ARRIVES with is
- *  `updatePeer` (a session's `initialState` in peer form); this
+ *  `updatePeer` (a session's `initialState` in peer form). This
  *  states a change after that.
  *
  *  Which properties exist, and how a value sits on the observation,
- *  live in `trajectory.ts` — this op learns neither. */
+ *  live in `trajectory.ts`, this op learns neither. */
 export function setPeerUpdate(
 	ctx: AuthoringContext,
 	peerId: string,
@@ -172,7 +172,7 @@ export function setPeerUpdate(
 
 /** Stop stating one property at exactly `t`. The observation stays
  *  while it still states something else about that moment, and goes
- *  when it states nothing — an observation that changes nothing is
+ *  when it states nothing. An observation that changes nothing is
  *  not a moment (`momentOf`). No-op when nothing was stated. */
 export function removePeerUpdate(
 	ctx: AuthoringContext,
@@ -204,7 +204,7 @@ export function deletePeer(ctx: AuthoringContext, peerId: string): void {
 	ctx.seekTo(ctx.clock.t);
 }
 
-/** Set the peer's duration. Mutates entity.timing.duration directly —
+/** Set the peer's duration. Mutates entity.timing.duration directly,
  *  this is the storage-shaped intent, matching the TimeSpan model. */
 export function setPeerDuration(
 	ctx: AuthoringContext,
@@ -230,7 +230,7 @@ export function setPeerDuration(
 /** End-flavored wrapper around `setPeerDuration`. Translates absolute
  *  `t` to a duration off the peer's effective start. Prefer
  *  `setPeerDuration` for inspector-style edits that already know the
- *  duration; this stays for drag-to-arrival-time gestures. */
+ *  duration. This stays for drag-to-arrival-time gestures. */
 export function setPeerEnd(
 	ctx: AuthoringContext,
 	peerId: string,

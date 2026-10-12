@@ -1,5 +1,5 @@
 // Invoked by the native executable scenarios. Only the browser Wasm binding
-// runs here; the HTTP front and directory are the Rust binaries under test.
+// runs here. The HTTP front and directory are the Rust binaries under test.
 import { init } from "@glowcap/web";
 import { roomsHostOptions } from "../../lib/profile.ts";
 import { DIRECTORY, LIST } from "../../lib/protocol.ts";

@@ -14,14 +14,14 @@ import type { AuthoringContext } from "./context.ts";
 import { commitEntityAuthoring } from "./events.ts";
 
 // Messages always have explicit duration once defined. Default
-// here matches DEFAULT_MESSAGE_FLIGHT_MS — same as the engine's
+// here matches DEFAULT_MESSAGE_FLIGHT_MS, same as the engine's
 // add-message intent default.
 const DEFAULT_FLIGHT = 500;
 function defaultMessageTiming() {
 	return { start: implicitBound(0), duration: explicitBound(DEFAULT_FLIGHT) };
 }
 
-// Each sync helper writes through a `time-span.ts` authoring op —
+// Each sync helper writes through a `time-span.ts` authoring op,
 // the one vocabulary that produces authored spans (a derived span
 // loses its marker here, so projection stops re-deriving it).
 
@@ -65,9 +65,9 @@ export function deleteMessage(
 	ctx.seekTo(ctx.clock.t);
 }
 
-/** Patch message-level fields. Mutates `doc.entities.messages` —
+/** Patch message-level fields. Mutates `doc.entities.messages`,
  *  the identity source of truth. Timing edits (sentT / arrivalT)
- *  belong to the timeline-drag pass — not here. */
+ *  belong to the timeline-drag pass, not here. */
 export function updateMessage(
 	ctx: AuthoringContext,
 	messageId: string,
@@ -156,7 +156,7 @@ export function clearMessageStart(
 }
 
 /** Set the message's flight duration. Mutates entity.timing.duration
- *  directly — storage-shaped, matching the TimeSpan model. Validated
+ *  directly, storage-shaped, matching the TimeSpan model. Validated
  *  against the message's own start and the carrying session's
  *  effective end (arrival must land within the session). Messages
  *  always carry explicit duration (flight is a semantic property), so
@@ -179,7 +179,7 @@ export function setMessageDuration(
 		return;
 	}
 	// The arrival the user sees is the painted (effective) start plus
-	// the flight — an implicit start inherits the session's painted
+	// the flight. An implicit start inherits the session's painted
 	// start and its retained stored value is not the anchor.
 	const arrivalT = messageEffective(ctx.doc, messageId).start + duration;
 	const sessionRange = sessionEffective(ctx.doc, def.sessionId);
@@ -196,8 +196,8 @@ export function setMessageDuration(
 }
 
 /** End-flavored wrapper. Translates `arrivalT` to a flight duration
- *  off the message's painted (effective) start — the same anchor
- *  `setPeerEnd` / `setSessionEnd` use — then defers to
+ *  off the message's painted (effective) start, the same anchor
+ *  `setPeerEnd` / `setSessionEnd` use, then defers to
  *  `setMessageDuration`. */
 export function setMessageEnd(
 	ctx: AuthoringContext,

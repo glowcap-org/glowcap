@@ -14,7 +14,7 @@
 // places is cheaper than two that look nearly alike.
 //
 // What it is not is a set to choose from. Every field using it names something
-// that may not exist yet — a room is made by opening it — so what is typed
+// that may not exist yet, a room is made by opening it, so what is typed
 // always wins, nothing is picked until the reader walks to it, and Enter with
 // nothing picked still submits the words in the field.
 
@@ -50,7 +50,7 @@ export interface Suggest {
 	 * its own field away on the way to being pressed. That ancestor is also what
 	 * places it: the list wears `suggest-pop` and each field's own stylesheet
 	 * hangs it off the box it belongs to, so a new caller cannot forget to say
-	 * where it goes — it has already said, by rendering it somewhere. */
+	 * where it goes. It has already said, by rendering it somewhere. */
 	list: ReactNode;
 }
 

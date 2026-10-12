@@ -18,7 +18,7 @@ export { dist, layoutTest };
 export const ALICE_DESIGNATOR = "tcp://10.0.0.1:9001";
 export const BOB_DESIGNATOR = "tcp://10.0.0.2:9001";
 
-/** How far from a peer a placed claim reads as being *about* that peer;
+/** How far from a peer a placed claim reads as being *about* that peer.
  *  anything past this is a node the layout placed on its own account. Both
  *  populations are asserted below, so a retune that moved either goes red
  *  rather than quietly passing, and the last test measures the recordings'
@@ -75,8 +75,8 @@ export function joinedAt(
 
 type End = { peer?: string; designator?: string; attributedBy?: string };
 
-/** One session whose near end is `carol` — a reporting producer's own end is
- *  always attributed — and whose far end is whatever is handed in. */
+/** One session whose near end is `carol`, a reporting producer's own end is
+ *  always attributed, and whose far end is whatever is handed in. */
 export function opened(sessionId: string, b: End): TimelineEvent {
 	return between(
 		sessionId,
@@ -100,7 +100,7 @@ export function between(sessionId: string, a: End, b: End): TimelineEvent {
 	} as TimelineEvent;
 }
 
-/** Every node's position after materializing and running the layout — what
+/** Every node's position after materializing and running the layout, what
  *  the stage would draw, peers and loose ends alike. */
 export function placed(
 	doc: TimelineDocument,

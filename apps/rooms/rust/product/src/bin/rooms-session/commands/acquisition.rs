@@ -1,5 +1,5 @@
 //! Persist the exact acquisition recipe before sending it. Socket interruption
-//! lends a wait to the adapter's receiver; restart replays this same candidate.
+//! lends a wait to the adapter's receiver. Restart replays this same candidate.
 //! This private file stores request material, never a replacement grant ledger.
 use super::{Failure, Options, request, request_encoded};
 use serde::Deserialize;
@@ -36,7 +36,9 @@ pub async fn submit(options: &Options, body: Value) -> Result<(), Failure> {
 		return Err(Failure::exhausted("acquisition exceeds the 1 MiB socket profile"));
 	}
 	let target = path(&options.state, &id)?;
-	let directory = target.parent().unwrap();
+	let directory = target
+		.parent()
+		.ok_or_else(|| Failure::invalid("acquisition recovery path has no directory"))?;
 	tokio::fs::create_dir_all(directory).await?;
 	#[cfg(unix)]
 	{
@@ -71,7 +73,12 @@ async fn finish(state: &Path, id: &str, encoded: &[u8]) -> Result<(), Failure> {
 	let target = path(state, id)?;
 	let cleanup = async {
 		tokio::fs::remove_file(&target).await?;
-		sync(target.parent().unwrap()).await
+		sync(
+			target
+				.parent()
+				.ok_or_else(|| Failure::invalid("acquisition recovery path has no directory"))?,
+		)
+		.await
 	}
 	.await;
 	cleanup.map_err(|mut error: Failure| {

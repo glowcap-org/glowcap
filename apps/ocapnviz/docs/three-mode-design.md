@@ -29,7 +29,7 @@ event.
 
 The three modes are three verbs against that buffer.
 
-- **Live** taps a feed. Entering the mode connects; events draw on the stage
+- **Live** taps a feed. Entering the mode connects. Events draw on the stage
   only while recording, and the buffer is not involved unless you are recording.
   Scrubbing and playback mean nothing here.
 - **Play** replays the buffer, with the playhead, scrubbing, and speed.
@@ -91,7 +91,7 @@ buffer engine and passes it to `useLiveConnection`, because it lasts as long as
 the session and nothing reloads into the middle of one.
 
 The `?live=<sturdyref>` query parameter sets both the mode and capability on
-load; deep-linking to Play or Build is not built.
+load. Deep-linking to Play or Build is not built.
 
 `useBufferEngine` backs Play and Build from the fixture, file, or recording.
 `useLiveConnection` holds the feed and, while recording, mounts a capture engine

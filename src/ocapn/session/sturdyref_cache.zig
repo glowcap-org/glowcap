@@ -1,11 +1,11 @@
 //! Sturdyref-enliven dedup state for one Session (ADR-0012).
 //!
-//! Both are non-load-bearing dedup: a cache miss costs one extra bootstrap-fetch
+//! Both are optional dedup: a cache miss costs one extra bootstrap-fetch
 //! round-trip, never correctness, so the cache evicts its oldest entry on
 //! overflow rather than erroring, and the in-flight set only collapses
 //! concurrent enlivens of the same swissnum onto one outstanding answer.
 //! The row type lives here with the cache transitions. Storage remains on
-//! `Session`; these helpers are aliased back into its method index.
+//! `Session`. These helpers are aliased back into its method index.
 
 const std = @import("std");
 const model = @import("model");
@@ -14,13 +14,13 @@ const session = @import("mod.zig");
 const Session = session.Session;
 const SturdyrefCacheEntry = Entry;
 
-/// One resolved sturdyref enlivenment. `swissnum` is owned by the cache row;
+/// One resolved sturdyref enlivenment. `swissnum` is owned by the cache row,
 /// `far` is stored whole so the far-kind survives cache hits. Two inline row
 /// indexes maintain a circular FIFO through dense swap removal: eviction must
 /// not rehash every surviving swissnum during a large foreign-graph restore.
 /// Their retained cost is two words per admitted cache row, bounded by the
 /// session's cache cap, with no additional allocation or idle Session field.
-/// Row zero is always oldest; its older neighbor is newest.
+/// Row zero is always oldest. Its older neighbor is newest.
 pub const Entry = struct {
     swissnum: []u8,
     far: model.FarRef,
@@ -32,7 +32,7 @@ pub const Entry = struct {
 /// miss (ADR-0012), one O(1) index lookup answering both halves of the
 /// cache-hit short-circuit: the import position and the wire-kind, the latter
 /// preserved verbatim per ADR-0010 § The far-kind is preserved across enliven.
-/// The returned `swissnum` field borrows the cache row; read the POD fields,
+/// The returned `swissnum` field borrows the cache row. Read the POD fields,
 /// do not retain the slice.
 pub fn sturdyrefCacheLookup(self: *const Session, swissnum: []const u8) ?SturdyrefCacheEntry {
     const i = findSturdyrefCacheIndex(self, swissnum) orelse return null;
@@ -40,9 +40,9 @@ pub fn sturdyrefCacheLookup(self: *const Session, swissnum: []const u8) ?Sturdyr
 }
 
 /// Cache a resolved enlivenment for future repeat-enlivens (ADR-0012). Bounded
-/// by `SessionLimits.max_sturdyref_cache_entries`; idempotent on `swissnum`
-/// (last-wins overwrite, no extra allocation); on overflow it evicts the
-/// oldest entry (the cache is non-load-bearing). A cap of 0 disables caching.
+/// by `SessionLimits.max_sturdyref_cache_entries`. Idempotent on `swissnum`
+/// (last-wins overwrite, no extra allocation). On overflow it evicts the
+/// oldest entry (a miss costs only a refetch). A cap of 0 disables caching.
 /// `far` is stored whole so its kind is preserved (ADR-0010).
 pub fn cacheSturdyrefEnlivenment(
     self: *Session,
@@ -96,7 +96,7 @@ pub fn pendingEnlivenAnswer(self: *Session, swissnum: []const u8) ?model.AnswerP
 }
 
 /// The session-owned swissnum for an in-flight enliven on `answer_position`, or
-/// null when none is pending. The slice borrows the pending row; do not retain
+/// null when none is pending. The slice borrows the pending row. Do not retain
 /// it past `finishPendingEnliven` / session teardown.
 pub fn pendingEnlivenSwissnum(self: *const Session, answer_position: model.AnswerPosition) ?[]const u8 {
     return self.pending_enliven_by_answer.get(answer_position);
@@ -104,8 +104,8 @@ pub fn pendingEnlivenSwissnum(self: *const Session, answer_position: model.Answe
 
 /// Record an in-flight enliven so a concurrent enliven for the same
 /// `swissnum` collapses onto `answer_position`. Idempotent: a no-op when one is
-/// already outstanding. An answer position may identify only one pending row;
-/// rejecting a collision keeps the two indexes one-to-one.
+/// already outstanding. An answer position may identify only one pending row.
+/// Rejecting a collision keeps the two indexes one-to-one.
 pub fn notePendingEnliven(
     self: *Session,
     swissnum: []const u8,
@@ -145,7 +145,7 @@ pub fn finishPendingEnliven(self: *Session, swissnum: []const u8) void {
 /// Once the import's wire count reaches zero the partner may reuse its
 /// position for another object. A cached swissnum must miss after that point
 /// and enliven again, rather than returning the old position under its new
-/// meaning. A bounded sweep finds matching positions; unlinking each match
+/// meaning. A bounded sweep finds matching positions. Unlinking each match
 /// preserves FIFO order without moving or rehashing the surviving population.
 pub fn forgetSturdyrefEnlivenmentsAt(self: *Session, position: model.ImportPosition) void {
     var i: usize = 0;
@@ -159,7 +159,7 @@ pub fn forgetSturdyrefEnlivenmentsAt(self: *Session, position: model.ImportPosit
 }
 
 /// Reserve one new row without consuming capacity promised to pending replies.
-/// Every pending row may settle before another allocation is possible; reserve
+/// Every pending row may settle before another allocation is possible. Reserve
 /// their combined demand, bounded by the cache cap. Once full, eviction makes
 /// room without growth. Direct cache insertions obey the same reservation.
 fn reserveCacheRow(self: *Session) !void {

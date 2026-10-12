@@ -21,7 +21,7 @@ pub const DialResolver = struct {
 };
 
 /// Dial resolver for an iroh completion adapter whose wrapped backend also
-/// owns dialable transports. Iroh locators stay at this layer; every other
+/// owns dialable transports. Iroh locators stay at this layer. Every other
 /// symbol delegates without translating its target or importing that
 /// transport's policy here.
 pub fn CompositeDialResolver(comptime Platform: type, comptime Delegate: type) type {

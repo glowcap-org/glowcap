@@ -1,7 +1,7 @@
 #!/usr/bin/env -S deno run -A
 /**
- * playwright-row-substrate-probe.ts — End-to-end visual probe for
- * PR 1 of the Flash-grade timeline thrust. Verifies:
+ * playwright-row-substrate-probe.ts: End-to-end visual probe for
+ * the timeline's row substrate. Verifies:
  *
  *   01-default        category lanes collapsed (today's look)
  *   02-expanded       peers category expanded → per-entity rows
@@ -9,7 +9,7 @@
  *   03-collapsed-back chevron click collapses again
  *
  * Per-row visibility (eyeball click) and row-drag-reorder are
- * deliberately NOT covered here because their pointer coords
+ * NOT covered here because their pointer coords
  * depend on `scrubberHeight` growth post-expand in ways the
  * fixed-pixel probe can't predict reliably across panel sizes.
  * Their behavior is covered by the `hitTestGutter` unit tests
@@ -82,7 +82,7 @@ async function snap(name: string): Promise<Uint8Array> {
 	});
 }
 
-// Cheap content fingerprint — hash bytes past the PNG header.
+// Cheap content fingerprint, hash bytes past the PNG header.
 // Different content ⇒ different fingerprint.
 function fingerprint(buf: Uint8Array): string {
 	let hash = 0;
@@ -92,7 +92,7 @@ function fingerprint(buf: Uint8Array): string {
 	return `${buf.length}:${hash}`;
 }
 
-// (1) Default — everything collapsed.
+// (1) Default, everything collapsed.
 const buf1 = await snap("01-default");
 const fp1 = fingerprint(buf1);
 console.log(`01-default        fp=${fp1}`);
@@ -115,7 +115,7 @@ const fp2 = fingerprint(buf2);
 console.log(`02-expanded       fp=${fp2}`);
 
 // (3) Click the chevron again to collapse back. Re-measure
-// the pane bounds — expanded the pane grew taller, so the
+// the pane bounds, expanded the pane grew taller, so the
 // chevron is at a new viewport y.
 await page.mouse.click(8, await peersChevronY());
 await page.waitForTimeout(300);
@@ -129,7 +129,7 @@ const checks = {
 	"expand changed view": fp1 !== fp2,
 	"collapse changed view": fp2 !== fp3,
 	// Round-trip: collapsed view after toggling back should
-	// resemble the original (within fingerprint tolerance — the
+	// resemble the original (within fingerprint tolerance, the
 	// PNG bytes are deterministic for static pixel content).
 	"collapse restores original": fp1 === fp3,
 };

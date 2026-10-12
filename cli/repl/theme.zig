@@ -6,7 +6,7 @@ pub const Color = vaxis.Color;
 pub const Style = vaxis.Style;
 
 // ── Palette ──────────────────────────────────────────────────────────
-pub const accent = Color{ .index = 214 }; // amber — focus / brand
+pub const accent = Color{ .index = 214 }; // amber: focus / brand
 pub const accent_dim = Color{ .index = 172 };
 pub const muted = Color{ .index = 243 };
 pub const chrome_fg = Color{ .index = 249 };
@@ -18,7 +18,7 @@ pub const tip_fg = Color{ .index = 221 };
 pub const open_fg = Color{ .index = 114 };
 pub const link_fg = Color{ .index = 75 };
 pub const user_fg = Color{ .index = 229 };
-/// Selection wash — bright enough to read as “selected” on dark surfaces.
+/// Selection wash: bright enough to read as “selected” on dark surfaces.
 pub const select_bg = Color{ .index = 61 };
 pub const status_bg = Color{ .index = 235 };
 

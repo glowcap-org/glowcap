@@ -7,7 +7,7 @@
 ;; the recipient redeems it transparently by dialing that endpoint directly over
 ;; encrypted QUIC.
 ;;
-;; Topology — three iroh endpoints (separate identities) in one process, the
+;; Topology: three iroh endpoints (separate identities) in one process, the
 ;; relay-less DIRECT posture on loopback, so the gate is deterministic and
 ;; flake-free (no discovery service, no network):
 ;;   Exporter  binds an iroh endpoint and publishes a Host-published `greeter`.
@@ -17,7 +17,7 @@
 ;;             returns the greeter.
 ;;   Recipient binds its own endpoint, dials the gifter, asks the introducer for
 ;;             the greeter, transparently redeems the give by dialing the exporter
-;;             directly, and calls it — the reply must echo its name.
+;;             directly, and calls it, the reply must echo its name.
 ;;
 ;; Returning the exporter's greeter (home = gifter↔exporter) on the recipient's
 ;; connection trips the transparent gifter; the recipient's `session-send` resolves
@@ -83,8 +83,8 @@
 (define to-exporter
   (runtime-connect gifter-runtime (parse-locator exporter-uri)))
 (define greeter-ref (session-fetch to-exporter "greeter"))
-;; The exporter's own signed session record names it by node id alone — not
-;; dialable under the relay-less Direct posture — so record its full dialable
+;; The exporter's own signed session record names it by node id alone, not
+;; dialable under the relay-less Direct posture, so record its full dialable
 ;; location (id + direct-addresses) as the give's exporter location.
 (session-set-exporter-locator!
  to-exporter

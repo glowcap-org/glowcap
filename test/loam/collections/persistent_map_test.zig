@@ -171,7 +171,7 @@ test "an interior node emptied by removes still frees its whole block" {
     // Keys 1 and 1|64 share chunk 1 at shift 0, so both live under one
     // interior node. Removing both leaves that node empty in place (remove
     // does not canonicalize); the final deinit must free the emptied node's
-    // single block correctly — sized from its stored capacity, which the
+    // single block correctly, sized from its stored capacity, which the
     // testing allocator verifies against the allocation.
     const k1: u64 = 1;
     const k2: u64 = 1 | (1 << 6);

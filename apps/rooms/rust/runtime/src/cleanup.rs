@@ -1,6 +1,6 @@
 //! Folding a cleanup's failure onto the failure it followed, once, for an
 //! owner whose reader is a person at a terminal rather than another caller.
-//! The first cause stays first; a cleanup that also failed is named after it
+//! The first cause stays first. A cleanup that also failed is named after it
 //! rather than replacing it, so the operator reads what went wrong before what
 //! could not be undone.
 //!
@@ -10,9 +10,18 @@
 
 /// The outcome of `primary` followed by `cleanup`.
 pub fn combine(primary: Result<(), String>, cleanup: Result<(), String>) -> Result<(), String> {
-	match (primary, cleanup) {
-		(Ok(()), outcome) | (outcome, Ok(())) => outcome,
-		(Err(primary), Err(cleanup)) => Err(format!("{primary}; cleanup also failed: {cleanup}")),
+	match primary {
+		Ok(()) => cleanup,
+		Err(primary) => Err(failed(primary, cleanup)),
+	}
+}
+
+/// The failure of an owner that is already failing, with a failed `cleanup`
+/// named beside it. The primary cause stays first.
+pub fn failed(primary: String, cleanup: Result<(), String>) -> String {
+	match cleanup {
+		Ok(()) => primary,
+		Err(cleanup) => format!("{primary}; cleanup also failed: {cleanup}"),
 	}
 }
 

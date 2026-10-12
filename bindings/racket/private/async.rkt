@@ -4,7 +4,7 @@
 ;; the iroh companion injecting its own). Framing and the unconsumed tail are
 ;; the core's: the pump in `private/pump.rkt` hands each read to
 ;; `glowcap_host_session_feed_bytes`, whose codec delimits each complete frame
-;; — both codecs, both frame shapes, the frame cap enforced during the scan —
+;; (both codecs, both frame shapes, the frame cap enforced during the scan)
 ;; and buffers a partial frame in the session itself. This module knows
 ;; nothing about the host.
 
@@ -26,7 +26,7 @@
 ;;   close!       : (-> void)                        release the transport
 ;;
 ;; Contract: `write-frame!` and `flush!` move bytes only. They must not call a
-;; host verb or feed a session — a writer runs under the session's write
+;; host verb or feed a session. A writer runs under the session's write
 ;; gate, so a transport that re-enters the host from its write half would
 ;; self-deadlock on the gate it already holds.
 (struct async-transport (write-frame! flush! read-some! close!))
@@ -66,7 +66,7 @@
      ;; Bytes always beat wake: `sync` among ready events is nondeterministic,
      ;; so a posted progress evt can starve an input port that already holds
      ;; the partner's reply (CLIENT_TIMEOUT, serve still alive). Recheck after
-     ;; wake for the same reason — both can become ready together.
+     ;; wake for the same reason: both can become ready together.
      (cond
        [(byte-ready? in) (read-avail)]
        [else

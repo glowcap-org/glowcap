@@ -24,7 +24,7 @@ test "stateless GC releases a far introduced inside a nested argument" {
     // p2 hosts the deliver target; p1 holds it as an import.
     try p1.session_state.registerImport(.from(1));
     try p2.session_state.registerExport(.from(1));
-    // p1 hosts the object it introduces inside the nested arg — a reservation
+    // p1 hosts the object it introduces inside the nested arg, a reservation
     // whose first marshal below is what grants it.
     try p1.session_state.reserveExport(.from(7));
 
@@ -70,7 +70,7 @@ test "stateless GC releases a far introduced inside a nested argument" {
 test "stateless GC's fallback walk matches the threaded record for the same nested introduction" {
     // The session's validate walk threads its introduced-import record onto
     // an ordinary deliver's event (`Event.introduced_far_imports`), so `gc`
-    // reads it directly instead of re-walking the deliver's args — but a
+    // reads it directly instead of re-walking the deliver's args, but a
     // deliver surfaced by a path that does not thread one (today, a
     // pipelined call redirected to a local export,
     // `engine.pipeline.deliverDrainedCallLocally`) still needs the walk.

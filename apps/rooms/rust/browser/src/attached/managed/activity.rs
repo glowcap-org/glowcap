@@ -150,7 +150,7 @@ pub struct RoomsManagedActivityReader {
 #[wasm_bindgen]
 impl RoomsManagedActivityReader {
 	/// Decode one admitted envelope and one JavaScript event projection. Incoming
-	/// classification borrows that projection; a second Rust JSON tree would copy
+	/// classification borrows that projection. A second Rust JSON tree would copy
 	/// every message leaf solely to inspect its scalar notice kind. Wrappers keep
 	/// the exact workspace/token, bounded by Driver admission, never event payloads.
 	pub fn read(&self, cursor: js_sys::JsString, wait: bool) -> js_sys::Promise {
@@ -164,7 +164,10 @@ impl RoomsManagedActivityReader {
 		self.driver.submit(103, move |_| async move {
 			let raw = reader.read(&cursor, wait).await.map_err(|e| e.to_string())?;
 			let envelope: serde_json::Value = serde_json::from_str(&raw).map_err(|_| "Invalid activity delivery")?;
-			let token = envelope["cursor"].as_str().ok_or("Missing activity cursor")?;
+			let token = envelope["cursor"]
+				.as_str()
+				.filter(|token| token.len() <= 103)
+				.ok_or("Invalid activity cursor")?;
 			let Some(event) = envelope["data"].as_str() else {
 				return json(&raw);
 			};
@@ -176,7 +179,17 @@ impl RoomsManagedActivityReader {
 			let mut files = Vec::new();
 			if let Some(descriptions) = envelope["files"].as_array() {
 				for (index, description) in descriptions.iter().enumerate() {
-					let reader = workspace.activity_file(token, index).await.map_err(|e| e.to_string())?;
+					// Optional byte access cannot consume or block the message that
+					// carries it. Keep metadata and the exact selection for opening
+					// or retry; acquisition still checks the current file permission.
+					let reader = workspace
+						.activity_file(token, index)
+						.await
+						.map_err(|_| files::Selection {
+							workspace: workspace.clone(),
+							token: token.to_owned(),
+							index,
+						});
 					files.push(files::hold(&driver, reader, description.clone())?);
 				}
 			}

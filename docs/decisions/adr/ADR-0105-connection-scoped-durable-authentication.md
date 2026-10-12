@@ -3,7 +3,7 @@ id: ADR-0105
 status: accepted
 date: 2026-08-04
 tags: [captp, handshake, identity, transport, relay, iroh, webrtc, keyed-tcp]
-decision: "Durable authentication is a property of the realized connection, not its transport name. A matching authenticated-channel key supplies positive provenance; a dial target is only a requirement. ADR-0109 retires the durable-key hint credential, so claims without channel proof remain unauthenticated."
+decision: "Durable authentication is a property of the realized connection, not its transport name. A matching authenticated-channel key supplies positive provenance. A dial target is only a requirement. ADR-0109 retires the durable-key hint credential, so claims without channel proof remain unauthenticated."
 supersedes: []
 superseded_by: []
 amends: [ADR-0097]
@@ -20,7 +20,7 @@ either matching authenticated-channel proof or unauthenticated. The partner's
 verified session key, its signed locator claim, and channel provenance are
 separate facts. A dial's expected key constrains the acceptable claim but does
 not authenticate it. ADR-0109 limits that comparison to a selected
-key-designator route; a selected address route describes independent ingress.
+key-designator route. A selected address route describes independent ingress.
 
 The Context through Notes below preserve the design and rollout as adopted.
 Present-tense references there to `session-key-attestation`, credentials,
@@ -125,30 +125,27 @@ the blocking face, where `driver.Identity.ephemeral` is a caller declining a
 durable identity for one dial and drawing a throwaway key. That posture has no
 derivable name and correctly signs the placeholder.
 
-This is a wire change, and the section on wire compatibility below states its
-extent rather than leaving it to be discovered.
-
 ### 2. What a lower layer proved, only its realizer may say
 
 `engine.Peer.bindVerifiedChannelKey(key)` is the assertion, and it is made by
-supplying the key. ADR-0097 already named this symbol; it did not exist, and the
+supplying the key. ADR-0097 already named this symbol. It did not exist, and the
 `DurableKeyBasis` enum stood in for it, which let a caller pick
 `.transport_verified` from a name table. The enum goes. A dial installs its
 expectation with `demandPartnerDurableKey(key)`, and the code that realized the
 connection states, separately, what it verified.
 
-**Separately, because the two name different parties.** A realizer proves who
+The two are separate because they name different parties. A realizer proves who
 holds the far end of the *byte channel*. A dial names the CapTP partner it went
-looking for. On a direct dial those are one node; through a byte-transparent
+looking for. On a direct dial those are one node. Through a byte-transparent
 relay (ADR-0086) they are two, and a session has both facts at once. So
 `engine.DurablePin` carries two keys, a `partner` (with the evidence for it) and
 a `channel`, and neither can be read as the other. One slot holding whichever
-layer spoke last is the failure this record's own Context calls the costliest
-class in this core: a name used in a namespace that is not its own.
+layer spoke last is the failure the Context calls the costliest class in this
+core: a name used in a namespace that is not its own.
 
-It matters immediately, on the path this record exists to fix. A browser dials a
-member's `iroh` locator through the relay; the relay dials iroh from its own
-endpoint; the native exporter's resident reads the QUIC remote and it is the
+The relayed browser shows why. A browser dials a
+member's `iroh` locator through the relay. The relay dials iroh from its own
+endpoint. The native exporter's resident reads the QUIC remote and it is the
 *relay's* key. The browser's hello then claims the browser's own key. With one
 slot the exporter must either refuse a correct peer or forget what it proved.
 With two it does neither: the channel key admits nothing and refuses nothing
@@ -167,7 +164,7 @@ nothing.
 
 A proof and a demand that name different keys are therefore not a contradiction
 and do not fail the connection. Both verbs are infallible. What a dial demanded
-still governs admission, on its own; what a realizer proved only ever raises
+still governs admission, on its own. What a realizer proved only ever raises
 provenance for a claim it matches. A realizer cannot be given standing to refuse
 a partner, because it does not know whether it is looking at the partner.
 
@@ -185,24 +182,22 @@ channel key be what a realizer verified.
 2. A key claim naming a key other than the demand's is
    `PartnerDesignatorMismatch`.
 3. A key claim carrying an attestation hint has it verified, on every
-   transport. A hint that fails is `PartnerAttestationInvalid`; a hint that
+   transport. A hint that fails is `PartnerAttestationInvalid`. A hint that
    verifies records the claimed key as attested.
 4. A key claim carrying no attestation is `PartnerAttestationMissing`,
    unless the channel key equals the claim.
 
-Clauses 2 and 4 weigh the claim against two different parties, deliberately.
-Only the demand refuses, because only a demand says who this session meant to
-talk to; the channel key only ever admits a claim it matches. Reversing that —
-letting a realizer's key refuse a differing claim — is what refused the relayed
-browser above.
+Clauses 2 and 4 weigh the claim against two different parties. Only the demand
+refuses, because only a demand says who this session meant to talk to. The
+channel key only admits a claim it matches. Letting a realizer's key refuse a
+differing claim would refuse the relayed browser above.
 
 Clause 3 verifies whenever the credential is present and clause 4 requires it
-whenever nothing else proved the name. Those are one rule with two clauses, in
-one function, so belt and braces do not become two authorities. Only those two
-clauses need `verify_partner_handshake`, because a credential binding a session
-key nobody authenticated proves nothing. Clauses 1 and 2 weigh one name against
-another with no signature in them, so they hold for every peer: an embedder
-that waived handshake verification still dialed the identity it dialed.
+whenever nothing else proved the name. They are one rule in one function. Only
+those two clauses need `verify_partner_handshake`, because a credential binding
+a session key nobody authenticated proves nothing. Clauses 1 and 2 weigh one
+name against another with no signature in them, so they hold for every peer: an
+embedder that waived handshake verification still dialed the identity it dialed.
 
 The block runs only while the session is still waiting for the partner's hello
 (`session.Session.awaitsPartnerHello`). A duplicate or post-open
@@ -222,23 +217,22 @@ parameter, because there is no longer a question a transport string answers.
 - Otherwise `.unauthenticated`, reachable only for a peer that verifies no
   handshake.
 
-Every arm answers for the key the claim names and no other, which is what makes
-the `designator` argument load-bearing throughout rather than in one arm. Each
-fact lives beside the key it is about, so no consumer can read one of them
-against a different name.
+Every arm answers for the key the claim names and no other. Each fact lives
+beside the key it is about, so no consumer can read one of them against a
+different name.
 
 A realizer's proof outranks the credential because it also binds the byte channel,
 while the credential is static authorization over a record. The order is stated
 once, in one function, and `driver_core.vocab.PartnerIdentity.durableIdentityAuthenticated`
 keeps its meaning for every caller including `driver_core.enliven.matchSturdyrefPeer`.
 
-The equality clause matters more than it looks. Transport proof identifies the
+Transport proof identifies the
 far end of the *byte channel*, and a byte-transparent relay makes that a
 different party from the CapTP partner. Requiring the claim to equal the proved
 key is what keeps `.authenticated_transport` meaning "my partner is the endpoint
 I am encrypted to". A relayed session whose partner proved itself by credential
-lands on `.durable_key_attestation` instead, which is the honest report of what
-was proved, and matches the posture section below.
+lands on `.durable_key_attestation` instead, which reports what was proved
+and matches the posture section below.
 
 ### The ordering constraint dissolves
 
@@ -259,22 +253,19 @@ removes the constraint rather than working around it.
 `engine.Peer` replaces `expected_durable_key: ?PeerKey` plus two bools with one
 `DurablePin { partner: ?{ key, demanded, attested }, channel: ?PeerKey }`.
 
-That is not byte-neutral, and the second key is the cost of the decision rather
-than an overrun. Two parties at the far end of one session are two names, and
-one 32-byte slot can hold only one of them. Measured: `@sizeOf(engine.Peer)`
-goes from 1080 to 1112 bytes on a 64-bit build, so
+The second key is the cost of the decision: two parties at the far end of one
+session are two names, and one 32-byte slot holds one. Measured:
+`@sizeOf(engine.Peer)` goes from 1080 to 1112 bytes on a 64-bit build, so
 `peer_session_struct_budget_bytes` and the `docs/ladder.md` step 2 row both move
-to 1112 — the measured size, so the next field added here is a build failure
-rather than a withdrawal nobody watches. At 500,000 sessions the second key is
-16 MiB, against a warmed per-session ceiling of 2 KiB that
-`test/engine/footprint_budget_test.zig` still holds. Nothing here allocates: the
-keys are fixed-width and live in the struct.
+to 1112. The budget is the measured size, so the next field added here is a
+build failure. At 500,000 sessions the second key is 16 MiB, against a warmed
+per-session ceiling of 2 KiB that `test/engine/footprint_budget_test.zig` still
+holds. Nothing here allocates: the keys are fixed-width and live in the struct.
 
-The assertion stays a ceiling rather than an equality, unlike the `Conn` slot
-overhead in `src/net/completion/loop/state.zig`. That one measures a difference
-between two sizes on one target; this one measures a struct full of pointers,
-and `wasm32` makes it genuinely smaller, so no single number is the measurement
-everywhere.
+The assertion is a ceiling, unlike the `Conn` slot overhead in
+`src/net/completion/loop/state.zig`, which measures a difference between two
+sizes on one target. This struct is full of pointers and is smaller on
+`wasm32`, so no single number is the measurement everywhere.
 
 `HostSession` gains no field, and `durableProvenance` losing its transport
 argument removes an argument from three call sites rather than adding state.
@@ -304,14 +295,13 @@ family, and the browser tier. It is the change the mint-condition section above
 argues for: the placeholder was an address on a transport whose grammar is a
 key, and a partner could attribute the session to nobody.
 
-Its consequence for a partner is the good direction. A hello that named nothing
-now names a durable identity and proves it, so the accepting side reports
-`.durable_key_attestation` where it used to report `.unauthenticated`. Nothing
-refuses the new shape: an accept leg holds no demand, and clause 3 verifies the
-credential the hello carries. What a partner may not do is stay anonymous on a
-key-scheme transport from a byte-fed Host; that posture is the blocking face's
-`Identity.ephemeral`, and the Scope section records that the Host tier does not
-offer it.
+A hello that named nothing now names a durable identity and proves it, so the
+accepting side reports `.durable_key_attestation` where it used to report
+`.unauthenticated`. Nothing refuses the new shape: an accept leg holds no
+demand, and clause 3 verifies the credential the hello carries. What a partner
+may not do is stay anonymous on a key-scheme transport from a byte-fed Host.
+That posture is the blocking face's `Identity.ephemeral`, and the Scope section
+records that the Host tier does not offer it.
 
 Goblins implements neither `iroh` nor `webrtc`, and speaks `tcp` with address
 designators, so no hello a Goblins peer sees changes shape. The hint remains the
@@ -325,11 +315,11 @@ change.
 
 One tightening reaches every transport. A `tcp` partner that claims a
 key designator must now attest it or be refused. Nothing in the tree
-does this and Goblins does not, and refusing it is the honest reading of the
-rule: whoever claims a durable name proves it. That universality is what lets
+does this and Goblins does not. The rule is that whoever claims a durable name
+proves it. That universality is what lets
 the transport table go.
 
-## Security posture, stated plainly
+## Security posture
 
 A relayed key-designator session has `keyed-tcp`'s posture, not iroh's. The
 credential proves the durable key authorized this session key, over a static
@@ -339,18 +329,11 @@ carrier. Provenance reports which fact was proved, so an application reading
 changes is that the relayed dialer now has a proof at all, and that a dial
 naming a durable key can no longer settle for a partner that claims none.
 
-`docs/boundaries.md` currently says a relayed browser handshake "still
-authenticates the peers end to end" and lists mechanisms by transport. Both
-sentences become true under this decision instead of aspirational, and the
-transport list is replaced by the connection rule.
-
 ## Required evidence
 
-Before ADR-0109 retired the credential branch, the four-clause rule and both
-evidence verbs were held by its attestation contract test,
-and the byte-fed tier by
-[`test/driver/core_host/`](../../../test/driver/core_host/).
-Each item below names what carries it, or says plainly that nothing does yet.
+The byte-fed tier is held by
+[`test/driver/core_host/`](../../../test/driver/core_host/). Each item below
+names what carries it, or says that nothing does.
 
 1. A peer reached through a relay reports `durable_key_attestation` provenance
    and an authenticated durable identity, on the strength of its credential
@@ -369,8 +352,8 @@ Each item below names what carries it, or says plainly that nothing does yet.
    completion `Bridge` faces are not each asserted separately.
 4. A WebRTC leg whose signaling named no peer identity refuses a key-designator
    claim that carries no credential. The engine half is held by "a key-designator
-   claim nothing proved is refused before open"; the WebRTC answer leg that
-   records a signaling-scoped identity is migration step 6 and is not built.
+   claim nothing proved is refused before open". The WebRTC answer leg that
+   records a signaling-scoped identity is not built.
 5. Each keyed transport's per-binding proof asserts provenance. The Python and
    Racket rows of the keyed-TCP restart family do. The Deno and Rust rows of
    that family, and the whole `keyed-relay` rendezvous family, assert none.
@@ -379,106 +362,9 @@ Each item below names what carries it, or says plainly that nothing does yet.
    `core_host_test.zig` and by "a hello advertising a key the sender cannot sign
    for is refused here".
 7. The refusal matrix of ADR-0097 still holds, and the keyed-TCP and keyed-relay
-   hello bytes are unchanged. Held by the mutation negatives in
-   the former attestation contract test and committed signing vectors. ADR-0109
-   removed that evidence with the mechanism.
+   hello bytes are unchanged. ADR-0109 removed the mutation
+   negatives and signing vectors that held it, with the mechanism.
 
-## Migration standing
-
-Steps 1 through 3 and step 7 have landed, so the decision governs the tree: the
-transport table is gone, the pin carries two keys, the chokepoint derives the
-demand, and `source-check` holds the pin's writers. This record is accepted on
-that basis, which is what the decisions README asks for before code is built
-against a record.
-
-Steps 4 through 6 have not landed. Step 7 landing ahead of the evidence step is
-out of order, and this record says so rather than reading as if the plan were
-followed: the `source-check` swap and the `docs/boundaries.md` rewrite are in,
-while the live browser relay probe, the live substituted-node negative, the
-missing per-binding provenance assertions, and the WebRTC answer leg are not.
-Required evidence items 1 through 5 above say which half of each is covered.
-
-Step 5 has landed. `glowcap_iroh_conn_remote_node_id` hands a connection's
-QUIC-verified endpoint id to whoever opened it, on an accepted connection as on
-a dialed one, and `glowcap_host_session_bind_verified_channel_key` is where that
-proof reaches a session: the C entry point for `engine.Peer.bindVerifiedChannelKey`,
-refused once the partner's handshake has been applied. The Goblins netlayer in
-`conformance/goblins-peer/racket/iroh-netlayer.rkt` weighs the id itself, and
-`zig build goblins-iroh` holds the accepting side reporting
-`authenticated-transport` and naming the endpoint that called it.
-
-Each binding's own iroh accept and dial paths now testify without being asked,
-so an application that calls the binding's `listen`/`connect` gets the fact for
-free and never names this verb. That is what closes the gap the step was
-written for: a binding hosting its own glowcap iroh listener reported only what
-its partner's credential proved, while a stronger fact sat one call away in the
-transport archive it had already linked.
-
-The archives stay symbol-disjoint through it. `libglowcap_net_transport_iroh`
-still does not link `libglowcap_host`, because the relay dials iroh as a byte
-pipe with no CapTP host at all; a transport that called into the host would take
-the session pointer from the same caller that holds the connection, which is the
-composition the embedder was already doing.
-
-## Migration order
-
-Each step is green on its own gate before the next begins.
-
-1. **Mint everywhere.** The mint moves into `engine.Peer.sendKeyedStartSession`
-   and conditions on durable-key possession; `engine.keyedHelloHints` goes away,
-   and `helloAndEnroll` and the blocking connect and accept paths stop
-   assembling credentials of their own. Add the refusal to advertise an unheld
-   key designator, and derive the advertised designator on a key-scheme
-   transport (`driver_core.sessions.advertisedDesignator`). The credential is
-   additive on the wire; the derivation is not, and the wire section above is
-   where its extent is stated. Gate: `zig build test`, then `zig build check`,
-   then `zig build iroh-interop`, `webrtc-interop`, `bindings-relay-iroh`,
-   `check-external`.
-2. **Realizers assert.** Add `engine.Peer.bindVerifiedChannelKey` and delete
-   `DurableKeyBasis`. `net.transport.iroh.residentDial` reads the connection's
-   remote node id and asserts it. `connectVia` stops deriving a basis from
-   `nl.authentication()`. Delete `net.netlayer.AuthenticationMechanism`, its
-   vtable field, and `vocab.authenticationMechanismForTransport`. Gate:
-   `zig build source-check`, `zig build test`, `iroh-interop`, `iroh-loop`,
-   `webrtc-interop`, `tcp-loop`.
-3. **Derive the demand.** Replace the pin fields with `DurablePin`'s two keys,
-   record the credential verdict on the partner half, implement the four-clause
-   chokepoint rule, delete `requirePartnerAttestation`, and move provenance onto
-   the engine. Gate: `zig build test`, `zig build oracle-check`,
-   `zig build check`, then `check-external`, the relay family, and
-   `rooms-web-dm`.
-4. **Evidence for the uncovered path.** Assert provenance in the browser-over-relay
-   iroh probe and add the substituted-node negative. Add the missing provenance
-   assertions to the `keyed-relay` rendezvous proofs and to the Deno and Rust
-   rows of the keyed-TCP restart family. Gate: `zig build bindings-relay-iroh`,
-   `bindings-keyed-relay-rendezvous`, `bindings-keyed-tcp-restart`,
-   `rooms-web-dm`.
-5. **The C ABI seam.** Landed as
-   `glowcap_host_session_bind_verified_channel_key`, the C entry point for
-   `engine.Peer.bindVerifiedChannelKey`, over `Host.bindVerifiedChannelKey`. It
-   is refused once the partner's handshake has been applied, so it needs no new
-   per-session flag, and it takes the key as a locator writes it so the one
-   decoder stays where designator rules live. Surface the remote node id on the
-   iroh transport archive so a binding-hosted listener can call it; each
-   binding's iroh accept and dial paths then do so themselves. Gate: `zig build gen-header-host`,
-   `gen-header-net-transport-iroh`, `gen-ts-abi`, the `gen-binding-*` family,
-   `zig build bindings`, `deno-iroh-loop`, `bindings-iroh-handoff`.
-6. **WebRTC answer leg.** Record the signaling-scoped identity on the answer leg
-   where the signaling owner names one, so both legs report the fact they hold.
-   Gate: `zig build webrtc-interop`, `webrtc-signaling-captp`,
-   `rooms-web-dm-webrtc`.
-7. **Scaffolding and docs.** Replace `source-check`'s
-   `checkAuthenticationMechanismSync` with `checkDurablePinWriters`: the two
-   evidence verbs are callable only from the layer that holds each fact, and the
-   pin's own field name appears only in the file that declares it, so a direct
-   write or a rival derivation is refused rather than merely discouraged. Add
-   `checkHostErrorCodeMap`, so a new `HostError` member cannot reach a C
-   embedder as `GLOWCAP_ERR_INTERNAL` by falling through two `else` arms. Add
-   the transport-symbol row to the Names table in
-   `tools/check/source_check/namespaces.zig` recording that a transport string does
-   not name an authentication mechanism. Update `docs/boundaries.md`,
-   `docs/architecture.md`, and `docs/shipped.md`. Gate: `zig build source-check`,
-   `zig build check`.
 
 ## Scope (what this does not decide)
 
@@ -497,14 +383,14 @@ Each step is green on its own gate before the next begins.
   relay's durable name and be reported `.authenticated_transport`. Closing it
   means dropping clause 4's escape and requiring a credential universally, which
   is a separate wire decision about peers that prove by transport and mint
-  nothing. The exposure is unchanged from before this record; it is named here
+  nothing. The exposure is unchanged from before this record. It is named here
   because the two-key split is what makes it possible to state.
 - **A byte-fed Host has one durable identity and every key-scheme dial
   advertises it.** There is no anonymous posture at this tier. Declining a
   durable identity for one dial is `driver.Identity.ephemeral` at the blocking
   face, which draws a throwaway key and signs the placeholder.
-- **`designatorSchemeForTransport` stays.** Locator grammar genuinely is a
-  property of the transport symbol. Only the mechanism was the impostor.
+- **`designatorSchemeForTransport` stays.** Locator grammar is a property of
+  the transport symbol. Only the mechanism was not.
 - **WebRTC's DTLS fingerprint attestation is still adapter work.**
   `authorizeRemote` remains the signaling capability's scope rather than a
   sidecar proof. What changes is that its absence no longer silently reads as a
@@ -535,80 +421,31 @@ Each step is green on its own gate before the next begins.
   path the live trace reads per session, and it makes the retained bytes a
   second authority for a verdict the chokepoint already reached.
 - **Leave the address-claim downgrade open and report it through provenance.**
-  Rejected: a dial named an identity. Opening a session to a peer that claims
-  none and reporting it quietly is the same defect one layer further out, and
-  every consumer would have to remember to check.
-- **One key in the pin, with a flag saying which layer put it there.** Rejected,
-  and it is the design this record shipped first. It survives only while a dial
-  and a realizer always agree, which is exactly the assumption a relay breaks:
-  the accepting side then has to choose between forgetting what QUIC proved and
-  refusing a partner whose credential is perfectly good. Policing the collision
-  instead of adding the dimension is the move `AGENTS.md`'s Names rule says has
-  had to be taken back every time.
+  Rejected: a dial named an identity, and every consumer would have to remember
+  to check.
+- **One key in the pin, with a flag saying which layer put it there.** Rejected.
+  It survives only while a dial and a realizer agree, which a relay breaks: the
+  accepting side must then forget what QUIC proved or refuse a partner whose
+  credential is good.
 - **Keep the placeholder designator for a non-listening Host.** Rejected: it
   carries a `tcp` address on a transport whose designator grammar is a key, so
-  the partner has nothing to attribute the session to, which is the defect a
-  browser member's direct message reported. Deriving the one legal value costs
-  the caller nothing to say and makes the wrong one unrepresentable.
-
-## Review lenses
-
-Four lenses were run over the plan. Each challenged it, and each changed it.
-
-**Wire clarity** challenged the claim that minting on `iroh` is harmless, and
-demanded the interop consequence be named rather than assumed. It also refused
-the first draft's "verify if present, require if nothing proved" as two rules
-that could drift apart. Three changes followed. The rule became four numbered
-clauses in one function with a stated precedence. The wire section now names
-exactly which hellos change bytes and which do not, and cites
-`goblins-gift-hints` as the live decode evidence rather than asserting Goblins
-tolerance. The tightening on `tcp` key-shaped claims is stated as a deliberate
-universal rule instead of being left as an accident of deleting the table.
-
-**Stability steward** challenged the evidence list. Its objection was that a
-design fixing an uncovered path must not ship with that path still uncovered,
-and that a per-binding proof family with one row missing its assertions is a
-tier claimed on partial evidence. Required evidence item 1 now names the
-uncovered path explicitly. Item 2 adds the substituted-node negative, so the
-positive cannot pass on a coincidence. Migration step 4 exists solely to close
-the `keyed-relay` rendezvous family's silence and the TypeScript keyed-TCP row's
-missing assertions. It also forced the security posture section: a
-relayed session's provenance means `keyed-tcp`'s guarantee, and saying so is
-cheaper than a consumer discovering it.
-
-**Fresh eyes** challenged the vocabulary. "Authentication mechanism", "durable
-key basis", and "provenance" were three names for overlapping things, and a
-reader could not tell which one an adapter was supposed to set. The decision is
-now organized as three numbered facts with an owner each. The enum with a
-member any caller could pick is replaced by a verb only a realizer would reach
-for. The reason the transport name cannot be renamed moved into the Context,
-where a newcomer meets it, rather than staying buried in Alternatives.
-
-**Scaffolding rigor** challenged the plan for deleting a `source-check` member
-without replacing it, which would leave a real invariant with nothing holding
-it. Migration step 7 now replaces `checkAuthenticationMechanismSync` with a
-check that `bindVerifiedChannelKey` appears only in connection-realizing code,
-and adds the transport-symbol row to the Names table. The layering rule this ADR
-argues in prose is then held by the gate rather than by memory.
-
-The strongest objection came from wire clarity and it stands answered in the
-design rather than in prose: two mechanisms proving one fact is a second
-authority unless one function computes one verdict in a stated order. That is
-why provenance moved onto the engine, lost its transport parameter, and became
-the single ordered derivation the chokepoint and the report both read.
+  the partner has nothing to attribute the session to. Deriving the one legal
+  value makes the wrong one unrepresentable.
 
 ## Consequences
 
 - `driver_core.vocab` loses `AuthenticationMechanism` and
-  `authenticationMechanismForTransport`; `net.netlayer` loses the mirror enum
-  and its vtable field; `source-check` loses their sync check and gains a
+  `authenticationMechanismForTransport`. `net.netlayer` loses the mirror enum
+  and its vtable field. `source-check` loses their sync check and gains a
   call-site check.
 - `engine.Peer` loses `DurableKeyBasis`, `requirePartnerAttestation`, and
   `require_partner_attestation`, and gains `DurablePin`,
   `demandPartnerDurableKey`, `bindVerifiedChannelKey`,
   `recordAttestedDurableKey`, the two read accessors `demandedPartnerKey` and
   `verifiedChannelKey`, and `partnerDurableProvenance`. Three verbs write the
-  pin and nothing else names it; `source-check` holds both halves.
+  pin and nothing else names it. `source-check` holds both halves
+  (`checkDurablePinWriters`), and `checkHostErrorCodeMap` keeps a new
+  `HostError` member from reaching a C embedder as `GLOWCAP_ERR_INTERNAL`.
 - `engine.partnerAttestationVerifies` answers with an optional
   `VerifiedAttestation` rather than a bool, so the key a credential proved and
   the fact that it was checked travel together and
@@ -623,13 +460,20 @@ the single ordered derivation the chokepoint and the report both read.
   key-designator claim anywhere must carry one unless a realizer proved it.
 - A key-designator dial becomes a demand rather than a preference: the partner
   claims the named identity and proves it, or the session does not open.
-- `docs/boundaries.md` stops listing authentication by transport and states the
-  connection rule, including the relayed session's replay posture.
+- `docs/boundaries.md` states the connection rule, including the relayed
+  session's replay posture, instead of listing authentication by transport.
+- `glowcap_iroh_conn_remote_node_id` hands a connection's QUIC-verified endpoint
+  id to whoever opened it, accepted or dialed.
+  `glowcap_host_session_bind_verified_channel_key` is the C entry point for
+  `engine.Peer.bindVerifiedChannelKey`, refused once the partner's handshake has
+  been applied. Each binding's iroh accept and dial paths call it themselves.
+  `libglowcap_net_transport_iroh` does not link `libglowcap_host`, because the
+  relay dials iroh as a byte pipe with no CapTP host.
 
 ## Notes
 
 - ADR-0097 owns fresh session keys, the credential's record shape and signing
-  domain, and the two-signature chain. All of that stands; this record replaces
+  domain, and the two-signature chain. All of that stands. This record replaces
   its per-transport mechanism assignment with a per-connection one.
 - ADR-0086's byte-transparency property is unchanged. This record states its
   consequence for verification: a transport proof names the far end of the byte

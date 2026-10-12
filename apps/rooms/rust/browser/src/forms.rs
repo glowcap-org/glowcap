@@ -1,5 +1,5 @@
 //! Bounded form transfer. Shared declarations own required answers and secret
-//! separation; browser widgets retain only their currently edited input.
+//! separation. Browser widgets retain only their currently edited input.
 use rooms_application::bridge::{self, Answers, Form};
 use wasm_bindgen::prelude::*;
 

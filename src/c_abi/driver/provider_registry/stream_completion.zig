@@ -4,7 +4,7 @@
 //! Each verb calls the table once and checks its outputs against the stream
 //! contract in `c_abi/shared/transport_provider.zig`. A provider that breaks
 //! the contract is reported to `Sink.violation` and the verb fails with
-//! `ProviderContract`; a teardown failure goes to `Sink.teardown`, because
+//! `ProviderContract`. A teardown failure goes to `Sink.teardown`, because
 //! nothing in the loop waits on a release. A completion carries one error, so
 //! a failure reaches the loop as its chain's primary cause.
 

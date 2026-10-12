@@ -3,7 +3,7 @@
 //! (real loopback sockets behind one epoll descriptor, the shape the iroh
 //! sidecar exposes), and an accept-capable sibling whose bookkeeping the
 //! lifecycle and provider scenarios interrogate. Linux-only, like the other
-//! epoll-shaped suites; `test/all_test.zig` gates the imports.
+//! epoll-shaped suites. `test/all_test.zig` gates the imports.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -288,7 +288,7 @@ pub const FakeResident = struct {
 };
 
 /// A listener-only resident for ownership injection. `announceAccept` makes
-/// its readiness descriptor readable; `finishAccept` claims exactly one stable
+/// its readiness descriptor readable. `finishAccept` claims exactly one stable
 /// id, and `connClose` counts the one terminal release that id must receive.
 pub const AcceptOwnershipResident = struct {
     wake: net.wake_channel.WakeChannel,

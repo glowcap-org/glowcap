@@ -2,7 +2,7 @@
 //
 // Every conversation names the directory it is on, and pressing those words
 // opens that directory. This card still answers the three questions a locator
-// raises and a name cannot, from the directory conversation's title — the same
+// raises and a name cannot, from the directory conversation's title: the same
 // pattern a room's title uses. That title's close mark asks to leave, in this
 // same card, rather than putting the view away. Settings
 // keeps this page's locators and opens that same conversation for the directory
@@ -153,8 +153,8 @@ function DirectoryDialog(
 	const session = useRoomsSession();
 	const close = useRef<HTMLButtonElement>(null);
 	const dialog = useRef<HTMLDialogElement>(null);
-	// The hook owns the whole modal lifecycle — showing, Escape, the backdrop
-	// press, and where focus lands — so this component never opens a dialog by
+	// The hook owns the whole modal lifecycle (showing, Escape, the backdrop
+	// press, and where focus lands) so this component never opens a dialog by
 	// hand and never has a second way to close one.
 	useModalDialog(dialog, () => browser.aboutDirectory(null), close, open, onExited);
 	// Asked before it is done, and asked in this card rather than in one over it:
@@ -212,7 +212,7 @@ function DirectoryDialog(
 
 					{
 						/* No label over the field: the heading above is the directory's name.
-								    What the directory is sits in one well — the locator, its facts,
+								    What the directory is sits in one well: the locator, its facts,
 								    and the granted-name note are all one answer. */
 					}
 					<div className="group well">
@@ -228,7 +228,7 @@ function DirectoryDialog(
 						/* Where the reader stands on this one directory, in a well of its
 								    own: it is the card's one thing the reader can change, so it does
 								    not sit among the facts. Away is a thing you are on a server in
-								    IRC, in every channel on it at once, and this is that answer —
+								    IRC, in every channel on it at once, and this is that answer,
 								    one level in from the foot of the rail, which is about the reader
 								    everywhere. */
 					}
@@ -280,11 +280,12 @@ function DirectoryDialog(
 									<WorkingAction
 										id="dircardRetry"
 										busy={retry.busy}
+										busyLabel={directoryRetrying}
 										stopLabel={directoryRetryStop}
 										onStop={retry.cancel}
 										onClick={() => void retry.run()}
 									>
-										{retry.busy ? directoryRetrying : directoryRetry}
+										{directoryRetry}
 									</WorkingAction>
 								)}
 								<Button

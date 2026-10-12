@@ -30,13 +30,13 @@ const Group = struct {
 };
 
 /// All exact gift groups rooted in one live Gifter–Exporter session. Making
-/// the gifter the outer key means session close touches only its own groups;
-/// unrelated tenants never enter that teardown path.
+/// the gifter the outer key means session close touches only its own groups.
+/// Unrelated tenants never enter that teardown path.
 const GifterGroups = struct {
     gifts: std.AutoHashMapUnmanaged([16]u8, Group) = .empty,
 };
 
-/// Aggregate storage stays inline in `Node`; this module is its sole lifecycle
+/// Aggregate storage stays inline in `Node`. This module is its sole lifecycle
 /// owner and does not add a second scheduler object or indirection.
 pub const Gifters = std.AutoHashMapUnmanaged(PeerHandle, GifterGroups);
 pub const Changes = std.ArrayListUnmanaged(HandoffDependency);

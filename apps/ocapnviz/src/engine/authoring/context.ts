@@ -1,5 +1,5 @@
 /**
- * `AuthoringContext` — the narrow surface the document-authoring
+ * `AuthoringContext`. The narrow surface the document-authoring
  * subsystem needs from the Engine. The Engine creates one Context
  * in its constructor and passes it to every authoring function.
  *
@@ -7,7 +7,7 @@
  * need subscribers, the error channel, transactions, the tick loop,
  * or the validate API. The context exposes only the state container
  * + post-mutation orchestration (`seekTo`) + the id-minter. Builder
- * routing lives in `dispatch.ts`; paste still brackets undo on Engine
+ * routing lives in `dispatch.ts`. Paste still brackets undo on Engine
  * because it owns the history snapshot.
  */
 
@@ -21,7 +21,7 @@ export interface AuthoringContext {
 	/** Mutable. Authoring functions write `doc.entities` /
 	 *  `doc.recording` / `doc.duration` / `doc.rowOrder` directly. */
 	readonly doc: TimelineDocument;
-	/** ECS world — rebuilt by `seekTo` after doc mutations. A few
+	/** ECS world, rebuilt by `seekTo` after doc mutations. A few
 	 *  authoring paths read it for validation (does the peer exist?). */
 	readonly world: GameWorld;
 	/** Read for `clock.t` (the "now" used as the default timestamp
@@ -39,7 +39,7 @@ export interface AuthoringContext {
 	mintId(): number;
 	/**
 	 * Re-derive keyframe layout from the document. Inside an open
-	 * transaction this only marks the layout dirty; `endTransaction`
+	 * transaction this only marks the layout dirty, `endTransaction`
 	 * runs one `recompute` for the whole gesture (Unpin all, batched
 	 * deletes).
 	 */
@@ -51,13 +51,13 @@ export interface AuthoringContext {
 	seekTo(targetT: number): void;
 	/** Wake React-side subscribers (`useEngineVersion`) without a
 	 *  seek. Used by mutations that don't change observations
-	 *  themselves (row reorder) — the renderer reads the affected
+	 *  themselves (row reorder). The renderer reads the affected
 	 *  field directly each paint and just needs to know to repaint. */
 	notify(): void;
 	/** Surface a user-visible error through the engine's error
 	 *  channel. Authoring functions that reject invalid input (out-of-
 	 *  range duration, peer-not-in-doc, ordering violation, …) call
 	 *  this with a `validationError` so the UI toast/inline surfaces
-	 *  pick it up — fail-loud over silent-recovery. */
+	 *  pick it up, fail-loud over silent-recovery. */
 	emitError(error: EngineError): void;
 }

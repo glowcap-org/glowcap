@@ -172,7 +172,7 @@ pub fn PinnedRawStream(comptime Raw: type) type {
 /// writes a `@ptrCast` accessor stub. `Impl` declares:
 ///
 /// - `State`: the type the vtable's `ctx` points at, usually heap-pinned.
-/// - `metadata`: the `model.transport.Metadata` this listener hosts; its symbol,
+/// - `metadata`: the `model.transport.Metadata` this listener hosts. Its symbol,
 ///   designator scheme, and sealed-channel flag fill the vtable.
 /// - `accept(*State, *engine.Peer, Buffers) AcceptError!Connection`
 /// - `waitAcceptable(*State, i32) AcceptError!bool`
@@ -185,7 +185,7 @@ pub fn PinnedRawStream(comptime Raw: type) type {
 ///   descriptor.
 /// - optional `restorationState(*State, []u8) RestorationStateError!usize`.
 ///
-/// Each verb keeps its own error projection; the shell adds none.
+/// Each verb keeps its own error projection. The shell adds none.
 pub fn ListenerShell(comptime Impl: type) type {
     return struct {
         pub const State = Impl.State;
@@ -300,7 +300,7 @@ pub fn ResidentContext(comptime R: type) type {
     };
 }
 
-/// Linear transport-symbol lookup for the deliberately small resident set.
+/// Linear transport-symbol lookup for the small resident set.
 pub fn resolve(comptime T: type, items: []const T, transport: []const u8) ?T {
     for (items) |item| {
         if (std.mem.eql(u8, item.transportName(), transport)) return item;

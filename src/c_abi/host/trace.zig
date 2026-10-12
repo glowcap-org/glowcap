@@ -1,10 +1,10 @@
 //! Trace configuration and projection for the byte-fed C ABI Host subject.
 //!
 //! Core trace events remain typed facts. This leaf owns their optional callback
-//! and bounded-ring projections; the public archive symbols stay in `host.zig`.
+//! and bounded-ring projections. The public archive symbols stay in `host.zig`.
 //! Callback event views are borrowed for that call and may not re-enter a
 //! Host-driving verb. The pull queue owns `capacity` fixed records with
-//! `payload_cap` bytes each; overflow drops the newest fact and reports loss on
+//! `payload_cap` bytes each. Overflow drops the newest fact and reports loss on
 //! a later retained record, so observation never blocks protocol progress.
 //! A popped record stays borrowed only until the next pop.
 

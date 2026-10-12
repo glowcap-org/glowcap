@@ -1,13 +1,13 @@
 //! A whole CapTP conversation over the multiplexed resident (ADR-0112): the
-//! three-party dial drives the seam's whole surface — the first connect
+//! three-party dial drives the seam's whole surface, the first connect
 //! through the awaiting pump, and the redeem dial a give provokes *inside* a
-//! blocking call, the nested connect wait — and the throttled test drives the
+//! blocking call, the nested connect wait, and the throttled test drives the
 //! outbound retention contract: a frame larger than the write window survives
 //! `would_block`, resumes on `ev_writable`, and never reorders.
 //!
 //! Validated against injected defects: with `handleResidentEvent`'s
 //! `ev_connect` arm dropped, the dial hangs to `HandshakeTimedOut` and both
-//! tests fail; with `pushPendingResident` resuming from offset zero, the
+//! tests fail. With `pushPendingResident` resuming from offset zero, the
 //! throttled call dies on a corrupt frame. Restored, both pass.
 
 const std = @import("std");

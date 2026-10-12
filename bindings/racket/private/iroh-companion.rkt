@@ -1,9 +1,8 @@
 #lang racket/base
 ;; Where the iroh transport lives, and the only way the binding reaches into it.
 ;;
-;; Two files used to spell out the location and the load, which made it two
-;; facts that could drift. It is one fact, and it lives here; `dial.rkt` and
-;; `../relay.rkt` both come through this module.
+;; The location and the load are one fact, kept here so they cannot drift.
+;; `dial.rkt` and `../relay.rkt` both come through this module.
 ;;
 ;; The transport is loaded on demand rather than required, so a program that
 ;; never dials an iroh locator never opens the iroh library. Loading on demand

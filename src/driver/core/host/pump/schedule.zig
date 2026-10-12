@@ -16,20 +16,20 @@ const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
 const HostAction = host_action.HostAction;
 
-/// Note that `peer_handle` has enqueued-but-unencoded outbound; the top-level
-/// verb's unwind drives it. Deduplicated, and legal under the latch — this
-/// is exactly how a nested verb's outbound reaches the wire.
+/// Note that `peer_handle` has enqueued-but-unencoded outbound. The top-level
+/// verb's unwind drives it. Deduplicated, and legal under the latch. This is
+/// how a nested verb's outbound reaches the wire.
 ///
 /// `pending_flush` is the encode worklist (sessions that need
-/// `Served.driveFed`). `HostAction.flush` is a different queue by design:
-/// the embedder signal that outbound frames are ready to write.
+/// `Served.driveFed`). `HostAction.flush` is a different queue: the embedder
+/// signal that outbound frames are ready to write.
 pub fn markDirty(self: *Host, peer_handle: engine.PeerHandle) void {
     scheduleSessionWork(self, peer_handle, true);
 }
 
 /// Stage teardown work without manufacturing an embedder flush wake. Session
-/// cancellation requested inside a callback is consumed by that verb's unwind;
-/// outside a callback, the embedding's next progress step drives `finishVerb`.
+/// cancellation requested inside a callback is consumed by that verb's unwind.
+/// Outside a callback, the embedding's next progress step drives `finishVerb`.
 pub fn scheduleDeferredSessionWork(self: *Host, peer_handle: engine.PeerHandle) void {
     scheduleSessionWork(self, peer_handle, false);
 }
@@ -63,9 +63,9 @@ fn scheduleSessionWork(self: *Host, peer_handle: engine.PeerHandle, wake_embedde
 }
 
 /// Wake the embedder when a finite scheduler slice ended on work that belongs
-/// to the Host rather than to one session. A resume action is deliberately
-/// separate from `.flush`: there may be no session and no bytes to write, but
-/// stopping at `nextAction == null` would strand the Node's remaining work.
+/// to the Host rather than to one session. A resume action is separate from
+/// `.flush`: there may be no session and no bytes to write, but stopping at
+/// `nextAction == null` would strand the Node's remaining work.
 pub fn queueResumeAction(self: *Host) !void {
     if (self.resume_action_pending) return;
     try self.reserveActions(1);
@@ -101,8 +101,8 @@ pub fn takeDirty(self: *Host) ?engine.PeerHandle {
     return peer_handle;
 }
 
-/// Remove a dying shell's queued encode row before its intrusive membership
-/// bit disappears. Release is uncommon; the linear removal keeps steady-state
+/// Remove a dying shell's queued encode row before its intrusive membership bit
+/// disappears. Release is uncommon. The linear removal keeps steady-state
 /// insertion O(1) without a second index and preserves `queue.len <= sessions`.
 pub fn removeDirtySession(self: *Host, session: *HostSession) void {
     if (!session.control.flush_pending) return;

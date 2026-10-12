@@ -66,8 +66,8 @@ pub fn deferTurn(self: *Host, maybe_session: ?*HostSession, turn: *actors.Turn) 
 
 /// Settle a resolver vow fulfilled (ADR-0102). Top-level: the settle runs the
 /// deferred answer's listeners and pumps every session it dirtied, so it
-/// refuses from inside a callback. A successful settle consumes the resolver;
-/// preparation failure leaves it live for retry. `value` must contain no
+/// refuses from inside a callback. A successful settle consumes the resolver.
+/// Preparation failure leaves it live for retry. `value` must contain no
 /// capability authority.
 pub fn fulfill(self: *Host, resolver_id: u64, value: model.Argument) !void {
     try self.refuseReentry();
@@ -86,8 +86,8 @@ pub fn fulfill(self: *Host, resolver_id: u64, value: model.Argument) !void {
 
 /// Settle an owning-thread application value in the deferred caller's session.
 /// Capability projections remain rollback-owned until settlement commits. This
-/// path borrows leaf data and allocates only lowering containers in `arena`;
-/// the existing Vat settlement scope owns the listener lifetime. Wire answers
+/// path borrows leaf data and allocates only lowering containers in `arena`.
+/// The existing Vat settlement scope owns the listener lifetime. Wire answers
 /// transfer foreign occurrences through Node's ordinary outbound staging.
 pub fn fulfillValue(self: *Host, resolver_id: u64, value: @import("../value.zig").Value, arena: std.mem.Allocator) !void {
     try self.refuseReentry();
@@ -117,7 +117,7 @@ pub fn fulfillValue(self: *Host, resolver_id: u64, value: @import("../value.zig"
     if (local_answer) prepared.finishLocalBorrow() else _ = prepared.commit();
 }
 
-/// Break a resolver vow. `reason` is borrowed for this call; ownership and
+/// Break a resolver vow. `reason` is borrowed for this call. Ownership and
 /// retry behavior match `fulfill`.
 pub fn breakVow(self: *Host, resolver_id: u64, reason: []const u8) !void {
     try self.refuseReentry();
@@ -126,7 +126,7 @@ pub fn breakVow(self: *Host, resolver_id: u64, reason: []const u8) !void {
 
 /// Preserve an owning producer's typed failure through deferred settlement.
 /// Wire breaks carry their existing protocol diagnostic. Neither kind proves
-/// whether an external effect applied; receipt outcome belongs to its owner.
+/// whether an external effect applied. Receipt outcome belongs to its owner.
 pub fn reject(self: *Host, resolver_id: u64, kind: @import("../host/action.zig").VowFailure, reason: []const u8) !void {
     try self.refuseReentry();
     if (resolver_id == 0 or resolver_id >= self.next_resolver) return HostError.NoSuchResolver;
@@ -141,7 +141,7 @@ pub fn reject(self: *Host, resolver_id: u64, kind: @import("../host/action.zig")
 }
 
 /// Relinquish a resolver's answer. Session teardown may have consumed the
-/// resolver already; that is complete cleanup, while an unminted id still
+/// resolver already. That is complete cleanup, while an unminted id still
 /// identifies a caller defect. Top-level ownership and retry rules match break.
 pub fn abandon(self: *Host, resolver_id: u64, reason: []const u8) !void {
     self.resolverBreak(resolver_id, reason) catch |err| switch (err) {
@@ -188,7 +188,7 @@ fn settle(self: *Host, resolver_id: u64, resolution: actors.Resolution, staging:
 
 /// Local owning deferral reserves the existing Host/Vat resolver and listener
 /// indexes. Its turn participant retracts the settle authority on outer-turn
-/// failure; ordinary success leaves only the durable caller's explicit handle.
+/// failure. Ordinary success leaves only the durable caller's explicit handle.
 fn deferOwned(self: *Host, turn: *actors.Turn) !u64 {
     const producer = try @import("../host/local_delivery.zig").producer(turn);
     if (producer.host != self or turn.port != null or producer.phase != .running or producer.lease == null)
@@ -231,8 +231,8 @@ fn abortOwnedResolver(ctx: *anyopaque, _: *actors.Vat, _: []const u8) void {
 }
 
 /// Terminal rollback/cancellation consumes only an exclusively held owning
-/// resolver. The static break reaches its original producer without allocation;
-/// the failed turn's producer participant preserves the actual failure text.
+/// resolver. The static break reaches its original producer without allocation.
+/// The failed turn's producer participant preserves the actual failure text.
 pub fn terminateOwned(self: *Host, resolver: u64) void {
     const entry = self.resolver_index.get(resolver) orelse unreachable;
     const row = self.vows.get(entry.vow_id) orelse unreachable;

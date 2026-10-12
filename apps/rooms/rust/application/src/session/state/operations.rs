@@ -18,7 +18,7 @@ pub struct Inspected {
 	digest: Digest,
 }
 impl Inspected {
-	/// Includes the owned id's spare capacity; the shared owner's fixed phase
+	/// Includes the owned id's spare capacity. The shared owner's fixed phase
 	/// allocation remains charged to the session owner.
 	pub fn retained_bytes(&self) -> usize {
 		core::mem::size_of::<Self>().saturating_add(self.id.text().heap_bytes())
@@ -171,7 +171,7 @@ impl SessionState {
 	}
 	/// Learned facts do not advance the optimistic command revision. The
 	/// reducer must compare the exact authority/generation before returning a
-	/// replacement; None or an identical checkpoint leaves both persistence and
+	/// replacement. None or an identical checkpoint leaves both persistence and
 	/// observation untouched. A committed changed fact closes initial adoption.
 	pub fn reconcile(
 		&mut self,

@@ -83,7 +83,7 @@ Deno.test("ops do not mutate input (returned object is fresh)", () => {
 Deno.test("every authoring op strips the derived marker", () => {
 	// The provenance contract: a span built by ANY authoring op is
 	// user intent, so it must not carry the projection's derived
-	// marker — a marker slipping through would let projection
+	// marker. A marker slipping through would let projection
 	// clobber the user's edit on the next tick. Structural: the ops
 	// build fresh objects; this test keeps that structure honest.
 	const derived = markDerived({

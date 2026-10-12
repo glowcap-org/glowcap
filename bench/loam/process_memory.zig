@@ -1,4 +1,4 @@
-//! Process-wide OS snapshots; peaks and fault counts cover the process lifetime.
+//! Process-wide OS snapshots, peaks and fault counts cover the process lifetime.
 const std = @import("std");
 const report = @import("report.zig");
 extern fn glowcap_bench_memory(*u64, *u64, *u64, *u64, *u64) c_int;

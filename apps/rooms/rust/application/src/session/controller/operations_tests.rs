@@ -155,3 +155,11 @@ fn queued_action_keeps_its_credential_across_revision_retry() {
 	assert!(replacement.check(&snapshot).is_err());
 	assert!(Target::select(&snapshot, kind).is_err());
 }
+
+#[test]
+fn the_operator_inventory_constant_names_the_operator_boot_capability() {
+	assert_eq!(
+		super::Kind::parse("operator").map(super::Kind::index),
+		Some(super::Kind::OPERATOR.index())
+	);
+}

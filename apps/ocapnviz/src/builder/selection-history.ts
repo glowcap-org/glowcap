@@ -173,13 +173,13 @@ export function discardAllEdits(
  *
  * "Undo all", which is undo held down: the same act
  * `undoWithSelection` performs, repeated until the history runs out,
- * so it takes the same second step for the same reason — a history
+ * so it takes the same second step for the same reason, a history
  * move takes ids out from under the selection, and taking many at once
  * takes more of them.
  *
  * The mild half of the pair with `discardAllEdits` above. It keeps the
  * history, so every step crosses to the redo side and the author can
- * walk forward again; what it cannot promise is the document the
+ * walk forward again. What it cannot promise is the document the
  * buffer was built from, because the stack is bounded and restores
  * only the fields a `DocSnapshot` carries.
  */

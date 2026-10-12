@@ -1,10 +1,10 @@
 //! The set of codecs a build knows how to speak.
 //!
-//! glowcap ships two — `syrup` and `capnp` — but the set is open. A Zig consumer
+//! glowcap ships two, `syrup` and `capnp`, but the set is open. A Zig consumer
 //! brings their own by declaring `pub const glowcap_codecs` in their root source
 //! file: a slice of `Spec` that this registry appends to the built-ins. The
 //! whole thing is resolved at `comptime`, so `dispatch` stays a jump table with
-//! no runtime indirection — a third codec costs nothing the two built-ins
+//! no runtime indirection, a third codec costs nothing the two built-ins
 //! didn't (ADR-0026).
 //!
 //! `framePrefix` is the profile-less structural parser: it returns only a frame
@@ -13,7 +13,7 @@
 //!
 //! A codec is identified on the wire by its `model.CodecId` (a stable `u16`).
 //! A `Spec` binds that id to the codec's frame shape and its implementation
-//! module — any type exposing `decodeBody`, `decodePrefix`, `framePrefix`,
+//! module, any type exposing `decodeBody`, `decodePrefix`, `framePrefix`,
 //! `encodeMessageForProfile`, and an `Error` set, exactly the shape `syrup` and
 //! `capnp` already have.
 //!
@@ -43,7 +43,7 @@ pub const Spec = struct {
     frame_shape: foundation.FrameShape,
     /// The implementation: a type with `decodeBody` / `decodePrefix` / `framePrefix` /
     /// `encodeMessageForProfile` / `Error`, and optionally `scanStream` (see
-    /// the module header — omit it only if frame length is computable up front).
+    /// the module header, omit it only if frame length is computable up front).
     module: type,
 };
 
@@ -62,7 +62,7 @@ const extra: []const Spec = blk: {
 };
 
 /// Every codec this build can speak: built-ins followed by consumer additions.
-/// Resolved at `comptime`; `dispatch` iterates it with `inline for`.
+/// Resolved at `comptime`. `dispatch` iterates it with `inline for`.
 pub const active: []const Spec = blk: {
     var all: [builtin.len + extra.len]Spec = undefined;
     for (builtin, 0..) |spec, i| all[i] = spec;

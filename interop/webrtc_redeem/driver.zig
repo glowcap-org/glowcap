@@ -13,7 +13,7 @@
 //! Session because each exchange is scoped to the offerer's durable key.
 //!
 //! Not part of the hermetic `zig build check` as a runnable (it links the Rust
-//! sidecar); the compile-only sibling rides `check`. Run:
+//! sidecar). The compile-only sibling rides `check`. Run:
 //! `zig build webrtc-redeem`.
 
 const std = @import("std");

@@ -83,7 +83,7 @@ export async function run(managed: Runtime): Promise<void> {
 	}
 
 	// Object-capability forwarding proxies over the wire (ADR-0064). The server
-	// fetches the client's published tool — a far reference on the server side —
+	// fetches the client's published tool (a far reference on the server side),
 	// wraps it in a caretaker and an attenuator, and hands the proxies back. A
 	// call through the proxy forwards across the server to the client's tool (the
 	// far deferred-answer path) and settles the caller's answer; the attenuator
@@ -176,7 +176,7 @@ export async function run(managed: Runtime): Promise<void> {
 	}
 
 	// The wart ADR-0064 closes: a forwarding proxy is an ordinary spawned actor,
-	// so its own host calls it locally exactly as a partner calls it over the
+	// so its own host calls it locally as a partner calls it over the
 	// wire. A caretaker over a *local* tool answers a local send; a caretaker over
 	// a *far* tool forwards across the wire and the local send still settles; and
 	// a revoke breaks the local call too, no second-class behavior on the hosting
@@ -221,7 +221,7 @@ export async function run(managed: Runtime): Promise<void> {
 			const pong = await session.send(careFar.proxy, "ping");
 			assert(pong === "pong", `a local call over a far tool settles, got ${pong}`);
 
-			// Revoke severs the local call exactly as it severs a partner's.
+			// Revoke severs the local call as it severs a partner's.
 			careLocal.revoke();
 			let severed: VowBroken | null = null;
 			try {
@@ -265,8 +265,8 @@ export async function run(managed: Runtime): Promise<void> {
 
 	// The callback latch crosses the binding: a behavior that reaches for a
 	// host-driving verb mid-turn (publish, here) is refused by the C tier, the
-	// refusal surfaces as the behavior's own throw, and the answer breaks with it
-	// — the turn neither deadlocks nor corrupts the host. The connection stays
+	// refusal surfaces as the behavior's own throw, and the answer breaks with it.
+	// The turn neither deadlocks nor corrupts the host. The connection stays
 	// fully usable afterwards.
 	{
 		const server = await tcp.listen("127.0.0.1", 0);

@@ -30,7 +30,7 @@ const transport_name = conf_state.transport_name;
 /// the recipient session, so claiming it (`interceptFulfilledRoute`) makes the
 /// Host deposit it on the exporter and sign the give resolving the recipient's
 /// enliven answer. Fires under the host callback latch, where only enqueueing
-/// verbs are legal — and `interceptFulfilledRoute` only queues a `need_gift_id`.
+/// verbs are legal, and `interceptFulfilledRoute` only queues a `need_gift_id`.
 const GifterWait = struct {
     shared: *Shared,
     recipient_peer: PeerHandle,
@@ -176,8 +176,8 @@ fn runRecipientGive(shared: *Shared, session: *HostSession, give: model.HandoffG
 }
 
 /// A sturdyref enliven to the enlivener: the gifter half. Fetch the object on
-/// the exporter session; its later settle claims the reply into a signed give
-/// (`GifterWait`). If the exporter session is already open, fetch now; else dial
+/// the exporter session. Its later settle claims the reply into a signed give
+/// (`GifterWait`). If the exporter session is already open, fetch now. Else dial
 /// it and defer the fetch to `on_open`.
 pub fn tryGifterEnliven(conf: *ConfCtx, event: *engine.Event) !bool {
     const peer = conf.session.served.port.peer;
@@ -212,7 +212,7 @@ pub fn tryGifterEnliven(conf: *ConfCtx, event: *engine.Event) !bool {
 
     // An answered enliven is the gifter handoff: fetch the exporter object, whose
     // settle signs the give resolving this answer. A fetch needs an open exporter
-    // session — use one that exists, else dial and defer the fetch to `on_open`.
+    // session, use one that exists, else dial and defer the fetch to `on_open`.
     if (enlivenAnswer(deliver, peer)) |answer| {
         if (existing) |exporter| {
             const swiss_owned = try allocator.dupe(u8, swiss);
@@ -276,7 +276,7 @@ fn recordLocatorAddr(shared: *Shared, locator: model.view.PeerLocator) void {
     if (conf_state.g_addrs) |table| table.put(locator.designator, hostport);
 }
 
-/// The `host:port` built from a locator's `host`/`port` hints, caller-owned;
+/// The `host:port` built from a locator's `host`/`port` hints, caller-owned,
 /// null when either hint is missing. Falls back to the designator when the
 /// locator carries no host/port hints (a plain `tcp` locator's designator is
 /// already `host:port`).
@@ -314,7 +314,7 @@ fn findSessionByDesignator(shared: *Shared, designator: []const u8) ?*HostSessio
     return null;
 }
 
-/// The virtual inbound answer a V1.0 enliven deliver resolves through — its
+/// The virtual inbound answer a V1.0 enliven deliver resolves through, its
 /// wire answer-position, or the answer the classifier allocated for its
 /// `resolve_me_desc` resolver-callback.
 fn enlivenAnswer(deliver: model.view.Deliver, peer: *engine.Peer) ?engine.AnswerTarget {

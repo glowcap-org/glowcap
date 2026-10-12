@@ -1,16 +1,19 @@
 // Saying where you are, at whichever level you are saying it about.
 //
-// One word — here, or why you stepped out — and three places it can be said:
+// One word (here, or why you stepped out) and three places it can be said:
 // everywhere, on one directory, or in one room. They fall through outward, so
 // the ordinary reader touches only the first, and the other two are there for
 // somebody who wants to be away in one place and not another. Which level
-// answers for a room is `store.standingFor`; this is the control, and it is the
+// answers for a room is `store.standingFor`. This is the control, and it is the
 // same control at all three because it is the same question.
 //
 // A level with nothing of its own to say shows what it follows rather than an
 // answer of its own, because "here" and "here because you are" are different
 // facts and only one of them survives you stepping out.
 
+import { useAsyncAction } from "./async_action.ts";
+import { ControlProgress, useProgress } from "./presentation.ts";
+import { Said } from "./Said.tsx";
 import { type ReactNode, useState } from "react";
 import { MAX_AWAY, PLAIN_AWAY } from "./limits.ts";
 import { MenuLayer, MenuList, MenuRow, useMenu } from "./Menu.tsx";
@@ -43,7 +46,7 @@ export function StandingMenu(
 		/** Where this standing applies, for the label: "you", "this directory",
 		 * "#lobby". */
 		about: string;
-		onSay: (own: string | null) => void;
+		onSay: (own: string | null) => void | Promise<void>;
 		/** Contextual acts that belong to the trigger rather than to standing. The
 		 * rail footer uses these for its directory-scoped identity grants. */
 		actions?: readonly { label: string; disabled?: boolean; onPick(): void }[];
@@ -66,11 +69,15 @@ export function StandingMenu(
 ) {
 	const { open, setOpen, holder, trigger, layer } = useMenu();
 	const [reason, setReason] = useState("");
+	const action = useAsyncAction(async (_signal, next: string | null) => {
+		await onSay(next);
+	});
+	const progress = useProgress(action.busy);
 	const away = effective !== "";
 	const said = standingSaid(effective);
 	const pick = (next: string | null) => {
 		setOpen(false);
-		onSay(next);
+		void action.run(next);
 	};
 	return (
 		<div className="standing" ref={holder}>
@@ -81,7 +88,8 @@ export function StandingMenu(
 				className={face !== undefined ? faceClass : away ? "standing-said away" : "standing-said"}
 				aria-haspopup="menu"
 				aria-expanded={open}
-				disabled={disabled}
+				disabled={disabled || action.busy}
+				data-busy={progress || undefined}
 				aria-label={label ?? standingLabel(about, said.toLowerCase())}
 				onClick={() => {
 					if (!disabled) setOpen((was) => !was);
@@ -94,7 +102,9 @@ export function StandingMenu(
 					</>
 				)}
 			</button>
-			{open && !disabled && (
+			<ControlProgress active={progress} label={label ?? standingLabel(about, said.toLowerCase())} />
+			{action.why !== "" && <Said kind="failure">{action.why}</Said>}
+			{open && !disabled && !action.busy && (
 				<MenuLayer holder={holder} layer={layer} className={face !== undefined ? "at-foot" : undefined}>
 					<MenuList className={up ? "line-menu standing-menu above" : "line-menu standing-menu"}>
 						{follows !== undefined && (

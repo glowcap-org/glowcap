@@ -324,7 +324,7 @@ def verify_kel(aid: str, kel_records: list) -> bool:
                 err(f"event {i} ({evt['t']}): malformed signature: {exn}")
                 return False
             if index is None:
-                # Un-indexed `0B` — only valid for single-key events. The kernel's
+                # Un-indexed `0B`, only valid for single-key events. The kernel's
                 # kt=1 single-signer path lives here.
                 if len(signer_keys_cesr) != 1:
                     err(f"event {i}: un-indexed sig with {len(signer_keys_cesr)} signing keys")

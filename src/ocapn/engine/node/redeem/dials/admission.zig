@@ -2,7 +2,7 @@
 //!
 //! Parsing and ownership acquisition finish before a pending row or action is
 //! published. Existing identity rows join only when their complete ordered
-//! route plan agrees; the scheduler remains the sole owner of attempt order.
+//! route plan agrees. The scheduler remains the sole owner of attempt order.
 
 const std = @import("std");
 

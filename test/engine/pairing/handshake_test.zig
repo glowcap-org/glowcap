@@ -234,7 +234,7 @@ test "a hello naming anything but the baseline version is refused before it is s
     // `sendKeyedStartSession` cannot produce one: it names the baseline and
     // carries the preference in a hint, so the disagreement this guards
     // against is unrepresentable through the verb. A hand-built message can
-    // still reach `send`, and that is the path checked here — a peer
+    // still reach `send`, and that is the path checked here, a peer
     // preferring `next` must still greet with the baseline, or a partner that
     // knows only the baseline aborts instead of negotiating down to it.
     const allocator = std.testing.allocator;

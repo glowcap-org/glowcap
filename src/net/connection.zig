@@ -10,8 +10,8 @@
 //! (ADR-0041).
 //!
 //! This is where `std.Io` enters the transport adapter. The five core layers
-//! (foundation, model, codec, session, engine) stay synchronous and I/O-free;
-//! the layers above `net` — `driver` and `c_abi` — also do host I/O and
+//! (foundation, model, codec, session, engine) stay synchronous and I/O-free.
+//! The layers above `net`, `driver` and `c_abi`, also do host I/O and
 //! disclose it in their own headers.
 //!
 //! ## Connection vs FrameStream
@@ -28,7 +28,7 @@
 //! `Connection.pump`, while `FrameStream.readFrame` and `writeFrame` read and
 //! write one frame with no peer in sight.
 //!
-//! The connection borrows a type-erased `*std.Io.Reader` and `*std.Io.Writer` — it
+//! The connection borrows a type-erased `*std.Io.Reader` and `*std.Io.Writer`, it
 //! does not own the stream object. It owns only the close capability (the
 //! `TransportHandle`), so a transport that produces a connection pins its concrete
 //! reader and writer at a stable address for the connection's life. The framing
@@ -62,14 +62,14 @@ pub const Progress = union(enum) {
 /// Why a pump could not make protocol progress. A malformed / oversize / refused
 /// inbound frame is a *protocol abort*: the core has already projected the
 /// outbound `op:abort` before the matching error surfaces here. A successful
-/// terminal-frame write returns the protocol family; a refused write returns
+/// terminal-frame write returns the protocol family. A refused write returns
 /// `AbortFlushFailed`, while the original typed cause remains on
 /// `engine.Peer.lastAbort`. The protocol variants name what the partner did,
-/// not a transport fault. They name only the failure family; the typed cause — abort
-/// kind, codec-vs-session domain, diagnostic — stays readable through
+/// not a transport fault. They name only the failure family. The typed cause, abort
+/// kind, codec-vs-session domain, diagnostic, stays readable through
 /// `engine.Peer.lastAbort` on the peer the caller already holds.
-/// `ConnectionLost` / `TruncatedFrame` are the genuine transport faults;
-/// the concrete `ReadFailed` / `WriteFailed` cause is preserved on the
+/// `ConnectionLost` / `TruncatedFrame` are the genuine transport faults.
+/// The concrete `ReadFailed` / `WriteFailed` cause is preserved on the
 /// `Stream.Reader` / `Stream.Writer` for a caller (or the C boundary) to surface.
 /// To distinguish a transport fault from a protocol abort at runtime: `PumpError`
 /// variants catch the category, and `Peer.lastAbort` gives the typed abort reason
@@ -83,12 +83,12 @@ pub const PumpError = error{
     /// Inbound bytes are not a structurally valid frame (op:abort projected).
     MalformedFrame,
     /// An inbound frame would exceed `SessionLimits.max_frame_bytes`: its
-    /// scanned length crossed the cap during decode (op:abort projected), or —
-    /// the defensive mirror of that codec contract — its prefix reached the cap
+    /// scanned length crossed the cap during decode (op:abort projected), or,
+    /// the defensive mirror of that codec contract, its prefix reached the cap
     /// still incomplete.
     FrameTooLarge,
     /// A structurally valid frame was refused by session authority (op:abort
-    /// projected; the session is closing).
+    /// projected. The session is closing).
     ProtocolAbort,
     /// The peer projected a terminal `op:abort`, but the stream refused its
     /// delivery. `Peer.lastAbort` retains the original protocol cause and the
@@ -128,18 +128,18 @@ const TransportHandle = struct {
 /// A transport-neutral byte-stream connection: a borrowed peer plus a
 /// type-erased reader/writer pair and a handle to the transport behind them.
 ///
-/// The connection holds `*std.Io.Reader` / `*std.Io.Writer` — the interfaces
-/// `pumpOver` already speaks — never a concrete socket type, so any transport
+/// The connection holds `*std.Io.Reader` / `*std.Io.Writer`, the interfaces
+/// `pumpOver` already speaks, never a concrete socket type, so any transport
 /// that yields those interfaces drives it unchanged: TCP, the in-process pipe,
 /// and the iroh QUIC stream all do. The concrete stream object lives behind
 /// `TransportHandle`, owned by the transport that produced it (see
-/// `tcp`); the connection only borrows the interfaces and asks the handle to
+/// `tcp`). The connection only borrows the interfaces and asks the handle to
 /// close the stream on `deinit`. It does not own the peer (lifetime
 /// unchanged).
 ///
 /// Because the connection borrows the reader/writer interfaces rather than
 /// storing them inline, the transport must keep its concrete reader/writer at a
-/// stable address for the connection's life — `std.Io.Reader`'s vtable recovers
+/// stable address for the connection's life, `std.Io.Reader`'s vtable recovers
 /// that concrete reader from `&interface` by field offset, so a moved-away
 /// reader would dangle. The tcp transport pins its per-connection stream on the
 /// peer's allocator and frees it through the handle.
@@ -153,10 +153,10 @@ pub const Connection = struct {
     transport: TransportHandle,
     /// The host `std.Io` this connection runs on. Kept so the driver can draw
     /// handshake entropy at the I/O boundary without reaching into the
-    /// transport's private stream; it is OS randomness, not transport state.
+    /// transport's private stream. It is OS randomness, not transport state.
     io: std.Io,
     /// Bounded overflow for an admissible frame larger than the read buffer
-    /// (see `frame_stream.Spill`); inactive and allocation-free while frames
+    /// (see `frame_stream.Spill`). Inactive and allocation-free while frames
     /// fit the buffer. Allocates from the peer's allocator.
     ///
     /// The scan that walks this spill's frame is not here: it rides on the peer
@@ -224,8 +224,8 @@ pub const Connection = struct {
     }
 
     /// Claim the exact transport failure retained by the connection owner.
-    /// A clean EOF or a transport without richer failure data returns null;
-    /// a claimed failure cannot reappear.
+    /// A clean EOF or a transport without richer failure data returns null.
+    /// A claimed failure cannot reappear.
     pub fn takeFailure(self: *Connection) ?foundation.FailureChain {
         return self.transport.takeFailure();
     }
@@ -270,7 +270,7 @@ pub const Connection = struct {
     /// false only on a poll timeout. A poll failure means the transport is gone.
     ///
     /// A transport with no pollable fd returns true after the buffer check. That
-    /// is not a deadline guarantee; it is the blocking-stream fallback for
+    /// is not a deadline guarantee. It is the blocking-stream fallback for
     /// userspace transports. Deadline-sensitive multiplexers reject fd-less
     /// connections before they call this.
     pub fn waitReadable(self: *Connection, timeout_ms: i32) error{ConnectionLost}!bool {
@@ -305,18 +305,18 @@ pub const Connection = struct {
     }
 
     /// Pump until `pred(peer)` holds or the stream closes. The only blocking
-    /// convenience; the primitive it builds on is `pump`. Returns the last
+    /// convenience. The primitive it builds on is `pump`. Returns the last
     /// `Progress` (`.closed` if the stream ended first).
     ///
     /// `timeout_ms` is the per-read deadline, the bounded-read hook on an
     /// untrusted partner (ADR-0081). A timeout of 0 means each read blocks
-    /// indefinitely — the caller accepts the risk of an unbounded block against
+    /// indefinitely. The caller accepts the risk of an unbounded block against
     /// a silent partner. A positive value flushes queued outbound first (the
     /// partner cannot answer a request still queued on our side, so waiting
     /// before flushing would deadlock), then waits up to `timeout_ms` for the
     /// read to make progress, returning `error.Timeout` on a poll timeout
     /// instead of parking the fiber for the connection's life. The deadline
-    /// value is the caller's — policy lives above the net layer — but exposing
+    /// value is the caller's, policy lives above the net layer, but exposing
     /// the bound is the net layer's job. A transport with no pollable fd (a
     /// userspace stream that multiplexes in its own loop) is unbounded even with
     /// a deadline, exactly as `waitReadable` reports: the timeout binds fd-backed
@@ -342,18 +342,18 @@ pub const Connection = struct {
 /// The index of a connection in `conns` with readable progress: reader-buffered
 /// bytes now, or the first fd the OS poll reports readable (or hung up, which a
 /// read will surface as closure) within `timeout_ms`. Null only on a poll
-/// timeout. The multi-connection wait a byte-fed owning host blocks through;
+/// timeout. The multi-connection wait a byte-fed owning host blocks through.
 /// `waitReadable` above is its one-connection sibling.
 ///
 /// It reports the *first* ready index, so a caller multiplexing connections
 /// that must not starve each other rotates the slice it passes between waits:
 /// a partner that keeps its socket readable holds a fixed low index forever.
 ///
-/// Every connection must have a pollable fd — the caller refused fd-less
+/// Every connection must have a pollable fd. The caller refused fd-less
 /// transports at open, because a blocking multiplex cannot wait on a stream
-/// that reports no readiness — and `pollfds` is caller-owned scratch at least
+/// that reports no readiness, and `pollfds` is caller-owned scratch at least
 /// `conns.len + extra_fds.len` long, so the wait itself allocates nothing. A
-/// negative `timeout_ms` waits forever (the OS poll convention); the caller's
+/// negative `timeout_ms` waits forever (the OS poll convention). The caller's
 /// budget arithmetic keeps an expired deadline from reaching here.
 pub fn waitAnyReadable(
     conns: []const *Connection,
@@ -398,8 +398,8 @@ pub fn waitAny(
             .revents = 0,
         };
     }
-    // The caller's out-of-band descriptors — multiplexed-resident readiness and
-    // the settle-mailbox wake (ADR-0102) — poll as trailing rows and report
+    // The caller's out-of-band descriptors, multiplexed-resident readiness and
+    // the settle-mailbox wake (ADR-0102), poll as trailing rows and report
     // as `conns.len + i`, indexes no connection occupies.
     for (extra_fds, 0..) |fd, i| {
         const interest = if (extra_interests.len == 0) WaitInterest.read else extra_interests[i];
@@ -424,7 +424,7 @@ pub fn waitAny(
 /// The framing core, decoupled from sockets: drive one step of progress over a
 /// type-erased `*std.Io.Reader` / `*std.Io.Writer`, with `spill` as the bounded
 /// overflow for a frame larger than the read buffer. Proven with `Reader.fixed`
-/// / `std.testing.Reader` and `Writer.fixed`; `Connection.pump` is the
+/// / `std.testing.Reader` and `Writer.fixed`. `Connection.pump` is the
 /// socket-backed caller (its connection owns the spill).
 ///
 /// Order of operations (single fiber, blocking):
@@ -442,8 +442,8 @@ pub fn waitAny(
 /// One fiber is the contract, not a deferral (ADR-0053): this pump serves
 /// cooperative request/response traffic (handshake, fetch, deliver/resolve),
 /// where each side drains the replies its own requests caused. A partner that
-/// streams without draining can head-of-line-block a fiber mid-`writeAll`;
-/// that workload rides the completion loop, whose bounded outbound queue and
+/// streams without draining can head-of-line-block a fiber mid-`writeAll`.
+/// That workload rides the completion loop, whose bounded outbound queue and
 /// read parking (ADR-0042) exist for exactly it.
 pub fn pumpOver(
     peer: *engine.Peer,
@@ -480,7 +480,7 @@ pub fn pumpOver(
 }
 
 /// Write and flush every outbound frame, returning the byte count. The frame is
-/// owned by `takeOutbound`; this releases it after writing. `writeAll` streams a
+/// owned by `takeOutbound`. This releases it after writing. `writeAll` streams a
 /// frame larger than the write buffer straight through.
 fn drainOutbound(peer: *engine.Peer, w: *std.Io.Writer) std.Io.Writer.Error!usize {
     var total: usize = 0;
@@ -495,8 +495,13 @@ fn drainOutbound(peer: *engine.Peer, w: *std.Io.Writer) std.Io.Writer.Error!usiz
 }
 
 /// Map a recv-apply / encode error onto the pump's surface. Decode verdicts
-/// carry their own names; any other session authority rejection has already
-/// projected an abort, so it surfaces as `ProtocolAbort`.
+/// carry their own names. Any other session authority rejection has already
+/// projected an abort, so it surfaces as `ProtocolAbort`. The parameter stays
+/// `anyerror`: the callers catch five different inferred error
+/// sets (`Peer.stepToIdle`, `recvOuterPrefix`, `feedBytes`,
+/// `feedTransportPacket`, `resumeFeed`), which the toolchain coerces only to
+/// `anyerror`, so no named set can receive all of them and the `else` arm
+/// remains the classification.
 pub fn classifyApplyError(err: anyerror) PumpError {
     return switch (err) {
         error.MalformedFrame, error.InvalidFrameShape, error.MalformedView => error.MalformedFrame,
@@ -512,7 +517,7 @@ pub fn classifyApplyError(err: anyerror) PumpError {
 /// The abort-flush contract is the point of the shared spine. When
 /// `stepToIdle` fails it has already projected the fail-loud `op:abort` frame
 /// onto outbound. A successful drain returns that cause classified onto the
-/// pump surface; a refused terminal-frame write returns `AbortFlushFailed`,
+/// pump surface. A refused terminal-frame write returns `AbortFlushFailed`,
 /// with the original cause still readable through `Peer.lastAbort`. A drain
 /// failure on the success path is ordinary `ConnectionLost`.
 fn encodeAndFlush(peer: *engine.Peer, w: *std.Io.Writer) PumpError!usize {

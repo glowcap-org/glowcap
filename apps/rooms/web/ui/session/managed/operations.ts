@@ -1,6 +1,6 @@
 import { managedSessionText as managedText } from "../../../../lib/text/managed_session.ts";
 // Operations select separately retained fields. Reads use scoped Rust
-// readers; writes run through the original command and its exact receipt.
+// readers. Writes run through the original command and its exact receipt.
 import * as store from "../../store.ts";
 import type { RoomsPageContext } from "../../page.ts";
 import type { ManagedRoomsSession } from "./session.ts";
@@ -13,9 +13,19 @@ import { type Coordinate, fieldKey, type WorkspaceIntent } from "./model.ts";
 import { refusalText } from "../../../../lib/text/failure.ts";
 import { formatOpsBundle, parseOpsBundleDraft } from "../../ops/bundle.ts";
 import type { RoomsManagedOperationsReader } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
-import { operationHolding, operationKind, operationSelection } from "./operations_selection.ts";
+import { operationCommand, operationHolding, operationKind, operationSelection } from "./operations_selection.ts";
 import { OperationsAcquisitionRefused } from "./actions.ts";
 import { OPS_CATALOG } from "../../ops/catalog.ts";
+import { privateReadKey, revisionReadKey } from "./reads.ts";
+
+/** Capabilities refreshed from the reader's generic snapshot, and the pane
+ * each answer loads. Keyed exhaustively: a new snapshot capability without a
+ * pane fails to compile rather than silently dropping its answer. */
+const READER_SNAPSHOT_SETTERS = {
+	listeners: store.setListeners,
+	diagnostics: store.setDiagnostics,
+	irc: store.setIrcGateway,
+};
 
 export function managedOperations(page: RoomsPageContext, session: ManagedRoomsSession): RoomsOperationsController {
 	const projection = page.projection;
@@ -36,36 +46,49 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 			return refusalText(error);
 		}
 	};
+	/** An answer applies only while its request is the newest for its
+	 * capability and the held selection has not moved while the read was in
+	 * flight. */
+	function refreshApplies(cap: OpsCap, request: number, selection: string | null): boolean {
+		return refreshes.get(cap) === request &&
+			operationSelection(session.current?.intent, cap) === selection;
+	}
 	async function read<T>(
 		cap: OpsCap,
 		work: (reader: RoomsManagedOperationsReader) => Promise<T>,
 		row = selected(cap),
 	): Promise<T> {
-		const reader: RoomsManagedOperationsReader = await session.workspace.operationsReader(
-			JSON.stringify(row.coordinate),
-			row.kind,
-		);
-		try {
-			return await work(reader);
-		} finally {
-			reader.free();
-		}
+		return await session.reads.run(privateReadKey(cap), async () => {
+			const reader: RoomsManagedOperationsReader = await session.workspace.operationsReader(
+				JSON.stringify(row.coordinate),
+				row.kind,
+			);
+			try {
+				return await work(reader);
+			} finally {
+				reader.free();
+			}
+		});
 	}
 	async function refresh(cap: OpsCap, query = "", kind: OperatorReferenceKind | null = null): Promise<void> {
 		const row = selected(cap);
 		const selection = operationSelection(session.current?.intent, cap);
 		const request = (refreshes.get(cap) ?? 0) + 1;
 		refreshes.set(cap, request);
-		const current = () =>
-			refreshes.get(cap) === request &&
-			operationSelection(session.current?.intent, cap) === selection;
+		const current = () => refreshApplies(cap, request, selection);
 		if (cap === "trace") {
-			const snapshot = await session.workspace.traceSnapshot(JSON.stringify(row.coordinate));
+			const snapshot = await session.reads.run(
+				revisionReadKey("trace", row.coordinate, session.current?.revision),
+				() => session.workspace.traceSnapshot(JSON.stringify(row.coordinate)),
+			);
 			if (current()) store.setTracePublish(projection, snapshot);
 			return;
 		}
 		if (cap === "peering") {
-			const publications = await session.workspace.peeringSnapshot();
+			const publications = await session.reads.run(
+				revisionReadKey("peering", row.coordinate, session.current?.revision),
+				() => session.workspace.peeringSnapshot(),
+			);
 			if (current()) store.setPeering(projection, { publications });
 			return;
 		}
@@ -78,14 +101,13 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 		}
 		const snapshot = await read(cap, (reader) => reader.snapshot(), row);
 		if (!current()) return;
-		if (cap === "listeners") store.setListeners(projection, snapshot);
-		else if (cap === "diagnostics") store.setDiagnostics(projection, snapshot);
-		else if (cap === "irc") store.setIrcGateway(projection, snapshot);
+		READER_SNAPSHOT_SETTERS[cap](projection, snapshot);
 	}
 	async function operation(cap: OpsCap, action: string, args: string[] = []): Promise<unknown> {
 		const row = selected(cap);
-		const result = await session.actions.run(cap === "operator" ? "operator" : "operations", [
-			cap === "operator" ? JSON.stringify(row.coordinate.key) : JSON.stringify(row.coordinate),
+		const command = operationCommand(cap, row);
+		const result = await session.actions.run(command.name, [
+			command.coordinate,
 			...(row.kind == null ? [] : [row.kind]),
 			action,
 			...args,

@@ -1,5 +1,5 @@
 #lang racket/base
-;; trace-publish.rkt — publish this vat's own protocol activity to a live
+;; trace-publish.rkt: publish this vat's own protocol activity to a live
 ;; timeline endpoint.
 ;;
 ;; A timeline endpoint takes records from several peers at once. Viewers connect
@@ -24,7 +24,7 @@
 ;; a new scope.
 ;;
 ;; Being sent no records is not the same as never reading the socket, and the
-;; difference is load-bearing. `net/rfc6455` answers a ping and notices a peer's
+;; difference is essential. `net/rfc6455` answers a ping and notices a peer's
 ;; close only inside a receive, so a socket that is only written to can be shut
 ;; by the far end without this end ever learning: an endpoint that drops a
 ;; producer for missing its pings takes with it every session that producer
@@ -59,8 +59,8 @@
 ;; What this producer answers when a record asks what it runs. A constant and
 ;; not an argument: the vat behind this publisher is a Goblins vat, and letting
 ;; a caller name itself something else would put a claim on the wire that
-;; nothing here could stand behind. The schema is not one implementation's mark
-;; — glowcap's own hosts publish the same records, saying `glowcap` — so a
+;; nothing here could stand behind. The schema is not one implementation's mark.
+;; glowcap's own hosts publish the same records, saying `glowcap`, so a
 ;; consumer cannot read an implementation off the fact that a record arrived,
 ;; and this is how the vat's own end is named on screen. This word must never
 ;; be folded into the one glowcap's bindings state: it is a different producer
@@ -302,8 +302,8 @@
   ;;
   ;; `ws-serve` cannot be asked which port it took: it prepends `#:dispatch` to
   ;; the caller's keywords and `keyword-apply` demands them sorted, so any
-  ;; keyword sorting ahead of that one — `#:confirmation-channel`, the one that
-  ;; would answer — is a contract violation. So the port is chosen the other way
+  ;; keyword sorting ahead of that one, `#:confirmation-channel`, the one that
+  ;; would answer, is a contract violation. So the port is chosen the other way
   ;; round: the OS names a free one, it is given back, and the endpoint claims
   ;; it, trying again if something else took it in between.
   (define (serve-on-a-free-port handler)

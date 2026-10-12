@@ -23,7 +23,7 @@ pub const Scope = struct {
     startup: ?@import("live_start.zig").Start = null,
 
     /// Allocate the complete bounded runtime inventory and hash index before
-    /// startup stages anything. A reservation owns one exact Host retain; its
+    /// startup stages anything. A reservation owns one exact Host retain. Its
     /// transfer on commit needs no allocation. Graph retention stays elsewhere
     /// so collecting the last stored occurrence can retire that runtime retain.
     pub fn init(allocator: std.mem.Allocator, host: *driver.Host, store: *core.Store, capacity: u32) !Scope {
@@ -55,7 +55,7 @@ pub const Scope = struct {
         self.revision = self.store.metadata.revision;
     }
 
-    /// Confirmed absence permits another startup attempt; an unknown write
+    /// Confirmed absence permits another startup attempt. An unknown write
     /// cannot discard the opening proposal before exact backend recovery.
     pub fn cancelStart(self: *Scope) !void {
         try self.host.refuseReentry();
@@ -129,8 +129,8 @@ pub const Scope = struct {
     }
 
     /// Construct once from two actual held authorities before preparation can
-    /// wait. Temporary canonical retains establish the names borrowed below;
-    /// the facet owns those same retains for the reservation's whole lifetime.
+    /// wait. Temporary canonical retains establish the names borrowed below.
+    /// The facet owns those same retains for the reservation's whole lifetime.
     /// Saving its actual capability preserves identity through receipt replay.
     pub fn reserveDependent(self: *Scope, scratch: std.mem.Allocator, source: driver.Capability, target: driver.Capability) !*Reservation {
         if (self.epoch == null) return error.LiveScopeNotStarted;
@@ -148,7 +148,7 @@ pub const Scope = struct {
     }
 
     /// Compare actual guarded authority on retry without constructing a new
-    /// facet. The table owns the facet; its two retains keep these names valid.
+    /// facet. The table owns the facet. Its two retains keep these names valid.
     pub fn matchesDependent(self: *Scope, facet: driver.Capability, source: driver.Capability, target: driver.Capability) bool {
         const source_actor = self.host.localActorFor(source) orelse return false;
         for (self.entries) |entry| {
@@ -161,7 +161,7 @@ pub const Scope = struct {
     }
 
     /// Trusted lifetime metadata for one committed facet. The existing bounded
-    /// inventory retains its guarded pair; observation borrows the Host session
+    /// inventory retains its guarded pair. Observation borrows the Host session
     /// without disclosing either capability or constructing another facade.
     pub fn dependentExporter(self: *Scope, facet: driver.Capability) ?*driver.HostSession {
         for (self.entries) |entry| {

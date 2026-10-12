@@ -212,20 +212,75 @@ printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail' \
     'if IFS= read -r stolen; then echo "stole stdin: $stolen"; fi' \
     'cp "$LAUNCHER_PRODUCT" "$LAUNCHER_ROOT/zig-out/product/bin/glowcap"' \
     'chmod +x "$LAUNCHER_ROOT/zig-out/product/bin/glowcap"' \
-    ': >"$LAUNCHER_ROOT/zig-out/product/share/glowcap/installation.manifest"' >"${launcher_root}/.devcontainer/bin/run.sh"
+    ': >"$LAUNCHER_ROOT/zig-out/product/share/glowcap/installation.manifest"' \
+    'printf "{\"checkout_preparation\":true}\n" >"$LAUNCHER_ROOT/zig-out/product/share/glowcap/release.json"' >"${launcher_root}/.devcontainer/bin/run.sh"
 chmod +x "${launcher_root}/.devcontainer/bin/run.sh"
 launcher_product="${scratch}/product"
 # shellcheck disable=SC2016
 printf '%s\n' '#!/usr/bin/env bash' '[[ ${GLOWCAP_CHECKOUT_ROOT} == "$LAUNCHER_ROOT" ]] || exit 91' \
-    'echo "product diagnostic" >&2' 'printf "first:%s\\n" "$*"' >"${launcher_product}"
+    'echo "product diagnostic" >&2' 'echo "prepared:${GLOWCAP_CHECKOUT_PREPARED:-unset}" >&2' \
+    'printf "first:%s\\n" "$*"' >"${launcher_product}"
 chmod +x "${launcher_product}"
 launcher_output=$(cd / && LAUNCHER_ROOT="${launcher_root}" LAUNCHER_PRODUCT="${launcher_product}" "${scratch}/launch" version 2>"${scratch}/launcher-log")
 [[ ${launcher_output} == first:version ]]
-grep -Fx 'builder:--auto zig build rooms-build -Doptimize=ReleaseSafe -Dcpu=baseline' "${scratch}/launcher-log" >/dev/null
+grep -Fx 'builder:--auto zig build rooms-release' "${scratch}/launcher-log" >/dev/null
 grep -Fx 'builder diagnostic' "${scratch}/launcher-log" >/dev/null
 grep -Fx 'product diagnostic' "${scratch}/launcher-log" >/dev/null
 launcher_log=$(<"${scratch}/launcher-log")
 [[ ${launcher_log} == *'command has not started yet'*'builder:'*'builder diagnostic'*'checkout product ready; starting command'*'product diagnostic'* ]]
+# A validated deployment requests preparation even when its product exists.
+# The CLI process proof owns which commands request it. This front owns the
+# build, refusal, and transparent forwarding of the original command.
+for verb in up reset; do
+    launcher_output=$(cd / && LAUNCHER_ROOT="${launcher_root}" LAUNCHER_PRODUCT="${launcher_product}" \
+        GLOWCAP_PREPARE_CHECKOUT="${launcher_root}" \
+        "${scratch}/launch" apps rooms deployment "$verb" 2>"${scratch}/launcher-log")
+    [[ ${launcher_output} == "first:apps rooms deployment $verb" ]]
+    grep -Fx 'builder:--auto zig build rooms-release' "${scratch}/launcher-log" >/dev/null
+    grep -Fx "prepared:${launcher_root}" "${scratch}/launcher-log" >/dev/null
+    launcher_status=0
+    LAUNCHER_ROOT="${launcher_root}" LAUNCHER_PRODUCT="${launcher_product}" FAKE_BUILD_FAIL=1 \
+        GLOWCAP_PREPARE_CHECKOUT="${launcher_root}" \
+        "${scratch}/launch" apps rooms deployment "$verb" >"${scratch}/launcher-output" 2>"${scratch}/launcher-log" || launcher_status=$?
+    [[ ${launcher_status} -eq 37 && ! -s ${scratch}/launcher-output ]]
+done
+# A bare `! grep` is exempt from errexit and would never fail this script.
+refuse_builder() {
+    if grep -F 'builder:' "${scratch}/launcher-log" >/dev/null; then
+        echo "test/build-front: launcher invoked its builder for: $*" >&2
+        exit 1
+    fi
+}
+# The CLI owns explicit sources, syntax, and help. Read-only and restart paths
+# must keep working when the compiler or development container is unavailable.
+for verb in up reset; do
+    for source in '--image=example:test' '--build=/prepared product' --help -h; do
+        launcher_output=$(LAUNCHER_ROOT="${launcher_root}" LAUNCHER_PRODUCT="${launcher_product}" FAKE_BUILD_FAIL=1 \
+            PATH="${scratch}/bin:${PATH}" REAL_UNAME="${real_uname}" FAKE_HOST_OS=Linux \
+            "${scratch}/launch" apps rooms deployment "$verb" "$source" 2>"${scratch}/launcher-log")
+        [[ ${launcher_output} == "first:apps rooms deployment $verb $source" ]]
+        refuse_builder "${launcher_output}"
+    done
+    for source in --image --build; do
+        launcher_output=$(LAUNCHER_ROOT="${launcher_root}" LAUNCHER_PRODUCT="${launcher_product}" FAKE_BUILD_FAIL=1 \
+            "${scratch}/launch" apps rooms deployment "$verb" "$source" 'two words' 2>"${scratch}/launcher-log")
+        [[ ${launcher_output} == "first:apps rooms deployment $verb $source two words" ]]
+        refuse_builder "${launcher_output}"
+    done
+done
+for verb in doctor status logs trace down restart; do
+    launcher_output=$(LAUNCHER_ROOT="${launcher_root}" FAKE_BUILD_FAIL=1 \
+        "${scratch}/launch" apps rooms deployment "$verb" 2>"${scratch}/launcher-log")
+    [[ ${launcher_output} == "first:apps rooms deployment $verb" ]]
+    refuse_builder "${launcher_output}"
+done
+# A macOS checkout operates its host product and selects a Linux image source
+# through the CLI. It must not replace its executable with a Linux build.
+launcher_output=$(LAUNCHER_ROOT="${launcher_root}" FAKE_BUILD_FAIL=1 \
+    PATH="${scratch}/bin:${PATH}" REAL_UNAME="${real_uname}" FAKE_HOST_OS=Darwin \
+    "${scratch}/launch" apps rooms deployment up 2>"${scratch}/launcher-log")
+[[ ${launcher_output} == 'first:apps rooms deployment up' ]]
+refuse_builder "${launcher_output}"
 # shellcheck disable=SC2016
 printf '%s\n' '#!/usr/bin/env bash' \
     'if [[ -n ${GLOWCAP_BIN:-} && -n ${GLOWCAP_CHECKOUT_ROOT:-} ]]; then exit 92; fi' \
@@ -234,8 +289,10 @@ printf '%s\n' '#!/usr/bin/env bash' \
 # silently select a different product. Replies, ticks and listeners share this.
 for command in 'apps rooms session reply' 'apps rooms session tick' 'apps rooms session listen'; do
     launcher_output=$(LAUNCHER_ROOT="${launcher_root}" LAUNCHER_PRODUCT="${launcher_product}" FAKE_BUILD_FAIL=1 \
+        GLOWCAP_CHECKOUT_PREPARED="${launcher_root}" \
         "${scratch}/launch" "$command" 2>"${scratch}/launcher-log")
     [[ ${launcher_output} == "first:$command" ]]
+    grep -Fx 'prepared:unset' "${scratch}/launcher-log" >/dev/null
     if grep -F 'builder' "${scratch}/launcher-log" >/dev/null; then
         echo "test/build-front: operating the prepared product invoked its builder" >&2
         exit 1
@@ -245,6 +302,18 @@ done
 cp "${launcher_product}" "${launcher_root}/zig-out/product/bin/glowcap"
 launcher_output=$(printf 'retained input\n' | LAUNCHER_ROOT="${launcher_root}" FAKE_BUILD_FAIL=1 "${scratch}/launch" 'two words' 2>"${scratch}/launcher-log")
 [[ ${launcher_output} == 'second:two words:retained input' ]]
+launcher_output=$(printf 'retained input\n' | LAUNCHER_ROOT="${launcher_root}" LAUNCHER_PRODUCT="${launcher_product}" \
+    GLOWCAP_PREPARE_CHECKOUT="${launcher_root}" \
+    "${scratch}/launch" apps rooms deployment reset all 2>"${scratch}/launcher-log")
+[[ ${launcher_output} == 'second:apps rooms deployment reset all:retained input' ]]
+# A product that lacks the preparation contract is incomplete, even if its
+# executable and inventory exist. It must not silently deploy an older CLI.
+printf '{}\n' >"${launcher_root}/zig-out/product/share/glowcap/release.json"
+launcher_status=0
+LAUNCHER_ROOT="${launcher_root}" LAUNCHER_PRODUCT="${launcher_product}" FAKE_BUILD_FAIL=1 \
+    "${scratch}/launch" version >"${scratch}/launcher-output" 2>"${scratch}/launcher-log" || launcher_status=$?
+[[ ${launcher_status} -eq 37 && ! -s ${scratch}/launcher-output ]]
+printf '{"checkout_preparation":true}\n' >"${launcher_root}/zig-out/product/share/glowcap/release.json"
 rm "${launcher_root}/zig-out/product/share/glowcap/installation.manifest"
 launcher_status=0
 LAUNCHER_ROOT="${launcher_root}" LAUNCHER_PRODUCT="${launcher_product}" FAKE_BUILD_FAIL=1 \
@@ -257,6 +326,10 @@ if grep -F 'checkout product ready' "${scratch}/launcher-log" >/dev/null; then
 fi
 launcher_output=$(printf 'existing\n' | FAKE_BUILD_FAIL=1 GLOWCAP_CHECKOUT_ROOT=/unrelated GLOWCAP_BIN="${launcher_product}" "${scratch}/launch" version)
 [[ ${launcher_output} == 'second:version:existing' ]]
+launcher_output=$(printf 'existing\n' | FAKE_BUILD_FAIL=1 GLOWCAP_CHECKOUT_ROOT=/unrelated GLOWCAP_BIN="${launcher_product}" \
+    GLOWCAP_PREPARE_CHECKOUT="${launcher_root}" \
+    "${scratch}/launch" apps rooms deployment up)
+[[ ${launcher_output} == 'second:apps rooms deployment up:existing' ]]
 
 lease_file="${scratch}/build.lock"
 GLOWCAP_BUILD_LEASE_FILE="${lease_file}" "${lease_runner}" /bin/true

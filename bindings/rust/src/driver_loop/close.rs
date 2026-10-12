@@ -114,26 +114,18 @@ impl LoopShared {
 				self.fail_close_or_record(error);
 				return;
 			}
-			let release = self.driver.release();
-			match release.result {
-				Ok(()) if release.consumed => {
+			match self.driver.release() {
+				ReleaseOutcome::Consumed(Ok(())) => {
 					self.released.set(true);
 					host.finish_loop_teardown(close_code);
 				}
-				Err(error) if release.consumed => {
+				ReleaseOutcome::Consumed(Err(error)) => {
 					self.released.set(true);
 					host.finish_failed_loop_teardown(retain_release_failure(close_code, error));
 				}
-				Err(error) => {
+				ReleaseOutcome::Refused(error) => {
 					self.defer_failed_release(host, retain_release_failure(close_code, error));
 				}
-				Ok(()) => self.defer_failed_release(
-					host,
-					Error::with_detail(
-						sys::ERR_INTERNAL,
-						"driver release refused without a failure".to_string(),
-					),
-				),
 			}
 		} else {
 			if let Err(error) = self.driver.release_or_defer() {

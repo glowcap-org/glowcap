@@ -1,8 +1,8 @@
 //! Node-owned advertised locator snapshots and acceptable-route selection.
 //!
 //! The Catalog owns one complete locator per transport and one selected key
-//! borrowed from that map. Node remains the aggregate and supported API index;
-//! this internal module owns the catalog's mutation and lifetime invariants.
+//! borrowed from that map. Node remains the aggregate and supported API index.
+//! This internal module owns the catalog's mutation and lifetime invariants.
 
 const std = @import("std");
 
@@ -60,7 +60,7 @@ pub fn ensureAdvertisedLocator(self: *Node, locator: model.PeerLocator) !void {
 }
 
 /// Remove one retained transport. Removing the selected locator leaves no
-/// acceptable route; another snapshot is never selected by map iteration.
+/// acceptable route. Another snapshot is never selected by map iteration.
 pub fn removeAdvertisedLocator(self: *Node, transport: []const u8) void {
     const removed = self.locators.by_transport.fetchRemove(transport) orelse return;
     if (self.locators.selected_transport) |selected| {

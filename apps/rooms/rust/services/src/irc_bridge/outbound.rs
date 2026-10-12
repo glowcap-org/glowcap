@@ -1,5 +1,5 @@
 //! Admission includes queued and in-flight lines. Only proven unwritten lines
-//! retry on a new socket; an uncertain write is refused instead of duplicated.
+//! retry on a new socket. An uncertain write is refused instead of duplicated.
 use super::{notice::Notice, state::Shared};
 use glowcap::{Argument, Resolver, Session};
 use rooms_application::server::irc::{protocol, room::Post};

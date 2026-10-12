@@ -228,8 +228,8 @@ const NestedServeCapture = struct {
                 return;
             },
         };
-        // Pump the second resolve through a nested serve — the same shape a
-        // driver's `step` → `drainEvents` re-entry has — before reading.
+        // Pump the second resolve through a nested serve, the same shape a
+        // driver's `step` → `drainEvents` re-entry has, before reading.
         _ = self.port.serve(self.vat, self.inner_event) catch {
             self.broke = true;
             return;
@@ -379,8 +379,8 @@ test "one converged wire resolve fires every local far listener" {
     try std.testing.expectEqualStrings("shared", six.text());
 }
 
-/// A break listener that registers a NEW far promise mid-break; the drain
-/// must fire it broken too — once the connection is gone, no resolution can
+/// A break listener that registers a NEW far promise mid-break. The drain
+/// must fire it broken too, once the connection is gone. No resolution can
 /// ever come.
 const RegisterOnBreak = struct {
     vat: *actors.Vat,

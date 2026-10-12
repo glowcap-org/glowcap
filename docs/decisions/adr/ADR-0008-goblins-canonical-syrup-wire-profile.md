@@ -13,23 +13,17 @@ superseded_by: []
 ## Context
 
 Goblins garbage-collects references with two operations and a batched
-`wire-delta`, not a single per-reference release. A peer legitimately re-sends
-the same import and expects batched `op:gc-exports` carrying positive
-wire-deltas. The OCapN `CapTP Specification.md` (§ `op:gc-exports`, §
-`op:gc-answers`, § `op:abort`) and Goblins's `captp.rkt` pin the wire shapes
-precisely, so the wire half is a transcription. The session-state half: where
-the counts live, what underflow does: is glowcap's call.
+`wire-delta`, not a single per-reference release. A peer re-sends the same
+import and expects batched `op:gc-exports` carrying positive wire-deltas. The
+OCapN `CapTP Specification.md` (§ `op:gc-exports`, § `op:gc-answers`, §
+`op:abort`) and Goblins's `captp.rkt` pin the wire shapes, so the wire half is a
+transcription. The session-state half (where the counts live, what underflow
+does) is glowcap's call.
 
 `op:abort` rides the same profile. Goblins emits a single-string
 `<op:abort reason>`. glowcap carries a typed kind on the model surface and
-projects it per profile, so a glowcap-to-glowcap session can route abort decisions
-on the kind while a glowcap-to-Goblins session stays spec-strict.
-
-Engages the First Principles _session state is authoritative_ (counts live in
-the session tables, not the codec), _conformance is load-bearing_ (the shapes
-are pinned against the glowcap-authored Syrup corpus and live Goblins /
-suite arms), and _fail loud rather than succeed wrong_
-(underflow is an error, never a silent clamp).
+projects it per profile, so a glowcap-to-glowcap session can route abort
+decisions on the kind while a glowcap-to-Goblins session stays spec-strict.
 
 ## Decision
 
@@ -38,7 +32,7 @@ suite arms), and _fail loud rather than succeed wrong_
 `op:gc-exports` is two **parallel** lists. `position-list[i]` is the export id,
 `delta-list[i]` is the count of references to it the sender has dropped since
 its last `op:gc-exports` for that id. The receiver decrements its export count
-by the delta; at zero the export is collected. `op:gc-answers` is a single
+by the delta. At zero the export is collected. `op:gc-answers` is a single
 position list: promises are single-reference per answer-pos, so "done with N"
 needs no delta, and a gc'd answer-pos becomes reusable. The model mirrors the
 wire ([`src/ocapn/model/mod.zig`](../../../src/ocapn/model/mod.zig)):
@@ -55,36 +49,34 @@ There is no `op:release` arm at any layer.
 The import, export, and answer tables in
 [`src/ocapn/session/mod.zig`](../../../src/ocapn/session/mod.zig) carry a
 wire-delta count. Applying `op:gc-exports` validates then applies atomically: a
-`positions`/`deltas` length mismatch and a count underflow are both loud errors
-(`GcUnderflow` and siblings), surfaced, never saturating-subtracted. Underflow
-is a peer-or-protocol bug; absorbing it would hide the bug class. This is the
+`positions`/`deltas` length mismatch and a count underflow are both errors
+(`GcUnderflow` and siblings), never saturating-subtracted. Underflow is a
+peer-or-protocol bug, and absorbing it would hide the bug class. This is the
 behavior the C ABI dogfood pins: a fresh peer fed `op:gc-answers` for an
 answer-pos it never owned rejects the frame and projects an abort.
 
 ### Typed abort taxonomy
 
 `AbortReason { kind: AbortKind, message: []const u8 }` carries a
-`non_exhaustive`-style `AbortKind` enum. Projection per profile:
+non-exhaustive `AbortKind` enum. Projection per profile:
 
-- **`next`:** Cap'n Proto sessions carry both kind and message; a glowcap-to-glowcap
+- **`next`:** Cap'n Proto sessions carry both kind and message. A glowcap-to-glowcap
   session routes on the kind.
 - **`v1_0`:** emits the single-string `<op:abort message>` the spec requires.
   The kind rides as a discoverable prefix (`"<KindName>: <message>"`) which
   the Syrup decoder matches back to a kind, falling to `.other` when no prefix
-  matches. The wire-string format is the codec's in both directions; the model
-  carries only the typed `AbortReason`. Spec-strict on the wire, typed within
-  glowcap.
+  matches. The wire-string format belongs to the codec in both directions, and
+  the model carries only the typed `AbortReason`.
 
 The taxonomy spans the conditions the protocol core originates
 (`protocol_error`, `malformed_frame`, the `*_not_negotiated` family,
 `resource_exhausted`, `version_mismatch`, `invalid_start_session_signature`,
-`invalid_handoff_signature`, `handoff_replay`) **and** the connection-lifecycle
+`invalid_handoff_signature`, `handoff_replay`) and the connection-lifecycle
 conditions an adapter detects (`connection_lost`, `graceful_shutdown`,
 `crossed_hellos`, `timeout`). The no-I/O core does not detect a lost socket or a
-crossed-hellos collision: those are dial/transport concerns an adapter owns,
-but the kind and its wire projection live here so an adapter can project a
-_typed_ abort through the one shared projection path rather than inventing its
-own wire shape.
+crossed-hellos collision, since those are dial/transport concerns. The kind and
+its wire projection live here so an adapter projects a typed abort through the
+shared projection path.
 [`src/ocapn/engine/abort_projection.zig`](../../../src/ocapn/engine/abort_projection.zig)
 maps a rejected inbound frame (codec-malformed or session-refused) to the typed
 `op:abort` before the error surfaces.
@@ -98,33 +90,32 @@ maps a rejected inbound frame (codec-malformed or session-refused) to the typed
 - The session table caps that bound these accumulators against an untrusted peer,
   [ADR-0025](ADR-0025-session-table-cap-policy.md).
 - Adapter detection of connection loss / crossed hellos / graceful shutdown. The
-  core carries the kinds and projects them; an adapter decides when to raise
-  them. The testing TCP adapter is intentionally minimal, so these kinds remain
-  production-transport policy rather than core behavior.
+  core carries the kinds and projects them. An adapter decides when to raise
+  them. The testing TCP adapter is minimal, so these kinds are
+  production-transport policy.
 
 ## Alternatives Considered
 
 - **Keep a single `release` operation with synthesized counters.** Rejected:
-  Goblins's wire-delta is batched (one message, many ids); per-id release loses
-  the batching and keeps glowcap diverging from Goblins on `v1_0`.
+  Goblins's wire-delta is batched (one message, many ids), and per-id release
+  loses the batching and diverges from Goblins on `v1_0`.
 - **One combined `gc` message carrying exports and answers.** Rejected: the wire
-  is two operations; combining them forces a split-on-emit / merge-on-receive
-  translation with no benefit.
+  is two operations, and combining them forces a split-on-emit /
+  merge-on-receive translation.
 - **List-of-pairs for `op:gc-exports`.** Rejected: the wire is two parallel
-  lists; matching that shape is one allocation per side instead of per-element
-  transposition.
-- **Saturating subtract on underflow.** Rejected: underflow is always a bug;
-  loud failure makes it observable in a scenario instead of in a deploy.
+  lists, and matching that shape avoids per-element transposition.
+- **Saturating subtract on underflow.** Rejected: underflow is always a bug,
+  and an error makes it observable in a scenario instead of in a deploy.
 - **A non-spec kind field on the `v1_0` wire.** Rejected: `v1_0` is a single
-  string operand; the prefix-in-string projection keeps it spec-strict while
-  preserving the model-side kind.
+  string operand, and the prefix-in-string projection preserves the model-side
+  kind.
 
 ## Consequences
 
-- The model carries `GcExport`, `GcAnswer`, `AbortKind`, and `AbortReason`;
-  there is no release arm to remove because the Zig tree never shipped one.
-- The session tables own the counts; `op:gc-exports` / `op:gc-answers` dispatch
-  validates-then-applies and fails loud on underflow / length mismatch.
+- The model carries `GcExport`, `GcAnswer`, `AbortKind`, and `AbortReason`.
+  There is no release arm to remove because the Zig tree never shipped one.
+- The session tables own the counts. `op:gc-exports` / `op:gc-answers` dispatch
+  validates-then-applies and fails on underflow / length mismatch.
 - A `wire_delta` feature gate refuses the GC shapes on a session that did not
   negotiate them (`wire_delta_not_negotiated`).
 - The `op:gc-exports`, `op:gc-answers`, and `op:abort` byte shapes are checked
@@ -133,11 +124,11 @@ maps a rejected inbound frame (codec-malformed or session-refused) to the typed
 ## Forward compatibility
 
 These are glowcap's current `v1_0` compatibility shapes. An upstream change to
-the abort reason may revise that profile's projection of `AbortKind`, not the model. The
-wire-delta model is per-id additive: a future single-message flush of many ids
-is a batching optimization, not a wire change. New `AbortKind` variants land
-additively; the `"<KindName>: <message>"` prefix convention is the stable
-contract a peer parses.
+the abort reason may revise that profile's projection of `AbortKind`, not the
+model. The wire-delta model is per-id additive, so a future single-message
+flush of many ids is a batching optimization, not a wire change. New
+`AbortKind` variants land additively. The `"<KindName>: <message>"` prefix is
+the contract a peer parses.
 
 ## Notes
 

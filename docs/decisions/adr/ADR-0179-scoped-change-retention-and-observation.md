@@ -13,9 +13,9 @@ amended_by: [ADR-0180]
 # ADR-0179 Scoped change retention and observation
 
 Observers need ordered committed changes, restart recovery and an explicit
-response when retained history expires. Filtering raw owner events is
-insufficient: a cursor that advances for hidden activity, or exposes an owner
-revision, discloses facts outside the held authority.
+response when retained history expires. Filtering raw owner events is not
+enough, because a cursor that advances for hidden activity or exposes an owner
+revision discloses facts outside the held authority.
 
 ## Committed change history
 
@@ -27,7 +27,7 @@ new batch. Store completion and recovery govern visibility.
 
 Each effect names its affected branch for scoped filtering. Paths are bounded
 to 65 identities, including the target. Persistent managed owner depths are
-therefore at most 64. Retention drops the oldest batch edge; ordinary tracing
+therefore at most 64. Retention drops the oldest batch edge. Ordinary tracing
 owns collection. Events retain metadata needed for replay, never a database
 snapshot or a remote delivery transaction.
 
@@ -66,14 +66,14 @@ The digest includes monotonic stamps, so a visible change followed by its
 reversal cannot silently become an unchanged cursor.
 
 Replay is bounded and ordered. Delivery may coalesce retained batches with the
-current scoped snapshot. Loss or delay never preserves invocation authority;
-ordinary protected calls still evaluate current grants and resource placement.
+current scoped snapshot. Loss or delay never preserves invocation authority.
+Ordinary protected calls still evaluate current grants and resource placement.
 
 ## Hosted custody
 
 Hosted registration uses the endpoint's exact mutation receipt. A lost reply
 recovers the same observation context. Reconnect reuses that context and its
-cursor. Context quotas bound retained state; inactive contexts are removed by
+cursor. Context quotas bound retained state. Inactive contexts are removed by
 explicit cancellation.
 
 A subscription supplies separate receive and cancel references. An eventual
@@ -95,7 +95,7 @@ bounded observation operations and own their storage executor.
 [managed process-loss proof](../../../test/loam_managed_crash.zig) cover live
 delivery, replay, overflow, slow receivers, cancellation, ancestor revocation,
 hidden activity, abort and unchanged effects. A maximum-depth scenario calibrates
-warm preparation; a maximum-fanout scenario declares storage, ingress and
+warm preparation. A maximum-fanout scenario declares storage, ingress and
 transport budgets. The [usage guide](../../loam/access.md#observing-held-access)
 owns the API and costs. The [workload report](../../../bench/loam/README.md)
 measures native context retention, replay fanout and cancellation. Hosted parked

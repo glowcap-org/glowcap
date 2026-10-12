@@ -10,11 +10,11 @@ const getField = util.getField;
 const jsonStringEquals = util.jsonStringEquals;
 const containsIgnoringWhitespace = util.containsIgnoringWhitespace;
 
-/// Every port of the resolve cascade — the four binding loaders, the racket
-/// per-archive loaders, and the operator script — held to the same download,
+/// Every port of the resolve cascade, the four binding loaders, the racket
+/// per-archive loaders, and the operator script, held to the same download,
 /// checksum, and extract-hygiene rules, with the malformed extract matrix and
-/// the shared host-alias fixture keeping the greps honest against fixtures
-/// that actually execute.
+/// the shared host-alias fixture keeping the greps accurate against fixtures
+/// that execute.
 pub fn checkCAbiResolvePorts(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -381,7 +381,7 @@ pub fn checkCAbiResolvePorts(
     }
 
     // Shared host-target alias fixture: every listed alias must appear in
-    // EACH non-cargo normalizer (per-port honesty — not a union corpus).
+    // EACH non-cargo normalizer (per-port accuracy, not a union corpus).
     // Rust uses CARGO_CFG_* and is skipped; operator script is included.
     const host_aliases_fixture = "tools/c-abi/c-abi-host-aliases.json";
     var aliases_parsed = try parseJsonFile(io, gpa, root, violations, host_aliases_fixture) orelse return;
@@ -481,7 +481,7 @@ pub fn checkCAbiResolvePorts(
     // verdict on a layout they cannot read, while the Python port reads tar
     // headers through `tarfile` and has no listing text to misread.
     //
-    // The C locale is checked where tar is actually invoked, not here: for
+    // The C locale is checked where tar is invoked, not here: for
     // the shell port that is this same file, and for the other three it is
     // the importer, covered by the binding-loader rows above.
     const HygieneOwner = struct {

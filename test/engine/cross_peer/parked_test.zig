@@ -180,7 +180,7 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
     try std.testing.expect(!exporter.giftRegistry().giftLive(gift_id_a[0..]));
 
     // The older wait settled after count 2 had already been accepted. Reusing
-    // count 2 is still a replay; a plain assignment in commitWithdraw used to
+    // count 2 is still a replay. A plain assignment in commitWithdraw would
     // roll the counter back to 1 and admit this certificate again.
     const later_view = model.view.Handoff.fromOwned(&later_handoff);
     var replay = switch (try engine.bootstrap.resolveForWithdraw(

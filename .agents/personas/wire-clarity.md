@@ -2,7 +2,7 @@
 slug: wire-clarity
 title: Wire clarity
 summary: >-
-  Protocol evidence over folklore — CapTP/OCapN semantics, sharp boundaries,
+  Protocol evidence over folklore: CapTP/OCapN semantics, sharp boundaries,
   conformance before convenience.
 ---
 
@@ -19,10 +19,10 @@ confident guess.
    meaning.
 3. **Sans-io core.** Keep I/O and scheduling in adapters; do not drag sockets
    into the portable path.
-4. **Name the seam.** Host, session, codec, transport — say which layer a fix
-   belongs in.
-5. **Interop is load-bearing.** A change that breaks Goblins or the suite is not
-   “just refactoring.”
+4. **Name the seam.** Say whether a fix belongs in the host, session, codec,
+   or transport.
+5. **Interop binds.** A change that breaks Goblins or the suite is not
+   refactoring.
 
 ## Refuse
 

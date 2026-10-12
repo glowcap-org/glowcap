@@ -40,12 +40,12 @@
    iOS zooms a focused text control and can leave the reader stranded in a
    scaled app whose rails and composer no longer fit. This is a page invariant,
    not a field style: it comes after every component sheet and is important so
-   a deliberately dense surface cannot silently opt back into viewport zoom.
+   a dense surface cannot silently opt back into viewport zoom.
 
    The floor follows touch capability rather than width. A phone in landscape
    can be wide, and a tablet with a trackpad still has glass a reader can touch.
    `max()` preserves type already larger than the platform's threshold. Selects
-   are included because their focus behavior is engine-dependent; controls that
+   are included because their focus behavior is engine-dependent. Controls that
    do not accept text have no rendered text for this declaration to resize. */
 @media (any-pointer: coarse) {
 	input:is([type="text"], [type="search"], [type="url"], [type="email"], [type="password"], [type="tel"], [type="number"], :not([type])),
@@ -57,10 +57,10 @@
 	}
 }
 
-/* Rooms wears glowcap's own colours — cream paper, cocoa ink, an amber accent,
-   a teal flourish — so it looks like part of the project rather than like any
+/* Rooms wears glowcap's own colours (cream paper, cocoa ink, an amber accent,
+   a teal flourish) so it looks like part of the project rather than like any
    chat app it borrows ideas from. Those come from ui/tokens.css, linked ahead of
-   this file in page.html; what follows is only what rooms means by them.
+   this file in page.html. What follows is only what rooms means by them.
 
    One face, with one exception a reader never has to notice. Everything is
    the sans. The mono appears only where a thing is typed or pasted: code, a
@@ -71,8 +71,8 @@
    its own drawing in ui/mark.css and takes the one other face.
 
    The mono sets a larger eye than the sans at the same nominal size, so a
-   rule that takes it steps one ramp step down from the sans it stands beside;
-   the inline `code` chip below makes the same correction relatively, because
+   rule that takes it steps one ramp step down from the sans it stands beside.
+   The inline `code` chip below makes the same correction relatively, because
    it follows whatever prose surrounds it. */
 :root {
 	--danger: #b23b2e;
@@ -86,7 +86,7 @@
 	--hover: color-mix(in srgb, var(--ink) 6%, transparent);
 	/* Your own messages, the Send button, and the pill that marks a mention of
 	   you all sit on the product's filled amber, so they share one set of
-	   tokens. The pairing itself lives in ui/tokens.css; these names are what
+	   tokens. The pairing itself lives in ui/tokens.css. These names are what
 	   rooms means by it. */
 	--mine-from: var(--accent-fill);
 	--mine-to: var(--accent-fill-deep);
@@ -105,12 +105,12 @@
 	--said-ink: var(--ink);
 	/* A card resting on its column, as against --shadow below, which is a menu
 	   floating over the page. The composer is the one card in the conversation
-	   and it rests; it does not float. */
+	   and it rests. It does not float. */
 	--lift: 0 6px 20px var(--shadow-color);
 	/* An interactive wash inside our own message bubble. The bubble reverses
 	   both fill and ink between themes, so a page-surface hover cannot serve it:
 	   dark paper under dark on-accent ink was the broken Download state. Darken
-	   the light theme's deep bubble for cream ink; lighten the dark theme's
+	   the light theme's deep bubble for cream ink. Lighten the dark theme's
 	   bright bubble for cocoa ink. */
 	--mine-action-hover: rgba(0, 0, 0, 0.14);
 	/* light-dark() returns a colour, so it goes around the colour and not around
@@ -125,8 +125,8 @@
 	/* What a field sits on, inside any card: one answer for the join form, the
 	   Settings and take forms, and every choice row, so the two themes each
 	   say "this is where you act" with the mechanism they own. Dark recesses a
-	   field to the ground tone the way it always has; light lifts it white
-	   above the near-white card, and the lift — not a darker ground — is what
+	   field to the ground tone the way it always has. Light lifts it white
+	   above the near-white card, and the lift, not a darker ground, is what
 	   makes it pop, carried by the hairline and a breath of shadow. */
 	--field-fill: #fff;
 	--field-lift: 0 1px 2px var(--shadow-sm-color);
@@ -141,7 +141,7 @@
 	   That is what this was, and it cannot work: a custom property composed
 	   here is substituted here, so a hue set further down arrives after the
 	   colour has already been chosen. Three bands asked for the refusal's
-	   colour, or a directory's own mark, and drew the accent — the property
+	   colour, or a directory's own mark, and drew the accent: the property
 	   was set, and read back correctly, and the shadow was the wrong colour
 	   regardless. A hue known only on the element, like a directory's, cannot
 	   be named up here at all and writes its band out where it stands.
@@ -160,12 +160,12 @@
 	   the light theme the colour is transparent and every shadow that names it
 	   draws nothing, so paper keeps its paper shadows and nothing has to be
 	   written twice. The colour is the token because a shadow list cannot be
-	   switched off with `none` from inside a comma-separated value; a shadow
+	   switched off with `none` from inside a comma-separated value. A shadow
 	   in a colour nobody can see can. */
 	--glow-color: transparent;
 	/* The field's bloom is the wide one, and wide at full colour was a
-	   floodlight under the conversation; it takes a little over half. The
-	   lines take a share of that again, and are dimmer than it on purpose,
+	   floodlight under the conversation. It takes a little over half. The
+	   lines take a share of that again, and are dimmer than it,
 	   because the field with the caret is the lantern and the lines are what
 	   it lit. Equal strengths read as every line emitting on its own, and a
 	   halo around each of them is the fairground this palette keeps warning
@@ -197,8 +197,8 @@
    screen came to hold its logotype three pixels closer than the chooser did:
    the air the mark's light needs was taken back out of the layout slightly too
    far, and no rule stood over both to notice. The mark's own box is still
-   named at each home, because one is markup and the other a component's prop;
-   what stands between the mark and the word is settled here. */
+   named at each home, because one is markup and the other a component's prop.
+   What stands between the mark and the word is settled here. */
 .brand-lockup {
 	display: flex;
 	flex-direction: column;
@@ -217,21 +217,21 @@
 	scrollbar-color: color-mix(in srgb, var(--ink) 22%, transparent) transparent;
 }
 /* Inline code: one chip wherever a sentence names a flag, a verb, or an
-   address — the mono a step under the prose, a breath of ink behind it, and
-   the corner radius of a small thing. The message bubbles taught this shape;
-   every surface now says it the same way. A code block, and any column that
+   address: the mono a step under the prose, a breath of ink behind it, and
+   the corner radius of a small thing. The message bubbles taught this shape.
+   Every surface now says it the same way. A code block, and any column that
    is code throughout, resets the chip and keeps the mono. */
 code {
 	font-family: var(--font-mono);
 	/* Relative, and not a ramp step. A monospace face sets a larger eye than
 	   the sans beside it at the same size, so this is the correction that makes
-	   the two read as one line of text; it has to follow whatever the prose
+	   the two read as one line of text. It has to follow whatever the prose
 	   around it is set in rather than name a size of its own. */
 	font-size: .9em;
 	background: color-mix(in srgb, var(--ink) 9%, transparent);
 	padding: 1px 5px;
 	border-radius: 5px;
-	/* A long token may wrap; cloning the decoration keeps each fragment a
+	/* A long token may wrap. Cloning the decoration keeps each fragment a
 	   chip instead of leaving the second line bare. */
 	-webkit-box-decoration-break: clone;
 	box-decoration-break: clone;
@@ -255,7 +255,7 @@ pre > code {
 	   --teal-deep, so `var()` would read correctly here and then flip to a dark
 	   arm that misses the bar (3.67, 2.48, and 3.47 against white). The ramp is
 	   therefore written out, and it is the one place in rooms allowed to spell a
-	   core value; ui/tokens.css owns every other colour. */
+	   core value. The ui/tokens.css sheet owns every other colour. */
 	--avatar-1: #ae6115;
 	--avatar-2: #257f88;
 	--avatar-3: #a4560c;
@@ -267,7 +267,7 @@ pre > code {
 	--avatar-9: #7a5c34;
 	--avatar-10: #2f6f78;
 	/* IRC's origin color. The badge carries it consistently while the avatar
-	   keeps the person's name-derived tint; origin and identity answer different
+	   keeps the person's name-derived tint. Origin and identity answer different
 	   questions and should not erase one another. */
 	--irc: #6b5fa8;
 	/* Which directory a room or a direct line belongs to. Handed out in order,
@@ -278,9 +278,9 @@ pre > code {
 	   and must stay dark in both, while a directory mark is ink on the rail and
 	   has to flip with the paper.
 
-	   Amber, teal, and red are already spent — commitment, the quiet way out,
-	   and refusal — so what is left is one green and the blue-to-magenta arc.
-	   Five is what that arc holds at this separation; a sixth would have to sit
+	   Amber, teal, and red are already spent (commitment, the quiet way out,
+	   and refusal) so what is left is one green and the blue-to-magenta arc.
+	   Five is what that arc holds at this separation. A sixth would have to sit
 	   inside a semantic band or inside another tone, and two directories wearing
 	   one colour claims a sameness that is not there. Where two are close in hue they
 	   are held apart in lightness instead.
@@ -309,13 +309,13 @@ pre > code {
 	   moves the padding with it. Held apart, the phone's taller control kept the
 	   desktop's padding and left the line sitting at the top of it. */
 	--composer-line: 20px;
-	/* One height for both column headers — the topbar and the sidebar workspace — so
+	/* One height for both column headers, the topbar and the sidebar workspace, so
 	   their bottom borders line up across the grid regardless of their very different
 	   content (the topbar sizes to its 36px buttons, the workspace to its 18px title).
 	   It is the topbar's natural height: the 36px buttons plus 12px+12px padding, the
 	   accent line, and the 1px border. Keep in step with --control-h if that changes. */
 	--header-h: 64px;
-	/* What the sticky chrome actually occupies, which is the header plus
+	/* What the sticky chrome occupies, which is the header plus
 	   whatever the device keeps above it. Anything that pins below the topbar
 	   reads this rather than restating the sum, because the phone query grows
 	   the bar by the safe-area inset and a second copy of that arithmetic is a
@@ -342,7 +342,7 @@ pre > code {
 	   A column gap is its own step, because side by side needs more air than
 	   stacked to read as two columns rather than one wrapped line. */
 	/* Rows of a list that reads as one surface: a menu's items, a rail's
-	   rooms. Below this a list becomes a block of text; above it the rows stop
+	   rooms. Below this a list becomes a block of text. Above it the rows stop
 	   being one thing. */
 	--gap-hair: 2px;
 	--gap-line: 4px;
@@ -377,22 +377,22 @@ pre > code {
 	   message row uses, so the intro and a long system pill share an edge. */
 	--card-cap: 760px;
 	--card-max: min(var(--card-cap), calc(100% - 40px));
-	/* Spoken lines — ordinary bubbles and a system line that never left this
-	   tab — share one measure, so a local notice cannot grow wider than a
+	/* Spoken lines, ordinary bubbles and a system line that never left this
+	   tab, share one measure, so a local notice cannot grow wider than a
 	   message just because it is a pill. */
 	--bubble-max: min(560px, 76%);
-	/* The two rails that flank the conversation — the rooms and direct-message
-	   list on the left, the roster on the right — are the same kind of surface, so
+	/* The two rails that flank the conversation (the rooms and direct-message
+	   list on the left, the roster on the right) are the same kind of surface, so
 	   they take one width, one inset, and one fill. A matched pair that drifts
 	   apart by a few pixels on each measure does not read as two considered
-	   choices; it reads as a mistake nobody can name. --rail-pad insets a row pill
+	   choices. It reads as a mistake nobody can name. --rail-pad insets a row pill
 	   from the panel edge and --row-pad insets the row's contents from the pill, so
 	   a section label and the names under it start on the same vertical line in
 	   both rails. */
 	--rail-w: 264px;
 	--rail-pad: 12px;
 	--row-pad: 8px;
-	/* Space between a #, lock, or directory mark and the name it labels — the
+	/* Space between a #, lock, or directory mark and the name it labels: the
 	   title chip, the welcome heading, the rails, and the directory card. One
 	   number, because a gutter that only the rail remembered is how those
 	   headings drifted apart. A person chip is a larger mark and wears a
@@ -416,8 +416,8 @@ pre > code {
 	   the completion list is anchored past it. */
 	--composer-status-h: 16px;
 	/* What the log holds clear at the bottom for the band to float over. The
-	   observer in Composer.tsx measures the band and keeps --composer-h honest;
-	   this is only the first paint before it has run, and a short conversation is
+	   observer in Composer.tsx measures the band and keeps --composer-h accurate.
+	   This is only the first paint before it has run, and a short conversation is
 	   pinned to the bottom, so under-reserving puts the last message behind the
 	   field for that frame. Measured at the band's resting height and rounded up,
 	   because erring high leaves a hair of paper and erring low hides a line. */
@@ -432,7 +432,7 @@ pre > code {
 		var(--raised-foot)) 78%, color-mix(in srgb, var(--paper-raised) 80%,
 		var(--raised-foot)) 94%);
 }
-/* "Syrup" — the same warmth turned down to a dark roast, and the face this
+/* "Syrup": the same warmth turned down to a dark roast, and the face this
    app wears. One arm, mirroring ui/tokens.css: a page nobody has stamped and
    a page stamped `dark` are the same page, and `data-theme="light"` is the
    only thing that turns it off. Guarded like the token pairs, so a browser
@@ -452,7 +452,7 @@ pre > code {
    their system for reduced motion gets the change without the travel. The
    durations go near zero rather than to none, because the toast stack retires
    a leaving notice on `transitionend`, and a transition that never ran never
-   ends. (Its JS fallback would still catch it; this keeps the ordinary path
+   ends. (Its JS fallback would still catch it. This keeps the ordinary path
    ordinary.) */
 @media (prefers-reduced-motion: reduce) {
 	*,

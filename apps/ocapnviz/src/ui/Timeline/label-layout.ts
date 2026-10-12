@@ -4,7 +4,7 @@
  * which labels survive a dense cluster and where they paint.
  *
  * Sticky-header semantics (variation 1): right-to-left single pass.
- * Later spans claim space first; earlier ones shrink and eventually
+ * Later spans claim space first. Earlier ones shrink and eventually
  * drop. Stable sort on `(startT, id)` keeps frames reproducible.
  */
 
@@ -28,7 +28,7 @@ const MONO_ADVANCE_RATIO = 0.625;
  * 6 px, not the 5.625 the ratio alone predicts. That rounding is the
  * difference between a label that stops inside its column and one
  * that runs past the edge, because the error compounds once per
- * character — under-measuring by half a pixel overhangs a
+ * character, under-measuring by half a pixel overhangs a
  * ten-character row label by five.
  *
  * A machine that never loaded the face falls back to a monospace with
@@ -107,7 +107,7 @@ export function layoutLaneLabels(
 /**
  * Truncate `label` so it fits in `maxWidth` CSS px at the given
  * monospace `advance`. Appends `…` when truncation occurs. Returns
- * the empty string only if even a single `…` glyph doesn't fit —
+ * the empty string only if even a single `…` glyph doesn't fit,
  * callers should treat empty as "drop this label."
  *
  * A cut that lands after a space drops it, so a name reads

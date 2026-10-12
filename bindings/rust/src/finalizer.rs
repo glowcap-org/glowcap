@@ -1,7 +1,7 @@
 //! Failure-cold ownership for native releases refused from Rust `Drop` paths.
 //!
 //! One safe boundary claims a finite queue prefix. A refusal requeues its
-//! owner for the next boundary rather than spinning; native allocation policy
+//! owner for the next boundary rather than spinning. Native allocation policy
 //! stays retained until the consuming release call.
 
 use std::cell::RefCell;
@@ -10,10 +10,10 @@ use std::mem::ManuallyDrop;
 use std::rc::Rc;
 
 use crate::context::ContextInner;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::driver_loop::handle::{LoopHandle, Released};
 use crate::host::{HostShared, check_host};
 use crate::session_shared::SessionShared;
-#[cfg(not(target_arch = "wasm32"))]
-use crate::sys::driver::GlowcapDriverLoop;
 use crate::sys::{self, host as ffi_host};
 use crate::{Error, FailureLayer, FailureScope, Result};
 
@@ -45,7 +45,7 @@ enum PendingRelease {
 	},
 	#[cfg(not(target_arch = "wasm32"))]
 	Driver {
-		raw: *mut GlowcapDriverLoop,
+		handle: LoopHandle,
 		context: Option<Rc<ContextInner>>,
 		refusal_reported: bool,
 		completion: Option<FailedDriverCompletion>,
@@ -115,10 +115,10 @@ pub(crate) fn park_host(raw: *mut ffi_host::GlowcapHost, context: Option<Rc<Cont
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn park_driver(raw: *mut GlowcapDriverLoop, context: Option<Rc<ContextInner>>, refusal_reported: bool) {
+pub(crate) fn park_driver(handle: LoopHandle, context: Option<Rc<ContextInner>>, refusal_reported: bool) {
 	PENDING.with(|pending| {
 		pending.borrow_mut().push_back(PendingRelease::Driver {
-			raw,
+			handle,
 			context,
 			refusal_reported,
 			completion: None,
@@ -128,17 +128,17 @@ pub(crate) fn park_driver(raw: *mut GlowcapDriverLoop, context: Option<Rc<Contex
 
 /// Retain a refused live-loop release together with the wrapper state that can
 /// retire only after a later consuming attempt. The first failure is already
-/// the Host close result; retries preserve it rather than reporting duplicates.
+/// the Host close result. Retries preserve it rather than reporting duplicates.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn park_failed_driver(
-	raw: *mut GlowcapDriverLoop,
+	handle: LoopHandle,
 	context: Option<Rc<ContextInner>>,
 	host: Rc<HostShared>,
 	failure: Error,
 ) {
 	PENDING.with(|pending| {
 		pending.borrow_mut().push_back(PendingRelease::Driver {
-			raw,
+			handle,
 			context,
 			refusal_reported: true,
 			completion: Some(FailedDriverCompletion { host, failure }),
@@ -205,6 +205,9 @@ pub(crate) fn drain() {
 			}
 			#[cfg(feature = "loam")]
 			PendingRelease::LoamEffectExecution { owner, raw } => {
+				// SAFETY: `raw` is the `GlowcapLoamEffectExecution` handle that `park_loam_effect_execution` queued
+				// after a refused release, popped from `PENDING` just now, so this is its only holder; `owner` keeps
+				// its attachment alive, and a non-OK result parks the handle again rather than reusing it.
 				if unsafe { crate::sys::loam::glowcap_loam_effect_execution_release(raw) } != sys::OK {
 					park_loam_effect_execution(owner, raw);
 				}
@@ -213,10 +216,19 @@ pub(crate) fn drain() {
 			PendingRelease::BrowserLoamStore { backend, store } => backend.retire(store),
 			#[cfg(all(feature = "loam", not(target_arch = "wasm32")))]
 			PendingRelease::LoamStore(raw) => {
+				// SAFETY: `raw` is the `GlowcapLoamLmdb` storage owner that `park_loam_store` queued, popped from
+				// `PENDING` just now, so this is its only holder; a non-OK result parks it again below, and a quiescent
+				// release consumes it.
 				let mut rc = unsafe { crate::sys::loam::glowcap_loam_lmdb_release(raw) };
 				if rc == crate::sys::loam::GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED {
+					// SAFETY: `raw` is the same `GlowcapLoamLmdb` storage owner, still live because the release above
+					// reported recovery required without consuming it; the callee resolves the indeterminate creation
+					// after its commit worker terminated.
 					let recovered = unsafe { crate::sys::loam::glowcap_loam_lmdb_recover(raw) };
 					if recovered == sys::OK || recovered == crate::sys::loam::GLOWCAP_LOAM_ERR_UNCHANGED {
+						// SAFETY: `raw` is the same `GlowcapLoamLmdb` storage owner, still live after a recovery that
+						// returned OK or UNCHANGED; this second release is the last, and a refusal parks the handle
+						// again.
 						rc = unsafe { crate::sys::loam::glowcap_loam_lmdb_release(raw) };
 					}
 				}
@@ -235,6 +247,9 @@ pub(crate) fn drain() {
 				mut refusal_reported,
 			} => {
 				crate::trace::detach_host(raw);
+				// SAFETY: `raw` is the `GlowcapHost` handle that `park_host` queued, popped from `PENDING` just now, so
+				// this is its only holder, and it runs outside any behavior turn on the owning thread; a release that
+				// is not consumed parks the handle again.
 				let rc = unsafe { ffi_host::glowcap_host_release(raw) };
 				if rc != sys::OK
 					&& let Err(error) = check_host(rc)
@@ -260,17 +275,31 @@ pub(crate) fn drain() {
 			}
 			#[cfg(not(target_arch = "wasm32"))]
 			PendingRelease::Driver {
-				raw,
+				handle,
 				context,
-				mut refusal_reported,
+				refusal_reported,
 				completion,
-			} => {
-				let (rc, outcome) = crate::driver_failure::release(raw);
-				let consumed = crate::lifecycle::release_consumed(rc);
-				if let Err(error) = outcome.as_ref()
-					&& (crate::lifecycle::release_consumed(rc) || !refusal_reported)
-				{
-					if completion.is_none() {
+			} => match handle.release() {
+				Released::Refused { handle, error } => {
+					if !refusal_reported && completion.is_none() {
+						record(
+							context.as_ref(),
+							FailureLayer::Driver,
+							"driver-loop.finalizer.release",
+							&error,
+						);
+					}
+					PENDING.with(|pending| {
+						pending.borrow_mut().push_back(PendingRelease::Driver {
+							handle,
+							context,
+							refusal_reported: true,
+							completion,
+						})
+					});
+				}
+				Released::Consumed(outcome) => {
+					if let (Err(error), None) = (outcome.as_ref(), completion.as_ref()) {
 						record(
 							context.as_ref(),
 							FailureLayer::Driver,
@@ -278,22 +307,12 @@ pub(crate) fn drain() {
 							error,
 						);
 					}
-					refusal_reported = true;
+					if let Some(completion) = completion {
+						let terminal = retain_driver_release_failure(completion.failure, outcome);
+						completion.host.finish_deferred_failed_loop_teardown(terminal);
+					}
 				}
-				if !consumed {
-					PENDING.with(|pending| {
-						pending.borrow_mut().push_back(PendingRelease::Driver {
-							raw,
-							context,
-							refusal_reported,
-							completion,
-						})
-					});
-				} else if let Some(completion) = completion {
-					let terminal = retain_driver_release_failure(completion.failure, outcome);
-					completion.host.finish_deferred_failed_loop_teardown(terminal);
-				}
-			}
+			},
 			#[cfg(test)]
 			PendingRelease::Test {
 				owner,

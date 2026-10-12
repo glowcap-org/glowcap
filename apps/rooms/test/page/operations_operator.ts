@@ -154,7 +154,7 @@ export async function runOperatorScene(tab: Page, operatorSwiss: string): Promis
 	).catch(() => fail("the bulk retire left its matching room owner standing"));
 	await tab.click("#operatorSearchClear");
 
-	// Operator actions are deliberately worded, so the narrow content cell must
+	// Operator actions are worded, so the narrow content cell must
 	// give them a line of their own instead of letting a long label widen the page.
 	await tab.setViewportSize({ width: 390, height: 844 });
 	const mobileLayout = await tab.evaluate(() => {

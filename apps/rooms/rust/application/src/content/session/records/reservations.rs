@@ -20,17 +20,14 @@ fn size(value: &impl Serialize) -> Result<usize, Error> {
 	Ok(serde_json::to_vec(value)?.len())
 }
 fn role(key: Coordinate) -> usize {
-	custody::Role::ALL
-		.iter()
-		.position(|role| *role == key.role)
-		.expect("declared custody role")
+	key.role.index()
 }
 fn slot(key: Coordinate) -> (usize, u64) {
 	(role(key), key.key.slot().get())
 }
 
-/// Serialization measures one bounded provenance or displayed line at a time;
-/// each temporary byte vector dies before measuring the next plan. It creates
+/// Serialization measures one bounded provenance or displayed line at a time.
+/// Each temporary byte vector dies before measuring the next plan. It creates
 /// no shadow graph or capability copies. At most eight plans and eighty future
 /// fields are scanned. A fixed worst-case origin charge would deny otherwise
 /// valid posts with small metadata at the existing aggregate profile.

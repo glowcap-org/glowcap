@@ -30,13 +30,13 @@ const HostedGreeter = harness.HostedGreeter;
 // ── faultToClosed: the settle-path fault mapping (R3) ────────────────────────
 //
 // The chokepoint `settle`'s flush-catch and step-catch both route through has
-// two arms — a clean transport loss becomes `ConnectionClosed` with the far
+// two arms, a clean transport loss becomes `ConnectionClosed` with the far
 // vows broken as "connection lost", any other fault propagates raw with the
 // vows broken as "connection failed". `serve`'s own catch is a separate path
 // (it returns void and does not break on the non-transport arm), so it does not
 // exercise these arms; only a blocking call driven to a transport fault does.
 // Both arms are pinned deterministically here by feeding a `BlockingSession`
-// over a fixed reader that yields the exact framing failure — no timing.
+// over a fixed reader that yields the exact framing failure, no timing.
 
 const zero_pubkey_fault = @as([32]u8, @splat(0));
 const zero_sig_fault = @as([64]u8, @splat(0));
@@ -121,7 +121,7 @@ test "faultToClosed: a transport truncation during a blocking call breaks far vo
     const io = threaded.io();
 
     // The inbound the settle-path step reads: the first half of a whole frame,
-    // then EOF — a mid-frame truncation, surfaced as `error.TruncatedFrame`.
+    // then EOF, a mid-frame truncation, surfaced as `error.TruncatedFrame`.
     var whole = try faultStartSessionFrame(allocator);
     defer whole.deinit();
     var framed: std.ArrayList(u8) = .empty;
@@ -153,7 +153,7 @@ test "faultToClosed: a non-transport fault during a blocking call breaks far vow
     const io = threaded.io();
 
     // Structurally invalid bytes: a length-mismatched symbol, surfaced as
-    // `error.MalformedFrame` — the non-transport `else` arm.
+    // `error.MalformedFrame`, the non-transport `else` arm.
     var h = try FaultHarness.init(allocator, io, "<7'op:foo>");
     defer h.deinit(allocator);
 
@@ -234,7 +234,7 @@ test "an expired handshake budget times out at once instead of reading zero as f
 
     // `.ms = 0` is a budget that has already expired, in every build mode. The
     // OS poll vocabulary underneath reads zero as forever, so if this guard
-    // regresses the test does not fail — it parks, which is why the suite runs
+    // regresses the test does not fail, it parks, which is why the suite runs
     // under a timeout wrapper.
     try silentPartnerHandshakeTimesOut(io, address, allocator, .{ .ms = 0 });
     try silentPartnerHandshakeTimesOut(io, address, allocator, .{ .ms = -1 });
@@ -249,7 +249,7 @@ test "owning connect: a silent partner's handshake breaks with HandshakeTimedOut
 
     // Bind but never accept: the kernel completes connect into the backlog
     // while the peer stays silent through the whole handshake window. This is
-    // the owning tier's twin of the manual-dial test above — the budget here
+    // the owning tier's twin of the manual-dial test above, the budget here
     // is `Host.pumpHandshake`'s deadline arithmetic, not the borrowing tier's.
     var listener = try tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer listener.deinit();
@@ -308,7 +308,7 @@ test "owning accept: a connect-then-silent dialer times out and the unwind stays
 }
 
 /// Host half that completes the keyed handshake and publishes, then never
-/// serves — the partner opens then stalls, the settle budget's target.
+/// serves, the partner opens then stalls, the settle budget's target.
 fn hostAcceptPublishThenStall(server: *driver.Server, io: std.Io) anyerror!void {
     var session = try server.accept();
     defer session.deinit();

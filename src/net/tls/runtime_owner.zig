@@ -1,6 +1,6 @@
 //! Shared ownership for one TLS runtime and its deterministic final barrier.
 //!
-//! A process-facing carrier keeps the `Owner`; completion adapters and other
+//! A process-facing carrier keeps the `Owner`. Completion adapters and other
 //! runtime children receive `Lease`s. The owner cannot retire while a child is
 //! live, so an adapter's infallible destructor never becomes the last place a
 //! TLS runtime failure could be observed.
@@ -102,7 +102,7 @@ pub const Lease = struct {
         return self.state.runtime.sameConfiguration(other.state.runtime);
     }
 
-    /// Child release is deliberately infallible: the surviving `Owner` is the
+    /// Child release is infallible: the surviving `Owner` is the
     /// only final barrier and therefore the only recipient for runtime failure.
     pub fn release(self: *Lease) void {
         const previous = self.state.refs.fetchSub(1, .acq_rel);

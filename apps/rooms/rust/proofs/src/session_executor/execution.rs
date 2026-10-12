@@ -84,7 +84,7 @@ pub(super) async fn run(case: Case) {
 						key: case.coordinate(3).key,
 					};
 					// A foreign application publication carries a saved URI. A Loam
-					// local recipe deliberately has no transport locator to export.
+					// local recipe has no transport locator to export.
 					let exporter = Host::from_seed([113; 32]).unwrap();
 					let locator = glowcap::Locator::bare("tcp", "127.0.0.1:9011");
 					exporter.set_advertised_locator(&locator).unwrap();

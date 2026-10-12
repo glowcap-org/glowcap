@@ -64,7 +64,7 @@ pub fn checkDriverEventFailureProjection(
     }
 }
 
-/// Bindings request native retirement and drive its completion; they do not
+/// Bindings request native retirement and drive its completion. They do not
 /// count wrappers or inspect a Host registry to decide when close may begin.
 pub fn checkDriverRetirementAuthority(
     io: std.Io,

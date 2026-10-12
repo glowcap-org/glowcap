@@ -2,7 +2,7 @@
 use super::*;
 
 /// Serializes private root mutations, including their shared receipt sequences.
-/// It holds no cached revision or content; Loam remains the authority.
+/// It holds no cached revision or content. Loam remains the authority.
 pub(in crate::session::managed) struct Writer {
 	pub(in crate::session::managed) host: Host,
 	root: RefCell<Option<(Ref, Ref)>>,

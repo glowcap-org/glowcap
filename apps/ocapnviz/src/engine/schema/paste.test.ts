@@ -194,14 +194,14 @@ Deno.test("paste: external ref resolves when target already has the entity", () 
 	});
 	const r = cascadePaste(target, payload, 0);
 	assert(r.ok);
-	// Session inherits the existing peers — its endpoints are NOT remapped.
+	// Session inherits the existing peers. Its endpoints are NOT remapped.
 	assertEquals(r.value.doc.entities?.sessions?.s1?.a?.peer, "alice");
 	assertEquals(r.value.doc.entities?.sessions?.s1?.b?.peer, "bob");
 });
 
 Deno.test("paste: time offset shifts pasted events to playhead", () => {
 	const source = twoPeerOneSession();
-	// Select session — pulls the session-opened event at t=10.
+	// Select session, pulls the session-opened event at t=10.
 	const payload = extractClipboardPayload(source, {
 		sessions: new Set(["s1"]),
 	});

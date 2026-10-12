@@ -7,7 +7,7 @@ test "Rooms exposes one product tree with one session and team lifecycle" {
     try std.testing.expect(root.findChild("install") != null);
     try std.testing.expect(root.findChild("app") == null);
     const rooms = root.findChild("apps").?.findChild("rooms").?;
-    for ([_][]const u8{ "serve", "status", "locator", "revision", "chat", "skills" }) |name| {
+    for ([_][]const u8{ "serve", "status", "locator", "revision", "trace", "chat", "skills" }) |name| {
         try std.testing.expect(rooms.findChild(name).?.run != null);
     }
     const session = rooms.findChild("session").?;
@@ -19,7 +19,7 @@ test "Rooms exposes one product tree with one session and team lifecycle" {
     for ([_][]const u8{ "start", "status", "stop" }) |name| try std.testing.expect(team.findChild(name).?.run != null);
     try std.testing.expect(rooms.findChild("peer") == null);
     try std.testing.expect(rooms.findChild("deployment") != null);
-    for ([_][]const u8{ "up", "status", "logs", "down", "doctor" }) |name| {
+    for ([_][]const u8{ "up", "status", "logs", "trace", "down", "restart", "reset", "doctor" }) |name| {
         try std.testing.expect(rooms.findChild("deployment").?.findChild(name).?.run != null);
     }
     for ([_][]const u8{ "bridge", "front" }) |name| try std.testing.expect(rooms.findChild("irc").?.findChild(name).?.run != null);
@@ -39,7 +39,13 @@ test "Rooms completion follows the installed session and team grammar" {
             else
                 std.mem.startsWith(u8, line, "    \"apps rooms");
             if (!owns_rooms) continue;
+            const owns_trace = if (shell == .fish)
+                std.mem.indexOf(u8, line, "and __fish_seen_subcommand_from trace") != null
+            else
+                std.mem.startsWith(u8, line, "    \"apps rooms trace\"") or
+                    std.mem.startsWith(u8, line, "    \"apps rooms deployment trace\"");
             for ([_][]const u8{ "identity", "plain", "json" }) |flag| {
+                if (owns_trace and std.mem.eql(u8, flag, "json")) continue;
                 const token = try std.fmt.allocPrint(gpa, "{s}{s}", .{ if (shell == .fish) "-l " else "--", flag });
                 defer gpa.free(token);
                 try std.testing.expect(std.mem.indexOf(u8, line, token) == null);

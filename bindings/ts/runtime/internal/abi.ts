@@ -269,7 +269,7 @@ export const TCP_CONFIG_SIZE = 12;
 export const TCP_CONFIG_STREAM_OFF = 0;
 
 // GlowcapRelayConfig (libglowcap_net_transport_relay, glowcap_relay_runtime_new)
-export const RELAY_CONFIG_SIZE = 72;
+export const RELAY_CONFIG_SIZE = 88;
 export const RELAY_CONFIG_ABI_VERSION_OFF = 0;
 export const RELAY_CONFIG_STRUCT_SIZE_OFF = 8;
 export const RELAY_CONFIG_RELAY_URL_OFF = 16;
@@ -279,6 +279,8 @@ export const RELAY_CONFIG_REGISTER_URL_LEN_OFF = 40;
 export const RELAY_CONFIG_TRUST_OFF = 48;
 export const RELAY_CONFIG_TRUST_PEM_OFF = 56;
 export const RELAY_CONFIG_TRUST_PEM_LEN_OFF = 64;
+export const RELAY_CONFIG_RELAY_ALIAS_URL_OFF = 72;
+export const RELAY_CONFIG_RELAY_ALIAS_URL_LEN_OFF = 80;
 
 // GlowcapIrohReadyEvent (libglowcap_net_transport_iroh, glowcap_iroh_netlayer_drain_ready)
 export const IROH_READY_EVENT_SIZE = 16;

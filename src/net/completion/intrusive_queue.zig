@@ -3,7 +3,7 @@
 //! Queue links live on the connection that owns the deferred work. This makes
 //! enqueue, dequeue, and arbitrary teardown removal constant-time without a
 //! second allocation or a stale connection pointer. Connection id zero is the
-//! empty sentinel; completion adapters already reserve it from their synthetic
+//! empty sentinel. Completion adapters already reserve it from their synthetic
 //! handle namespaces.
 
 const std = @import("std");

@@ -75,7 +75,7 @@ fn tsParamClass(comptime T: type) []const u8 {
             u64 => "U64",
             usize => "U",
             // A signed 32-bit parameter is a timeout in milliseconds, where
-            // negative means wait without limit — the one place this ABI takes a
+            // negative means wait without limit, the one place this ABI takes a
             // signed integer in, and the same `I` the result classes use.
             i32 => "I",
             i64 => "\"i64\"",
@@ -174,7 +174,7 @@ fn rowParts(gpa: std.mem.Allocator, comptime M: type, comptime row: anytype, use
 }
 
 /// The dlopen row block for one archive, emitted in inventory order with the
-/// annotated section comments; rows the inventory opts out of TS are skipped.
+/// annotated section comments. Rows the inventory opts out of TS are skipped.
 /// Row layout follows deno fmt: one line when it fits the 120-column width (a
 /// tab counting four), the split object form otherwise.
 fn renderRows(gpa: std.mem.Allocator, comptime M: type, used: *UsedClasses) ![]u8 {

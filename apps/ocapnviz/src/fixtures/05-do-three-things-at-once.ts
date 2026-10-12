@@ -2,21 +2,21 @@ import { TimelineDocument } from "../engine/timeline.ts";
 import { payloadOf, wireFrames } from "./wire-frames.ts";
 
 /**
- * Chapter 05 — Do three things at once (multi-hop pipelining).
+ * Chapter 05, Do three things at once (multi-hop pipelining).
  *
- * `directory.lookupByName('alice').getCalendar().eventsToday()` —
+ * `directory.lookupByName('alice').getCalendar().eventsToday()`,
  * three calls, two of them anchored on a still-unresolved promise.
- * On Cap'n Proto the chain is one frame; on Syrup the runtime
+ * On Cap'n Proto the chain is one frame. On Syrup the runtime
  * decomposes into chained intermediates. The application code is
  * the same on both.
  *
  * On the wire: the client is at `127.0.0.1:9501` and the directory
  * server at `127.0.0.1:9502`, over plain `tcp`. The client's end is
- * its own report; the server's end is attached only because both hosts
+ * its own report. The server's end is attached only because both hosts
  * publish traces of the same OCapN Session ID.
  * Both peers run glowcap, so this session settles on Cap'n Proto over
  * glowcap-next. That is the pairing a glowcap fleet configures
- * (`HostRuntime.Options.codec` / `.captp_version` in `src/driver/host_runtime.zig`); the
+ * (`HostRuntime.Options.codec` / `.captp_version` in `src/driver/host_runtime.zig`). The
  * Syrup / OCapN 1.0 baseline is what a session settles on the moment a peer
  * at either end cannot follow.
  */

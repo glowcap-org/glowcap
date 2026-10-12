@@ -26,7 +26,7 @@ export interface JoinOptions {
 	trace?: string;
 	/** Press through the join card's directory question before naming the
 	 * room. A locator is pasted into the card first, the way a visitor to
-	 * somebody else's room arrives; `null` presses through for the page's own
+	 * somebody else's room arrives. `null` presses through for the page's own
 	 * directory. Left out, the card is expected to offer the room directly. */
 	directory?: string | null;
 	viewport?: { width: number; height: number };

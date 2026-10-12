@@ -5,13 +5,13 @@ use rooms_application::archive::merge::{self, Account, Limits};
 
 pub struct KeptRecord {
 	pub record: Arc<Record>,
-	/// Zero names the first reader, one the second; callers retain both readers.
+	/// Zero names the first reader, one the second. Callers retain both readers.
 	pub keeper: u8,
 }
 impl<D: Deadline> Archive<D> {
 	/// The scan charges every row, including duplicates. Merge borrows shared
 	/// records and copies only the winning Arc and fixed keeper index into the
-	/// returned spine; file bytes stay at the exact supplying archive.
+	/// returned spine. File bytes stay at the exact supplying archive.
 	pub async fn read_together(&self, device: &Self, filter: &Filter) -> Result<Vec<KeptRecord>, Error> {
 		let peer = self.read_all(filter).await?;
 		let local = device.read_all(filter).await?;

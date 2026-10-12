@@ -1,12 +1,12 @@
 //! The message, described once, with no codec attached.
 //!
 //! Both codecs produce this same shape, and the engine works against it, so all
-//! of glowcap shares one vocabulary for what a message actually is. The
-//! mutually-recursive value-tree core lives here directly — `Message` and its
+//! of glowcap shares one vocabulary for what a message is. The
+//! mutually-recursive value-tree core lives here directly: `Message` and its
 //! arms, `Reference`, `Argument`, `Resolution`, and the handshake/locator and gc
-//! shapes — because those types reference one another and read best as one unit.
+//! shapes, because those types reference one another and read best as one unit.
 //! The separable leaves are sibling files this hub re-exports: `negotiated` (the
-//! words two peers settle on — `CodecId`, `CaptpVersion`,
+//! words two peers settle on: `CodecId`, `CaptpVersion`,
 //! `FeatureSet`), `handoff` (the three-party handoff payloads), `abort`
 //! (`AbortKind`, `AbortReason`), `transport` (locator transport symbols and
 //! hint names), and `route_bundle` (one peer identity plus ordered dial paths).
@@ -59,7 +59,7 @@ pub const freeHintValue = owned.freeHintValue;
 pub const view = @import("view.zig");
 
 /// Whether two reference representations are structurally equal. Far and
-/// promise positions are meaningful only in their session; this does not
+/// promise positions are meaningful only in their session. This does not
 /// canonicalize targets across sessions or arbitrary network paths.
 pub const equality = @import("equality.zig");
 pub const referencesStructurallyEqual = equality.referencesStructurallyEqual;
@@ -94,13 +94,13 @@ pub const parseIdRouteBundle = route_bundle.fromIdLocator;
 /// The one hard ceiling on value-tree recursion depth, shared by `view`'s
 /// owned materialization and `equality`'s comparison walk so the two bounds
 /// cannot drift apart. The session validates inbound data against its own,
-/// lower `SessionLimits.max_nesting_depth` first; this is the model-layer
+/// lower `SessionLimits.max_nesting_depth` first. This is the model-layer
 /// backstop for trees that skipped session validation.
 pub const max_value_depth: usize = 256;
 
 /// The words two peers settle on at handshake (`negotiated`): which codec frames
 /// the bytes, which CapTP version is spoken, and which optional features both
-/// advertised. `CodecId` lives in `model` rather than `codec` on purpose, the
+/// advertised. `CodecId` lives in `model` rather than `codec`: the
 /// session records its choice without depending on a codec to do it.
 pub const CodecId = negotiated.CodecId;
 pub const CaptpVersion = negotiated.CaptpVersion;
@@ -109,7 +109,7 @@ pub const Preference = negotiated.Preference;
 
 /// The three position spaces a session keys on, one zero-cost newtype each, so a
 /// partner-named import position can never be passed where a local export position is meant
-/// (`position`). Scalar id fields carry these end to end; cross the `u64`
+/// (`position`). Scalar id fields carry these end to end. Cross the `u64`
 /// wire/ABI boundary with `ExportPosition.from` / `.int` and friends.
 pub const ExportPosition = position.ExportPosition;
 pub const ImportPosition = position.ImportPosition;
@@ -146,11 +146,11 @@ pub const LocationSig = struct {
     bytes: []const u8,
 };
 
-/// Whether a reference points at a plain object or a promise — the one
+/// Whether a reference points at a plain object or a promise, the one
 /// object/promise axis a `NearRef` and a `FarRef` share. The wire mapping is
 /// fixed: `<desc:import-object>` carries `.object` and `<desc:import-promise>`
 /// carries `.promise`, and exports are objects or promises the same way. Most
-/// references are plain objects; the promise ones are the special cases — a
+/// references are plain objects. The promise ones are the special cases: a
 /// vow, a resolver callback, a promise imported through a handoff.
 pub const RefKind = enum { object, promise };
 
@@ -188,8 +188,8 @@ pub const FarRef = struct {
     }
 };
 
-/// A node-local capability route. Unlike `FarRef`, its id has no wire meaning;
-/// the Node must lower it to the real session-scoped reference before a codec
+/// A node-local capability route. Unlike `FarRef`, its id has no wire meaning.
+/// The Node must lower it to the real session-scoped reference before a codec
 /// sees it. Keeping this as its own arm preserves the complete `u64` import
 /// namespace for a partner and makes accidental wire emission fail closed.
 pub const RoutedRef = struct {
@@ -201,7 +201,7 @@ pub const RoutedRef = struct {
 ///
 /// OCapN's `desc:answer` carries exactly this position. Derived operations are
 /// ordinary `op:deliver`, `op:get`, `op:index`, or `op:untag` messages with
-/// their own answer positions; a reference never embeds an unevaluated path.
+/// their own answer positions. A reference never embeds an unevaluated path.
 pub const PromiseRef = struct {
     answer_position: AnswerPosition,
 };
@@ -216,7 +216,7 @@ pub const SturdyRef = struct {
 };
 
 /// A broken reference's reason. The same shape as a promise's `BreakReason` and
-/// an `error` argument's payload — a borrowed-or-owned message string — so it is
+/// an `error` argument's payload, a borrowed-or-owned message string, so it is
 /// that one type under a name that reads at the `Reference.broken` use site. The
 /// borrowed view already collapses all three to one `view.records.BreakReason`.
 pub const BrokenRef = BreakReason;
@@ -228,9 +228,9 @@ pub const Reference = union(enum) {
     promise: PromiseRef,
     // Boxed, like `Argument.handoff`, and for the same reason. A `SturdyRef` is a
     // `PeerLocator` plus a swissnum, ~72 bytes, so inline it sets the width of the
-    // whole union: every `near`/`far`/`promise`/`broken` `Reference` — the common
+    // whole union: every `near`/`far`/`promise`/`broken` `Reference`, the common
     // arms, and a value type stored in session tables under the per-session
-    // footprint budget — would carry ~48 bytes it never uses, just to keep the rare
+    // footprint budget, would carry ~48 bytes it never uses, just to keep the rare
     // sturdy arm inline. An *owned* `Reference` is only ever minted from the wire
     // through `view.toOwned`, which already holds an allocator and already dupes the
     // peer and swissnum, so the box costs one `create` there and one `destroy` in
@@ -243,7 +243,7 @@ pub const Reference = union(enum) {
     /// `export_position` or a far import's `import_position`, collapsed to the
     /// one `u64` integer space they share on the wire. Null for a reference that
     /// names no wire position (routed / promise / sturdy / broken). This is the escape hatch
-    /// for code that genuinely wants the bare integer; prefer `exportPosition`
+    /// for code that needs the bare integer. Prefer `exportPosition`
     /// when you mean "the local export this names," so the type keeps an import
     /// id out of an export-keyed lookup.
     pub fn position(self: Reference) ?u64 {
@@ -260,8 +260,8 @@ pub const Reference = union(enum) {
     /// `position`: a resolver callback always targets one of our `.near`
     /// exports, and keying an export-indexed map on a `.far` import position (the same
     /// integer space) would let a coincidental collision misclassify an ordinary
-    /// deliver as a resolver callback. The type now makes that misuse a compile
-    /// error rather than a comment.
+    /// deliver as a resolver callback. The type makes that misuse a compile
+    /// error.
     pub fn exportPosition(self: Reference) ?ExportPosition {
         return switch (self) {
             .near => |near| near.export_position,
@@ -283,7 +283,7 @@ pub const Argument = union(enum) {
     /// `cloneArgument` and `freeArgument` own the box. The borrowed `view.Argument`
     /// keeps its handoff inline, since it borrows wire bytes and never allocates.
     /// In an owned tree the box must live on the message's allocator, because
-    /// `freeArgument` destroys it there; a stack-boxed handoff is legal only
+    /// `freeArgument` destroys it there. A stack-boxed handoff is legal only
     /// behind `Peer.sendCopying`, whose clone re-boxes it onto the heap.
     handoff: *Handoff,
     string: []const u8,
@@ -297,7 +297,7 @@ pub const Argument = union(enum) {
     keyword: []const u8,
     /// An OCapN Integer whose magnitude is outside `i64` (Model.md § Integer:
     /// the Integer is arbitrary-precision). The `integer` arm above is the fast
-    /// path for the `i64` range; decode produces this arm only when the value
+    /// path for the `i64` range. Decode produces this arm only when the value
     /// cannot be an `integer`, so the two arms never spell the same arithmetic
     /// value and `BigInteger` equality stays bytewise.
     big_integer: BigInteger,
@@ -305,9 +305,9 @@ pub const Argument = union(enum) {
     /// (Model.md § Struct). Keys are Strings, non-Equal to one another. The wire
     /// order does not matter for equality, so two structs are Equal when each key
     /// in one is present in the other with an Equal value
-    /// (`equality.structsEqualDepth`); a struct may round-trip into a different
+    /// (`equality.structsEqualDepth`). A struct may round-trip into a different
     /// key order and stay Equal. Note: OCapN Undefined is the `.void` arm above,
-    /// the `<void>` record Goblins uses for the unspecified value; OCapN Null has
+    /// the `<void>` record Goblins uses for the unspecified value. OCapN Null has
     /// no settled wire encoding and is refused at decode (ADR-0046).
     @"struct": []const StructEntry,
 };
@@ -323,8 +323,8 @@ pub const StructEntry = struct {
 /// carries on the wire and what the Cap'n Proto codec stores as its digits
 /// data, so both codecs borrow this representation without converting and the
 /// zero-copy view stays zero-copy. Canonical means non-empty ASCII `0-9` with
-/// no leading zero, and a magnitude that does not fit `i64` — both enforced
-/// where bytes are parsed — so two equal arithmetic values are always the same
+/// no leading zero, and a magnitude that does not fit `i64`, both enforced
+/// where bytes are parsed, so two equal arithmetic values are always the same
 /// bytes and `equality.argumentsEqual` compares without arithmetic.
 pub const BigInteger = struct {
     negative: bool,
@@ -334,8 +334,8 @@ pub const BigInteger = struct {
 
     /// Whether this value satisfies the type's invariant: a non-empty
     /// no-leading-zero ASCII decimal magnitude outside the `i64` range. Codecs
-    /// refuse a non-canonical value symmetrically — on decode it is a malformed
-    /// frame, on encode an unsupported argument — so canonical bytes are the
+    /// refuse a non-canonical value symmetrically (on decode it is a malformed
+    /// frame, on encode an unsupported argument), so canonical bytes are the
     /// only bytes that ever cross the wire and bytewise equality stays
     /// arithmetic equality.
     pub fn isCanonical(self: BigInteger) bool {
@@ -354,7 +354,7 @@ pub const BigInteger = struct {
 };
 
 /// One arbitrary-precision OCapN Integer. Values in the `i64` range use the
-/// compact arm; larger magnitudes borrow or own canonical decimal digits.
+/// compact arm. Larger magnitudes borrow or own canonical decimal digits.
 pub const Integer = union(enum) {
     integer: i64,
     big_integer: BigInteger,
@@ -468,7 +468,7 @@ pub const HANDOFF_GIFT_ID_BYTES = handoff_types.GIFT_ID_BYTES;
 pub const StartSession = struct {
     /// Optional for one reason: this type is also what a decoded hello
     /// materializes into, and a partner may name a version this build does
-    /// not know. Outbound it is always set — the version is ours to choose —
+    /// not know. Outbound it is always set because the version is ours to choose,
     /// and the encoders refuse a null they could not have produced.
     /// `session.validate` is the one place that decides an unknown version is
     /// unacceptable, and it reads this shape and the borrowed view's
@@ -504,7 +504,7 @@ pub const Untag = struct {
 };
 
 /// If you hand this to an owning sink like `Peer.send`, every slice in it must
-/// be owned by that peer's allocator; otherwise use `Peer.sendCopying`.
+/// be owned by that peer's allocator. Otherwise use `Peer.sendCopying`.
 pub const Message = union(enum) {
     deliver: Deliver,
     resolve: Resolve,
@@ -538,11 +538,11 @@ pub const message_kinds = [_]MessageKind{
 
 /// Bind a satellite kind registry to `Message` at compile time: assert that
 /// `Registry`'s fields mirror `Message`'s arms by name and order. Each registry
-/// that restates the message-kind set — the engine's `EventKind`, the Cap'n
+/// that restates the message-kind set (the engine's `EventKind`, the Cap'n
 /// Proto wire `Kind`, the C `GLOWCAP_EVENT_*` block through its `EventKind`
-/// mirror — calls this so a new `Message` arm cannot land without its mirror.
+/// mirror) calls this so a new `Message` arm cannot land without its mirror.
 /// The wire ids and C discriminants stay explicit (they are external contracts,
-/// not derivations); this only forbids the set from drifting. `Registry` may be
+/// not derivations). This only forbids the set from drifting. `Registry` may be
 /// an `enum` or a `union` so the same assert covers `view.Body` too.
 pub fn assertMirrorsMessageKinds(comptime Registry: type) void {
     const arms = @typeInfo(Message).@"union".field_names;
@@ -571,7 +571,7 @@ pub fn assertMirrorsMessageKinds(comptime Registry: type) void {
 /// order-independent sibling of `assertMirrorsMessageKinds`, for the one pair
 /// whose orders legitimately differ: a wire enum's discriminants are an external
 /// contract, and the Cap'n Proto `ArgKind` numbers `@"struct"` and `big_integer`
-/// in wire order — not the order `model.Argument` declares them. So only the set
+/// in wire order, not the order `model.Argument` declares them. So only the set
 /// is asserted. A new `Model` arm without its registry field (or the reverse) is
 /// a compile error, so the two cannot drift apart even though neither derives
 /// from the other. Equal arity plus every model arm matched proves the bijection,

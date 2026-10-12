@@ -16,7 +16,7 @@ import { area, contours, deviation, pathData, type Pt, resampleByTurn, smooth, t
 import type { Frame, View } from "./capture.ts";
 
 /** The luminance levels the four tones fall between. The gaps around them are
- * nearly empty, so a level anywhere inside a gap cuts the same shape; these sit
+ * nearly empty, so a level anywhere inside a gap cuts the same shape. These sit
  * in the middle of each. */
 export const RIM_CUT = 0.33;
 const SHADE_CUT = 0.17;

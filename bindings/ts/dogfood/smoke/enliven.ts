@@ -72,7 +72,7 @@ export async function run(managed: Runtime): Promise<void> {
 
 	// Select-or-dial enliven (ADR-0098 step 4): the *host* enlivens a complete
 	// sturdyref with no session named. A peer it already dialed is selected, so
-	// this arm settles over that live session — the dial arm is the same verb
+	// this arm settles over that live session. The dial arm is the same verb
 	// with an unreached peer, driven by the host's own DIAL action.
 	{
 		await using serverHost = new Host();

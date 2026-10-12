@@ -1,6 +1,6 @@
 //! Owned state and queue vocabulary for one completion-backed relay leg.
 //!
-//! The backend drives transitions; this module owns the data whose lifetimes
+//! The backend drives transitions. This module owns the data whose lifetimes
 //! those transitions coordinate. Keeping the state together makes connection
 //! footprint, retry links, buffer ownership, and teardown progress one subject
 //! instead of declarations scattered through the reactor adapter.
@@ -16,6 +16,8 @@ const tls_runtime_owner = @import("../../../tls/runtime_owner.zig");
 const tls_transform = @import("../../../tls/transform.zig");
 const route = @import("../route.zig");
 const resolver = @import("resolver.zig");
+const configuration = @import("../configuration.zig");
+const options = @import("options.zig");
 
 pub fn Types(comptime Platform: type, comptime Namespace: type) type {
     return struct {
@@ -280,16 +282,26 @@ pub fn Types(comptime Platform: type, comptime Namespace: type) type {
             tlsSendRetryLinks,
         );
 
-        /// Retained deployment configuration. `bytes` owns every slice in
-        /// `url`, so it is released only after all route users retire.
+        /// Retained routes and TLS lease, released after all route users retire.
         pub const RelayConfig = struct {
-            bytes: []u8,
-            url: route.RelayUrl,
+            routes: configuration.Config,
             tls: ?tls_runtime_owner.Lease = null,
 
-            pub fn deinit(config: *RelayConfig, allocator: std.mem.Allocator) void {
+            pub fn init(allocator: std.mem.Allocator, value: options.RelayOptions) !RelayConfig {
+                var routes = try configuration.Config.init(allocator, .{
+                    .relay_url = value.url,
+                    .relay_alias_url = value.relay_alias_url,
+                });
+                errdefer routes.deinit();
+                return .{
+                    .routes = routes,
+                    .tls = if (value.tls_owner) |owner| try owner.lease() else null,
+                };
+            }
+
+            pub fn deinit(config: *RelayConfig) void {
                 if (config.tls) |*lease| lease.release();
-                allocator.free(config.bytes);
+                config.routes.deinit();
             }
         };
     };

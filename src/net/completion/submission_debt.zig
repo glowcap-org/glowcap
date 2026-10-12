@@ -2,13 +2,13 @@
 //!
 //! An inner backend can refuse a recv, send, or close submission under
 //! transient queue pressure, and a recv can complete buffer-starved. The
-//! adapter decides when each is retried; this leaf owns only the intrusive
+//! adapter decides when each is retried. This leaf owns only the intrusive
 //! memberships and the recycle-progress latch that make every owed retry
 //! appear at most once and cost no allocation. A row carries its own links
 //! (`recv_starvation`, `submission_retry`) and a `submission_retry_mask`.
 //!
 //! Starvation is retried only on a recycle edge, because polling creates no
-//! pool capacity; a refused submission is retried on the next poll turn,
+//! pool capacity. A refused submission is retried on the next poll turn,
 //! which the adapter bounds with a short timeout while any debt is owed.
 
 const std = @import("std");

@@ -6,8 +6,8 @@
 //! the completion dialer's serve callback, and the C-ABI endpoint/inproc
 //! loopback tests all drive the same scenario, open the handshake, send a
 //! prepared bootstrap fetch, then match every inbound event against it with
-//! one fulfilled/broken/malformed switch. That choreography lives here once;
-//! each test keeps only the transport seam it is actually proving.
+//! one fulfilled/broken/malformed switch. That choreography lives here once.
+//! Each test keeps only the transport seam it proves.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -16,7 +16,7 @@ const model = glowcap.ocapn.model;
 const engine = glowcap.ocapn.engine;
 const net = glowcap.net;
 
-/// True once the peer's session has reached `open` — the `runUntil` predicate
+/// True once the peer's session has reached `open`, the `runUntil` predicate
 /// for handshake completion.
 pub fn isOpen(peer: *engine.Peer) bool {
     return peer.session_state.state == .open;
@@ -44,10 +44,10 @@ pub fn handshakeToOpen(
 }
 
 /// Decode one peer event and match it against the pending fetch identified by
-/// `(resolver_export, answer_position)`. Returns the fulfilled reference —
-/// owned by the caller, released with `model.freeReference` — or null when the
+/// `(resolver_export, answer_position)`. Returns the fulfilled reference,
+/// owned by the caller, released with `model.freeReference`, or null when the
 /// event is unrelated to the fetch (the decoded message is freed). A broken
-/// settlement frees its reason and fails as `error.FetchBroke`; a malformed
+/// settlement frees its reason and fails as `error.FetchBroke`. A malformed
 /// one fails as `error.FetchMalformed`.
 pub fn matchFetchEvent(
     allocator: std.mem.Allocator,
@@ -82,7 +82,7 @@ pub fn matchFetchEvent(
 /// connection: prepare the fetch, send it, and pump until it settles.
 /// Returns the fulfilled reference, owned by the caller, released with
 /// `model.freeReference`. The connection closing before the fetch settles
-/// fails as `error.ClosedBeforeSettled`; a broken or malformed settlement
+/// fails as `error.ClosedBeforeSettled`. A broken or malformed settlement
 /// fails through `matchFetchEvent`.
 pub fn settleFetch(
     allocator: std.mem.Allocator,

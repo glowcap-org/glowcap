@@ -1,5 +1,5 @@
-//! Consumer lifecycle scenarios. Zig's managed access engine decides admission;
-//! these tests exercise projection, callback custody, worker progress and reopen.
+//! Consumer lifecycle scenarios. Zig's managed access engine decides admission.
+//! These tests exercise projection, callback custody, worker progress and reopen.
 use super::*;
 #[cfg(feature = "tcp")]
 mod capacity;

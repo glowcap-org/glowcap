@@ -4,8 +4,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const failure_diagnostics = @import("failure_diagnostics.zig");
 
-/// Host allocation callbacks must be thread-safe. The surface deliberately
-/// omits `realloc`: both callbacks receive the exact allocation size and the
+/// Host allocation callbacks must be thread-safe. The surface omits
+/// `realloc`: both callbacks receive the allocation size and the
 /// adapter never asks an opaque allocator to preserve alignment while moving.
 pub const GlowcapAllocFn = *const fn (user_data: ?*anyopaque, size: usize, alignment: usize) callconv(.c) ?*anyopaque;
 pub const GlowcapFreeFn = *const fn (user_data: ?*anyopaque, ptr: ?*anyopaque, size: usize, alignment: usize) callconv(.c) void;

@@ -1,6 +1,6 @@
 #lang racket/base
 ;; Per-binding keyed-tcp restart proof (ADR-0075): happy path, key-squatter
-;; refusal, and same-seed-fresh-port restart — the Racket sibling of
+;; refusal, and same-seed-fresh-port restart: the Racket sibling of
 ;; `test/driver/keyed_tcp_restart_test.zig`.
 ;;
 ;; Needs racket and the installed glowcap archives; run via

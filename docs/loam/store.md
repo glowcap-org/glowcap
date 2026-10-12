@@ -1,15 +1,13 @@
 # Stores, transactions and reads
 
-A store is where Loam keeps records. This guide covers opening one, changing
-it through transactions, reading it through the bounded cache, and recovering
-when a write's outcome is unknown. It is the storage half of the
-[Loam guide](../loam.md); [LMDB operations](lmdb.md) covers the on-disk
+A store is where Loam keeps records. This guide is the storage half of the
+[Loam guide](../loam.md). [LMDB operations](lmdb.md) covers the on-disk
 backend's capacity and maintenance.
 
 Every operation here follows one pattern. Loam's `core.Store` decides what to
 read or write and hands your code a request. Your storage worker runs that
-request against a backend and hands the result back. The Store never touches
-the disk, starts a thread, or waits.
+request against a backend and hands the result back. The Store touches no disk,
+starts no thread, and never waits.
 
 ```mermaid
 flowchart LR
@@ -22,12 +20,12 @@ flowchart LR
 
 An LMDB store is one directory on disk, owned by one process at a time.
 
-To create one, make an empty directory, choose a fresh store identity, and
-call `Lmdb.open(path, .{ .mode = .{ .create = identity } })`. To reopen it,
-pass `.open = identity`; the backend checks that the identity matches. Missing
+To create one, make an empty directory, choose a fresh store identity, and call
+`Lmdb.open(path, .{ .mode = .{ .create = identity } })`. To reopen it, pass
+`.open = identity`. The backend checks that the identity matches. Missing
 metadata, a store that already exists on create, an identity mismatch, and
-another process holding the directory are distinct failures. An error never
-falls back to volatile storage or resets an existing store.
+another process holding the directory are distinct failures. No error falls back
+to volatile storage or resets an existing store.
 
 An embedding that persists its private store identity before opening can use
 `.bootstrap = identity`. This mode atomically creates missing metadata or opens
@@ -82,7 +80,7 @@ run these paths with complete and interrupted transactions.
 
 Reads mirror writes. `Store.acquire` returns either a lease on a resident
 version or a read request. Your worker runs `backend.read(request)` and
-returns the result to `Store.completeRead`; acquire again to get the lease.
+returns the result to `Store.completeRead`. Acquire again to get the lease.
 A second request for a record that is already loading reports `PendingRead`
 instead of issuing another load. Your code owns any callers waiting on it.
 
@@ -110,10 +108,10 @@ and never displaces a pinned snapshot.
 These budgets are independent of each other and of how many objects the store
 holds:
 
-- the cache byte limit and its occupancy;
+- the cache byte limit and its occupancy
 - the slot and lease tables, each with a bounded setup cost that includes one
-  checked envelope per slot;
-- staged writes, with their own byte and mutation limits.
+  checked envelope per slot
+- staged writes, with their own byte and mutation limits
 
 Encoding measures a record before allocating and copies each changed record
 once. LMDB readers copy into the reserved buffer and finish before returning.

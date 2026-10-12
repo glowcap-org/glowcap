@@ -1,13 +1,13 @@
 //! The annotated symbol inventory of `libglowcap_driver`'s own
-//! `glowcap_driver_*` family — the crossing semantics a language FFI table
+//! `glowcap_driver_*` family: the crossing semantics a language FFI table
 //! cannot reflect from the C signature alone. Host and transport archives
-//! keep their own inventories; one family, one table.
+//! keep their own inventories. One family, one table.
 //!
 //! Rows are in the header's canonical order. `blocking` marks the verbs that
 //! may park the calling thread (a positive-timeout step or provider listener
 //! bind), which a runtime with a blocking-call escape (Racket futures, a
 //! worker thread) routes accordingly. Dial starts are nonblocking by provider
-//! contract; connect completion and handshakes advance through later steps.
+//! contract. Connect completion and handshakes advance through later steps.
 
 const shared = @import("c_abi_shared");
 
@@ -69,6 +69,7 @@ pub const symbols = [_]Symbol{
     .{ .name = "glowcap_driver_wake", .nonblocking = true },
     .{ .name = "glowcap_driver_next_event", .out_params = &.{1} },
     .{ .name = "glowcap_driver_claim_reference_exporter", .out_params = &.{2} },
+    .{ .name = "glowcap_driver_claim_exporter_session" },
     // Not `blocking`, like `glowcap_host_session_release`: the close emits
     // trace callbacks on the calling thread.
     .{ .name = "glowcap_driver_session_close" },

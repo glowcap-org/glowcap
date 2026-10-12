@@ -23,7 +23,7 @@ impl PublicRoomImport {
 }
 impl<D: Deadline + Clone> Workspace<D> {
 	/// Retain one complete candidate and its actual invoking source. Acquisition
-	/// installs them atomically; membership belongs to the managed supervisor.
+	/// installs them atomically. Membership belongs to the managed supervisor.
 	/// The public directory row supplies held authority, while the exact listing
 	/// publication supplies the generation. No accepted visit is persisted.
 	pub async fn prepare_public_room(
@@ -71,9 +71,8 @@ impl<D: Deadline + Clone> Workspace<D> {
 			control: None,
 			reconnect: workspace::Reconnect::Requested,
 			standing: None,
-			draft: Text::new("".into()).expect("empty draft"),
+			draft: Text::default(),
 		};
-		snapshot.intent.active = Some(room.id.clone());
 		snapshot
 			.intent
 			.conversations

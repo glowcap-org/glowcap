@@ -1,7 +1,7 @@
 """The Python half of the verb-spine proof family: one process that walks the
 promise, dial, listen, and GC verbs against the fixed peer and prints one
 ``VERB-SPINE <marker>`` line per scene. ``harness.ts`` owns the marker contract
-and the two locators appended to argv; read its header before changing a scene
+and the two locators appended to argv. Read its header before changing a scene
 here.
 
 Run via ``zig build python-verb-spine``.
@@ -149,7 +149,7 @@ async def run(peer_uri: str, dead_uri: str) -> None:
 
         # ── listen-served ────────────────────────────────────────────────────
         server = await tcp.listen("127.0.0.1", 0)
-        # A closed listener no longer has a locator to read, so name it while
+        # A closed listener has no locator to read, so name it while
         # it lives.
         own_uri = server.uri
         served: list = []

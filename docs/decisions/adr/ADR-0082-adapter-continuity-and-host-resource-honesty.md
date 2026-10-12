@@ -3,7 +3,7 @@ id: ADR-0082
 status: accepted
 date: 2026-07-15
 tags: [resilience, driver, net, host, configuration]
-decision: "Adapter continuity and Host resource honesty live above CapTP: driver.DialRetry applies DialError-classified retry policy to caller-supplied complete dial attempts, whose success creates a new CapTP session; Host projects full SessionLimits; the completion loop may fan-in-throttle and park-kill; durable_bootstrap is a named Host posture, not CapTP wire replay."
+decision: "Adapter continuity and Host resource honesty live above CapTP: driver.DialRetry applies DialError-classified retry policy to caller-supplied complete dial attempts, whose success creates a new CapTP session. Host projects full SessionLimits. The completion loop may fan-in-throttle and park-kill. durable_bootstrap is a named Host posture, not CapTP wire replay."
 supersedes: []
 superseded_by: []
 amends: []
@@ -14,26 +14,16 @@ amended_by: [ADR-0113, ADR-0124, ADR-0143]
 
 ## Context
 
-[ADR-0081](ADR-0081-adapter-resilience-posture.md) shipped the typed `DialError`
-axis, bounded handshake/settle waits, keepalive, and dead-peer reclaim. Its
-forward-compat note reserved a continuity helper for retry and connection
-rebuild above the loop. That executor was still open; iroh discovery dial
-budgets were hand-copied across four bindings (3s×24) and the Zig reachability
-driver (5s×12); `Host.Options` projected only `frame_cap` into
-`SessionLimits.max_frame_bytes` while the rest of the limit struct stayed
-unreachable at the Host mint; fan-in backpressure and park-duration kill
-remained named gaps under [ADR-0076](ADR-0076-loop-fed-host-bridge.md) and
-[ADR-0042](ADR-0042-outbound-high-water-backpressure.md); bootstrap registries
-stayed process-lifetime with no named durability posture.
-
-This engages the First Principles that adapters own I/O and scheduling, that
-production APIs make the correct path the easy path, and that CapTP semantics
-stay codec-neutral and Goblins-compatible. Inspiration from NATS (client
-reconnect, max_pending, write_deadline, JetStream *above* Core), Kafka (pull
-pacing, lag as health, durability as a named tradeoff), Cap'n Proto RPC
-(disconnect-aware rebuild, sturdyref level-2 survival), and SwingSet (turn
-budgets, durable registry above the vat) maps onto adapter/Host layers only,
-never onto the sans-io CapTP core.
+[ADR-0081](ADR-0081-adapter-resilience-posture.md) provides the typed
+`DialError` axis, bounded handshake/settle waits, keepalive, and dead-peer
+reclaim, and reserves a continuity helper for retry and connection rebuild above
+the loop. iroh discovery dial budgets are hand-copied across four bindings
+(3s×24) and the Zig reachability driver (5s×12). `Host.Options` projects only
+`frame_cap` into `SessionLimits.max_frame_bytes`, leaving the rest of the limit
+struct unreachable at the Host mint. Fan-in backpressure and park-duration kill
+are gaps under [ADR-0076](ADR-0076-loop-fed-host-bridge.md) and
+[ADR-0042](ADR-0042-outbound-high-water-backpressure.md). Bootstrap registries
+are process-lifetime with no named durability posture.
 
 ## Decision
 
@@ -41,8 +31,8 @@ never onto the sans-io CapTP core.
    (attempt budget, retry interval), classifies `net.netlayer.DialError` into
    transient vs permanent, and retries only transient faults by invoking a
    caller-supplied complete dial attempt. The caller's attempt rebuilds the
-   connection plus CapTP handshake so success yields a **new** session identity. It is not a
-   Session facade that preserves Peer tables across reconnect. Discovery dial
+   connection plus CapTP handshake, so success yields a new session identity.
+   It is not a Session facade that preserves Peer tables across reconnect. Discovery dial
    budgets across bindings and Zig interop consume this one policy (default
    3000 ms × 24 attempts). CapTP application heartbeats stay refused until a
    measured keepalive miss demands them.
@@ -52,29 +42,26 @@ never onto the sans-io CapTP core.
    Host). Minted peers receive the full configured limits and retain their own
    outbound high-water, so changing Host defaults affects only later sessions.
    Retryable application producers and inbound dispatch refuse before mutation
-   while encoded outbound is at that mark; GC, close, and other reclamation
-   traffic remain admissible. Selective C ABI knobs expose operator-useful
-   fields after the Zig path is honest.
+   while encoded outbound is at that mark. GC, close, and other reclamation
+   traffic remain admissible. Selective C ABI knobs expose operator-useful fields.
 
 3. **Loop overload controls.** Beyond per-connection ADR-0042 park, the
    completion loop offers fan-in source throttle (when a sink is parked, sources
    slow) and an optional park-duration kill that closes a connection that stays
    parked past a typed deadline.
 
-4. **Layered Options stay layered.** Loop, Host, Session, SessionLimits, and
-   Bridge Options are documented as one vocabulary with shared names; they are
-   not merged into one mega-struct.
+4. **Layered Options.** Loop, Host, Session, SessionLimits, and Bridge Options
+   share one vocabulary and are not merged into one struct.
 
-5. **`durable_bootstrap` posture (named, fail-closed).** Host
-   bootstrap/sturdyref registry durability is either `ephemeral`
-   (process-lifetime, today's live behavior) or `durable_bootstrap` (registry
-   survives Host process restart under an embedder-supplied store). Identity
-   netlayers (keyed-tcp, iroh) already carry durable designators; this posture
-   is the registry catching up. Until a store is wired, `Host.init` refuses
-   `.durable_bootstrap` with `DurableBootstrapUnavailable` before publishing a
-   Host, so the arm cannot silently behave as ephemeral. The embedder decides
-   whether that initialization failure ends its process. It is not CapTP
-   message replay, not a Kafka commit log, and not SwingSet orthogonal
+5. **`durable_bootstrap` posture (fail-closed).** Host bootstrap/sturdyref
+   registry durability is either `ephemeral` (process-lifetime) or
+   `durable_bootstrap` (registry survives Host process restart under an
+   embedder-supplied store). Identity netlayers (keyed-tcp, iroh) carry durable
+   designators, and this posture covers the registry. Until a store is wired,
+   `Host.init` refuses `.durable_bootstrap` with `DurableBootstrapUnavailable`
+   before publishing a Host, so the arm cannot silently behave as ephemeral. The
+   embedder decides whether that initialization failure ends its process. It is
+   neither CapTP message replay, a Kafka commit log, nor SwingSet orthogonal
    persistence in the engine.
 
 ## Scope (what this does not decide)
@@ -88,37 +75,36 @@ never onto the sans-io CapTP core.
 ## Alternatives Considered
 
 - **Separate public `dialWithRetry` beside `DialRetry`.** Rejected: the type's
-  `dial` method is already the one policy executor.
+  `dial` method is the policy executor.
 - **Session facade that reconnects invisibly.** Rejected: CapTP peer tables do
-  not survive dial loss; hiding that is protocol fiction.
-- **Options megastruct.** Rejected: fights layer ownership (I/O vs CapTP vs
-  session authority).
-- **CapTP-level JetStream / Kafka log.** Rejected: wrong product; durability
-  belongs at Host bootstrap posture only.
+  not survive dial loss, and hiding that is protocol fiction.
+- **Options megastruct.** Rejected: it fights layer ownership (I/O vs CapTP vs session
+  authority).
+- **CapTP-level JetStream / Kafka log.** Rejected: durability belongs at Host
+  bootstrap posture only.
 
 ## Consequences
 
-- `src/driver/dial_retry.zig` ships; `driver.mod` re-exports it.
+- `src/driver/dial_retry.zig` holds the executor and `driver.mod` re-exports
+  it.
 - Discovery attempt/interval constants in bindings and
   `interop/iroh_reachability` align on the executor's default policy (or import
   generated/shared values).
-- `Host.Options.limits` replaces Host-only `frame_cap`; C ABI keeps
+- `Host.Options.limits` replaces Host-only `frame_cap`. C ABI keeps
   `frame_cap` as the admission field mapped into limits. Selective changes use
   the versioned `GlowcapSessionLimitOptions` record from ADR-0124 rather than
   positional integer arguments.
-- `completion.Loop.Options` grows fan-in, park-kill, and `on_park` fields;
-  `on_park` carries a `ParkReason`, because the two parks are operationally
-  different: `.sink` is this connection's own partner failing to drain,
-  `.fan_in` is this connection throttled for somebody else's. An embedder
-  watching lag cannot act on the two the same way, and from outside the loop
-  they are indistinguishable — the park is transient, so sampling loop state
-  misses it entirely;
-  the N-to-1 fan-in behavioral test pins source park while a sink is held and
-  source re-arm when the last sink drains. `DialRetry.on_dial_outcome`
-  surfaces dial metrics.
+- `completion.Loop.Options` has fan-in, park-kill, and `on_park` fields.
+  `on_park` carries a `ParkReason` because the two parks differ operationally:
+  `.sink` is this connection's own partner failing to drain, `.fan_in` is this
+  connection throttled for somebody else's. An embedder watching lag acts
+  differently on each, they are indistinguishable from outside the loop, and the
+  park is transient, so sampling loop state misses it. The N-to-1 fan-in
+  behavioral test pins source park while a sink is held and source re-arm when
+  the last sink drains. `DialRetry.on_dial_outcome` surfaces dial metrics.
 - `Host.init` refuses `.durable_bootstrap` until an embedder store lands.
-- Living-state (`boundaries.md`, architecture residual) points
-  `DialRetry` and fan-in at this ADR, not a sibling plan.
+- Living-state docs (`boundaries.md`, architecture residual) point `DialRetry`
+  and fan-in at this ADR.
 
 ## Forward compatibility
 
@@ -128,7 +114,7 @@ classifies.
 
 ## Notes
 
-Extends [ADR-0081](ADR-0081-adapter-resilience-posture.md); builds on
+Extends [ADR-0081](ADR-0081-adapter-resilience-posture.md). Builds on
 [ADR-0076](ADR-0076-loop-fed-host-bridge.md) and
 [ADR-0042](ADR-0042-outbound-high-water-backpressure.md).
 
@@ -136,9 +122,9 @@ Extends [ADR-0081](ADR-0081-adapter-resilience-posture.md); builds on
 
 | Source | Lesson | Where it lands |
 |--------|--------|----------------|
-| NATS Core | Minimize hot-path state; client reconnect; max_pending; write_deadline; config | DialRetry; Loop park / park-kill; layered Options |
+| NATS Core | Minimize hot-path state, client reconnect, max_pending, write_deadline, config | DialRetry, Loop park / park-kill, layered Options |
 | NATS JetStream *layering* | Durability *above* Core | `Host.BootstrapDurability`, not CapTP log |
-| Kafka | Pull pacing; lag as health; durability as named tradeoff | Fan-in throttle; `on_park`; durable_bootstrap posture |
-| Cap'n Proto RPC | Disconnect-aware rebuild; sturdyref L2 ≈ Host durable registry | CapTP-honest session replacement; durable_bootstrap |
-| SwingSet | Turn budget (have); durable Host registry (want) | `local_turn_budget`; durable_bootstrap named |
+| Kafka | Pull pacing, lag as health, durability as named tradeoff | Fan-in throttle, `on_park`, durable_bootstrap posture |
+| Cap'n Proto RPC | Disconnect-aware rebuild. Sturdyref L2 ≈ Host durable registry | CapTP-honest session replacement. durable_bootstrap |
+| SwingSet | Turn budget (have). Durable Host registry (want) | `local_turn_budget`. durable_bootstrap named |
 | Goblins | Wire ceiling, never change for inspiration | Hard fence |

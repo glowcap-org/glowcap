@@ -2,7 +2,7 @@
 //!
 //! All borrowed C views and declarative trust policy are validated before
 //! trust-store I/O. The TLS owner transfers only when the resident carrier is
-//! admitted; every earlier refusal closes exactly what construction acquired.
+//! admitted. Every earlier refusal closes what construction acquired.
 
 const std = @import("std");
 
@@ -46,7 +46,16 @@ pub fn create(
         c.setLastError("relay runtime_new: relay_url must not be empty", .{});
         return c.GLOWCAP_ERR_INVALID_ARGUMENT;
     }
-    net.relay.validateConfigurationUrls(relay_url, register_url) catch {
+    const relay_alias_url = c.sliceFromC(cfg.relay_alias_url, cfg.relay_alias_url_len) catch |err| {
+        c.setLastError("relay runtime_new: invalid relay_alias_url view: {s}", .{@errorName(err)});
+        return c.marshalErrorToCode(err);
+    };
+    const configuration: net.relay.Configuration = .{
+        .relay_url = relay_url,
+        .register_url = if (register_url.len == 0) null else register_url,
+        .relay_alias_url = if (relay_alias_url.len == 0) null else relay_alias_url,
+    };
+    configuration.validate() catch {
         c.setLastError("relay runtime_new: invalid or mismatched relay URL", .{});
         return c.GLOWCAP_ERR_INVALID_ARGUMENT;
     };
@@ -60,8 +69,7 @@ pub fn create(
     switch (payload.native.init(
         payload.io(),
         allocator,
-        relay_url,
-        if (register_url.len == 0) null else register_url,
+        configuration,
         trust,
     )) {
         .ready => {},

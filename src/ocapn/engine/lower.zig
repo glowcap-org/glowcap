@@ -5,13 +5,13 @@
 //! A routed reference names a Node table row, not a position in any CapTP
 //! session. Before encoding on its home session, the Node replaces it with the
 //! real session-scoped reference. Rather than patch every place a reference is
-//! emitted — a send target, forwarded target, resolution, or nested argument —
+//! emitted, a send target, forwarded target, resolution, or nested argument,
 //! the peer walks each outbound message here. A route homed elsewhere has no
 //! wire name on this connection and fails closed with `RouteNotLowerable`.
 //!
 //! Lowering is a plain POD substitution and adds no allocation. The walk runs
-//! only after the node has minted its first route (`NodeServices.lowering_active`);
-//! until then every send skips it for a single bool load, so a two-party peer
+//! only after the node has minted its first route (`NodeServices.lowering_active`).
+//! Until then every send skips it for a single bool load, so a two-party peer
 //! that never fetches a foreign capability pays nothing.
 
 const model = @import("model");
@@ -23,7 +23,7 @@ const NodeServices = services_mod.NodeServices;
 /// hook (`Node.lowerForConn`) and propagated out of the failed `Peer.send`.
 /// Lower every reference an outbound `message` carries to its wire form on the
 /// lowering's connection, in place. The message is owned by the caller (the peer
-/// about to enqueue it), so the walk rewrites its references directly; the
+/// about to enqueue it), so the walk rewrites its references directly. The
 /// `@constCast`s reach into that owned argument heap,
 /// never into borrowed wire bytes. A `RouteNotLowerable` from any position aborts
 /// the whole send and leaves the caller to free the message.

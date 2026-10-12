@@ -1,5 +1,5 @@
-// The runnable Deno reference relay for the ADR-0086 contract — the first-party
-// consumer of this package's own `webSocketRelay`, and the Deno row of the
+// The runnable Deno reference relay for the ADR-0086 contract. It is the first-party
+// consumer of this package's `webSocketRelay` and the Deno row of the
 // cross-runtime relay matrix beside `bindings/python/relay.py` and
 // `bindings/rust/relay`. It carries the raw bytes of a keyed CapTP session
 // between a browser peer's WebSocket and a native host without parsing them, so

@@ -1,5 +1,5 @@
 //! Ordinary IRC clients over Rooms capabilities. Portable IRC presentation is
-//! shared policy; this adapter owns listeners, clients, and socket effects.
+//! shared policy. This adapter owns listeners, clients, and socket effects.
 mod channels;
 mod client;
 mod config;

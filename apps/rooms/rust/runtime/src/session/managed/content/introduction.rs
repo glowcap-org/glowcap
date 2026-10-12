@@ -107,7 +107,10 @@ pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argum
 			}
 			// A newer event advances the watermark even for unchanged authority.
 			// Otherwise an older distinct route could arrive after this event.
-			record.custody.remove(previous).expect("selected direct route");
+			record
+				.custody
+				.remove(previous)
+				.ok_or_else(|| refuse("selected direct route is not retained"))?;
 		}
 		record
 			.custody
@@ -199,7 +202,7 @@ pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argum
 		inbox: None,
 		lines: List::default(),
 		closed: false,
-		draft: Text::new("".into()).expect("empty draft"),
+		draft: Text::new("".into()).ok_or_else(|| refuse("invalid empty draft"))?,
 	};
 	let mut conversations = record.intent.conversations.as_slice().to_vec();
 	conversations.push(workspace::Conversation::Direct(Box::new(row)));

@@ -3,7 +3,7 @@ use super::*;
 
 impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 	pub(super) async fn cleanup(&mut self) -> Result<()> {
-		let connection_lost = self.retirement.as_ref().is_some_and(|owner| owner.connection_lost());
+		self.connection_expiry_pending |= self.retirement.as_ref().is_some_and(|owner| owner.connection_lost());
 		let closed = self
 			.inbox
 			.close()
@@ -48,8 +48,12 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 		// Directory retirement can obsolete a room's nickname selection before
 		// its own end observer runs. Cleanup still owns the exact acquired lease.
 		// Refusal by its original source cannot skip private endpoint retirement.
-		let expired = if connection_lost {
-			self.expire_connection_lease().await
+		let expired = if self.connection_expiry_pending {
+			let result = self.expire_connection_lease().await;
+			if result.is_ok() {
+				self.connection_expiry_pending = false;
+			}
+			result
 		} else {
 			Ok(())
 		};
@@ -105,7 +109,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 
 /// A caller's deadline reports uncertainty without suspending the actual
 /// receiver. Late local admission still needs polling to drive its committed
-/// continuation; keeping an unpolled future would deadlock retirement.
+/// continuation. Keeping an unpolled future would deadlock retirement.
 async fn closing<P: Deadline, T>(
 	platform: &P,
 	pending: impl std::future::Future<Output = T>,

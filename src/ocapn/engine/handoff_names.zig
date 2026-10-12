@@ -4,7 +4,7 @@
 //! redemption belongs to. Both are derived from session public keys, never read
 //! off the wire and trusted: the recipient derives them to build a
 //! `desc:handoff-receive`, and the exporter derives them again to check that the
-//! receive it was handed names the parties it actually came from. They live in
+//! receive it was handed names the parties it came from. They live in
 //! their own leaf so both sides can share one derivation without the recipient
 //! builder and the exporter's gift registry having to import each other.
 
@@ -14,8 +14,8 @@ const crypto = @import("foundation").crypto;
 /// "side name"): `crypto.derivePublicIdentifier`, surfaced as raw 32 bytes for the
 /// handoff records that carry it. Single-sourced against the foundation
 /// derivation so the side a handoff names can never drift from the side a
-/// handshake derives. The key must be exactly a 32-byte Ed25519 public key — the
-/// only width the protocol uses; any other length is `MalformedKey`.
+/// handshake derives. The key must be exactly a 32-byte Ed25519 public key, the
+/// only width the protocol uses. Any other length is `MalformedKey`.
 pub fn sideName(key: []const u8) error{MalformedKey}![32]u8 {
     const peer_key = crypto.PeerKey.fromSlice(key) catch return error.MalformedKey;
     return sideNameForKey(peer_key);

@@ -17,8 +17,11 @@ typedef struct GlowcapLoamPageHandle GlowcapLoamPageHandle;
 typedef struct GlowcapLoamWork GlowcapLoamWork;
 typedef struct GlowcapLoamInvocation GlowcapLoamInvocation;
 typedef struct GlowcapLoamRequirement GlowcapLoamRequirement;
+typedef struct GlowcapLoamGraphSchema GlowcapLoamGraphSchema;
 typedef int32_t (*GlowcapLoamRequirementFn)(void *, const GlowcapLoamInvocation *, GlowcapLoamRequirement *);
 typedef int32_t (*GlowcapLoamInvokeFn)(void *, GlowcapLoamCall *, const GlowcapLoamInvocation *);
+/* Borrowed selector, actual target method and payload byte count. No argument projection. */
+typedef int32_t (*GlowcapLoamForwardFn)(void *, GlowcapLoamCall *, const uint8_t *, size_t, const uint8_t *, size_t, size_t);
 typedef int32_t (*GlowcapLoamReferencesFn)(void *, GlowcapLoamReferences *, const GlowcapLoamInvocation *);
 typedef int32_t (*GlowcapLoamEntropyFn)(void *, uint8_t *, size_t);
 typedef struct GlowcapLoamObject {
@@ -257,6 +260,7 @@ typedef struct GlowcapLoamContent {
     GlowcapLoamReferencesFn references;
     GlowcapLoamRequirementFn dependent_requirement;
     const GlowcapLoamGraph *graph;
+    GlowcapLoamForwardFn admit_forward;
 } GlowcapLoamContent;
 typedef struct GlowcapLoamResource {
     GlowcapLoamObject owner;
@@ -280,7 +284,7 @@ typedef struct GlowcapLoamBytes {
 typedef int32_t (*GlowcapLoamKvFn)(void *, uint32_t, const uint8_t *, size_t, const GlowcapLoamBytes *, GlowcapLoamBytes *);
 #define GLOWCAP_LOAM_METADATA_SIZE 174
 #define GLOWCAP_LOAM_MAX_URI_BYTES 4096
-#define GLOWCAP_LOAM_ARCHIVE_FINGERPRINT 16039683410332576438
+#define GLOWCAP_LOAM_ARCHIVE_FINGERPRINT 12669128613106933256
 /* Construct a portable Store from exclusively claimed encoded metadata. Schema descriptors are copied. Inputs borrow for this call; out_store owns one release. No backend is opened. */
 int32_t glowcap_loam_store_new(const uint8_t *metadata, size_t metadata_len, const GlowcapLoamSchema *schemas, size_t schema_count, const GlowcapLoamLimits *limits, GlowcapLoamStore **out_store);
 /* Construct a portable Store using the Context allocator for every Store and attachment allocation. The Context and its allocator callbacks outlive the Store and all its borrows. Metadata and schema rules match store_new. */
@@ -309,6 +313,10 @@ int32_t glowcap_loam_call_replace_graph_copying(GlowcapLoamCall *call, const uin
 int32_t glowcap_loam_call_page_reference(GlowcapLoamCall *call, const GlowcapLoamPageHandle *page, size_t index, GlowcapReference *out_reference);
 /* Return one owned occurrence of the actual invoking endpoint for comparison with saved receipt custody. This declares no reply disclosure. Release it through glowcap_host_ref_release. */
 int32_t glowcap_loam_call_source(GlowcapLoamCall *call, GlowcapReference *out_reference);
+/* Copy admitted source grant record names into caller storage, nearest first. The validated working set supplies the ancestors. At most 65 records; insufficient capacity refuses without writing a prefix. These are accounting data and confer no authority. Valid only during the callback. */
+int32_t glowcap_loam_call_accounting_path(GlowcapLoamCall *call, GlowcapLoamObject *out_path, size_t capacity, size_t *out_count);
+/* Copy an application refusal into the retained bounded arena. The explanation must be nonempty UTF-8 and at most 1024 bytes. A second refusal or a reply refuses. Return an application failure from the callback; this setter stages no mutation and grants no retry authority. */
+int32_t glowcap_loam_call_refuse_copying(GlowcapLoamCall *call, const uint8_t *reason, size_t len);
 /* Own one occurrence of exact prepared reference custody beyond callback return. Preparation validates its recipe; this grants no disclosure. Release the returned occurrence through glowcap_host_ref_release. Output zeroes on refusal. */
 int32_t glowcap_loam_call_retain_prepared_reference(GlowcapLoamCall *call, const GlowcapReference *reference, GlowcapReference *out_reference);
 /* Read callback only: copy the original admitted source intent and declared recursive read interfaces. Return a callback-borrowed declared facade over the exact target; current source and upstream admission govern each later call. Returned capabilities are recursively mediated; wrong counts and undeclared verbs refuse. A bounded weak cache preserves exact target/interface identity while facets survive. The facade owns no durable recipe and refuses after its actual source lifetime ends. Output zeroes on refusal; no raw target is disclosed. */

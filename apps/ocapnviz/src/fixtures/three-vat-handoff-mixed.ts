@@ -3,16 +3,16 @@ import { endpointStageId } from "../schema/session-end.ts";
 import { payloadOf, wireFrames } from "./wire-frames.ts";
 
 /**
- * Three-vat handoff with mixed implementations — full flow.
+ * Three-vat handoff with mixed implementations, full flow.
  *
  * Authored at the event layer (primitive). The engine reconstructs
- * the world at any moment by folding events; snapshots are derived,
+ * the world at any moment by folding events. Snapshots are derived,
  * never authored.
  *
  * Cast, each with the OCapN Designator it answers to on the wire:
- * - Alice (Gifter)   — glowcap, `127.0.0.1:9001`
- * - Bob   (Receiver) — Goblins, `127.0.0.1:9002`
- * - Carol (Exporter) — glowcap, `127.0.0.1:9003`
+ * - Alice (Gifter):   glowcap, `127.0.0.1:9001`
+ * - Bob   (Receiver), Goblins, `127.0.0.1:9002`
+ * - Carol (Exporter), glowcap, `127.0.0.1:9003`
  *
  * The hand-authored recording shows the per-session profile that a direct
  * connection reports rather than treating the network as one codec, and it
@@ -21,8 +21,8 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  * narratives:
  *
  *   1. Three peers join. Two sessions exist immediately:
- *      Alice ↔ Carol (capnp / glowcap-next — both glowcap) and
- *      Alice ↔ Bob (syrup / OCapN 1.0 — the interop floor). Both
+ *      Alice ↔ Carol (capnp / glowcap-next, both glowcap) and
+ *      Alice ↔ Bob (syrup / OCapN 1.0, the interop floor). Both
  *      start `negotiating`.
  *   2. `op:start-session` flows both ways for each session
  *      (handshake), then the session transitions to `open`.
@@ -33,7 +33,7 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  *   4. Alice sends `desc:handoff-give` to Bob.
  *   5. Bob receives the gift, resolves the request back to Alice
  *      with `op:resolve`, and dials Carol (new session, syrup /
- *      OCapN 1.0 because Bob is Goblins-flavor — the recorded outcome on
+ *      OCapN 1.0 because Bob is Goblins-flavor, the recorded outcome on
  *      both the codec and CapTP-version axes). Carol accepts that
  *      dial over plain TCP. Her own end of the new session is
  *      hers, and the other end is only a claim: Bob's hello names
@@ -51,10 +51,10 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  *   8. Carol resolves back to Bob with `op:resolve`. Done.
  *
  * `op:start-session` and `op:resolve` are modeled as
- * `message-sent` events with the appropriate `label` — the engine
+ * `message-sent` events with the appropriate `label`, the engine
  * doesn't need new event kinds. Promise resolution and the session
  * handshake are the two pieces of CapTP machinery that always fire
- * for any non-`deliver-only` send and any state transition; we
+ * for any non-`deliver-only` send and any state transition. We
  * skip `op:gc-*` chatter because it's noise without information at
  * this layer.
  *
@@ -67,7 +67,7 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  * Alice ↔ Carol session speaks Cap'n Proto, but its two handshake
  * frames are Syrup. Every `op:start-session` is the baseline in both
  * its grammar and its version field, whatever the session goes on to
- * speak; each peer states the profile it prefers in the hints of the
+ * speak. Each peer states the profile it prefers in the hints of the
  * locator its hello carries (ADR-0103). Select a handshake message
  * and the payload viewer spaces it as bytes. Select the deposit and
  * it spaces the same session's traffic as the 64-bit words Cap'n
@@ -85,7 +85,7 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  * that is the address Bob is already drawn under, so the edge is
  * solved as if the end were on Bob and the end is placed most of the
  * way along it. The line runs from Carol and stops there, in open
- * space short of Bob and pointing at him — a wire that ends near
+ * space short of Bob and pointing at him, a wire that ends near
  * somebody without reaching them, which is what an unbacked claim
  * amounts to. Select the shape at the end of it and the Inspector says
  * the same thing in words, that a session runs here and nothing has
@@ -115,7 +115,7 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  * is the weakest attribution here and the only viewer-side one. Bob
  * publishes no trace, and plain TCP does not authenticate his claimed
  * designator, so that end remains loose. The handoff later proves that
- * Carol reached the same session party Alice introduced; it does not
+ * Carol reached the same session party Alice introduced. It does not
  * turn Bob's address claim into an authenticated durable identity.
  */
 
@@ -127,7 +127,7 @@ const AGENT = "ocapnviz:fixtures/three-vat-handoff-mixed";
  *  conversation watched twice from two unrelated ones.
  *
  *  Named rather than written at each use because the Bob-to-Carol id is said
- *  four times — once as the session's own, and three times through
+ *  four times, once as the session's own, and three times through
  *  `endpointStageId` for the end nothing has attributed yet. A second
  *  spelling of it silently detaches those messages from their session. */
 const SESSION = {
@@ -416,7 +416,7 @@ export const threeVatHandoffMixed = TimelineDocument.parse({
 			sessionId: SESSION.bobCarol,
 			// From the end itself, not from Bob. Nothing has yet backed the claim
 			// this end arrived with, so the recording cannot say whose message
-			// this is — only which end of which wire it left. That is the same
+			// this is. Only which end of which wire it left. That is the same
 			// restraint the session's own `b` shows, said about the traffic.
 			from: endpointStageId(SESSION.bobCarol, "b"),
 			to: "127.0.0.1:9003",

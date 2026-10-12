@@ -1,13 +1,13 @@
 //! A file name written in prose is a claim the compiler cannot see.
 //!
-//! Comments and app docs cite sources by name — "`lib/room/client.ts` keeps
-//! the retry" — and a rename or move leaves every such sentence pointing at
+//! Comments and app docs cite sources by name, "`lib/room/client.ts` keeps
+//! the retry", and a rename or move leaves every such sentence pointing at
 //! nothing. The doc-drift rule already calls a moved file the commonest drift
-//! with no prose to read; this holds the apps trees to it mechanically: every
+//! with no prose to read. This holds the apps trees to it mechanically: every
 //! backtick-quoted `.ts`, `.tsx`, `.css`, or `.zig` name in an apps source or
 //! Markdown file must share its basename with a file that exists in the
 //! repository. Basename, not path, because prose legitimately shortens
-//! `apps/rooms/test/irc/bridge_process_test.ts` to a tail its reader can find; what it
+//! `apps/rooms/test/irc/bridge_process_test.ts` to a tail its reader can find. What it
 //! must not do is name a file nobody can.
 //!
 //! Validated by putting a retired name back (`room_client.ts`): it is caught.

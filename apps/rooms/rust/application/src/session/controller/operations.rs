@@ -12,6 +12,9 @@ pub const VIEWS: usize = 6;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Kind(usize);
 impl Kind {
+	/// The operator inventory: `BOOT_CAPABILITIES[3]`, which the test in
+	/// `operations_tests.rs` holds.
+	pub const OPERATOR: Self = Self(3);
 	pub fn parse(name: &str) -> Option<Self> {
 		BOOT_CAPABILITIES.iter().position(|cap| cap.id == name).map(Self)
 	}
@@ -164,7 +167,7 @@ impl Operations {
 		(slot.active || slot.requested != slot.completed).then_some(slot.requested)
 	}
 	pub fn request_page(&mut self, category: Category) -> Result<Option<u64>, &'static str> {
-		let kind = Kind::parse("operator").expect("operator inventory");
+		let kind = Kind::OPERATOR;
 		if self.pending(kind).is_some() {
 			return Err("Operator refresh has not settled");
 		}

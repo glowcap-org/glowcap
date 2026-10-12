@@ -12,11 +12,11 @@
 //!
 //! The native TCP backends default their listener to `127.0.0.1`. Embedders that
 //! accept from other hosts construct the platform backend with
-//! `Backend.initWithListenerIp4` and move it into `initWithBackend`; listener
+//! `Backend.initWithListenerIp4` and move it into `initWithBackend`. Listener
 //! exposure is transport state, not portable loop policy. The high-fan-out
 //! numbers this loop is measured against remain loopback numbers.
 //!
-//! The loop is direction-neutral by design. OCapN is symmetric: a vat can accept
+//! The loop is direction-neutral. OCapN is symmetric: a vat can accept
 //! and dial. The type is therefore named for what it is, an event loop over
 //! connections, rather than for one role. It accepts inbound connections and can
 //! admit outbound connections into the same lifecycle.
@@ -33,12 +33,12 @@
 //! pool of `BackendOptions.read_buffers` buffers, each exactly
 //! `BackendOptions.read_buffer_bytes`, and a recv completion carries a borrowed
 //! view of the pool buffer the backend selected for it. The loop consumes the bytes:
-//! whole frames apply zero-copy straight from the completion view; a partial
+//! whole frames apply zero-copy straight from the completion view. A partial
 //! frame tail absorbs into the connection's bounded spill (ADR-0041). It then
 //! hands the buffer back with `recycleBorrowed`, exactly once per completion that
 //! carried one. An idle connection therefore costs no read-buffer memory at
 //! all, and a recv that finds the pool momentarily empty parks buffer-starved
-//! until a buffer recycles; it is never a connection failure.
+//! until a buffer recycles. It is never a connection failure.
 
 const std = @import("std");
 
@@ -74,6 +74,11 @@ pub const SubmissionDebt = @import("submission_debt.zig").State;
 pub const CloseReason = contract.CloseReason;
 pub const CloseReport = contract.CloseReport;
 pub const Completion = contract.Completion;
+
+/// The init drive's poll bound while a listener setup finishes. The setup's
+/// own deadline lives in the backend; this bound only keeps each turn from
+/// parking the init caller.
+pub const listener_setup_poll_ms: i32 = 100;
 pub const Interest = contract.Interest;
 pub const ReadyQueue = contract.ReadyQueue;
 pub const failureFromErrno = contract.failureFromErrno;
@@ -137,29 +142,29 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
         make_conn_ctx: ?MakeConnCtx,
         free_conn_ctx: ?FreeConnCtx,
         on_close: ?OnClose,
-        /// Quiescent adapter ownership transfer; see `Options.on_driver_exit`.
+        /// Quiescent adapter ownership transfer. See `Options.on_driver_exit`.
         on_driver_exit: ?OnDriverExit,
-        /// Deferred adapter scheduling; see `Options.on_loop_turn`.
+        /// Deferred adapter scheduling. See `Options.on_loop_turn`.
         on_loop_turn: ?OnLoopTurn,
-        /// Optional park notification (ADR-0082); see `Options.on_park`.
+        /// Optional park notification (ADR-0082). See `Options.on_park`.
         on_park: ?OnPark,
         /// Opt-in TCP keepalive applied at connect/accept finish (see `Options`).
         keepalive: ?tcp_keepalive.Keepalive,
-        /// Fan-in source throttle (ADR-0082); see `Options.fan_in_throttle`.
+        /// Fan-in source throttle (ADR-0082). See `Options.fan_in_throttle`.
         fan_in_throttle: bool,
-        /// Park-duration kill (ADR-0082); see `Options.park_kill_ms`.
+        /// Park-duration kill (ADR-0082). See `Options.park_kill_ms`.
         park_kill_ms: ?u64,
-        /// Terminal-flush bound; see `Options.drain_kill_ms`.
+        /// Terminal-flush bound. See `Options.drain_kill_ms`.
         drain_kill_ms: ?u64,
         /// Whether an accept is outstanding. `run` and `runUntil` both begin by
-        /// arming one, and both are callable more than once — a driver that
+        /// arming one, and both are callable more than once, a driver that
         /// waits on one vow per `runUntil` calls it repeatedly. Without this
         /// each call mints another accept, and since every accept completion
         /// re-arms exactly once, the extras never go away.
         accept_armed: bool = false,
         /// A submitted listener close is an outstanding backend operation, but
         /// it has no connection slot to keep `live_count` high. The descriptor
-        /// remains in `listener_close_fd` across transient submit refusal; only
+        /// remains in `listener_close_fd` across transient submit refusal. Only
         /// the close completion clears it.
         listener_close_pending: bool = false,
         listener_close_fd: ?Fd = null,
@@ -199,8 +204,8 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
         pending_close_submits: usize = 0,
         /// The out-of-band wake (ADR-0102): a recv armed on a socketpair half
         /// whose completion runs `handler` on this thread and re-arms. The
-        /// sanctioned cross-thread entry — a worker nudges the other half
-        /// (`driver.SettleMailbox.post`) — replacing the connect-and-drop
+        /// sanctioned cross-thread entry, a worker nudges the other half
+        /// (`driver.SettleMailbox.post`), replacing the connect-and-drop
         /// wake `runUntil` documents.
         wake: ?struct {
             fd: Fd,
@@ -212,7 +217,7 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
         /// retires this operation with `submitCancel` rather than closing it.
         wake_armed: bool = false,
         /// A wake re-arm whose submit failed (transient ring pressure) and
-        /// must be retried; bounds the next wait like an owed close, so the
+        /// must be retried. Bounds the next wait like an owed close, so the
         /// wake channel cannot silently go deaf.
         wake_rearm_pending: bool = false,
         /// A cancellation the backend has not admitted yet. Kept separate from
@@ -248,18 +253,18 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
         owner_tid: loop_affinity.OwnerThreadId = loop_affinity.initial_owner_thread_id,
         /// Heads of the two intrusive free-slot lists threaded through
         /// `Conn.next_link`. Ordinary slots occupy the prefix ending at
-        /// `ordinary_capacity`; reserved slots occupy the suffix. The index is
+        /// `ordinary_capacity`. Reserved slots occupy the suffix. The index is
         /// therefore the admission class, with no per-connection field or
         /// counter to pay for or drift.
         ordinary_free_head: usize,
         reserved_free_head: usize,
         /// Head of the intrusive buffer-starved list threaded through the same
-        /// `Conn.next_link` while a slot is starved; `conns.len` when no
+        /// `Conn.next_link` while a slot is starved. `conns.len` when no
         /// connection is starved.
         starved_head: usize,
-        /// Head of the intrusive backpressure-parked list (see `Conn.next_link`);
+        /// Head of the intrusive backpressure-parked list (see `Conn.next_link`).
         /// `conns.len` when nothing is parked. It makes the fan-in release
-        /// proportional to the connections actually parked rather than to
+        /// proportional to the connections parked rather than to
         /// `max_conns`, which at the 500k target is half a million cold slot
         /// reads per departure to re-arm, usually, nothing.
         parked_head: usize,
@@ -280,7 +285,19 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
 
             // A loop only listens when asked to: a dialer-only loop must not
             // expose a socket that accepts strangers under its identity.
-            const listen_fd: ?Fd = if (options.listen) |listen_port| try backend_mut.openListener(Backend.loopListenTarget(listen_port)) else null;
+            const listen_fd: ?Fd = if (options.listen) |listen_port| blk: {
+                const fd = try backend_mut.openListener(Backend.loopListenTarget(listen_port));
+                // A backend whose listener setup finishes later reports it
+                // pending. The loop's contract is a live listener at init, so
+                // the init caller drives the backend's own poll until the
+                // setup ends; the setup's deadline lives in the backend and
+                // bounds this drive.
+                var turn: [4]Completion = undefined;
+                while (backend_mut.listenerPending(fd)) {
+                    _ = try backend_mut.poll(&turn, listener_setup_poll_ms);
+                }
+                break :blk fd;
+            } else null;
             errdefer if (listen_fd) |fd| backend_mut.closeFd(fd);
             const listener_address: ?Backend.ListenerAddress = if (listen_fd) |fd|
                 try backend_mut.listenerAddress(fd)
@@ -350,7 +367,7 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
         }
 
         /// Build a loop and its backend with explicit queue and shared-pool
-        /// resources. Runtime policy remains in `Options`; a caller that has
+        /// resources. Runtime policy remains in `Options`. A caller that has
         /// already built a backend uses `initWithBackend` instead.
         pub fn initWithBackendOptions(
             allocator: std.mem.Allocator,
@@ -381,11 +398,11 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
         }
 
         /// Tear down the loop. Requires every connection's in-flight ops to
-        /// have retired — call `closeAndDrain` (or stop with
+        /// have retired, call `closeAndDrain` (or stop with
         /// `.{ .after_closed = n }` once those closes complete) before this.
         /// A submitted send borrows the connection's `front` buffer until the
         /// backend reports it complete, so freeing a connection with an op
-        /// still in flight would hand the kernel freed storage; that is a
+        /// still in flight would hand the kernel freed storage. That is a
         /// use-after-free, not a leak. Draining without closing first is not
         /// an option: `poll` blocks until *something* completes, and an armed
         /// recv on an idle partner never does. So `deinit` asserts that every

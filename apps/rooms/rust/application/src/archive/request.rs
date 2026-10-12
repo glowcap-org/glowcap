@@ -1,5 +1,5 @@
 //! Admission for record storage and live facet methods. The host executes the
-//! returned operation; parsing itself cannot touch storage or mint authority.
+//! returned operation. Parsing itself cannot touch storage or mint authority.
 use super::{Access, Error, Facet, Filter, Record, index::Page, protocol, records::safe};
 use crate::{files::FileArgument, room::ListArgument};
 use alloc::vec::Vec;
@@ -51,7 +51,7 @@ impl Facet {
 	}
 }
 impl Request {
-	/// Owned input charge; the native owner separately charges queue and reply
+	/// Owned input charge. The native owner separately charges queue and reply
 	/// slots. Reply pages are produced serially, bounded by MAX_READ and records.
 	pub fn heap_bytes(&self) -> usize {
 		match self {

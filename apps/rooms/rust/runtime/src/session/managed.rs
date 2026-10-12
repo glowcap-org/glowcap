@@ -1,7 +1,9 @@
 //! One Loam session record and a bounded executor for its committed receipts.
-//! Callbacks hold only a weak owner; workers survive caller cancellation.
+//! Callbacks hold only a weak owner. Workers survive caller cancellation.
 mod activity;
+mod admission;
 mod bootstrap;
+mod incoming;
 pub use activity::{Activity, ActivityDelivery, Event};
 mod bundle;
 mod content;
@@ -64,6 +66,7 @@ pub struct Session<P: Tasks + Deadline + Clone + 'static> {
 	state: Rc<State<P>>,
 }
 struct State<P: Tasks + Deadline + Clone + 'static> {
+	admission: RefCell<admission::Admission>,
 	platform: P,
 	reply_bytes: NonZeroUsize,
 	writer: Rc<executor::Writer>,
@@ -100,9 +103,20 @@ impl<P: Tasks + Deadline + Clone + 'static> State<P> {
 }
 impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 	/// Scalar wake notifications contain no authority. Consumers recheck their
-	/// original source; all use the existing two parked shared observations.
+	/// original source. All use the existing two parked shared observations.
 	pub fn changes(&self) -> Result<SessionChanges> {
 		self.state.changes.subscribe(&self.state)
+	}
+	/// Install startup policy before serving collaborators. Running accounting
+	/// cannot be replaced while depleted grants are retained.
+	pub fn configure_admission(&self, settings: rooms_application::admission::Settings) -> Result<()> {
+		let mut admission = self.state.admission.borrow_mut();
+		if !admission.is_unused() || self.state.closing.get() {
+			return Err(glowcap::loam::refusal("admission policy is already in use or closing"));
+		}
+		self.state.inboxes.configure_admission(settings)?;
+		*admission = admission::Admission::new(settings);
+		Ok(())
 	}
 	pub fn configure_trace(&self, trace: Rc<dyn crate::trace::Status>) -> Result<()> {
 		let mut held = self.state.trace.borrow_mut();
@@ -113,7 +127,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		Ok(())
 	}
 	/// The embedding admits the owning reply allowance independently of record
-	/// codec limits. Oversized target replies stay unresolved; they never justify
+	/// codec limits. Oversized target replies stay unresolved. They never justify
 	/// another target call. EffectExecution::result_size_bound accounts for this
 	/// allowance's shared and C projection ownership.
 	pub fn new(host: Host, platform: P, reply_bytes: NonZeroUsize) -> Self {
@@ -121,6 +135,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		let inboxes = Rc::new(inbox::Budget::new(Rc::downgrade(&writer)));
 		Self {
 			state: Rc::new(State {
+				admission: RefCell::new(admission::Admission::default()),
 				activity: Rc::new(Activity::new(host, platform.clone())),
 				effect_reader: RefCell::new(None),
 				recording: RefCell::new(None),
@@ -172,7 +187,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		Ok(())
 	}
 	/// Bind private use and management after attachment restoration. Public
-	/// children are derived from these roots; neither private endpoint is published.
+	/// children are derived from these roots. Neither private endpoint is published.
 	pub fn bind(&self, root: Ref, control: Ref) -> Result<()> {
 		self.state.writer.bind(root, control)
 	}
@@ -204,7 +219,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			.map(|_| ())
 	}
 	/// Import one committed result through the actual original source. Current
-	/// command admission and ManageCustody are required; equal policies or the
+	/// command admission and ManageCustody are required. Equal policies or the
 	/// private root cannot substitute for that source. The destination keeps the
 	/// result's role and exact saved recipe, including its dependent live facet.
 	pub async fn import_result(
@@ -257,7 +272,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		Ok(())
 	}
 	/// Wait for actual workers, retaining private results if settlement refuses.
-	/// Failure leaves the owner open for recovery; callers must not close storage.
+	/// Failure leaves the owner open for recovery. Callers must not close storage.
 	pub async fn close(&self) -> Result<()> {
 		self.state.closing.set(true);
 		let drained = async {

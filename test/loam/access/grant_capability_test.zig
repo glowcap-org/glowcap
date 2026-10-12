@@ -1,5 +1,5 @@
 //! Native capability possession selects one grant. These tests exercise the
-//! local API; actor dispatch, publication, and content effects are not hosted.
+//! local API. Actor dispatch, publication, and content effects are not hosted.
 const structural_policy = @import("grant_fixture.zig").structural_policy;
 const std = @import("std");
 const f = @import("grant_fixture.zig");

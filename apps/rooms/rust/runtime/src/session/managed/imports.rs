@@ -24,7 +24,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			.map(|_| ())
 	}
 	/// Local and remote consumers retain the same complete acquisition envelope.
-	/// The private writer only serializes invocation; Loam owns admission,
+	/// The private writer only serializes invocation. Loam owns admission,
 	/// revision fencing, exact retry and the atomic custody/content transaction.
 	pub async fn acquire_workspace(
 		&self,

@@ -31,7 +31,7 @@ impl HostShared {
 	/// task on the `LocalSet`.
 	pub(crate) fn schedule_kick(self: &Rc<HostShared>) -> Result<()> {
 		// On a loop-adopted Host the native loop is the one drain, so the kick
-		// becomes a scheduled loop step — deferred, so a kick from inside a
+		// becomes a scheduled loop step: deferred, so a kick from inside a
 		// turn steps only after the enclosing step unwinds.
 		#[cfg(not(target_arch = "wasm32"))]
 		if let Some(lp) = self.driver_loop() {
@@ -115,7 +115,7 @@ impl HostShared {
 	/// purpose, the async spelling of the Racket binding's reentrant host lock:
 	/// the DIAL arm's dial executor establishes a whole new session *inside*
 	/// an action, and that establish must itself drain (its start-session
-	/// FLUSH) — a single-flighted drain would await its own completion there.
+	/// FLUSH): a single-flighted drain would await its own completion there.
 	/// Arms are parked under `glowcap_host_pump_drain` (sync hooks only) and
 	/// awaited after the C loop returns, so overlapping kickers never await
 	/// inside the C callback. Re-parks until empty: a NEED_GIFT_ID's
@@ -131,7 +131,7 @@ impl HostShared {
 		crate::gc::drain(self)?;
 		// The native loop is the drain on a loop-adopted Host: one step flushes
 		// what a verb queued and routes completions as loop events. No
-		// `glowcap_host_pump_drain` may run beside it — the loop owns the queue.
+		// `glowcap_host_pump_drain` may run beside it: the loop owns the queue.
 		#[cfg(not(target_arch = "wasm32"))]
 		if let Some(lp) = self.driver_loop() {
 			loop {

@@ -3,7 +3,7 @@
  *
  * `Stage.tsx` is the React host. `use-stage-scene.ts` owns the Pixi scene.
  * This hook owns the host-level pointer
- * adapter that runs on empty stage — the FSM hit producer, the marquee,
+ * adapter that runs on empty stage. The FSM hit producer, the marquee,
  * and the effects that pan or click the world. Sprite hits keep their
  * own Pixi listeners (`createStageNodeDrag` + onSelect).
  */
@@ -104,7 +104,7 @@ export function useStageEmptyGestures(args: {
 	// spacebar-pan; sprite hits keep firing their own Pixi listeners
 	// (peer-drag + onSelect). `makeStageHit` consults Pixi's own
 	// hit-test (see below) so the FSM doesn't double-fire for sprite
-	// clicks — that's the single source of truth for "did this click
+	// clicks, that's the single source of truth for "did this click
 	// land on an interactive sprite".
 	//
 	// Rubber-band rect bounds in host coords; null when no band-drag is
@@ -121,13 +121,13 @@ export function useStageEmptyGestures(args: {
 	//   - the event is outside the Stage's marker region (events on
 	//     the same canvas in Timeline / Overview area), or
 	//   - the click landed on an interactive Pixi sprite under one
-	//     of our layers (so the FSM stays out — the sprite's own
+	//     of our layers (so the FSM stays out, the sprite's own
 	//     click / drag handler takes the gesture).
 	// Otherwise returns `stage-empty`.
 	//
 	// We use Pixi's own hit-test (`rootBoundary.hitTest`) instead
-	// of trying to observe bubbled pointerdowns at the layer level
-	// — peer sprites `stopPropagation` to claim peer-drag, so the
+	// of trying to observe bubbled pointerdowns at the layer level:
+	// peer sprites `stopPropagation` to claim peer-drag, so the
 	// layer never sees the event. Pixi's hit-test runs the same
 	// logic Pixi uses internally to decide which sprite to dispatch
 	// to, so it's the single source of truth for "is the click on
@@ -159,7 +159,7 @@ export function useStageEmptyGestures(args: {
 
 	// Walk up from a hit-test result to one of our interactive
 	// entity layers. The viewport itself (and its non-interactive
-	// children — grid, labels, overlay) doesn't count as a sprite
+	// children, grid, labels, overlay) doesn't count as a sprite
 	// hit; only peer / edge / message sprites do.
 	const isInteractiveSpriteHit = (target: Container | null): boolean => {
 		if (!target) return false;
@@ -181,12 +181,12 @@ export function useStageEmptyGestures(args: {
 	//
 	// `viewport.toWorld` delegates to PixiJS's `toLocal`, which
 	// accepts a GLOBAL (canvas-local) point and walks the parent
-	// chain — including `stageScene.position` (the sidebar/topbar
+	// chain, including `stageScene.position` (the sidebar/topbar
 	// offset). The unified canvas is `position: fixed; inset: 0`,
 	// so DOM clientX/Y already equals pixi global. Subtracting
 	// `host.rect.left/top` here would double-subtract that offset
 	// and place every world coord too far up-left by the
-	// sidebar/topbar size — exactly the Add-Peer-lands-offset bug.
+	// sidebar/topbar size, exactly the Add-Peer-lands-offset bug.
 	const clientToWorld = (
 		clientX: number,
 		clientY: number,
@@ -219,8 +219,8 @@ export function useStageEmptyGestures(args: {
 		// an unclamped rect can bleed into sibling panels (Timeline,
 		// Sidebar) when the pointer drags off the Stage region. Commit
 		// (`entitiesInBand`) clamps to the same bounds so what you see
-		// is what you select. Shared helper with the Scrubber marquee
-		// — both surfaces define their own bounds and call
+		// is what you select. Shared helper with the Scrubber marquee:
+		// both surfaces define their own bounds and call
 		// `clampRectToBounds`.
 		const raw = rectFromCorners(
 			band.startX - rect.left,
@@ -265,13 +265,13 @@ export function useStageEmptyGestures(args: {
 	//
 	// Per entity kind:
 	//   - peer:    bounding circle of radius NODE_RADIUS (screen-px)
-	//              vs. rect — closest-point-on-rect-to-circle test.
-	//   - endpoint: the same test at the radius that end was actually
-	//              painted at (`endpointBodyRadius`) — a claim is half a
+	//              vs. rect, closest-point-on-rect-to-circle test.
+	//   - endpoint: the same test at the radius that end is
+	//              painted at (`endpointBodyRadius`), a claim is half a
 	//              node wide, and measuring it as a peer would sweep in
 	//              claims the marquee never visibly touched.
 	//   - session: line segment between endpoint peers (screen-px)
-	//              vs. rect — endpoint-in-rect OR segment crosses
+	//              vs. rect, endpoint-in-rect OR segment crosses
 	//              any of the four edges. Arced sessions are
 	//              approximated as a straight segment; the user
 	//              gets the same "did I touch this wire" answer.
@@ -290,12 +290,12 @@ export function useStageEmptyGestures(args: {
 		const viewport = viewportRef.current;
 		if (!viewport) return out;
 		// Clamp the selection rect to the Stage host's client-space
-		// bounds — same clamp the visible marquee paints with, so the
+		// bounds, same clamp the visible marquee paints with, so the
 		// committed selection matches what the user saw. `band.startX/Y`
 		// and `viewport.toScreen(...)` both live in client/global coords
 		// (canvas is fixed/full-viewport); the host rect translates the
 		// Stage region's edges into that same space.
-		// Mirror paintRubberBand's hard guard — without a host rect we
+		// Mirror paintRubberBand's hard guard, without a host rect we
 		// can't clamp to the visible region, so selecting "the
 		// unclamped raw band" would silently commit entities the user
 		// never saw highlighted. Better to commit nothing.
@@ -384,7 +384,7 @@ export function useStageEmptyGestures(args: {
 	const isPanVerb = (verb: ResolvedGesture): boolean => verb.tier === "space-pan" || verb.tier === "hand-tool";
 
 	const handlePointerEffect = (effect: Effect) => {
-		// Dev introspection — last few FSM effects for `__ocv.lastEffects`.
+		// Dev introspection, last few FSM effects for `__ocv.lastEffects`.
 		// Cheap (ring buffer of stringified summaries); helpful when a
 		// gesture goes somewhere unexpected.
 		const g = globalThis as unknown as {
@@ -416,8 +416,8 @@ export function useStageEmptyGestures(args: {
 						curX: effect.at.clientX,
 						curY: effect.at.clientY,
 					};
-					// Seed the latch with whatever modifiers are held now;
-					// subsequent moves can add more (one-way latch — see
+					// Seed the latch with whatever modifiers are held;
+					// subsequent moves can add more (one-way latch, see
 					// drag-move). A brief release mid-drag won't flip the
 					// commit mode.
 					rubberBandModRef.current = {
@@ -458,7 +458,7 @@ export function useStageEmptyGestures(args: {
 					if (effect.at.modifiers.alt) {
 						rubberBandModRef.current.alt = true;
 					}
-					// Live "would be selected" preview — recompute each
+					// Live "would be selected" preview, recompute each
 					// move. The set is small (only entities currently
 					// enclosed) so allocation cost is bounded by the visible
 					// scene complexity, which is what the user already pays
@@ -504,9 +504,9 @@ export function useStageEmptyGestures(args: {
 				// Marquee's start stays where it was translated to (it's
 				// anchored to its world position); the cursor's current
 				// screen position becomes the new endpoint so the user
-				// picks up drawing from where the cursor actually is.
+				// picks up drawing from where the cursor is.
 				// The carriedOrigin IS the cursor's post-pan screen
-				// position (FSM § 5.3 — re-emit drag-resume with the
+				// position (FSM § 5.3, re-emit drag-resume with the
 				// current snapshot as carried origin).
 				if (rubberBandRef.current) {
 					rubberBandRef.current.curX = effect.carriedOrigin.clientX;
@@ -521,7 +521,7 @@ export function useStageEmptyGestures(args: {
 				// Paused-pan emits pan-step directly (FSM does the delta
 				// math against panOrigin). Apply to the viewport AND
 				// translate the in-flight marquee by the same delta so
-				// it stays anchored to its world position (doc § 11.2 —
+				// it stays anchored to its world position (doc § 11.2,
 				// "marquee origin transforms with pan"). The user sees
 				// the marquee slide with the world it's selecting.
 				const viewport = viewportRef.current;
@@ -545,7 +545,7 @@ export function useStageEmptyGestures(args: {
 			case "click": {
 				// Tool-create verbs (§ 4.6): Add Peer's empty-stage click
 				// routes to `onCanvasClick` (the host consults its clock
-				// for `t` — the verb's t=0 is a sentinel); a two-click
+				// for `t`. The verb's t=0 is a sentinel); a two-click
 				// pick routes through `onSelect` like a sprite click, so
 				// the host's arm/commit flow is one path for both origins.
 				if (effect.verb.tier === "tool-create") {
@@ -573,7 +573,7 @@ export function useStageEmptyGestures(args: {
 				// (Add Peer mode) or to onSelect(null) (clear). Skip for
 				// pan-tier verbs (clicks while space-held don't deselect).
 				// The captured modifier mode flows through so an empty
-				// click with shift / shift+option is a NO-OP — "add to
+				// click with shift / shift+option is a NO-OP, "add to
 				// selection" and "remove from selection" both reduce to
 				// "nothing to do" when there's no target. Only a plain
 				// empty click clears.

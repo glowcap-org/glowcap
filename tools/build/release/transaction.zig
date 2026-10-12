@@ -1,6 +1,6 @@
 //! Build-owned directory publication shared by installations and archives.
 //! The caller assembles `stage/tree`, sets its ownership marker, then commits.
-//! Handled failures restore the prior generation; SIGKILL or power loss can
+//! Handled failures restore the prior generation, SIGKILL or power loss can
 //! leave it in the named staging directory. The build lease serializes writers.
 const std = @import("std");
 

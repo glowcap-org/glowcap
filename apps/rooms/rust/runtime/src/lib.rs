@@ -1,5 +1,5 @@
 //! Shared Rooms execution. Platform adapters supply storage, entropy, clocks,
-//! and transport effects; this crate owns their application ordering.
+//! and transport effects. This crate owns their application ordering.
 
 pub mod cleanup;
 pub mod clock;

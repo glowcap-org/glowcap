@@ -23,10 +23,18 @@ pub enum Notice {
 	/// Release retained text even when its caller stopped awaiting the answer.
 	ReceiptRejected(u64),
 	/// A line said, edited, refiled, or withdrawn. The body is the row the
-	/// room keeps for the line, shared rather than copied to each member;
-	/// the adapter mints one blob capability per file on the hearing
+	/// room keeps for the line, shared rather than copied to each member.
+	/// The adapter mints one blob capability per file on the hearing
 	/// member's own connection.
 	Line {
+		line: Arc<KeptLine>,
+		marker: Option<(ChangeKind, LineId)>,
+		files: Vec<Blob>,
+	},
+	/// One bounded operation string belongs only to the originating subscriber.
+	/// The immutable line and file sources remain shared with ordinary delivery.
+	CorrelatedLine {
+		operation: String,
 		line: Arc<KeptLine>,
 		marker: Option<(ChangeKind, LineId)>,
 		files: Vec<Blob>,
@@ -47,6 +55,14 @@ pub enum Notice {
 	},
 	Leave {
 		nick: String,
+		count: usize,
+	},
+	/// Retire a display-only row silently, on eviction or changed spelling.
+	Forgotten(String),
+	/// One immutable body shared across recipient effects. The adapter copies
+	/// names only into each recipient's wire values. Fan-out retains no extra list.
+	Offline {
+		names: Arc<[String]>,
 		count: usize,
 	},
 	Away {
@@ -151,10 +167,19 @@ impl Notice {
 	/// notice already holds the sentence, composed where it does not.
 	pub fn said(&self) -> Cow<'_, str> {
 		match self {
-			Self::Line { line, .. } | Self::Receipt { line, .. } => Cow::Borrowed(&line.text),
+			Self::Line { line, .. } | Self::CorrelatedLine { line, .. } | Self::Receipt { line, .. } => {
+				Cow::Borrowed(&line.text)
+			}
 			Self::Roster(names) => super::state::roster_said(names).into(),
 			Self::Join { nick, count } => format!("{nick} joined ({count} here)").into(),
 			Self::Leave { nick, count } => format!("{nick} left ({count} here)").into(),
+			Self::Offline { names, count } => {
+				if names.len() == 1 {
+					format!("{} went offline ({count} here)", names[0]).into()
+				} else {
+					format!("{} members offline ({count} here)", names.len()).into()
+				}
+			}
 			Self::Away { nick, why } => {
 				if why.is_empty() {
 					format!("{nick} is back").into()
@@ -172,6 +197,7 @@ impl Notice {
 			}
 			Self::Said(text) | Self::Ended(text) => Cow::Borrowed(text),
 			Self::ReceiptRejected(_)
+			| Self::Forgotten(_)
 			| Self::Listed(_)
 			| Self::Carries(_)
 			| Self::Typing { .. }

@@ -30,8 +30,8 @@ const handshake = @import("../../support/handshake.zig");
 var hello: []const u8 = &.{};
 var hello_buf: [512]u8 = undefined;
 
-/// Encode one client hello into `hello_buf`. Fails soft: a run without it is
-/// the old garbage-only behaviour, not a broken test.
+/// Encode one client hello into `hello_buf`. Fails soft: a run without it feeds
+/// only garbage, which is not a broken test.
 pub fn buildHello(allocator: std.mem.Allocator) void {
     hello = &.{};
     var client = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
@@ -86,7 +86,7 @@ pub const max_steps = 96;
 /// through a batch must not abandon the completions behind it.
 pub const max_batch = 4;
 
-/// Connection slots the loop is built with. Small on purpose: reuse is what
+/// Connection slots the loop is built with. Small: reuse is what
 /// makes slot identity and free-list bookkeeping matter, and four slots reuse
 /// constantly where a thousand would never wrap.
 pub const max_slots = 4;
@@ -110,7 +110,7 @@ pub const LifecycleBackend = struct {
     /// `len` is the submitted byte count, carried so a send can complete as a
     /// *full* write. Without it every send reported a short count, so a queued
     /// connection could only ever shrink toward the outbound mark and never
-    /// cross back under it while still open — which is the exact transition
+    /// cross back under it while still open, which is the exact transition
     /// that releases the fan-in throttle, and it was unreachable.
     const Op = struct { user_data: u64, kind: Kind, len: usize = 0 };
 
@@ -125,7 +125,7 @@ pub const LifecycleBackend = struct {
     draining: bool = false,
     /// Handed out as inbound bytes, one buffer per completion in a batch: the
     /// loop borrows every recv's bytes until it has consumed the whole batch,
-    /// so two in one batch cannot share storage. Garbage is the point — a
+    /// so two in one batch cannot share storage. Garbage is the point, a
     /// refused frame is the shortest path to the close-while-busy orderings.
     junk: [max_batch][512]u8 = @splat(@splat(0)),
 
@@ -173,6 +173,12 @@ pub const LifecycleBackend = struct {
 
     pub fn loopListenTarget(port: u16) ListenTarget {
         return port;
+    }
+
+    /// A scripted listener binds at `openListener`; nothing pends here; a
+    /// wrapped adapter's pending setup reports through the adapter itself.
+    pub fn listenerPending(_: *@This(), _: Fd) bool {
+        return false;
     }
 
     pub fn openListener(self: *@This(), port: u16) !Fd {
@@ -224,9 +230,9 @@ pub const LifecycleBackend = struct {
     pub fn submitRecv(self: *LifecycleBackend, user_data: u64, fd: Fd) !void {
         _ = fd;
         // Refusable, like every other submit here. A backend out of completion
-        // capacity is a state the loop has five `catch` arms for — an arm-failed
+        // capacity is a state the loop has five `catch` arms for, an arm-failed
         // close, a resume-failed close, a fan-in release that closes instead of
-        // re-arming — and an infallible submit leaves all of them dead.
+        // re-arming, and an infallible submit leaves all of them dead.
         if (!self.draining and self.draw() % 12 == 4) return error.SubmissionQueueFull;
         self.record(user_data, .recv, 0);
     }
@@ -321,8 +327,8 @@ pub const LifecycleBackend = struct {
                 if (verdict % 7 == 1) break :blk .{ .user_data = op.user_data, .result = -1, .recv_no_buffer = verdict % 2 == 0 };
                 // Sometimes the real hello, so the frame reader returns `.ok`
                 // and a frame actually applies. Everything downstream of a
-                // successful apply — the surfaced event, the serve hook, the
-                // read re-arm — has no other way to run.
+                // successful apply, the surfaced event, the serve hook, the
+                // read re-arm, has no other way to run.
                 if (verdict % 4 == 2 and hello.len != 0 and hello.len <= junk.len) {
                     @memcpy(junk[0..hello.len], hello);
                     break :blk .{
@@ -342,7 +348,7 @@ pub const LifecycleBackend = struct {
             // Three shapes, and the loop answers each differently: a failure
             // ends the connection, a short write leaves a tail queued and is
             // what puts a connection over the outbound mark, and a full write
-            // is what takes it back under — the transition that releases every
+            // is what takes it back under, the transition that releases every
             // connection the fan-in throttle was holding.
             .send => .{
                 .user_data = op.user_data,

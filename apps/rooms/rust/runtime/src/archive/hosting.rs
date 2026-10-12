@@ -47,7 +47,7 @@ impl Budget {
 			let reference = create()?;
 			readers
 				.minted()
-				.expect("local reader issuance checked in the same turn");
+				.map_err(|_| Error::exhausted("local archive reader ceiling reached"))?;
 			return Ok(reference);
 		}
 		let mut facets = self.local_facets.borrow_mut();
@@ -55,7 +55,9 @@ impl Budget {
 			return Err(Error::exhausted("local archive mint ceiling reached"));
 		}
 		let reference = create()?;
-		facets.minted().expect("local issuance checked in the same turn");
+		facets
+			.minted()
+			.map_err(|_| Error::exhausted("local archive mint ceiling reached"))?;
 		Ok(reference)
 	}
 	pub fn bytes(&self) -> usize {
@@ -74,7 +76,7 @@ impl Budget {
 			held: self.bytes.clone(),
 		})
 	}
-	/// The mint and charge happen in one turn; releasing the occurrence never
+	/// The mint and charge happen in one turn. Releasing the occurrence never
 	/// refunds the caller's work. The retained session borrows transport custody.
 	pub fn mint(
 		&self,
@@ -111,7 +113,7 @@ impl Budget {
 			Kind::Facet => caller.facets.minted(),
 			Kind::Reader => caller.readers.minted(),
 		}
-		.expect("issuance checked in the same synchronous turn");
+		.map_err(|_| Error::exhausted("archive mint ceiling reached for this session"))?;
 		Ok(reference)
 	}
 }

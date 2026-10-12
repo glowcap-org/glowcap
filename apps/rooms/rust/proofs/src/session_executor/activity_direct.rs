@@ -1,4 +1,4 @@
-//! Shared activity owns direct lines without viewers; acquisition replay does
+//! Shared activity owns direct lines without viewers. Acquisition replay does
 //! not resolve a retired presentation occurrence into new authority.
 use super::*;
 use rooms_application::content::session::workspace;

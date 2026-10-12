@@ -14,11 +14,11 @@ amended_by: [ADR-0134, ADR-0135]
 
 ## Context
 
-The browser previously remembered one recent room, locator, and nickname. Its same-tab reconnect path could re-enter
+The browser remembered one recent room, locator, and nickname. Its same-tab reconnect path could re-enter
 every room still present in memory, but a page reload started with no directories, conversations, selection, or drafts.
 The member archive recorded direct messages even though its record vocabulary also supported room lines.
 
-The Rooms operator capability had a second mismatch. Its name described application-wide authority while its contract
+The Rooms operator capability had a second mismatch: its name described application-wide authority while its contract
 and browser pane managed only room moderator capabilities. Diagnostics could show room links, registrations, and
 members, but those display rows were not safe mutation targets.
 
@@ -48,13 +48,13 @@ the member's observed account. A room's retained history remains the room's own 
 attributed because the current room protocol supplies no durable line identity that could merge them safely.
 
 Archive selection and retention apply to that whole message account. The device target and a selected archive peer both
-read and write room and direct lines. Turning retention off erases the device archive as one account; it only stops new
-writes to a peer because the peer contract has no erase verb. This widens ADR-0131's original direct-message-only
-browser selection.
+read and write room and direct lines. Turning retention off erases the device archive as one account. It only stops new
+writes to a peer because the peer contract has no erase verb. This widens ADR-0131's direct-message-only browser
+selection.
 
 The Rooms operator returns bounded, revisioned inventories for room links, nickname registrations, active sessions,
 local and private room generations, pending and committed peering publications, IRC bridges, trouble, and room moderator
-capabilities. Its initial response takes one synchronous revision across every category; later pages carry the revision
+capabilities. Its initial response takes one synchronous revision across every category. Later pages carry the revision
 and an exact continuation cursor. Registrations and sessions carry server-minted session IDs, and room owners carry
 generation IDs, so an action cannot hit a replacement that happens to reuse a display name. Disconnecting a session
 retires its connection-scoped references through the existing session lifecycle. An operator watch becomes active only
@@ -69,7 +69,7 @@ moderator sturdyref includes the room-link generation in its derivation, so reis
 moderator capability either. Room-owner removal delegates to the application owner that can complete the cleanup: local
 membership custody, peering, or the IRC gateway. Trouble clearing acknowledges the bounded process journal. Scoped reset
 operations cover links, registrations, sessions, rooms, and volatile runtime state. Factory reset rotates room authority
-and clears its active and revoked publication registries before retiring runtime state; neither form erases message
+and clears its active and revoked publication registries before retiring runtime state. Neither form erases message
 history or server identity. Reset acknowledges existing trouble before retiring owners, so a failure caused by the reset
 remains in the journal.
 
@@ -86,7 +86,7 @@ Arbitrary CapTP references are not globally enumerable or individually revocable
 publications registered for revocation and retires all session-scoped occurrences by disconnecting their owning session.
 It separately inventories application-owned occurrences such as memberships, recent line authority, pending uploads,
 registrations, signaling exchanges, and peering reservations. Releasing one updates that aggregate but cannot revoke a
-copy already held by another peer. This inventory is rebuilt for each page or release; stable weak IDs never turn its
+copy already held by another peer. This inventory is rebuilt for each page or release. Stable weak IDs never turn its
 presentation rows into a second strong owner.
 
 ## Evidence

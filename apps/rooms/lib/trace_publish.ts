@@ -1,11 +1,11 @@
-// Shared URL vocabulary for live timeline sockets. The Rooms
-// services own publishing; browser consumers only need to present the held
-// capability when they open the viewer or publisher path.
+// Shared URL vocabulary for live timeline sockets. The Rooms services own
+// publishing, and browser consumers only need to present the held capability
+// when they open the viewer or publisher path.
 /** The query parameter a connecting socket presents the endpoint's capability
- * in — producers and viewers alike. Reachability alone reads and writes
+ * in, for producers and viewers alike. Reachability alone reads and writes
  * nothing: the endpoint refuses a socket that does not present its swiss.
- * (ocapnviz presents the same parameter from the sturdyref it already holds;
- * its viewer names the parameter itself because it shares no module with this
+ * (ocapnviz presents the same parameter from the sturdyref it already holds.
+ * Its viewer names the parameter itself because it shares no module with this
  * app.) */
 export const TRACE_CAP_PARAM = "cap";
 

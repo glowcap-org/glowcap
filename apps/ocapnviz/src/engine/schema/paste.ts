@@ -1,5 +1,5 @@
 /**
- * `cascadePaste` — merge a `ClipboardPayload` into a target doc.
+ * `cascadePaste`, merge a `ClipboardPayload` into a target doc.
  *
  * Algorithm:
  *
@@ -10,17 +10,17 @@
  *   2. Build an id-remap table. For each entity id in the payload,
  *      if it collides with an existing id in the target, mint a
  *      suffixed id (`peer-1` → `peer-1-copy`, `-copy-2`, ...) until
- *      it's unique. Engine-minted; the user never sees the suffix
+ *      it's unique. Engine-minted. The user never sees the suffix
  *      machinery, only the result. Non-colliding ids pass through.
  *
  *   3. Compute a time offset: `clockT - payload.minT`. Pasted
  *      events shift uniformly so the earliest event lands at the
  *      current playhead (Adobe-style paste-at-cursor).
  *
- *   4. Rewrite the payload through the remap table — entity keys,
- *      class-2 entity refs, class-1 event refs — and apply the
+ *   4. Rewrite the payload through the remap table, entity keys,
+ *      class-2 entity refs, class-1 event refs, and apply the
  *      time offset to every event. Then merge into the target doc
- *      (entities by key insert; events by sorted append).
+ *      (entities by key insert, events by sorted append).
  *
  *   5. Run the post-pass straggler check: every ref in the merged
  *      payload region must resolve to an entity in the target doc.
@@ -41,7 +41,7 @@ import { ENTITY_EDGES, EVENT_EDGES, readEdgeRef, writeEdgeRef } from "./edges.ts
 import { type ClipboardEntities, type ClipboardPayload } from "./clipboard.ts";
 import { ENTITIES_KEY } from "./walk.ts";
 
-/** Per-kind id remap. Keys are payload ids; values are target ids
+/** Per-kind id remap. Keys are payload ids. Values are target ids
  * (same when no collision, suffixed when collided). */
 export type IdRemap = {
 	readonly peer: ReadonlyMap<string, string>;
@@ -152,7 +152,7 @@ function buildIdRemap(
  *  entities, and an unconditional single `-copy` for events, which
  *  collides the second time the same clipboard is pasted. A collided
  *  event id is worse than a collided entity id, because nothing
- *  refuses it — `moveEvent` takes the first match, so dragging the
+ *  refuses it, `moveEvent` takes the first match, so dragging the
  *  second copy retimed the first. */
 function uniqueId(id: string, used: Set<string>): string {
 	let candidate = id;
@@ -190,7 +190,7 @@ function rewriteId(remap: IdRemap, kind: EntityKind, id: string): string {
 
 /** Rewrite an entity definition's class-2 ref fields through the
  * remap. Walks `ENTITY_EDGES[entityKind]` rather than hand-coding
- * which fields exist — adding a new ref field to an entity
+ * which fields exist, adding a new ref field to an entity
  * definition automatically gets handled here once it's declared in
  * the schema. */
 function remapEntityDef<T>(
