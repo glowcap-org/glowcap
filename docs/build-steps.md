@@ -267,7 +267,7 @@ zig build goblins-handoff          # three-party handoff with Goblins, glowcap a
 zig build goblins-gift             # three-party handoff with Goblins, glowcap as gifter (needs racket + goblins)
 zig build goblins-exporter         # three-party handoff with Goblins, glowcap as exporter: a Goblins pair deposits into and withdraws from glowcap's gift registry (needs racket + goblins)
 zig build goblins-relayed-give     # glowcap introduces a Goblins recipient to a promise a second Goblins vat has not settled, and the recipient reads the give out of the listener fire (needs racket + goblins)
-zig build goblins-listen-recipient # a Goblins vat hands glowcap an unsettled promise; owning Session.listenTo observes its later nested-capability settlement and calls that capability (needs racket + goblins)
+zig build goblins-listen-recipient # a Goblins vat hands glowcap an unsettled promise; Session.listenTo observes its later nested-capability settlement and calls that capability (needs racket + goblins)
 zig build goblins-native-pair-gift # two glowcap vats and one Goblins vat: the glowcap pair settles on glowcap-next over Cap'n Proto while both Goblins sessions settle on the v1.0 Syrup baseline, and the give crosses that split (needs racket + goblins)
 zig build goblins-gift-hints       # the gift topology with an opaque route hint: Goblins decodes and re-encodes the mapping-shaped exporter locator byte-exactly (needs racket + goblins)
 zig build goblins-gc               # live GC both ways: Goblins reclaims released exports and answers before close (needs racket + goblins)

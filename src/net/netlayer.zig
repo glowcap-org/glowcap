@@ -1,5 +1,5 @@
-//! The netlayer contract: a transport the driver dials and hosts against, never
-//! a privileged built-in.
+//! The stream netlayer contract: the one shape every per-connection stream
+//! transport realizes.
 //!
 //! OCapN addresses a peer by a locator, a value with three parts: a `transport`
 //! symbol that selects how to reach it (`"tcp"`, `"iroh"`, etc.), a `designator`
@@ -7,15 +7,28 @@
 //! Ed25519 key for keyed-TCP and iroh), and optional `hints` for transport-specific
 //! metadata like direct socket addresses. A netlayer is a stream transport: it
 //! may dial a locator to a `Connection`, bind a `Listener` that accepts
-//! connections, or support both. The driver holds a `[]const Netlayer` and
-//! dispatches on the locator's transport symbol at runtime through `resolve`.
+//! connections, or support both. `resolve` dispatches a transport symbol
+//! against a `[]const Netlayer` at runtime.
 //!
 //! The contract is "produce a `Connection` over a stream," nothing more. Every
 //! transport funnels through the same `Connection` (a `*std.Io.Reader` /
 //! `*std.Io.Writer` pair plus a close handle), so a resident reuses the one
 //! framing core in `pumpOver` rather than reframing bytes. `tcp`, `inproc`,
-//! and the sidecar-backed `iroh` resident all live behind this contract. Each
-//! registers as new files without touching the driver or the core.
+//! `onion`, the relay profiles, and the sidecar-backed `iroh` resident all
+//! live behind this contract, each as its own files under `transport/`.
+//!
+//! `driver.HostRuntime` does not dispatch on this vtable (ADR-0193). It
+//! realizes every first-party stream symbol through the completion adapters
+//! composed in `stream_resident.zig` and selects them by `driver.Transports`,
+//! so no product path dials or listens through `Netlayer`. The vtable stays
+//! as this layer's internal composition seam, for three reasons. `test/net`
+//! proves each stream resident through one dial and listen shape instead of
+//! a transport-specific one. The residents' typed verbs behind it carry the
+//! C provider archives under `c_abi/net_transport`. The listener vocabulary
+//! below (`ListenConfig`, `ListenResult`, `ListenFailure`,
+//! `DesignatorScheme`) is shared with the runtime's own listeners. Deleting
+//! the vtable would make every resident's proof bespoke and open no product
+//! path.
 //!
 //! Dispatch is a runtime vtable, not a comptime parameter, because the transport
 //! symbol is a runtime value parsed from a URI or read off an inbound
@@ -432,8 +445,7 @@ pub fn canonicalizeFixedLocator(
 /// (`resolve` matches on it) and the symbol signed into the locator (so it must
 /// match what the partner matches on, Goblins' `^tcp-netlayer` keys on `tcp`).
 /// `ctx` is the resident's own state (its `std.Io`, or a userspace endpoint),
-/// which the caller keeps alive for as long as the transport slice holds the
-/// netlayer.
+/// which the caller keeps alive for as long as any slice holds the netlayer.
 pub const Netlayer = struct {
     ctx: *anyopaque,
     vtable: *const VTable,

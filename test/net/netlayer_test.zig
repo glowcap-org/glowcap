@@ -5,8 +5,8 @@
 //! the runtime contract instead of tcp's concrete functions: the server binds
 //! with `Netlayer.listen` and accepts with the contract `Listener`, the client
 //! dials with `Netlayer.dial`. If the resident is a faithful transport behind
-//! the vtable, this passes exactly as the direct tcp loopback does. A registry
-//! test pins the runtime dispatch the driver depends on.
+//! the vtable, this passes exactly as the direct tcp loopback does. A slice
+//! test pins `resolve`.
 
 const std = @import("std");
 const glowcap = @import("glowcap");

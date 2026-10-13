@@ -130,7 +130,7 @@ fn openDialedCommitted(
 ) !*HostSession {
     const advertised = try requireAcceptableLocator(self);
     // The dial's own admission before anything is minted, so a refusal here
-    // has nothing to unwind; the blocking tier asks the same question.
+    // has nothing to unwind.
     const admission = try dial_plan.admitDial(try self.transportProfile(transport), partner_designator);
     try refuseDuplicateDialForDemand(self, transport, partner_designator, demanded_partner_key);
     // The designator is borrowed all the way to `mintShell`, which dupes it

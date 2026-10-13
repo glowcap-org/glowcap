@@ -39,14 +39,14 @@ const glowcap = @import("glowcap");
 const webrtc = @import("webrtc");
 const webrtc_common = @import("webrtc_common");
 
-/// A finite handshake budget for the signaling dial. Unbounded would turn a
-/// signaling host that accepts and then stalls into a hang rather than a
+/// A finite budget for the signaling session: its handshake, each answer
+/// wait, and the host's wait for the recipient to dial. Unbounded would turn
+/// a signaling peer that connects and then stalls into a hang rather than a
 /// failure.
-const handshake_budget: driver.Budget = .{ .ms = 15_000 };
+const signaling_budget_ms = 15_000;
 
 const crypto = glowcap.foundation.crypto;
 const model = glowcap.ocapn.model;
-const engine = glowcap.ocapn.engine;
 const actors = glowcap.actors;
 const driver = glowcap.driver;
 const tcp = glowcap.net.tcp;
@@ -59,6 +59,13 @@ const SignalingInbox = webrtc_common.SignalingInbox;
 const bringUpViaCapTP = webrtc_common.bringUpViaCapTP;
 const waitOpen = webrtc_common.waitOpen;
 const signaling_frame_bytes = webrtc_common.signaling_frame_bytes;
+
+/// The signaling session carries one bounded SDP or ICE string per frame.
+const signaling_opts: driver.SessionOptions = .{
+    .frame_cap = signaling_frame_bytes,
+    .handshake = .{ .ms = signaling_budget_ms },
+    .settle = .{ .ms = signaling_budget_ms },
+};
 
 const frame_cap: usize = 4096;
 const greeting = "hello over webrtc signaling captp";
@@ -79,7 +86,7 @@ const Greeter = struct {
 /// the recipient's channel is up (it closes the signaling session), then serve a
 /// Greeter behind the keyed handshake over the open DataChannel.
 fn exporterHalf(
-    listener: *tcp.Listener,
+    server: *driver.Server,
     resident: *webrtc.Resident,
     peer: *webrtc.Peer,
     allocator: std.mem.Allocator,
@@ -88,19 +95,8 @@ fn exporterHalf(
     // 1. Signaling over CapTP: accept the recipient and route offer/candidate/poll
     //    to the sidecar peer until the recipient closes the session.
     {
-        var sig_peer = engine.Peer.initNegotiating(allocator);
-        defer sig_peer.deinit();
-        sig_peer.session_state.limits.max_frame_bytes = signaling_frame_bytes;
-
-        const read_buf = try allocator.alloc(u8, signaling_frame_bytes);
-        defer allocator.free(read_buf);
-        const write_buf = try allocator.alloc(u8, signaling_frame_bytes);
-        defer allocator.free(write_buf);
-
-        var sig = try driver.acceptVia(allocator, listener.asNetlayer(), &sig_peer, .ephemeral, read_buf, write_buf, .{
-            .handshake = handshake_budget,
-            .settle = handshake_budget,
-        });
+        if (!try server.waitAcceptable(signaling_budget_ms)) return error.WaitTimedOut;
+        const sig = try server.accept();
         defer sig.deinit();
         _ = try sig.publish("signaling", SignalingInbox, .{ .peer = peer });
         try sig.serve();
@@ -142,28 +138,13 @@ fn recipientHalf(
 ) anyerror!void {
     // 1. Signaling over CapTP: dial the exporter's inbox and drive the channel up.
     {
-        var sig_peer = engine.Peer.initNegotiating(allocator);
-        defer sig_peer.deinit();
-        sig_peer.session_state.limits.max_frame_bytes = signaling_frame_bytes;
-
-        const read_buf = try allocator.alloc(u8, signaling_frame_bytes);
-        defer allocator.free(read_buf);
-        const write_buf = try allocator.alloc(u8, signaling_frame_bytes);
-        defer allocator.free(write_buf);
-
-        const tcp_provider = try tcp.Provider.create(allocator, io, .{});
-        defer tcp_provider.destroy(allocator);
-        const netlayers = tcp_provider.netlayers();
         var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-        var sig = try driver.connectVia(allocator, &netlayers, &sig_peer, tcp.locatorFromAddress(&designator_buf, address), .ephemeral, read_buf, write_buf, .{
-            .handshake = handshake_budget,
-            .settle = handshake_budget,
-        });
+        const sig = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, tcp.locatorFromAddress(&designator_buf, address), .ephemeral, signaling_opts);
         defer sig.deinit();
         const inbox = try sig.fetch("signaling");
         offerer.authorizeRemote(crypto.PeerKey.fromDesignator(expect_designator) orelse
             return error.InvalidDesignator);
-        try bringUpViaCapTP(&sig, inbox, resident, offerer, allocator);
+        try bringUpViaCapTP(sig, inbox, resident, offerer, allocator);
     }
 
     // 2. The channel is up; hold the keyed OCapN session over the DataChannel.
@@ -215,12 +196,14 @@ pub fn main(init: std.process.Init) !void {
     var answerer = try answerer_resident.newPeer(false);
     defer answerer.deinit();
 
-    // The signaling capability listens on TCP loopback; the recipient dials it.
-    var listener = try tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
-    defer listener.deinit();
-    const address = listener.localAddress();
+    // The signaling capability listens on cleartext TCP loopback (the
+    // signaling proof, not the product path); the recipient dials it.
+    const server = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, signaling_opts);
+    defer server.deinit();
+    var address_buf: [tcp.designator_buf_len]u8 = undefined;
+    const address = try tcp.parseDesignator(try server.localDesignator(&address_buf));
 
-    var exporter_future = try io.concurrent(exporterHalf, .{ &listener, &answerer_resident, &answerer, allocator, exporter_seed });
+    var exporter_future = try io.concurrent(exporterHalf, .{ server, &answerer_resident, &answerer, allocator, exporter_seed });
     const recipient_result = recipientHalf(address, io, &offerer_resident, &offerer, allocator, recipient_seed, exporter_designator[0..]);
     const exporter_result = exporter_future.await(io);
     try recipient_result;

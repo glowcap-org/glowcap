@@ -47,14 +47,30 @@ const harness = @import("interop_harness");
 const model = glowcap.ocapn.model;
 const driver = glowcap.driver;
 const net = glowcap.net;
-const onion = glowcap.net.onion;
 const Tor = harness.Tor;
 
 const frame_cap = 16 * 1024;
-const handshake_budget_ms = 60_000;
+/// Tor's default `SocksTimeout`: how long it holds a dial unattached when the
+/// service's descriptor has not reached the directories yet, before it answers
+/// the SOCKS request with a refusal.
+const tor_socks_timeout_ms = 120_000;
+/// One dial attempt's budget. The handshake budget covers the SOCKS connect as
+/// well as the hello, and the vat announces its service id before the
+/// descriptor is uploaded, so an attempt has to outlast Tor's hold for the
+/// verdict to arrive and be retried, plus a hello across a fresh circuit.
+const handshake_budget_ms = tor_socks_timeout_ms + 60_000;
 /// How long to keep retrying a dial while a freshly minted service's descriptor
 /// reaches the directories the other side will ask.
 const publish_budget_ms = 240_000;
+
+/// Session budgets for every session here: the handshake under its own
+/// budget, and each blocking answer wait under the publish budget, because a
+/// first call across a fresh circuit can wait on the network.
+const opts: driver.SessionOptions = .{
+    .frame_cap = frame_cap,
+    .handshake = .{ .ms = handshake_budget_ms },
+    .settle = .{ .ms = publish_budget_ms },
+};
 
 const host_script = "conformance/goblins-peer/racket/goblins-onion-host.rkt";
 const caller_script = "conformance/goblins-peer/racket/glowcap-onion-caller.rkt";
@@ -65,7 +81,11 @@ const echo_payload = "glowcap-over-tor";
 
 // Positional, because a Goblins client invokes a cap with `(<- actor "name")`
 // and carries no verb.
-const Greeter = harness.PositionalReplyActor("hello {s}, from glowcap over tor");
+const Greeter = harness.PositionalReplyBehavior("hello {s}, from glowcap over tor");
+
+/// The listening bracket's server half: accept the one circuit Tor forwards,
+/// publish the Greeter, and serve until the Goblins client hangs up.
+const serveOne = harness.AcceptServeOne(Greeter, greeter_swiss, null).run;
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
@@ -122,10 +142,13 @@ fn dialGoblinsVat(
         .{ service_id, swiss },
     );
 
-    var res: onion.Resident = .{ .io = io, .config = .{ .socks = daemon.socks_path } };
-    const layers = [_]net.netlayer.Netlayer{res.netlayer()};
+    // Dial-only: no control endpoint, so this side can publish nothing.
+    const transports: driver.Transports = .{
+        .symbols = &.{.onion},
+        .onion = .{ .socks = try net.tcp.parseDesignator(daemon.socks_tcp) },
+    };
 
-    callEcho(io, &layers, allocator, service_id, swiss) catch |err| {
+    callEcho(io, allocator, transports, service_id, swiss) catch |err| {
         std.debug.print("goblins-onion: dialing the vat failed: {s}\n", .{@errorName(err)});
         goblins_child.dumpChildStderr(io, "goblins-onion", &child);
         child.kill(io);
@@ -134,7 +157,7 @@ fn dialGoblinsVat(
     };
     std.debug.print("goblins-onion: the vat's echo cap answered across a circuit\n", .{});
 
-    probeHintedHello(io, &layers, allocator, service_id, swiss) catch |err| {
+    probeHintedHello(io, allocator, transports, service_id, swiss) catch |err| {
         std.debug.print("goblins-onion: hinted-hello probe failed: {s}\n", .{@errorName(err)});
         goblins_child.dumpChildStderr(io, "goblins-onion", &child);
         child.kill(io);
@@ -152,43 +175,36 @@ fn dialGoblinsVat(
 /// Dial the vat's service, fetch its echo cap, and assert the payload survived.
 fn callEcho(
     io: std.Io,
-    netlayers: []const net.netlayer.Netlayer,
     allocator: std.mem.Allocator,
+    transports: driver.Transports,
     service_id: []const u8,
     swiss: []const u8,
 ) !void {
-    var scaffold = try harness.PeerScaffold.init(allocator, frame_cap);
-    defer scaffold.deinit();
-
     // No hints, and the ephemeral identity that goes with an address designator:
     // an onion service id says where to dial, never who answers, and the pinned
     // Goblins refuses a hinted onion locator (ADR-0108).
     const locator: model.PeerLocator = .{
-        .transport = onion.transport_name,
+        .transport = model.transport.onion,
         .designator = service_id,
         .hints = model.Hints.emptyFalse(),
     };
 
-    var cv = try connectWhilePublishing(io, allocator, netlayers, &scaffold, locator);
-    defer cv.deinit();
+    const session = try connectWhilePublishing(io, allocator, transports, locator, opts);
+    defer session.deinit();
     std.debug.print("goblins-onion: session open with the vat over Tor\n", .{});
 
-    try expectEchoAnswer(&cv, allocator, swiss);
+    try expectEchoAnswer(session, allocator, swiss);
 }
 
 /// Fetch the vat's echo cap and require the payload back. The echo actor is
 /// `(lambda args args)`, so it answers with its argument list, Goblins
 /// invokes a cap positionally, so the call carries no verb.
-fn expectEchoAnswer(cv: *driver.BlockingSession, allocator: std.mem.Allocator, swiss: []const u8) !void {
-    const echo = try cv.fetch(swiss);
+fn expectEchoAnswer(session: *driver.Session, allocator: std.mem.Allocator, swiss: []const u8) !void {
+    const echo = try session.fetch(swiss);
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
-    const settled = try cv.call(
-        echo,
-        .{ .verb = "", .args = &.{.{ .bytes = echo_payload }} },
-        arena_state.allocator(),
-    );
-    switch (settled) {
+    const reply = try session.call(echo, "", &.{.{ .bytes = echo_payload }}, arena_state.allocator());
+    switch (reply) {
         .fulfilled => |payload| {
             if (payload != .list or payload.list.len != 1) return error.EchoWrongPayload;
             const text: []const u8 = switch (payload.list[0]) {
@@ -201,7 +217,6 @@ fn expectEchoAnswer(cv: *driver.BlockingSession, allocator: std.mem.Allocator, s
             std.debug.print("goblins-onion: echo broke: {s}\n", .{reason});
             return error.EchoBroke;
         },
-        .give => return error.EchoWrongPayload,
     }
 }
 
@@ -217,30 +232,28 @@ fn expectEchoAnswer(cv: *driver.BlockingSession, allocator: std.mem.Allocator, s
 /// a failure.
 fn probeHintedHello(
     io: std.Io,
-    netlayers: []const net.netlayer.Netlayer,
     allocator: std.mem.Allocator,
+    transports: driver.Transports,
     service_id: []const u8,
     swiss: []const u8,
 ) !void {
-    var scaffold = try harness.PeerScaffold.initWith(allocator, frame_cap, .{
-        .captp_version = .next,
-        .codec = .capnp,
-    });
-    defer scaffold.deinit();
+    var hinted_opts = opts;
+    hinted_opts.captp_version = .next;
+    hinted_opts.codec = .capnp;
 
     const handed_hints = [_]model.HintEntry{.{
         .name = model.transport.hint_captp_version,
         .value = .{ .string = model.CaptpVersion.next.wireString() },
     }};
     const locator: model.PeerLocator = .{
-        .transport = onion.transport_name,
+        .transport = model.transport.onion,
         .designator = service_id,
         .hints = .{ .entries = &handed_hints },
     };
-    var cv = try connectWhilePublishing(io, allocator, netlayers, &scaffold, locator);
-    defer cv.deinit();
+    const session = try connectWhilePublishing(io, allocator, transports, locator, hinted_opts);
+    defer session.deinit();
 
-    const state = &scaffold.peer.session_state;
+    const state = &session.peer().session_state;
     if (state.captp_version != .v1_0 or state.codec != .syrup) {
         std.debug.print(
             "goblins-onion: hinted-hello probe settled captp={s} codec={s}, expected the baseline\n",
@@ -248,7 +261,7 @@ fn probeHintedHello(
         );
         return error.HintedHelloSettledOffBaseline;
     }
-    try expectEchoAnswer(&cv, allocator, swiss);
+    try expectEchoAnswer(session, allocator, swiss);
 }
 
 /// Bracket two: glowcap publishes an onion service and the Goblins client dials.
@@ -258,19 +271,19 @@ fn serveGoblinsClient(
     environ_map: *std.process.Environ.Map,
     daemon: *Tor,
 ) !void {
-    var listener = switch (onion.Listener.create(allocator, io, .{
-        .socks = daemon.socks_path,
-        .control_endpoint = daemon.control_path,
-    })) {
-        .ready => |listener| listener,
-        .failed => |failure| return failure.cause,
-    };
-    defer std.debug.assert(listener.deinit() == null);
-    const service_id = listener.designator();
+    const server = try driver.listen(allocator, io, .{
+        .symbols = &.{.onion},
+        .onion = .{
+            .socks = try net.tcp.parseDesignator(daemon.socks_tcp),
+            .control = try net.tcp.parseDesignator(daemon.control_tcp),
+        },
+    }, model.transport.onion, .{ .designator = "" }, .ephemeral, opts);
+    defer server.deinit();
+    var service_id_buf: [128]u8 = undefined;
+    const service_id = try server.localDesignator(&service_id_buf);
     std.debug.print("goblins-onion: glowcap is reachable at ocapn://{s}.onion\n", .{service_id});
 
-    var server_err: ?anyerror = null;
-    var server = try io.concurrent(serveOne, .{ allocator, listener, &server_err });
+    var serving = try io.concurrent(serveOne, .{ io, server, @as(u64, publish_budget_ms) });
 
     // The Goblins client retries its own dial while the descriptor publishes, so
     // this side only has to be listening before the child starts.
@@ -289,8 +302,7 @@ fn serveGoblinsClient(
         .stderr = .inherit,
     });
     const term = try child.wait(io);
-    server.await(io);
-    if (server_err) |err| return err;
+    try serving.await(io);
     switch (term) {
         .exited => |code| if (code != 0) {
             std.debug.print("goblins-onion: the goblins client exited {d}\n", .{code});
@@ -301,66 +313,22 @@ fn serveGoblinsClient(
     std.debug.print("goblins-onion: a Goblins client called a glowcap actor across a circuit\n", .{});
 }
 
-fn serveOne(gpa: std.mem.Allocator, listener: *onion.Listener, out_err: *?anyerror) void {
-    var scaffold = harness.PeerScaffold.init(gpa, frame_cap) catch |err| {
-        out_err.* = err;
-        return;
-    };
-    defer scaffold.deinit();
-
-    var session = driver.acceptVia(
-        gpa,
-        listener.asNetlayer(),
-        &scaffold.peer,
-        .ephemeral,
-        scaffold.read_buf,
-        scaffold.write_buf,
-        .{
-            .handshake = .{ .ms = publish_budget_ms },
-            .settle = .{ .ms = publish_budget_ms },
-        },
-    ) catch |err| {
-        out_err.* = err;
-        return;
-    };
-    defer session.deinit();
-
-    _ = session.publish(greeter_swiss, Greeter, .{}) catch |err| {
-        out_err.* = err;
-        return;
-    };
-    session.serve() catch |err| {
-        out_err.* = err;
-    };
-}
-
-/// `connectVia`, retried while Tor answers "no such service".
+/// `driver.connect`, retried while Tor answers "no such service".
 ///
 /// A freshly minted version 3 service is not reachable the instant `ADD_ONION`
 /// returns: its descriptor has to reach the hash ring the client will ask, and
-/// until then Tor refuses the dial.
+/// until then Tor holds the dial for `tor_socks_timeout_ms` and then refuses
+/// it.
 fn connectWhilePublishing(
     io: std.Io,
     allocator: std.mem.Allocator,
-    netlayers: []const net.netlayer.Netlayer,
-    scaffold: *harness.PeerScaffold,
+    transports: driver.Transports,
     locator: model.PeerLocator,
-) !driver.BlockingSession {
+    session_opts: driver.SessionOptions,
+) !*driver.Session {
     const deadline = harness.deadlineAfter(io, publish_budget_ms);
     while (true) {
-        return driver.connectVia(
-            allocator,
-            netlayers,
-            &scaffold.peer,
-            locator,
-            .ephemeral,
-            scaffold.read_buf,
-            scaffold.write_buf,
-            .{
-                .handshake = .{ .ms = handshake_budget_ms },
-                .settle = .{ .ms = publish_budget_ms },
-            },
-        ) catch |err| switch (err) {
+        return driver.connect(allocator, io, transports, locator, .ephemeral, session_opts) catch |err| switch (err) {
             error.ConnectionRefused, error.ConnectionLost, error.NetworkUnreachable => {
                 if (harness.expired(io, deadline)) return err;
                 std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2_000), .real) catch {};

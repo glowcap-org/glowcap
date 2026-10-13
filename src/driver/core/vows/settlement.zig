@@ -17,7 +17,7 @@ const completion = @import("completion.zig");
 
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
-const asFarRef = host_mod.asFarRef;
+const asFarRef = @import("../host/capabilities/identity.zig").asFarRef;
 
 /// One live public host-vow handle. The row holds the vow's single Vat
 /// listener slot from mint (`fire`). Settlement records the outcome and ends

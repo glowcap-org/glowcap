@@ -242,16 +242,6 @@ test "buffer-explicit session options require both bounded waits" {
     try std.testing.expect(!deadlines.initializedPositive(file, unbounded, "handshake"));
 }
 
-test "callArguments fails closed on an unbalanced call" {
-    // The opener is at index 8; the call never closes. Returning the rest of
-    // the file here is how a budget belonging to some later call comes to
-    // satisfy this one.
-    const src = "x = open(a, b\n.handshake = .{ .ms = 5 },\n";
-    try std.testing.expectEqual(@as(usize, 0), deadlines.callArguments(src, 9).len);
-    const closed = "x = open(a, .handshake = .{ .ms = 5 })";
-    try std.testing.expect(deadlines.callArguments(closed, 9).len > 0);
-}
-
 test "blankComments erases comments without mistaking a locator for one" {
     var src = "a // gone\n.handshake = .{ .ms = 1 },".*;
     deadlines.blankComments(&src);

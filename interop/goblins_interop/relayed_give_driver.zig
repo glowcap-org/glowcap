@@ -65,7 +65,7 @@ const Held = struct {
     flag: *std.atomic.Value(bool),
 };
 
-/// The capability Bob sends the promise to. The owning tier lifts the
+/// The capability Bob sends the promise to. The Host lifts the
 /// delivered promise under Bob's session before this handler sees it, so the
 /// opaque capability already carries the home and kind needed for handoff.
 const Holder = struct {

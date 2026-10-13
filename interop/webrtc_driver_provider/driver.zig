@@ -95,6 +95,7 @@ fn newHostLoop(seed: *const [64]u8, advertise: bool) !?*cd.GlowcapDriverLoop {
         cs.GLOWCAP_CAPTP_V1_0,
         cs.GLOWCAP_FEATURE_FULL,
         0,
+        1,
         &host,
     ));
     errdefer reportCleanup("WebRTC host rollback failed", ch.glowcap_host_release(host));

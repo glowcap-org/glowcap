@@ -66,16 +66,8 @@ pub fn glowcap_loam_lmdb_work_run(raw: ?*GlowcapLoamLmdb, work_handle: ?*c.Glowc
     shared.lastErrorClear();
     const owner = storage(raw) catch |err| return bridge.code(err);
     const work = bridge.work(work_handle) catch |err| return bridge.code(err);
-    if (work.owner.store != owner.store or work.completed or work.result != null) return bridge.code(error.StaleCompletion);
-    work.result = switch (work.request) {
-        .read => |request| .{ .read = owner.backend.read(request) },
-        .write => |request| .{ .write = owner.backend.commit(request) },
-        .lookup => |request| .{ .lookup = owner.backend.lookup(request) },
-        .recover => |request| blk: {
-            const resolution = owner.backend.recover(request) catch |err| break :blk .{ .failed = err };
-            break :blk .{ .recover = resolution };
-        },
-    };
+    if (work.owner.store != owner.store) return bridge.code(error.StaleCompletion);
+    bridge.Worker.run(work.slot, &owner.backend) catch |err| return bridge.code(err);
     return shared.GLOWCAP_OK;
 }
 /// Restore from trusted persisted metadata. The ordinary Store read checks the

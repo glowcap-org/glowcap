@@ -100,14 +100,13 @@ pub const Posture = union(enum) {
     explicit_none,
 };
 
-/// What every dialing tier settles before it opens a byte channel, decided
-/// from the provider's profile alone so the blocking tier and the Host tiers
-/// cannot drift: whether the channel must be sealed, and which durable key the
-/// partner has to prove because the designator names it.
+/// What every dial settles before it opens a byte channel, decided from the
+/// provider's profile alone so no dial path can drift from it: whether the
+/// channel must be sealed, and which durable key the partner has to prove
+/// because the designator names it.
 pub const DialAdmission = struct {
-    /// The transport seals its channel end to end (ADR-0107). A tier that
-    /// cannot run the sealed channel refuses rather than speaking cleartext
-    /// under the sealed name.
+    /// The transport seals its channel end to end (ADR-0107), so the Host
+    /// seals the admitted wire before CapTP speaks on it.
     sealed_channel: bool,
     /// The partner's durable key on a key-designator transport, demanded of the
     /// hello before any bytes move. Null when the designator is an address.

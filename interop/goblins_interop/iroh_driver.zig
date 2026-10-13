@@ -47,8 +47,9 @@ const harness = @import("interop_harness");
 
 const model = glowcap.ocapn.model;
 const driver = glowcap.driver;
-const net = glowcap.net;
 const crypto = glowcap.foundation.crypto;
+
+const Registration = driver.HostRuntime.ProviderRegistration;
 
 const frame_cap: usize = 1 << 16;
 
@@ -65,6 +66,14 @@ const handshake_budget_ms: i32 = 60_000;
 /// wait instead of parking a driver whose child runs until it is killed.
 const session_line_budget_ms: i32 = 10_000;
 
+/// Session budgets for both brackets: the handshake and every blocking
+/// answer wait under `handshake_budget_ms`.
+const opts: driver.SessionOptions = .{
+    .frame_cap = frame_cap,
+    .handshake = .{ .ms = handshake_budget_ms },
+    .settle = .{ .ms = handshake_budget_ms },
+};
+
 const host_script = "conformance/goblins-peer/racket/goblins-iroh-host.rkt";
 const caller_script = "conformance/goblins-peer/racket/glowcap-iroh-caller.rkt";
 
@@ -77,16 +86,16 @@ const greeting_arg = "world";
 /// the reply that client has to read back. Both come off one template, so the
 /// assertion cannot drift from what the actor says.
 const greeting_template = "Hello {s}, from a glowcap actor over iroh!";
-const Greeter = harness.PositionalReplyActor(greeting_template);
+const Greeter = harness.PositionalReplyBehavior(greeting_template);
 const expected_reply = std.fmt.comptimePrint(greeting_template, .{greeting_arg});
 
-/// The listening bracket's server half: accept one partner over iroh signing with
-/// `secret`: the endpoint's own key, so the designator the vat verifies is the
-/// endpoint id it dialed, publish the Greeter, and serve until the vat hangs up.
+/// The listening bracket's server half: accept one partner on the server
+/// `serveGoblinsClient` keyed with the endpoint's own secret, so the
+/// designator the vat verifies is the endpoint id it dialed, publish the
+/// Greeter, and serve until the vat hangs up.
 const serveGreeter = harness.AcceptServeOne(
     Greeter,
     actor_swiss,
-    frame_cap,
     "goblins-iroh: glowcap accepted a QUIC stream and opened the keyed session",
 ).run;
 
@@ -143,11 +152,13 @@ fn dialGoblinsVat(io: std.Io, allocator: std.mem.Allocator, environ_map: *std.pr
         return err;
     };
     defer endpoint.deinit() catch |err| std.log.err("iroh client endpoint teardown failed: {s}", .{@errorName(err)});
-    const entries = [_]net.netlayer.Netlayer{endpoint.netlayer()};
+    var adapter = try iroh.MultiplexedAdapter.init(allocator, &endpoint);
+    defer if (adapter.deinit()) |failure| std.log.err("iroh client adapter: {s}", .{failure.primaryName()});
+    const providers = [_]Registration{.{ .profile = iroh.transport_profile, .resident = adapter.multiplexed() }};
     var client_id_buf: [iroh.node_id_len]u8 = undefined;
     const client_node_id = endpoint.nodeId(&client_id_buf);
 
-    callEcho(&entries, allocator, node_id, direct_addrs, swiss, .{
+    callEcho(io, allocator, &providers, node_id, direct_addrs, swiss, .{
         .secret = crypto.SecretKey.fromSeed(client_seed),
         .designator = client_node_id,
     }) catch |err| {
@@ -203,43 +214,29 @@ fn dialGoblinsVat(io: std.Io, allocator: std.mem.Allocator, environ_map: *std.pr
 /// is named by, so the vat hears a caller that names itself and can weigh that
 /// name against the endpoint QUIC verified.
 fn callEcho(
-    netlayers: []const net.netlayer.Netlayer,
+    io: std.Io,
     allocator: std.mem.Allocator,
+    providers: []const Registration,
     node_id: []const u8,
     direct_addrs: []const u8,
     swiss: []const u8,
     self: struct { secret: crypto.SecretKey, designator: []const u8 },
 ) !void {
-    var scaffold = try harness.PeerScaffold.init(allocator, frame_cap);
-    defer scaffold.deinit();
+    var hints: [1]model.HintEntry = undefined;
+    const locator = iroh.locatorWithDirectAddresses(node_id, direct_addrs, &hints);
 
-    const hint_entries = [_]model.HintEntry{.{
-        .name = iroh.hint_direct_addresses,
-        .value = .{ .string = direct_addrs },
-    }};
-    const locator: model.PeerLocator = .{
-        .transport = iroh.transport_name,
-        .designator = node_id,
-        .hints = .{ .entries = &hint_entries },
-    };
-
-    var cv = try driver.connectVia(
+    const session = try driver.connect(
         allocator,
-        netlayers,
-        &scaffold.peer,
+        io,
+        .{ .residents = providers },
         locator,
         .{ .keyed = .{ .secret = self.secret, .designator = self.designator } },
-        scaffold.read_buf,
-        scaffold.write_buf,
-        .{
-            .handshake = .{ .ms = handshake_budget_ms },
-            .settle = .{ .ms = handshake_budget_ms },
-        },
+        opts,
     );
-    defer cv.deinit();
+    defer session.deinit();
     std.debug.print("goblins-iroh: keyed session open with the goblins vat over QUIC\n", .{});
 
-    const echo = try cv.fetch(swiss);
+    const echo = try session.fetch(swiss);
     std.debug.print("goblins-iroh: bootstrap-fetched the vat's echo cap\n", .{});
 
     // The echo actor is `(lambda args args)`, so it answers with its argument
@@ -248,12 +245,8 @@ fn callEcho(
     // carries no verb.
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
-    const settled = try cv.call(
-        echo,
-        .{ .verb = "", .args = &.{.{ .bytes = "glowcap-over-iroh" }} },
-        arena_state.allocator(),
-    );
-    switch (settled) {
+    const reply = try session.call(echo, "", &.{.{ .bytes = "glowcap-over-iroh" }}, arena_state.allocator());
+    switch (reply) {
         .fulfilled => |payload| {
             if (payload != .list or payload.list.len != 1) return error.EchoWrongPayload;
             const text: []const u8 = switch (payload.list[0]) {
@@ -266,7 +259,6 @@ fn callEcho(
             std.debug.print("goblins-iroh: echo broke: {s}\n", .{reason});
             return error.EchoBroke;
         },
-        .give => return error.EchoGaveAnIntroduction,
     }
     std.debug.print("goblins-iroh: the vat echoed glowcap's argument back over QUIC\n", .{});
 }
@@ -299,20 +291,13 @@ fn serveGoblinsClient(io: std.Io, allocator: std.mem.Allocator, environ_map: *st
         .{ node_id, direct_addrs },
     );
 
-    const entries = [_]net.netlayer.Netlayer{endpoint.netlayer()};
-    var listen_result = switch (net.netlayer.resolve(&entries, iroh.transport_name).?.listen(allocator, .{
-        .designator = "",
-    })) {
-        .admitted => |result| result,
-        .failed => |failure| return failure.cause,
-    };
-    var listener = switch (listen_result.requireReady()) {
-        .ready => |listener| listener,
-        .failed => |failure| return failure.cause,
-    };
-    defer std.debug.assert(listener.close() == null);
+    var adapter = try iroh.MultiplexedAdapter.init(allocator, &endpoint);
+    defer if (adapter.deinit()) |failure| std.log.err("iroh server adapter: {s}", .{failure.primaryName()});
+    const providers = [_]Registration{.{ .profile = iroh.transport_profile, .resident = adapter.multiplexed() }};
+    const server = try driver.listen(allocator, io, .{ .residents = &providers }, iroh.transport_name, .{ .designator = "" }, .{ .keyed = secret }, opts);
+    defer server.deinit();
 
-    var serving = try io.concurrent(serveGreeter, .{ listener, allocator, secret });
+    var serving = try io.concurrent(serveGreeter, .{ io, server, @as(u64, handshake_budget_ms) });
 
     var child_argv: [8][]const u8 = undefined;
     var child = try std.process.spawn(io, .{
@@ -331,14 +316,11 @@ fn serveGoblinsClient(io: std.Io, allocator: std.mem.Allocator, environ_map: *st
     const stdout_len = goblins_child.drainChildStdout(io, &child, &stdout_buf);
     const stdout_text = stdout_buf[0..stdout_len];
 
-    // Close the endpoint before collecting the server: it releases a parked
-    // accept and ends a live serve, so a client that died before dialing cannot
-    // wedge this bracket.
-    endpoint.close();
-    // The serve's own error is not the proof and is not weighed: closing the
-    // endpoint under it is how this bracket ends, and what the vat received is
-    // the evidence.
-    _ = serving.await(io) catch {};
+    // The client has exited, so its wire is closed and the serve ends with
+    // it. A client that died before dialing ends the serve at the accept
+    // budget instead, so this bracket cannot wedge. What the vat received is
+    // the evidence, so the serve's own outcome is weighed last.
+    const served = serving.await(io);
 
     // What the Goblins client's stdout has to say, and what each absence means.
     // The reply proves the actor ran; the three session facts are the netlayer's
@@ -359,6 +341,7 @@ fn serveGoblinsClient(io: std.Io, allocator: std.mem.Allocator, environ_map: *st
     }
 
     std.debug.print("goblins-iroh: {s}", .{stdout_text});
+    try served;
     std.debug.print("goblins-iroh: OK (glowcap as host), a real Goblins vat called a glowcap actor over QUIC and named the partner an authenticated transport identity\n", .{});
     child.kill(io);
     reaped = true;

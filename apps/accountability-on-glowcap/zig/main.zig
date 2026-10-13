@@ -11,7 +11,7 @@
 //!
 //!   zig build accountability
 //!
-//! Two real `engine.Peer`s talk over a 127.0.0.1 socket pair on a
+//! Two `driver.Session`s talk over a 127.0.0.1 socket pair on a
 //! `std.Io.Threaded` backend. The host accepts on a concurrent fiber, the caller
 //! drives this one. The host publishes the Affordance by name. The caller fetches
 //! it and eventual-sends an `invoke`. Attribution is not a trusted
@@ -30,23 +30,23 @@ const accountable = @import("accountable.zig");
 const affordance = @import("affordance.zig");
 const log = @import("log.zig");
 
-/// A finite handshake budget for the dial below. The library default waits
-/// forever, which for an application means a partner that connects and then
-/// goes silent hangs it rather than reporting.
-const handshake_budget: driver.Budget = .{ .ms = 10_000 };
+/// Finite budgets for the listen and the dial below: a partner that connects
+/// and then goes silent fails the run instead of hanging it.
+const session_opts: driver.SessionOptions = .{
+    .frame_cap = frame_cap,
+    .handshake = .{ .ms = 10_000 },
+    .settle = .{ .ms = 10_000 },
+};
 
-const engine = glowcap.ocapn.engine;
-const actors = glowcap.actors;
+const model = glowcap.ocapn.model;
 const driver = glowcap.driver;
 const tcp = glowcap.net.tcp;
-const ip = std.Io.net;
 
 const AFFORDANCE_NAME = affordance.AFFORDANCE_NAME;
 const frame_cap = affordance.frame_cap;
 
 const HostArgs = struct {
-    listener: *tcp.Listener,
-    allocator: std.mem.Allocator,
+    server: *driver.Server,
     store: *accountable.Store,
     served: *usize,
     last_subject: *[said.SAID_LEN]u8,
@@ -55,23 +55,10 @@ const HostArgs = struct {
 /// Accept one connection, publish the Affordance by name, and serve invocations
 /// until the caller leaves.
 fn hostServe(args: HostArgs) !void {
-    const allocator = args.allocator;
-    var peer = engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
-
-    var vat = try driver.acceptVia(allocator, args.listener.asNetlayer(), &peer, .ephemeral, read_buf, write_buf, .{
-        .handshake = handshake_budget,
-        .settle = .{ .ms = 10_000 },
-    });
+    var vat = try args.server.accept();
     defer vat.deinit();
 
-    _ = try vat.publish(AFFORDANCE_NAME, affordance.Affordance, .{
+    _ = try vat.publish(AFFORDANCE_NAME, affordance.HostAffordance, .{
         .state = .{
             .store = args.store,
             .served = args.served,
@@ -95,39 +82,36 @@ fn banner(step: u8, msg: []const u8) void {
 /// signature instead, so the host cannot attest it at all. Both refusals must
 /// surface as clean broken promises, not a crash or a silent success.
 fn invoke(
-    cv: *driver.BlockingSession,
-    target: actors.Ref,
+    cv: *driver.Session,
+    target: driver.Capability,
     caller: *const identity.Identity,
     key: said.Key,
     request: []const u8,
     tamper: bool,
     arena: std.mem.Allocator,
-) !driver.Settled {
+) !driver.Reply {
     const att = try affordance.Attestation.sign(arena, key, &caller.aid, request, tamper);
-    return cv.call(target, .{
-        .verb = affordance.invoke_verb,
-        .args = &.{
-            .{ .string = caller.aidSlice() },
-            .{ .string = &att.verkey },
-            .{ .string = request },
-            .{ .string = &att.signature },
-            .{ .string = caller.kelSlice() },
-        },
+    return cv.call(target, affordance.invoke_verb, &.{
+        .{ .string = caller.aidSlice() },
+        .{ .string = &att.verkey },
+        .{ .string = request },
+        .{ .string = &att.signature },
+        .{ .string = caller.kelSlice() },
     }, arena);
 }
 
 /// The reason a settled outcome broke, or null if it did not break at all.
-fn brokenReason(settled: driver.Settled) ?[]const u8 {
+fn brokenReason(settled: driver.Reply) ?[]const u8 {
     return switch (settled) {
         .broken => |reason| reason,
-        .fulfilled, .give => null,
+        .fulfilled => null,
     };
 }
 
 /// Report an assertion the run failed and stop, letting the host fiber finish
 /// first so its own error, if it has one, is printed too.
 fn bail(
-    cv: *driver.BlockingSession,
+    cv: *driver.Session,
     io: std.Io,
     host_future: anytype,
     comptime msg: []const u8,
@@ -177,39 +161,24 @@ pub fn main(init: std.process.Init) !void {
 
     // ---- The capability wire (glowcap) ----------------------------------------
     banner(3, "Host publishes the Affordance behind an OCapN capability");
-    var listener = try tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
-    defer listener.deinit();
-    const address = listener.localAddress();
+    var server = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = "127.0.0.1:0" }, .ephemeral, session_opts);
+    defer server.deinit();
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    const designator = try server.localDesignator(&designator_buf);
 
     var served: usize = 0;
     var last_subject: [said.SAID_LEN]u8 = undefined;
     var host_future = try io.concurrent(hostServe, .{HostArgs{
-        .listener = &listener,
-        .allocator = allocator,
+        .server = server,
         .store = &host_store,
         .served = &served,
         .last_subject = &last_subject,
     }});
 
-    // Caller side. `connectVia` completes the keyed handshake before returning.
-    var peer = engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
-
-    const tcp_provider = try tcp.Provider.create(allocator, io, .{});
-    defer tcp_provider.destroy(allocator);
-    const netlayers = tcp_provider.netlayers();
-    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    var cv = try driver.connectVia(allocator, &netlayers, &peer, tcp.locatorFromAddress(&designator_buf, address), .ephemeral, read_buf, write_buf, .{
-        .handshake = handshake_budget,
-        .settle = .{ .ms = 10_000 },
-    });
-    std.debug.print("      session open over TCP {f}\n", .{address});
+    // Caller side. `driver.connect` completes the keyed handshake before
+    // returning.
+    var cv = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, try server.advertisedLocator(), .ephemeral, session_opts);
+    std.debug.print("      session open over TCP {s}\n", .{designator});
 
     const affordance_ref = try cv.fetch(AFFORDANCE_NAME);
 
@@ -224,10 +193,9 @@ pub fn main(init: std.process.Init) !void {
     var call_arena = std.heap.ArenaAllocator.init(allocator);
     defer call_arena.deinit();
 
-    const outcome = try invoke(&cv, affordance_ref, &caller_id, caller_id.current, request, false, call_arena.allocator());
+    const outcome = try invoke(cv, affordance_ref, &caller_id, caller_id.current, request, false, call_arena.allocator());
     const result: []const u8 = switch (outcome) {
-        .fulfilled => |arg| affordance.strArg(arg) orelse "",
-        .give => "",
+        .fulfilled => |arg| affordance.valueString(arg) orelse "",
         .broken => |reason| {
             std.debug.print("      invocation did not resolve fulfilled (reason='{s}')\n", .{reason});
             cv.deinit();
@@ -245,11 +213,11 @@ pub fn main(init: std.process.Init) !void {
     // to account for what it cannot attribute. The refusal travels back as a
     // broken promise (not a session abort), and the host writes no Episode for it.
     const served_before = served;
-    const tampered = try invoke(&cv, affordance_ref, &caller_id, caller_id.current, request, true, call_arena.allocator());
+    const tampered = try invoke(cv, affordance_ref, &caller_id, caller_id.current, request, true, call_arena.allocator());
     const tampered_reason = brokenReason(tampered) orelse
-        bail(&cv, io, &host_future, "a tampered invocation was NOT refused");
+        bail(cv, io, &host_future, "a tampered invocation was NOT refused");
     if (served != served_before) {
-        bail(&cv, io, &host_future, "host accounted for an unattested invocation");
+        bail(cv, io, &host_future, "host accounted for an unattested invocation");
     }
     std.debug.print("      refused: {s}\n", .{tampered_reason});
 
@@ -259,11 +227,11 @@ pub fn main(init: std.process.Init) !void {
     // binding. The log the caller presents rotated past that key in step 2, so
     // the host reads the log, arrives at a different current key, and refuses.
     // A leaked pre-rotation key therefore buys its holder nothing.
-    const retired = try invoke(&cv, affordance_ref, &caller_id, retired_key, request, false, call_arena.allocator());
+    const retired = try invoke(cv, affordance_ref, &caller_id, retired_key, request, false, call_arena.allocator());
     const retired_reason = brokenReason(retired) orelse
-        bail(&cv, io, &host_future, "a retired pre-rotation key was NOT refused");
+        bail(cv, io, &host_future, "a retired pre-rotation key was NOT refused");
     if (served != served_before) {
-        bail(&cv, io, &host_future, "host accounted for an invocation signed by a retired key");
+        bail(cv, io, &host_future, "host accounted for an invocation signed by a retired key");
     }
     std.debug.print("      refused: {s}\n", .{retired_reason});
 

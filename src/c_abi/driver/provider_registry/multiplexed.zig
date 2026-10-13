@@ -16,7 +16,7 @@ const Owner = owner_mod.Owner;
 const listenerRestorationOutcome = owner_mod.listenerRestorationOutcome;
 const operationFailureFromProvider = owner_mod.operationFailureFromProvider;
 const failureChainFromProvider = owner_mod.failureChainFromProvider;
-const dialErrorFromCode = owner_mod.dialErrorFromCode;
+const dialErrorFromProvider = owner_mod.dialErrorFromProvider;
 const dialFailureFromProvider = owner_mod.dialFailureFromProvider;
 const providerFailureIsEmpty = owner_mod.providerFailureIsEmpty;
 const GLOWCAP_OK = shared.GLOWCAP_OK;
@@ -233,7 +233,7 @@ pub const Adapter = struct {
                     chain.noteChain(cleanup);
                 self.owner.runtime.noteTerminalOperationFailure(.fromChain(chain));
             }
-            return .{ .failed = .fromChain(dialErrorFromCode(code), chain) };
+            return .{ .failed = .fromChain(dialErrorFromProvider(code, chain.cause_name), chain) };
         }
         const connection = std.math.cast(usize, conn) orelse {
             self.failContract("claim_external returned a connection id outside the host range");

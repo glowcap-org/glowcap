@@ -41,8 +41,8 @@ export {
  * project's rule for CapTP waits is that an unbounded one is a hang rather than
  * a slow success, and neither half of a connection is exempt. It bounds the
  * handshake alone, never opening the channel: a TCP connect keeps the runtime's
- * own timeout, and an iroh dial-by-id keeps its discovery retry budget
- * (ADR-0082), both spent before the handshake starts. */
+ * own timeout, and an iroh dial-by-id is one transport attempt, both spent
+ * before the handshake starts. */
 export { HANDSHAKE_TIMEOUT_MS };
 
 /** How transport packets move for one connection. It is the seam the byte-fed pump

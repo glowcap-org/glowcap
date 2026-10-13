@@ -227,50 +227,12 @@ pub fn initializedPositive(file: []const u8, args: []const u8, field: []const u8
     return false;
 }
 
-/// The argument list of a call whose opener ends at `at`, found by matching
-/// parens. Skips string and character literals, because a `(` inside a locator
-/// string would otherwise unbalance the walk and silently widen the result to
-/// the rest of the file, where some *other* call's budget could satisfy this
-/// one.
-pub fn callArguments(contents: []const u8, at: usize) []const u8 {
-    var depth: usize = 1;
-    var i = at;
-    while (i < contents.len and depth != 0) {
-        switch (contents[i]) {
-            '"', '\'' => {
-                const quote = contents[i];
-                i += 1;
-                while (i < contents.len and contents[i] != quote) : (i += 1) {
-                    if (contents[i] == '\\') i += 1;
-                }
-                i += 1;
-            },
-            '(' => {
-                depth += 1;
-                i += 1;
-            },
-            ')' => {
-                depth -= 1;
-                i += 1;
-            },
-            else => i += 1,
-        }
-    }
-    // Unbalanced. Return nothing rather than the rest of the file: a span that
-    // ran to the end would let some other call's budget satisfy this one, which
-    // is the check passing for a reason that has nothing to do with the call it
-    // was looking at. Empty reads as "no budget named", which is a violation.
-    if (depth != 0) return contents[0..0];
-    return contents[at..i -| 1];
-}
-
 pub fn checkExampleCaptpDeadlines(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const explicit_openers = [_][]const u8{ "driver.connectVia(", "driver.acceptVia(", "driver.connectUri(" };
     var dir = root.openDir(io, "examples/zig", .{ .iterate = true }) catch |err| {
         try appendViolation(gpa, violations, "examples/zig: failed to open for CapTP-deadline check with {s}", .{@errorName(err)});
         return;
@@ -300,20 +262,6 @@ pub fn checkExampleCaptpDeadlines(
                     std.mem.indexOf(u8, line, ".settle = .unbounded") != null)
                 {
                     try appendViolation(gpa, violations, "{s}:{d}: an unbounded CapTP budget waits forever on a silent peer, and a reader copies this line; name a finite `.{{ .ms = N }}`", .{ path, line_no });
-                }
-            }
-        }
-        for (explicit_openers) |opener| {
-            var at: usize = 0;
-            while (std.mem.indexOfPos(u8, contents, at, opener)) |hit| {
-                at = hit + opener.len;
-                const args = callArguments(contents, at);
-                const line_no = std.mem.count(u8, contents[0..hit], "\n") + 1;
-                if (!initializedPositive(contents, args, "handshake")) {
-                    try appendViolation(gpa, violations, "{s}:{d}: `{s}` opens a session without a bounded `.handshake` option; a silent peer can park the call", .{ path, line_no, opener });
-                }
-                if (!initializedPositive(contents, args, "settle")) {
-                    try appendViolation(gpa, violations, "{s}:{d}: `{s}` opens a session without a bounded `.settle` option; a silent peer can park a later wait", .{ path, line_no, opener });
                 }
             }
         }

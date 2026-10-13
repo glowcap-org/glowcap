@@ -17,8 +17,6 @@ from ._constants import (
 from ._constants_gen import (
     BINDING_IROH_READ_CHUNK_BYTES,
     BINDING_READINESS_DRAIN_CAP,
-    DISCOVERY_DIAL_MAX_ATTEMPTS,
-    DISCOVERY_DIAL_RETRY_MS,
     IROH_EV_ACCEPT as _IROH_EV_ACCEPT,
     IROH_EV_CLOSED as _IROH_EV_CLOSED,
     IROH_EV_CONNECT as _IROH_EV_CONNECT,
@@ -419,59 +417,25 @@ class _IrohTransport:
             raise self._loop.failure
 
 
-_DISCOVERY_DIAL_RETRY_S = DISCOVERY_DIAL_RETRY_MS / 1000.0
-
-
-async def _dial_resolving(
-    loop: _IrohLoop, node_id: str, direct_addresses: str, retry: bool
-) -> IrohConnection:
-    """Dial, retrying only under a propagating-discovery posture (``DISCOVERY`` and
-    ``DISCOVERY_NO_RELAY``) while it resolves the partner by id. A dial-by-id can
-    fail with "no addressing information" until the exporter's pkarr record
-    propagates to the n0 resolver (seconds, variable). Every other posture dials
-    once (Direct's addresses are in hand, local_discovery resolves instantly).
-    Mirrors the TS ``dialResolving`` and the Zig ``iroh-reachability`` driver.
-
-    ADR-0082: only transient dial faults (projected as ``ERR_IO``) are retried.
-    Permanent faults (``ERR_INVALID_ARGUMENT``, ``ERR_INTERNAL``, …) surface
-    immediately.
-    """
-    from ._errors import GlowcapError
-    from ._constants_gen import ERR_IO
-
-    attempt = 1
-    while True:
-        try:
-            return await loop.dial(node_id, direct_addresses)
-        except GlowcapError as e:
-            if e.code != ERR_IO or not retry or attempt >= DISCOVERY_DIAL_MAX_ATTEMPTS:
-                raise
-        attempt += 1
-        await asyncio.sleep(_DISCOVERY_DIAL_RETRY_S)
-
-
 async def _open_byte_channel(
     node_id: str,
     direct_addresses: str,
     reachability: "Union[int, Reachability]",
-    retry_discovery: bool = True,
     worker_threads: "Optional[int]" = None,
 ) -> "tuple[_IrohTransport, str | None]":
-    """Open one runtime-owned iroh channel and return its remote proof."""
+    """Open one runtime-owned iroh channel and return its remote proof.
+
+    One transport attempt. A dial staged through the driver loop retries
+    transient faults on the runtime's ``GLOWCAP_DISCOVERY_DIAL_*`` budget
+    (ADR-0193); a raw transport dial raises its first fault.
+    """
     netlayer = await IrohNetlayer.open(
         IrohConfig(reachability, worker_threads=worker_threads)
     )
     loop = _IrohLoop(netlayer)
     loop.start()
     try:
-        conn = await _dial_resolving(
-            loop,
-            node_id,
-            direct_addresses,
-            retry_discovery
-            and int(reachability)
-            in (int(Reachability.DISCOVERY), int(Reachability.DISCOVERY_NO_RELAY)),
-        )
+        conn = await loop.dial(node_id, direct_addresses)
     except BaseException:
         loop.close()
         await netlayer.close()
@@ -514,7 +478,6 @@ async def dial_locator_for_relay(
         node_id,
         direct_addresses,
         reachability,
-        retry_discovery=False,
         worker_threads=1,
     )
     return channel

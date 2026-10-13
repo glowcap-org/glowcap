@@ -3,6 +3,7 @@
 const std = @import("std");
 
 const engine = @import("engine");
+const model = @import("model");
 const net = @import("net");
 const driver_core = @import("driver_core");
 
@@ -30,6 +31,13 @@ pub const Open = struct {
     outcome: Outcome,
     /// Preserve an early bound-wire close until the open publishes its result.
     close_cause: ?OperationFailure = null,
+    /// The locator the resident dial targets, owned for the row's life so a
+    /// transient failure can re-issue it (ADR-0193). Application rows clone
+    /// the caller's borrowed locator at stage time. Redeem rows re-read the
+    /// route's own view at re-issue. Freed when the row leaves the set.
+    dial_locator: ?model.PeerLocator = null,
+    /// The 1-based number of the attempt currently in flight.
+    dial_attempt: u32 = 1,
 
     pub const Stage = union(enum) {
         resident_dial: struct {
@@ -37,6 +45,14 @@ pub const Open = struct {
             attempt: net.multiplexed_resident.DialAttempt,
         },
         handshake,
+        /// A transient dial failure waiting for its interval to elapse before
+        /// the same row re-issues the dial. `attempt` is the failed attempt's
+        /// 1-based number, a snapshot of `dial_attempt` at wait entry.
+        retry_wait: struct {
+            resident: usize,
+            attempt: u32,
+            due_ms: i64,
+        },
     };
 
     pub const Outcome = union(enum) {

@@ -1,5 +1,6 @@
 //! Synchronous benchmark executor shared by ordinary and managed workloads.
 const core = @import("glowcap").loam.core;
+const Worker = @import("glowcap").loam.hosting.Worker;
 
 pub fn load(self: anytype, id: core.ObjectId) !core.Lease {
     return switch (try self.store.acquire(id)) {
@@ -22,23 +23,31 @@ pub fn finish(self: anytype, ticket: core.Ticket) !void {
     }
 }
 
+/// Advance the attachment and run its storage work, counting each read,
+/// lookup, and committed write. Any other write outcome is `CommitFailed`.
+pub fn service(self: anytype) !void {
+    var slot: [1]Worker.Slot = undefined;
+    var worker: Worker = .init(&slot);
+    try self.attachment.advance();
+    while (try worker.next(self.attachment, false)) |work| {
+        try Worker.run(work, self.db);
+        try worker.complete(work, self.attachment);
+        switch (work.request) {
+            .read => self.reads += 1,
+            .lookup => self.lookups += 1,
+            .write => if (work.result.?.write == .committed) {
+                self.writes += 1;
+            } else return error.CommitFailed,
+            .recover => {},
+        }
+        try worker.release(work);
+    }
+}
+
 pub fn drain(self: anytype) !void {
     for (0..4096) |_| {
         _ = try self.host.vat.driveIngressBudgeted(.local, 128);
-        try self.attachment.advance();
-        while (try self.attachment.nextWork()) |work| switch (work) {
-            .lookup => |request| try self.attachment.completeLookup(request.ticket, self.db.lookup(request)),
-            .read => |request| {
-                self.reads += 1;
-                try self.attachment.completeRead(request.ticket, self.db.read(request));
-            },
-            .write => |batch| {
-                const outcome = self.db.commit(batch);
-                try self.attachment.completeWrite(batch.ticket, outcome);
-                if (outcome != .committed) return error.CommitFailed;
-                self.writes += 1;
-            },
-        };
+        try service(self);
         if (!self.attachment.hasPendingWork()) {
             _ = try self.host.vat.driveIngressBudgeted(.local, 128);
             return;

@@ -27,9 +27,7 @@ use tokio::io::unix::AsyncFd;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::{Notify, oneshot};
 
-use crate::abi_constants::{
-	BINDING_READINESS_DRAIN_CAP, DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS, IROH_NODE_ID_BYTES,
-};
+use crate::abi_constants::{BINDING_READINESS_DRAIN_CAP, IROH_NODE_ID_BYTES};
 use crate::sys::iroh as ffi;
 use crate::{Error, HintValue, HintWireForm, Host, Locator, Result, Session, sys};
 
@@ -139,7 +137,6 @@ pub struct ListenOptions {
 /// release owner.
 pub struct Netlayer {
 	raw: Arc<NetlayerRaw>,
-	reachability: Reachability,
 }
 
 // Shuts a freshly-started loop down if the `connect_owned` future is dropped
@@ -238,7 +235,6 @@ impl Netlayer {
 		})?;
 		Ok(Netlayer {
 			raw: Arc::new(NetlayerRaw::new(raw)),
-			reachability: config.reachability,
 		})
 	}
 
@@ -324,23 +320,10 @@ impl Netlayer {
 			iloop: Arc::clone(&iloop),
 			armed: true,
 		};
-		// A posture that resolves by id through a propagating discovery service
-		// (`Discovery` and `DiscoveryNoRelay`) can fail a dial-by-id with "no
-		// addressing information" until the exporter's pkarr record propagates
-		// (seconds, variable), so retry the dial on a bounded budget; every other
-		// posture dials once (Direct's addresses are in hand, LocalDiscovery
-		// resolves instantly). Mirrors the TS `dialResolving` and the Zig
-		// `iroh-reachability` driver.
-		let conn = dial_resolving(
-			&iloop,
-			node_id,
-			direct_addresses,
-			matches!(
-				self.reachability,
-				Reachability::Discovery | Reachability::DiscoveryNoRelay
-			),
-		)
-		.await?;
+		// One transport attempt. A dial staged through the driver loop retries
+		// transient faults on the runtime's `GLOWCAP_DISCOVERY_DIAL_*` budget
+		// (ADR-0193); a raw transport dial reports its first fault.
+		let conn = iloop.dial(node_id, direct_addresses).await?;
 		// Dial succeeded: ownership of the loop moves into the returned stream,
 		// whose `Drop` owns the shutdown, so disarm the cancel guard.
 		guard.armed = false;
@@ -433,25 +416,6 @@ pub fn connector(config: Config) -> crate::Result<crate::Connector> {
 			})
 		},
 	)
-}
-
-// Discovery-posture dial retry (ADR-0082): lockstep with `GLOWCAP_DISCOVERY_DIAL_*`.
-// Only transient dial faults (projected as `ERR_IO`) are retried; permanent
-// faults (`InvalidArgument`, `Internal`, …) surface immediately.
-async fn dial_resolving(iloop: &Arc<IrohLoop>, node_id: &str, hints: &str, retry: bool) -> Result<usize> {
-	let mut attempt: u32 = 1;
-	loop {
-		match iloop.dial(node_id, hints).await {
-			Ok(conn) => return Ok(conn),
-			Err(e) => {
-				if e.kind() != crate::ErrorKind::Io || !retry || attempt >= DISCOVERY_DIAL_MAX_ATTEMPTS as u32 {
-					return Err(e);
-				}
-			}
-		}
-		attempt += 1;
-		tokio::time::sleep(std::time::Duration::from_millis(DISCOVERY_DIAL_RETRY_MS as u64)).await;
-	}
 }
 
 mod reactor;

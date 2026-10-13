@@ -41,7 +41,7 @@ at each declaration, and this inventory names Host runtime and custody costs.
   aliases the settle capture instead of re-cloning, which is why `Reply` is
   arena-only and carries no `deinit`.**
 - **Settle capture**: one `model.cloneArgument` or broken-reason dupe per
-  blocking wait (`BlockingSession.call`, `driver.Promise.settle`, `SettleCapture`).
+  blocking wait (`driver.Session.call`, `driver.Promise.settle`, `SettleCapture`).
   Severs the turn-borrowed resolution so the returned `Settled` outlives the
   drive. `fetch` and `enliven` stay allocation-free.
 - **Unobserved vow completion**: `queueVowCompletion` materializes one owned

@@ -156,15 +156,16 @@ pub const websocket = @import("websocket.zig");
 /// because that path sits outside its module directory (ADR-0040).
 pub const stream_shim = @import("stream_shim.zig");
 
-/// The netlayer contract the driver dials and hosts against, as its own named
-/// namespace: `net.netlayer.Netlayer` is a transport behind a runtime vtable, a
-/// `[]const Netlayer` is the set a host speaks, and `net.netlayer.resolve`
-/// dispatches a transport symbol against that slice. `net.netlayer.Listener` is
-/// the listener a netlayer yields. Providers compose related realizations into
-/// the slice. `net.tcp.Provider`, for example, owns plain, keyed, and sealed TCP.
-/// Adding a profile changes its provider, not the driver or bindings. The OCapN
-/// concept itself, the locator and its `transport` symbol,
-/// lives in `model`. This is only its I/O realization.
+/// The per-connection stream contract every stream resident realizes, as its
+/// own named namespace: `net.netlayer.Netlayer` is a transport behind a
+/// runtime vtable, and `net.netlayer.resolve` dispatches a transport symbol
+/// against a `[]const Netlayer`. `net.netlayer.Listener` is the listener a
+/// netlayer yields. Providers compose related realizations into one slice.
+/// `net.tcp.Provider`, for example, owns plain, keyed, and sealed TCP.
+/// `driver.HostRuntime` realizes stream symbols through `StreamStack`
+/// instead (ADR-0193). `netlayer.zig` names who stands on this contract. The
+/// OCapN concept itself, the locator and its `transport` symbol, lives in
+/// `model`. This is only its I/O realization.
 pub const netlayer = @import("netlayer.zig");
 pub const OperationOptions = netlayer.OperationOptions;
 

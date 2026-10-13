@@ -171,7 +171,7 @@ impl HostShared {
 		// sample the setting at mint rather than letting a later toggle rewrite
 		// an already-admitted outcome's ownership contract.
 		let gc_host = gc_session
-			.filter(|session| session.host.release_on_drop.get())
+			.filter(|session| session.host.release_on_drop())
 			.map(|session| Rc::downgrade(&session.host));
 		self.insert_vow(vow, gc_host);
 	}

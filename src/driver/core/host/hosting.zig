@@ -1,4 +1,4 @@
-//! Value-shaped hosted behavior adaptation for the owning Host tier.
+//! Value-shaped hosted behavior adaptation for the Host.
 //!
 //! This owner is the one boundary between an actor turn's wire-shaped values
 //! and application-facing opaque Host capabilities. It owns no actor, session,
@@ -20,7 +20,7 @@ const HostSession = host_mod.HostSession;
 const Served = served_mod.Served;
 
 /// One delivery into a Value-shaped hosted behavior (see `Hosting`): the
-/// behavior's window onto the owning tier. It carries the composed Host, the
+/// behavior's window onto the Host. It carries the composed Host, the
 /// ingress session, and the underlying actor turn, so a handler can mint new
 /// opaque capabilities without touching wire positions.
 pub const HostTurn = struct {
@@ -147,7 +147,7 @@ pub const HostTurn = struct {
 /// returned reply is lowered through the same session's Port. Both walks use
 /// the turn arena, whose lifetime is the borrowed reply's contract. The owning
 /// `Session.spawn` / `Session.publish` and Host-wide `publish` wrap every
-/// behavior in this adapter. The base Vat and the borrowing tier keep the
+/// behavior in this adapter. The base Vat and the serve core keep the
 /// wire-shaped contract.
 pub fn Hosting(comptime B: type) type {
     return struct {

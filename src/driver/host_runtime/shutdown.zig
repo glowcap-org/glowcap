@@ -2,6 +2,7 @@
 
 const std = @import("std");
 
+const model = @import("model");
 const net = @import("net");
 const driver_core = @import("driver_core");
 
@@ -283,6 +284,11 @@ fn deinitImpl(self: *HostRuntime, cancel_core: bool) void {
             if (Internal.releaseCoreSession(self, row.session)) |failure| Internal.noteTerminalFailureChain(self, failure);
         },
         .handshake => {},
+        // A retrying dial has no wire and no attempt to cancel, but its
+        // session still needs the same release the wire loop gives the rest.
+        .retry_wait => {
+            if (Internal.releaseCoreSession(self, row.session)) |failure| Internal.noteTerminalFailureChain(self, failure);
+        },
     };
     var wires = self.wires.valueIterator();
     while (wires.next()) |wire_slot| {
@@ -309,6 +315,7 @@ fn deinitImpl(self: *HostRuntime, cancel_core: bool) void {
             .listener_accept => |observation| observation.observer.release(observation.observer.ctx, observation.tag),
             .redeem => {},
         }
+        if (row.dial_locator) |locator| model.freePeerLocator(self.allocator, locator);
         row.admission.release();
         self.allocator.destroy(row);
     }

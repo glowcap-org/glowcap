@@ -308,7 +308,7 @@ pub fn breakFarVows(port: *Port, message: []const u8) void {
 /// Bind an already-spawned local actor to export `position` so a partner's
 /// deliveries to that position run the actor (dispatched by `serve`). Requires
 /// a session `Port`. This is the numeric-position primitive. The by-name publish
-/// verb one layer up (`Served.publish`, `BlockingSession.publish`) rides on
+/// verb one layer up (`Served.publish`, `driver.Session.publish`) rides on
 /// it. Binding *reserves* the position, it does not grant it: the partner
 /// can address the actor only once its reference first marshals onto the
 /// wire, or after an explicit `peer.exportObject` grant (ADR-0074). Only a

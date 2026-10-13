@@ -517,9 +517,9 @@ pub fn drive(self: *Vat) Error!void {
 /// that would starve every other connection the loop serves. `driveBudgeted`
 /// gives the loop host a bound to act on: it drives each inbound batch to
 /// `.drained` and treats `.more_pending` as a runaway amplification, closing
-/// that connection. The connection-per-thread
-/// `BlockingSession` keeps the unbounded `drive` by contract: it serves one
-/// partner, so a self-send chain there starves only itself.
+/// that connection. The byte-fed `Served` drive keeps the unbounded `drive`
+/// by contract: its embedder owns the loop and serves one partner, so a
+/// self-send chain there starves only itself.
 ///
 /// Call this at the top level (the loop host's per-connection drive point),
 /// not re-entrantly: a nested full `drive` a listener opens runs to

@@ -1,4 +1,4 @@
-//! One-call construction of an owning Session and its private HostRuntime.
+//! One-call construction of a Session and its private HostRuntime.
 
 const std = @import("std");
 
@@ -44,7 +44,7 @@ fn finishConnect(shared: *SharedRuntime, locator: model.PeerLocator) !*Session {
 }
 
 /// Parse an `ocapn://` URI, then dial it through `connect`.
-pub fn connectUriOwned(
+pub fn connectUri(
     allocator: std.mem.Allocator,
     io: std.Io,
     transports: host_runtime.HostRuntime.Transports,

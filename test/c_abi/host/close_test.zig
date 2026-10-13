@@ -137,6 +137,7 @@ test "byte-fed host close initiation succeeds under allocator pressure" {
         c.GLOWCAP_CAPTP_V1_0,
         c.GLOWCAP_FEATURE_FULL,
         0,
+        1,
         &host,
     ));
 
@@ -449,6 +450,7 @@ test "take_outbound wraps an already queued frame without allocating" {
         c.GLOWCAP_CAPTP_V1_0,
         c.GLOWCAP_FEATURE_FULL,
         0,
+        1,
         &host,
     ));
     try ensureAdvertisedLocator(host, "tcp");

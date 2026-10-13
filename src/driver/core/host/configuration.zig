@@ -74,6 +74,14 @@ pub const Options = struct {
     /// is not the Host scheduler quantum. `null` turns the cap off, which is
     /// safe only when every partner is trusted.
     local_turn_budget: ?usize = served.default_loop_local_turn_budget,
+    /// Host-wide release-on-drop setting (ADR-0192): whether a far capability
+    /// a binding projects to its application releases its Host retain when
+    /// the language's scope end for that value is observed. The core stores
+    /// and reports it through `Host.releaseOnDrop` and
+    /// `Host.setReleaseOnDrop` and attaches no behavior to it. A binding whose
+    /// release rides a finalizer passes false and keeps its per-session
+    /// opt-in.
+    release_on_drop: bool = true,
     /// Host-wide resumable work quantum. Every quantum round-robins dirty
     /// sessions, Node effects, and handoff notifications, requeueing
     /// continuation work at the FIFO tail, and a `resume_work` action carries
@@ -108,6 +116,20 @@ pub const Options = struct {
             std.math.mul(usize, self.limits.max_frame_bytes, 2) catch std.math.maxInt(usize);
     }
 };
+
+/// The Host-wide release-on-drop setting (ADR-0192), read by the binding that
+/// projects a far capability.
+pub fn releaseOnDrop(self: *const Host) bool {
+    return self.opts.release_on_drop;
+}
+
+/// Change the release-on-drop setting for values projected after this call.
+/// Admitted like every other configuration mutation: on the owning thread,
+/// outside a callback, before close.
+pub fn setReleaseOnDrop(self: *Host, enabled: bool) error{ ReenteredHost, WrongThread, HostClosing }!void {
+    try admission.admitConfigurationMutation(self);
+    self.opts.release_on_drop = enabled;
+}
 
 /// Override selective session limits before minting peers (ADR-0124). `null`
 /// leaves that field unchanged. Already-open sessions keep the limits they

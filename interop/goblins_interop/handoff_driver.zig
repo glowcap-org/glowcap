@@ -1,5 +1,5 @@
 //! Live three-party handoff, with glowcap as the recipient (Carol), on one
-//! owning `driver.Session` (ADR-0068).
+//! `driver.Session` (ADR-0068).
 //!
 //! glowcap dials a Goblins introducer (Alice), fetches the introducer, and
 //! calls `get-greeter`. A three-party introduction hands the

@@ -239,6 +239,16 @@ succeeds. A Busy teardown leaves pending callbacks and storage completions
 alive. The attachment cannot run or close the Host. Ordinary actor state uses
 the same record and reference mechanisms as managed access state.
 
+`hosting.Worker` carries an attachment's storage work through slots the
+application allocates. `next` takes a request into a free slot, `run` executes
+it against the backend, `complete` installs the result, and `release` frees the
+slot. Only `run` may execute on another thread, and the owner joins it before
+`complete`. `drive` repeats all four on the calling thread until the
+attachment has no work. When the attachment's own write is uncertain, the next
+request is its recovery batch. Recovery waits until no other slot is active,
+and ordinary work waits for recovery, so an attachment uses one worker at a
+time. The worker starts no thread and owns no backend.
+
 Persistent actor descriptors identify behavior type/version and state edges.
 Dormant entries retain identity, publication eligibility, and live reference
 custody without retaining behavior payloads. Eventual calls enqueue through the

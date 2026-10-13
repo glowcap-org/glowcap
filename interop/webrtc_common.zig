@@ -379,8 +379,8 @@ pub fn serveUntil(
     try pump.flushOutbound(resident, peer, session, timeout_ms);
 }
 
-pub fn strArg(a: model.Argument) ?[]const u8 {
-    return switch (a) {
+pub fn strArg(value: driver.Value) ?[]const u8 {
+    return switch (value) {
         .string => |s| s,
         else => null,
     };
@@ -395,21 +395,21 @@ pub const SignalingInbox = struct {
     peer: *webrtc.Peer,
     response_buf: [signaling_frame_bytes]u8 = undefined,
 
-    pub fn handle(self: *SignalingInbox, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *SignalingInbox, turn: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
         _ = turn;
-        if (std.mem.eql(u8, msg.verb, "offer")) {
-            if (msg.args.len != 1) return error.BadSignalingCall;
-            const sdp = strArg(msg.args[0]) orelse return error.BadSignalingCall;
+        if (std.mem.eql(u8, verb, "offer")) {
+            if (args.len != 1) return error.BadSignalingCall;
+            const sdp = strArg(args[0]) orelse return error.BadSignalingCall;
             try self.peer.setRemoteOffer(sdp);
             var len: usize = 0;
             return .{ .string = try self.peer.createAnswer(&self.response_buf, &len) };
         }
-        if (std.mem.eql(u8, msg.verb, "candidate")) {
-            if (msg.args.len != 1) return error.BadSignalingCall;
-            try self.peer.addRemoteCandidate(strArg(msg.args[0]) orelse return error.BadSignalingCall);
+        if (std.mem.eql(u8, verb, "candidate")) {
+            if (args.len != 1) return error.BadSignalingCall;
+            try self.peer.addRemoteCandidate(strArg(args[0]) orelse return error.BadSignalingCall);
             return .{ .string = "" };
         }
-        if (std.mem.eql(u8, msg.verb, "poll")) {
+        if (std.mem.eql(u8, verb, "poll")) {
             var len: usize = 0;
             if (try self.peer.nextLocalCandidate(&self.response_buf, &len)) |ice| return .{ .string = ice };
             return .{ .string = "" };
@@ -421,7 +421,7 @@ pub const SignalingInbox = struct {
 /// Bring the offerer's DataChannel up through the exporter's signaling inbox over
 /// CapTP: send the offer, set the answer, then trickle local candidates with
 /// `candidate` and pull the exporter's with `poll` until the channel opens.
-pub fn bringUpViaCapTP(sig: *driver.BlockingSession, inbox: actors.Ref, resident: *webrtc.Resident, offerer: *webrtc.Peer, allocator: std.mem.Allocator) !void {
+pub fn bringUpViaCapTP(sig: *driver.Session, inbox: driver.Capability, resident: *webrtc.Resident, offerer: *webrtc.Peer, allocator: std.mem.Allocator) !void {
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -430,25 +430,25 @@ pub fn bringUpViaCapTP(sig: *driver.BlockingSession, inbox: actors.Ref, resident
     var len: usize = 0;
 
     const offer_sdp = try offerer.createOffer(&signal_buf, &len);
-    const answered = try sig.call(inbox, .{ .verb = "offer", .args = &.{.{ .string = offer_sdp }} }, arena);
+    const answered = try sig.call(inbox, "offer", &.{.{ .string = offer_sdp }}, arena);
     switch (answered) {
-        .fulfilled => |arg| try offerer.setRemoteAnswer(strArg(arg) orelse return error.NoAnswer),
-        .broken, .give => return error.OfferBroke,
+        .fulfilled => |value| try offerer.setRemoteAnswer(strArg(value) orelse return error.NoAnswer),
+        .broken => return error.OfferBroke,
     }
 
     var rounds: usize = 0;
     while (rounds < 400) : (rounds += 1) {
         _ = arena_state.reset(.retain_capacity);
         while (try offerer.nextLocalCandidate(&signal_buf, &len)) |ice| {
-            _ = try sig.call(inbox, .{ .verb = "candidate", .args = &.{.{ .string = ice }} }, arena);
+            _ = try sig.call(inbox, "candidate", &.{.{ .string = ice }}, arena);
         }
-        const polled = try sig.call(inbox, .{ .verb = "poll", .args = &.{} }, arena);
+        const polled = try sig.call(inbox, "poll", &.{}, arena);
         switch (polled) {
-            .fulfilled => |arg| {
-                const ice = strArg(arg) orelse "";
+            .fulfilled => |value| {
+                const ice = strArg(value) orelse "";
                 if (ice.len > 0) try offerer.addRemoteCandidate(ice);
             },
-            .broken, .give => return error.PollBroke,
+            .broken => return error.PollBroke,
         }
         if (try pollOpen(resident, offerer, 50)) return;
     }

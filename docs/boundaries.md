@@ -29,9 +29,9 @@ tested. The [roadmap](roadmap.md) lists future work.
 - **`inproc` is a test transport.** Its unbounded pipes block the reading
   thread, so it is not a production or load-test substitute.
 - **`onion` has no scale evidence.** Live checks need `tor` and network access,
-  so they run apart from `zig build check`. Native Zig `Session` and `Server`
-  reach Tor at TCP addresses only. A Unix-socket SOCKS or control endpoint
-  needs a binding or the blocking resident.
+  so they run apart from `zig build check`. Zig `Session` and `Server` reach
+  Tor at TCP addresses only. A Unix-socket SOCKS or control endpoint needs a
+  binding, whose provider archive accepts socket paths.
 - **Over onion, glowcap offers more than `1.0` only to a peer it knows is
   glowcap.** That means a peer that handed out the glowcap-hinted address, or
   one whose hello stated a preference. Pinned Goblins refuses a hinted onion
@@ -73,8 +73,6 @@ tested. The [roadmap](roadmap.md) lists future work.
     automatically. Rust and Racket expose the resolver pair.
   - A worker thread posts its result to `driver.SettleMailbox`, which wakes the
     owning thread. Only plain data crosses threads, never a capability.
-- **`BlockingSession` serves one connection on one fiber.** Use `Session` or
-  `Server` for a partner that streams while waiting for you to drain output.
 - **`driver.HostRuntime` does not report which Linux backend it selected.** A
   completion loop reports io_uring or epoll, with the reason, through
   `net.tcpBackendStatus`.

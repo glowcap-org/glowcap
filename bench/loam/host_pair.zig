@@ -1,6 +1,7 @@
 //! Byte-fed Host sessions expose protocol cost without socket latency.
 const std = @import("std");
 const g = @import("glowcap");
+const executor = @import("executor.zig");
 const m = @import("managed.zig");
 const driver = g.driver.core;
 
@@ -54,8 +55,8 @@ pub const Pair = struct {
             try self.host.flushSession(self.session);
             try self.witness.flushSession(self.accepted);
             const moved = try self.shuttle();
-            try service(workload);
-            if (other) |target| try service(target);
+            try executor.service(workload);
+            if (other) |target| try executor.service(target);
             try actions(self.host);
             try actions(self.witness);
             const after_actions = try self.shuttle();
@@ -81,24 +82,4 @@ fn actions(host: *driver.Host) !void {
             .dial, .cancel_dial, .need_gift_id, .settled, .failed => return error.UnexpectedHostAction,
         }
     }
-}
-
-fn service(workload: anytype) !void {
-    try workload.attachment.advance();
-    while (try workload.attachment.nextWork()) |work| switch (work) {
-        .read => |read| {
-            workload.reads += 1;
-            try workload.attachment.completeRead(read.ticket, workload.db.read(read));
-        },
-        .lookup => |lookup| {
-            workload.lookups += 1;
-            try workload.attachment.completeLookup(lookup.ticket, workload.db.lookup(lookup));
-        },
-        .write => |batch| {
-            const outcome = workload.db.commit(batch);
-            try workload.attachment.completeWrite(batch.ticket, outcome);
-            if (outcome != .committed) return error.CommitFailed;
-            workload.writes += 1;
-        },
-    };
 }

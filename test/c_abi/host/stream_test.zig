@@ -327,7 +327,7 @@ test "libglowcap_host: feed_bytes refuses an over-cap frame with the typed FRAME
     // first frame trips the cap-during-scan verdict.
     var tiny: ?*cd.GlowcapHost = null;
     const tiny_seed = hostSeed(0x91);
-    try expectOk(cd.glowcap_host_new(&tiny_seed, tiny_seed.len, 64, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, &tiny));
+    try expectOk(cd.glowcap_host_new(&tiny_seed, tiny_seed.len, 64, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, 1, &tiny));
     defer _ = cd.glowcap_host_release(tiny);
     const dialer = try newHost(0x92);
     defer _ = cd.glowcap_host_release(dialer);

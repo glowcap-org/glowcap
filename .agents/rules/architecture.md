@@ -60,7 +60,7 @@ that authenticated the end-to-end channel may report a proved peer; a hello's
 session key proves continuity, never durable identity.
 
 - Production: `noise-tcp` and `noise-relay` (Noise_XK proves the durable key,
-  ADR-0107; `BlockingSession` refuses `noise-tcp`), `iroh` (QUIC node id),
+  ADR-0107), `iroh` (QUIC node id),
   `webrtc` (signaling-authorized identity), and `onion`.
 - `onion` is the one symbol the draft standardizes and Goblins ships. Wire
   onion locators stay bare (ADR-0108, ADR-0118).
@@ -104,9 +104,9 @@ directly rather than widening a root.
 - `net`: the one place `std.Io` enters; stream folding and residents.
 - `driver/core` (`driver_core`): the sans-io serve core and byte-fed `Host`.
   `host.zig`'s alias table indexes the verbs split across `host/` siblings.
-- `driver`: the native surface above the core (`BlockingSession`,
-  `HostRuntime` with its `Session`/`Server` views, `Bridge`), entropy, and
-  transport constructors. It adds no CapTP semantics.
+- `driver`: the native surface above the core (`HostRuntime` with its
+  `Session`/`Server` views), entropy, and the `connect`/`listen` openers.
+  It adds no CapTP semantics.
 - `c_abi/`: composable archives that share types by layout, not symbols
   (ADR-0055, ADR-0059). Signatures reflect from Zig; header prose lives in
   `tools/gen/header/*.zig`.
@@ -136,7 +136,6 @@ directly rather than widening a root.
 | `Host` / `GlowcapHost` / binding `Host` | multi-session CapTP product; owns `engine.Node` |
 | `engine.Node` | sans-io handoff router |
 | binding `Session` / `driver.Session` | one-partner view onto a Host session (ADR-0090) |
-| `driver.BlockingSession` | no-router single-connection tier; the only tier for a transport with no pollable descriptor |
 | Goblins `mycapn` | product maps to Host; router tables map to `engine.Node` |
 
 There is no binding `Node` or `Connection`, no `driver.Connection`, and no

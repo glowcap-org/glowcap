@@ -392,6 +392,7 @@ pub fn newByteFedHost(seed_byte: u8) !?*cd.GlowcapHost {
         c.GLOWCAP_CAPTP_V1_0,
         c.GLOWCAP_FEATURE_FULL,
         0,
+        1,
         &host,
     ));
     return host;

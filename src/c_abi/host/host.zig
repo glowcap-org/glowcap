@@ -1,11 +1,11 @@
 //! Host lifecycle and the host-wide surfaces for `libglowcap_host`: create /
 //! release, the pure dial / accept planners, the embedder action queue
-//! (`glowcap_host_next_action` and the DIAL / gift-id completions), the
-//! Host publish, GC release, and the archive's own last-error
-//! slot. The advertised-locator verbs live in `locators.zig`, the per-session
-//! verbs in `session.zig`, the turn-time verbs in `turn.zig`, and the
-//! convenience drain in `pump.zig`. The module root (`mod.zig`) owns the
-//! public C types these exports fill.
+//! (`glowcap_host_next_action` and the DIAL / gift-id completions), GC
+//! release, and the archive's own last-error slot. The host-wide publish
+//! verbs live in `publications.zig`, the advertised-locator verbs in
+//! `locators.zig`, the per-session verbs in `session.zig`, the turn-time verbs
+//! in `turn.zig`, and the convenience drain in `pump.zig`. The module root
+//! (`mod.zig`) owns the public C types these exports fill.
 
 const std = @import("std");
 
@@ -17,7 +17,6 @@ const capability_ids = @import("capability_ids.zig");
 const host_actions = @import("actions.zig");
 const host_lifecycle = @import("lifecycle.zig");
 const host_plan = @import("plan.zig");
-const host_publications = @import("publications.zig");
 const host_trace = @import("trace.zig");
 const driver_core = @import("driver_core");
 
@@ -53,6 +52,7 @@ pub fn hostNewIn(
     captp_version: u32,
     features: u32,
     local_turn_budget: u32,
+    release_on_drop: u32,
     out_host: ?*?*GlowcapHost,
 ) i32 {
     const slot = out_host orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -100,6 +100,7 @@ pub fn hostNewIn(
         c.GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED => null,
         else => local_turn_budget,
     };
+    opts.release_on_drop = release_on_drop != 0;
     opts.capability_id_issuer = capability_ids.issuer(seed_nn[0..crypto.SEED_BYTES].*);
     const core = Host.init(
         alloc,
@@ -133,8 +134,9 @@ pub fn hostNewIn(
 /// local-turn amplification per session (ADR-0076):
 /// `GLOWCAP_LOCAL_TURN_BUDGET_DEFAULT` applies the Zig Host's finite default,
 /// `GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED` turns the cap off, and any other
-/// value is the cap. Released with
-/// `glowcap_host_release`.
+/// value is the cap. `release_on_drop` is the Host-wide setting a binding
+/// reads when it projects a far capability (ADR-0192); the Host stores it and
+/// attaches no behavior. Released with `glowcap_host_release`.
 pub fn glowcap_host_new(
     seed: ?[*]const u8,
     seed_len: usize,
@@ -144,10 +146,11 @@ pub fn glowcap_host_new(
     captp_version: u32,
     features: u32,
     local_turn_budget: u32,
+    release_on_drop: u32,
     out_host: ?*?*GlowcapHost,
 ) callconv(.c) i32 {
     shared.lastErrorClear();
-    return hostNewIn(shared.library_allocator, 0, seed, seed_len, frame_cap, verify_partner, codec, captp_version, features, local_turn_budget, out_host);
+    return hostNewIn(shared.library_allocator, 0, seed, seed_len, frame_cap, verify_partner, codec, captp_version, features, local_turn_budget, release_on_drop, out_host);
 }
 
 /// `glowcap_host_new` allocating every byte the host owns through `context`'s
@@ -162,6 +165,7 @@ pub fn glowcap_host_new_in(
     captp_version: u32,
     features: u32,
     local_turn_budget: u32,
+    release_on_drop: u32,
     out_host: ?*?*GlowcapHost,
 ) callconv(.c) i32 {
     shared.lastErrorClear();
@@ -170,7 +174,26 @@ pub fn glowcap_host_new_in(
         shared.setLastError("host: Context lifecycle identity space exhausted", .{});
         return GLOWCAP_ERR_INTERNAL;
     };
-    return hostNewIn(ctx.allocator(), diagnostic_id, seed, seed_len, frame_cap, verify_partner, codec, captp_version, features, local_turn_budget, out_host);
+    return hostNewIn(ctx.allocator(), diagnostic_id, seed, seed_len, frame_cap, verify_partner, codec, captp_version, features, local_turn_budget, release_on_drop, out_host);
+}
+
+/// Read the Host-wide release-on-drop setting (ADR-0192) into `*out_enabled`
+/// as 0 or 1.
+pub fn glowcap_host_release_on_drop(host: ?*GlowcapHost, out_enabled: ?*u32) callconv(.c) i32 {
+    shared.lastErrorClear();
+    const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;
+    const slot = out_enabled orelse return GLOWCAP_ERR_NULL_POINTER;
+    slot.* = @intFromBool(inst.core.releaseOnDrop());
+    return GLOWCAP_OK;
+}
+
+/// Set the Host-wide release-on-drop setting (ADR-0192) for capabilities the
+/// Host projects after this call: nonzero turns it on.
+pub fn glowcap_host_set_release_on_drop(host: ?*GlowcapHost, enabled: u32) callconv(.c) i32 {
+    shared.lastErrorClear();
+    const inst = instanceFrom(host) orelse return GLOWCAP_ERR_NULL_POINTER;
+    inst.core.setReleaseOnDrop(enabled != 0) catch |err| return errToCode(err);
+    return GLOWCAP_OK;
 }
 
 /// Return this Host's stable identity in its owning Context's diagnostic
@@ -497,110 +520,6 @@ pub fn glowcap_host_provide_gift_id(host: ?*GlowcapHost, ticket: u64, gift_id: ?
 pub fn glowcap_host_gift_id_failed(host: ?*GlowcapHost, ticket: u64) callconv(.c) i32 {
     shared.lastErrorClear();
     return host_actions.giftIdFailed(host, ticket);
-}
-
-// ── Host-wide publish ────────────────────────────────────────────────────────
-
-/// Publish one hosted object in the Vat owned by this Host and bind `name` as its host-wide
-/// alias. Fetch lazily projects the actor onto the requesting Port. A deposited
-/// gift retains the exact actor and never consults the alias at withdrawal. The
-/// publication row owns `ctx`:
-/// `free`, if non-null, runs exactly once: at `glowcap_host_release` on
-/// success, or before this returns on any non-OK outcome (except the
-/// null-pointer and reentry refusals, which touch nothing and leave ctx the
-/// caller's). All-or-nothing over this call's own work: registration failure
-/// discards the fresh actor and frees `ctx`, so a retry starts with no partial
-/// alias or projection.
-pub fn glowcap_host_publish(
-    host: ?*GlowcapHost,
-    name: ?[*]const u8,
-    name_len: usize,
-    behavior: ?c.GlowcapHostBehavior,
-    ctx: ?*anyopaque,
-    free: ?c.GlowcapHostCtxFree,
-) callconv(.c) i32 {
-    shared.lastErrorClear();
-    return host_publications.publish(host, name, name_len, behavior, ctx, free);
-}
-
-/// Publish one hosted object under a freshly minted durable swiss name
-/// (ADR-0098): the reserved-prefix namespace, unpredictable, never
-/// reassigned, removable only through `glowcap_host_remove_durable`, and
-/// structurally disjoint from every mutable alias. `entropy` supplies
-/// exactly GLOWCAP_HOST_DURABLE_ENTROPY_LEN caller-drawn random bytes: the
-/// embedder owns the entropy boundary, as it does for gift ids. The minted
-/// swiss (the name to place in a sturdyref beside this host's own locator)
-/// is written into `out_swiss`. `swiss_cap` must be at least
-/// GLOWCAP_HOST_DURABLE_SWISS_LEN or the call refuses BUFFER_TOO_SMALL and
-/// publishes nothing. Returns the written length. `ctx`/`free` follow
-/// `glowcap_host_publish`'s ownership exactly.
-pub fn glowcap_host_publish_durable(
-    host: ?*GlowcapHost,
-    entropy: ?[*]const u8,
-    entropy_len: usize,
-    behavior: ?c.GlowcapHostBehavior,
-    ctx: ?*anyopaque,
-    free: ?c.GlowcapHostCtxFree,
-    out_swiss: ?[*]u8,
-    swiss_cap: usize,
-) callconv(.c) i32 {
-    shared.lastErrorClear();
-    return host_publications.publishDurable(
-        host,
-        entropy,
-        entropy_len,
-        behavior,
-        ctx,
-        free,
-        out_swiss,
-        swiss_cap,
-    );
-}
-
-/// Publish an already-held local capability under a durable name. The
-/// publication retains its own root. The caller's reference stays owned by
-/// the caller on success and failure. Entropy and output use the same bounds
-/// as glowcap_host_publish_durable. Foreign capabilities are refused.
-pub fn glowcap_host_publish_reference(
-    host: ?*GlowcapHost,
-    reference: ?*const shared.GlowcapReference,
-    entropy: ?[*]const u8,
-    entropy_len: usize,
-    out_swiss: ?[*]u8,
-    swiss_cap: usize,
-) callconv(.c) i32 {
-    shared.lastErrorClear();
-    return host_publications.publishReference(host, reference, entropy, entropy_len, out_swiss, swiss_cap);
-}
-
-/// Remove a minted durable publication (ADR-0098): the sturdyref misses
-/// afterward, while capabilities already issued and deposited gifts keep
-/// the exact actor. A swiss outside the reserved durable namespace returns
-/// GLOWCAP_ERR_INVALID_ARGUMENT (mutable aliases leave through
-/// `glowcap_host_unpublish`). An unknown durable name returns
-/// GLOWCAP_ERR_NOT_FOUND.
-pub fn glowcap_host_remove_durable(
-    host: ?*GlowcapHost,
-    swiss: ?[*]const u8,
-    swiss_len: usize,
-) callconv(.c) i32 {
-    shared.lastErrorClear();
-    return host_publications.removeDurable(host, swiss, swiss_len);
-}
-
-/// Remove the host-wide alias `name`. Discovery-only, alias-only (ADR-0096): a
-/// later fetch of the name misses on every session, while capabilities already
-/// issued, live Port projections, and deposited gifts keep naming the exact
-/// actor, which stays in the Host's Vat until `glowcap_host_release`. An
-/// absent alias returns GLOWCAP_ERR_NOT_FOUND, so a typo is loud instead of an
-/// idempotent no-op.
-pub fn glowcap_host_unpublish(
-    host: ?*GlowcapHost,
-    name: ?[*]const u8,
-    name_len: usize,
-) callconv(.c) i32 {
-    shared.lastErrorClear();
-    return host_publications.unpublish(host, name, name_len);
 }
 
 // ── GC and diagnostics ───────────────────────────────────────────────────────

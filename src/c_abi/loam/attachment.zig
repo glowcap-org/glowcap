@@ -20,14 +20,14 @@ pub const Attachment = struct {
     value: *common.hosting.Attachment,
     entropy: c.GlowcapLoamEntropyFn,
     context: ?*anyopaque,
-    works: usize = 0,
     /// Foreign continuation and result observers independently borrow Host,
     /// Store and callback registrations after the originating operation retires.
     effect_observers: usize = 0,
-    recovery_work: bool = false,
+    worker: common.hosting.Worker,
+    /// One C handle per worker slot, at the same index.
     work_slots: []@import("work.zig").Work,
     live_scope: ?*common.hosting.LiveScope = null,
-    /// Startup reserves declaration/behavior arrays and cache_slots + 1 Work
+    /// Startup reserves declaration/behavior arrays and cache_slots + 1 worker
     /// slots. Their independent admission limit bounds executor custody.
     /// The pool refuses pressure rather than allocating handles in a turn.
     /// Both inventories survive suspended calls and are freed only after detach.
@@ -66,13 +66,15 @@ pub const Attachment = struct {
         owner.content_behaviors = content_behaviors;
         owner.entropy = entropy;
         owner.context = ctx;
-        owner.works = 0;
         owner.effect_observers = 0;
-        owner.recovery_work = false;
         owner.live_scope = null;
-        const work_slots = try gpa.alloc(@import("work.zig").Work, try std.math.add(usize, store.limits.cache_slots, 1));
+        const slot_count = try std.math.add(usize, store.limits.cache_slots, 1);
+        const worker_slots = try gpa.alloc(common.hosting.Worker.Slot, slot_count);
+        errdefer gpa.free(worker_slots);
+        const work_slots = try gpa.alloc(@import("work.zig").Work, slot_count);
         errdefer gpa.free(work_slots);
-        for (work_slots) |*slot| slot.* = .{ .owner = owner };
+        owner.worker = .init(worker_slots);
+        for (work_slots, worker_slots) |*work, *slot| work.* = .{ .owner = owner, .slot = slot };
         owner.work_slots = work_slots;
         owner.caps = try access.storage.Capabilities.init(gpa, &store.value, .{ .max_references = store.limits.max_references, .max_operations = store.limits.max_operations });
         errdefer owner.caps.deinit() catch unreachable;
@@ -86,13 +88,14 @@ pub const Attachment = struct {
     }
     pub fn destroy(self: *Attachment) !void {
         const gpa = self.store.allocator;
-        if (self.works != 0 or self.effect_observers != 0) return error.Busy;
+        if (self.worker.active != 0 or self.effect_observers != 0) return error.Busy;
         try self.value.destroy();
         if (self.live_scope) |scope| {
             scope.deinit() catch unreachable;
             gpa.destroy(scope);
         }
         gpa.free(self.work_slots);
+        gpa.free(self.worker.slots);
         self.caps.deinit() catch unreachable;
         for (self.contents) |*item| item.deinit();
         gpa.free(self.contents);

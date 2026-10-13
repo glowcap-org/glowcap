@@ -35,7 +35,7 @@ pub const MakeConnCtx = *const fn (ctx: ?*anyopaque, peer: *engine.Peer, slot: u
 /// has already auto-answered a bootstrap fetch. The hook receives the
 /// per-connection context from `MakeConnCtx`, the caller-owned peer, and the
 /// borrowed event. If the hook enqueues a reply on `peer`, the same loop step
-/// flushes it after the event is drained, matching `driver.BlockingSession.step`.
+/// flushes it after the event is drained, matching `driver.Session.step`.
 /// An error closes that one connection. It never tears down the loop.
 pub const Serve = *const fn (conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *engine.Event) anyerror!void;
 

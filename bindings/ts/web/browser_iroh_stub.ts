@@ -11,9 +11,10 @@ import { IROH_RELAY_DIAL_ALLOWANCE_MS } from "./relay_budget.ts";
 
 // The relay accepts this socket first and dials the far endpoint only after, so
 // from the browser's side that dial and the handshake are one serial wait on
-// one channel. An iroh dial-by-id under a discovery posture spends ADR-0082's
-// retry budget before a single byte moves, so the caller's handshake bound is
-// widened by that budget here. Otherwise a dial that is still working reads as
+// one channel. A relay that stages its iroh dial through the driver loop spends
+// the runtime's `GLOWCAP_DISCOVERY_DIAL_*` retry budget (ADR-0193) before a
+// single byte moves, so the caller's handshake bound is widened by that budget
+// here. Otherwise a dial that is still working reads as
 // a silent partner.
 const NATIVE_ONLY =
 	"glowcap web: iroh is a native-only transport; a browser needs init({ relayUrl }) naming a byte relay to dial it";

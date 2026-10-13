@@ -12,7 +12,7 @@ pub const Promise = client.Promise;
 pub const SessionOptions = client.SessionOptions;
 pub const Session = client.Session;
 pub const connect = client.connect;
-pub const connectUriOwned = client.connectUriOwned;
+pub const connectUri = client.connectUri;
 
 pub const Server = server.Server;
 pub const listen = server.listen;

@@ -219,8 +219,8 @@ pub const HelloHints = struct {
         // so quietly dropping the preference weakens the session with
         // nothing reported anywhere. So the refusals below are returned
         // rather than asserted. The list is caller-supplied and this verb
-        // is reachable from outside the engine, through
-        // `driver.BlockingSession.startKeyedSessionWithSecret`, so an
+        // is reachable from outside the engine, through the driver's
+        // handshake, so an
         // assertion would hold only in a safe build: `perf-check` and
         // `release-pack` compile it out. The overflow and allocation paths
         // are reported, as is a second profile claim in one hello.

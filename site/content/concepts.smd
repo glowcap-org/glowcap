@@ -123,8 +123,7 @@ The handoff runs in four stages:
 
 In glowcap you never handle the gift bytes. When a call's answer is an
 introduction, glowcap redeems it for you, and the call you were already
-waiting on settles as the introduced capability. Only the low-level
-`BlockingSession` hands you the gift instead. In the Rooms chat, the
+waiting on settles as the introduced capability. In the Rooms chat, the
 **Message** button is this kind of introduction: the room hands you a live
 reference to the other member.
 

@@ -254,11 +254,11 @@ test "libglowcap_host: Context assigns distinct stable Host diagnostic identitie
 
     var first: ?*cd.GlowcapHost = null;
     const first_seed = hostSeed(0x08);
-    try expectOk(cd.glowcap_host_new_in(context, &first_seed, first_seed.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, &first));
+    try expectOk(cd.glowcap_host_new_in(context, &first_seed, first_seed.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, 1, &first));
     defer _ = cd.glowcap_host_release(first);
     var second: ?*cd.GlowcapHost = null;
     const second_seed = hostSeed(0x09);
-    try expectOk(cd.glowcap_host_new_in(context, &second_seed, second_seed.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, &second));
+    try expectOk(cd.glowcap_host_new_in(context, &second_seed, second_seed.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, 1, &second));
     defer _ = cd.glowcap_host_release(second);
 
     var first_id: u64 = 0;
@@ -278,7 +278,7 @@ test "libglowcap_host: keyed-tcp accept signs the published locator, or its own 
     const seed_a = hostSeed(0x5c);
     const designator_a = crypto.SecretKey.fromSeed(seed_a[0..32].*).publicKey().toDesignator();
     var host_a: ?*cd.GlowcapHost = null;
-    try expectOk(cd.glowcap_host_new(&seed_a, seed_a.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, &host_a));
+    try expectOk(cd.glowcap_host_new(&seed_a, seed_a.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, 1, &host_a));
     defer _ = cd.glowcap_host_release(host_a);
     var accepted_a: ?*cd.GlowcapHostSession = null;
     try expectOk(openAcceptedKeyed(host_a, "keyed-tcp", &designator_a, "127.0.0.1:9000", &accepted_a));
@@ -297,7 +297,7 @@ test "libglowcap_host: keyed-tcp accept signs the published locator, or its own 
     const designator_b = crypto.SecretKey.fromSeed(seed_b[0..32].*).publicKey().toDesignator();
     const published_hint = "127.0.0.1:9010";
     var host_b: ?*cd.GlowcapHost = null;
-    try expectOk(cd.glowcap_host_new(&seed_b, seed_b.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, &host_b));
+    try expectOk(cd.glowcap_host_new(&seed_b, seed_b.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, 1, &host_b));
     defer _ = cd.glowcap_host_release(host_b);
     var hint_entries: [1]model.HintEntry = undefined;
     try setAdvertisedLocator(host_b, .{
@@ -332,12 +332,12 @@ test "libglowcap_host: a 64-byte seed gives every session its own signing key" {
     var refused: ?*cd.GlowcapHost = null;
     try std.testing.expectEqual(
         c.GLOWCAP_ERR_INVALID_ARGUMENT,
-        cd.glowcap_host_new(&durable, durable.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, &refused),
+        cd.glowcap_host_new(&durable, durable.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, 1, &refused),
     );
     try std.testing.expect(refused == null);
 
     var host: ?*cd.GlowcapHost = null;
-    try expectOk(cd.glowcap_host_new(&seed_with_root, seed_with_root.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, &host));
+    try expectOk(cd.glowcap_host_new(&seed_with_root, seed_with_root.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, 1, &host));
     defer _ = cd.glowcap_host_release(host);
     try setAdvertisedLocator(host, tcpLocator("127.0.0.1:7401"));
 
@@ -378,10 +378,10 @@ test "libglowcap_host: one PartnerIdentity reports session key, durable name, an
 
     var client: ?*cd.GlowcapHost = null;
     const client_seed = hostSeed(0x6c);
-    try expectOk(cd.glowcap_host_new(&client_seed, client_seed.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, &client));
+    try expectOk(cd.glowcap_host_new(&client_seed, client_seed.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, 1, &client));
     defer _ = cd.glowcap_host_release(client);
     var server: ?*cd.GlowcapHost = null;
-    try expectOk(cd.glowcap_host_new(&server_seed, server_seed.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, &server));
+    try expectOk(cd.glowcap_host_new(&server_seed, server_seed.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, 1, &server));
     defer _ = cd.glowcap_host_release(server);
 
     try ensureAdvertisedLocator(client, "keyed-tcp");

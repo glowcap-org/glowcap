@@ -7,7 +7,7 @@ decision: "The Rust binding releases a far capability's Host retain when its las
 supersedes: []
 superseded_by: []
 amends: [ADR-0063]
-amended_by: []
+amended_by: [ADR-0193]
 ---
 
 # ADR-0192 Rust releases on drop by default

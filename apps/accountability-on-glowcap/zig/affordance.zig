@@ -19,8 +19,6 @@ const kel_mod = @import("kel.zig");
 const said = @import("said.zig");
 const accountable = @import("accountable.zig");
 
-const model = glowcap.ocapn.model;
-const actors = glowcap.actors;
 const driver = glowcap.driver;
 
 const enc = std.base64.url_safe_no_pad.Encoder;
@@ -68,13 +66,6 @@ pub fn attestation(
     request: []const u8,
 ) std.mem.Allocator.Error![]u8 {
     return std.fmt.allocPrint(allocator, "invoke|{s}|{s}", .{ subject, request });
-}
-
-pub fn strArg(a: model.Argument) ?[]const u8 {
-    return switch (a) {
-        .string => |s| s,
-        else => null,
-    };
 }
 
 /// The signed part of an `invoke`, encoded once from a signing key and a
@@ -154,33 +145,18 @@ pub const State = struct {
     }
 };
 
-/// Borrowing-tier adapter used by `BlockingSession` and the standalone host.
-pub const Affordance = struct {
-    state: State,
-
-    pub fn handle(self: *Affordance, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        if (!std.mem.eql(u8, msg.verb, invoke_verb)) return error.NoSuchMethod;
-        if (msg.args.len != 5) return error.BadInvocation;
-        return .{ .string = try self.state.invoke(
-            turn.arena,
-            strArg(msg.args[0]) orelse return error.BadInvocation,
-            strArg(msg.args[1]) orelse return error.BadInvocation,
-            strArg(msg.args[2]) orelse return error.BadInvocation,
-            strArg(msg.args[3]) orelse return error.BadInvocation,
-            strArg(msg.args[4]) orelse return error.BadInvocation,
-        ) };
-    }
-};
-
-fn valueString(value: driver.Value) ?[]const u8 {
+/// The text a wire value carries, or null when it is not a string: the one
+/// argument reader the host and the caller share.
+pub fn valueString(value: driver.Value) ?[]const u8 {
     return switch (value) {
         .string => |text| text,
         else => null,
     };
 }
 
-/// Owning Host adapter used when one runtime serves several sessions and can
-/// therefore return a foreign-homed capability as an ordinary introduction.
+/// The published actor: one `invoke` per turn, accounted on the store it is
+/// bound to. A host serving several sessions can return a foreign-homed
+/// capability through it as an ordinary introduction.
 pub const HostAffordance = struct {
     state: State,
 

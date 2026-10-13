@@ -149,7 +149,7 @@ pub(crate) fn disarm(reference: &Ref) {
 /// Each native occurrence owns one Host retain, so repeated equal ids remain
 /// distinct guards rather than being deduplicated in the binding.
 pub(crate) fn track_argument(shared: &Rc<SessionShared>, argument: &mut Argument) {
-	if !shared.host.release_on_drop.get() {
+	if !shared.host.release_on_drop() {
 		return;
 	}
 	track_owned_argument(&shared.host, argument);

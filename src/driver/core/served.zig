@@ -1,8 +1,8 @@
 //! The sans-io session serve core (`Served`): an `actors.Port` over a borrowed
 //! `engine.Peer`, the serve loop, and the byte-fed drive. It is socket-free: the
-//! `driver_core` layer's I/O ban keeps it that way. `BlockingSession` (in the
-//! `driver` layer) composes one of these with a `net.Connection` for the
-//! blocking socket path (ADR-0072). The callback types keep `anyerror` return
+//! `driver_core` layer's I/O ban keeps it that way. The byte-fed `Host` holds
+//! one per session, and `driver.HostRuntime` (in the `driver` layer) feeds
+//! those from its wires (ADR-0072). The callback types keep `anyerror` return
 //! sets: their implementors are application code unknown at these
 //! declarations.
 
@@ -52,16 +52,17 @@ pub const ServeOptions = struct {
 
 /// The finite local-turn amplification cap every Host applies by default, so
 /// one amplifying partner cannot monopolize the Vat its sessions share. A bare
-/// `Served` (the one-connection `BlockingSession`) stays unbounded: a
-/// self-send chain there starves only its own partner.
+/// `Served` on the byte-fed drive stays unbounded: its embedder owns the loop
+/// and serves one partner, so a self-send chain there starves only that
+/// partner.
 pub const default_loop_local_turn_budget: usize = 4096;
 
 /// The sans-io serve core: an `actors.Port` over one borrowed `engine.Peer`,
 /// with the serve loop and the byte-fed drive. The peer is caller-owned (stable
 /// address) and is borrowed here. It reads no
 /// socket: a caller feeds inbound frames with `feedBorrowed` and drains outbound
-/// with `takeOutbound`, owning its own loop (ADR-0072). `BlockingSession` composes
-/// one of these with a `net.Connection` for the blocking socket path.
+/// with `takeOutbound`, owning its own loop (ADR-0072). The byte-fed `Host`
+/// holds one per session.
 pub const Served = struct {
     port: actors.Port,
     serve_options: ServeOptions = .{},
@@ -70,7 +71,8 @@ pub const Served = struct {
     /// `drivePostBatch`, so one inbound message that amplifies past the budget
     /// surfaces `error.LocalTurnLimitExceeded` instead of stalling the loop
     /// that serves every other connection. Null (the default) drives
-    /// unbounded, the blocking one-connection-per-thread posture.
+    /// unbounded, the posture of a byte-fed drive whose embedder serves one
+    /// partner.
     local_turn_budget: ?usize = null,
     /// Turns consumed in the current resumable local-work epoch. `null` means
     /// no local work is currently being resumed. A finite Host scheduler may
@@ -260,15 +262,13 @@ pub const Served = struct {
         }
     }
 
-    /// The loop drivers' post-batch policy in one spelling: drive one inbound
-    /// batch's queued local turns within `budget` (a high-fan-out loop's
-    /// per-connection amplification cap), and treat `.more_pending` as the
-    /// runaway error a loop closes that one connection on, since a single message
-    /// that amplifies past its budget must not stall or grow in memory. The
-    /// Scale paths ride this through `Host` + `Bridge` (TCP `net.TcpLoop`,
-    /// iroh `completion.Loop(iroh.Backend, iroh.DialResolver)`). The blocking
-    /// one-connection-per-thread path drives unbounded through `drainEvents`
-    /// instead.
+    /// The post-batch policy in one spelling: drive one inbound batch's
+    /// queued local turns within `budget` (a high-fan-out Host's per-session
+    /// amplification cap), and treat `.more_pending` as the runaway error the
+    /// Host condemns that one session on, since a single message that
+    /// amplifies past its budget must not stall or grow in memory.
+    /// `drainEvents` applies it with the configured `local_turn_budget`, or
+    /// unbounded when none is set.
     pub fn drivePostBatch(self: *Served, vat: *actors.Vat, budget: usize) !void {
         switch (try vat.driveIngressBudgeted(self.port.ingress, budget)) {
             .drained => {},
@@ -400,9 +400,8 @@ pub const Served = struct {
     /// Enqueue the bootstrap `fetch` for `name` and return the promise of the
     /// partner's answer: eventual-send `fetch(name)` to the permanently
     /// addressable bootstrap export. This is the one definition of the
-    /// bootstrap-fetch deliver shape. `BlockingSession.fetch` drives the returned
-    /// promise to settlement. The byte-fed `Host`'s fetch rides the same
-    /// deliver with a host vow instead of a blocking wait.
+    /// bootstrap-fetch deliver shape. The byte-fed `Host`'s fetch rides it
+    /// with a host vow, and `driver.Session.fetch` waits on that vow.
     pub fn sendBootstrapFetch(self: *Served, vat: *actors.Vat, name: []const u8) !actors.Vow {
         return self.port.send(
             vat,

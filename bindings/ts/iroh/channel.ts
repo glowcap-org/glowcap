@@ -1,11 +1,10 @@
 /** Runtime-owned readiness and byte-channel projection for iroh. */
 
 import { Socket } from "node:net";
-import { type Channel, GlowcapError, Reachability } from "@glowcap/runtime";
+import { type Channel, GlowcapError } from "@glowcap/runtime";
 import {
 	CLOSED,
 	ffi,
-	IO,
 	IROH_EV_ACCEPT,
 	IROH_EV_CLOSED,
 	IROH_EV_CONNECT,
@@ -15,12 +14,7 @@ import {
 	type Symbols,
 	WOULD_BLOCK,
 } from "@glowcap/runtime/ffi";
-import {
-	BINDING_IROH_READ_CHUNK_BYTES,
-	BINDING_READINESS_DRAIN_CAP,
-	DISCOVERY_DIAL_MAX_ATTEMPTS,
-	DISCOVERY_DIAL_RETRY_MS,
-} from "@glowcap/abi";
+import { BINDING_IROH_READ_CHUNK_BYTES, BINDING_READINESS_DRAIN_CAP } from "@glowcap/abi";
 import { IrohConnection, IrohNetlayer } from "./native.ts";
 
 const READ_CHUNK = BINDING_IROH_READ_CHUNK_BYTES;
@@ -399,43 +393,4 @@ function join(chunks: Uint8Array[]): Uint8Array {
 		off += c.length;
 	}
 	return grown;
-}
-
-// iroh discovery resolves a peer by node id alone, but the exporter's pkarr
-// record takes seconds to propagate after it binds, so a dial-by-id can fail with
-// "no addressing information" until it lands. Every posture that resolves by id
-// through a propagating service (`Discovery` (n0 relays + DNS/pkarr) and
-// `DiscoveryNoRelay` (DNS/pkarr, no relay) therefore retries on the
-// `GLOWCAP_DISCOVERY_DIAL_*` budget (ADR-0082). `Direct` and `LocalDiscovery`
-// dial once. Only transient dial faults (projected as IO) are retried.
-/** Whether a posture resolves the partner by id through a propagating discovery
- * service, so a dial-by-id should settle/retry while the record lands. */
-function settlesWhileResolving(reachability: Reachability): boolean {
-	return (
-		reachability === Reachability.Discovery ||
-		reachability === Reachability.DiscoveryNoRelay
-	);
-}
-
-/** Dial, retrying only under a propagating-discovery posture while it resolves. */
-export async function dialResolving(
-	loop: IrohLoop,
-	nodeId: string,
-	directAddresses: string,
-	reachability: Reachability,
-): Promise<IrohConnection> {
-	if (!settlesWhileResolving(reachability)) {
-		return loop.dial(nodeId, directAddresses);
-	}
-	for (let attempt = 1;; attempt += 1) {
-		try {
-			return await loop.dial(nodeId, directAddresses);
-		} catch (e) {
-			// ADR-0082: only transient dial faults (iroh projects them as IO).
-			// InvalidAddress / ConnectionRefused / OOM map to non-IO codes.
-			if (!(e instanceof GlowcapError) || e.code !== IO) throw e;
-			if (attempt >= DISCOVERY_DIAL_MAX_ATTEMPTS) throw e;
-			await new Promise<void>((r) => setTimeout(r, DISCOVERY_DIAL_RETRY_MS));
-		}
-	}
 }

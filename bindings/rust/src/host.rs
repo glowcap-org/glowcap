@@ -145,10 +145,6 @@ pub(crate) struct HostShared {
 	// what breaks the Rc cycle between host and session state. `action::run`
 	// reads it for FLUSH / CLOSE.
 	pub(crate) sessions: RefCell<HashMap<usize, Rc<SessionShared>>>,
-	/// Distributed GC (ADR-0063): whether a far capability this Host projects
-	/// to the application releases its Host retain when the last `Ref` clone
-	/// drops. On by default, because `Drop` is deterministic.
-	pub(crate) release_on_drop: Cell<bool>,
 	// Host-owned async tasks whose futures may still hold native Session state.
 	// Cancellation is only a request; the count falls from each future's RAII
 	// registration when its complete state has been dropped.
@@ -205,6 +201,18 @@ pub(crate) struct HostShared {
 }
 
 impl HostShared {
+	/// Whether far capabilities this Host projects release their Host retain
+	/// when the last `Ref` clone drops: the Host archive's setting (ADR-0192),
+	/// sampled by the operation that exposes the value.
+	pub(crate) fn release_on_drop(&self) -> bool {
+		let mut enabled: u32 = 0;
+		// SAFETY: `self.raw()` is this `HostShared`'s handle from `glowcap_host_new_in`, which the callee refuses as a
+		// null host once teardown has cleared it; `enabled` is a local out-parameter the callee writes.
+		let rc = unsafe { ffi::glowcap_host_release_on_drop(self.raw(), &mut enabled) };
+		// The one refusal is a cleared handle, and a Host past teardown projects nothing left to release.
+		check_host(rc).is_ok() && enabled != 0
+	}
+
 	fn new(
 		seed: [u8; 32],
 		codec: Codec,
@@ -260,6 +268,7 @@ impl HostShared {
 				captp_version.to_c(),
 				features.to_c(),
 				local_turn_budget,
+				1,
 				&mut raw,
 			)
 		})?;
@@ -292,7 +301,6 @@ impl HostShared {
 			close_barrier: Cell::new(CloseBarrierState::Idle),
 			close_failure: RefCell::new(None),
 			sessions: RefCell::new(HashMap::new()),
-			release_on_drop: Cell::new(true),
 			owned_tasks: Cell::new(0),
 			release_notify: Notify::new(),
 			activity: Notify::new(),
@@ -350,7 +358,6 @@ impl HostShared {
 			close_barrier: Cell::new(CloseBarrierState::Idle),
 			close_failure: RefCell::new(None),
 			sessions: RefCell::new(HashMap::new()),
-			release_on_drop: Cell::new(true),
 			owned_tasks: Cell::new(0),
 			release_notify: Notify::new(),
 			activity: Notify::new(),

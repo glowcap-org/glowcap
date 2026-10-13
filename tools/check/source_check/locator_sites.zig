@@ -18,12 +18,7 @@ pub const zig_demo_locator = [_]struct { path: []const u8, required: []const u8,
         .banned = &.{ "lastIndexOfScalar(u8, bound, ':')", "127.0.0.1:{d}" },
     },
     .{
-        .path = "test/driver/blocking_session/loopback_test.zig",
-        .required = "tcp.locatorFromAddress(",
-        .banned = &.{ "bufPrint(&designator_buf, \"{f}\"", "127.0.0.1:{d}" },
-    },
-    .{
-        .path = "test/driver/pluggability_test.zig",
+        .path = "test/driver/session_loopback_test.zig",
         .required = "tcp.locatorFromAddress(",
         .banned = &.{ "bufPrint(&designator_buf, \"{f}\"", "127.0.0.1:{d}" },
     },

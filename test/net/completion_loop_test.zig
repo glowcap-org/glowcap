@@ -312,7 +312,7 @@ const LoopVat = struct {
         self.vat = actors.Vat.init(allocator.*);
         self.port = actors.Port.init(allocator.*, peer);
         // Spawn the actor and publish it at the bootstrap swissnum the client
-        // fetches, as `driver.BlockingSession.publish` does, here on the loop.
+        // fetches, as `driver.Session.publish` does, here on the loop.
         const greeter = try self.vat.spawn(Greeter, .{});
         const position = try peer.registerBootstrapCap("thermostat");
         try self.port.bindExport(&self.vat, greeter, position);

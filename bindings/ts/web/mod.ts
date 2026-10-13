@@ -299,7 +299,7 @@ function browserConnectors(
 				[runtimeApi.TRANSPORT_IROH],
 				viaRelay(
 					(locator) => locator.designator,
-					// The relay may spend the native discovery retry budget before
+					// The relay may spend the runtime's dial retry budget before
 					// forwarding the first handshake byte to this browser.
 					IROH_RELAY_DIAL_ALLOWANCE_MS,
 				),

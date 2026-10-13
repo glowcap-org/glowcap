@@ -50,8 +50,29 @@ pub const FakeResident = struct {
     connecting: std.AutoHashMapUnmanaged(usize, i32) = .{},
     throttle: bool = false,
     fail_remote_key: bool = false,
+    /// When set, every `try_read` delivers these bytes in place of the
+    /// socket's and then ends the stream as `after` says, so a settle-path
+    /// fault is pinned by exact bytes rather than timing. The socket's own
+    /// bytes stay unread, which keeps the descriptor readable.
+    scripted_inbound: ?ScriptedInbound = null,
+    /// Fail this many `finishConnect` calls with `error.NetworkUnreachable`,
+    /// then connect: a transient dial fault for the retry seam.
+    fail_dial_transient: u32 = 0,
+    /// Fail every `finishConnect` with `error.ConnectionRefused`: a permanent
+    /// dial fault the retry policy must never re-issue.
+    fail_dial_permanent: bool = false,
+    /// Fail the `startConnect` call with this 1-based number using
+    /// `error.NetworkUnreachable`, so a re-issued dial can fault at start.
+    fail_start_on_call: u32 = 0,
+    start_calls: u32 = 0,
     write_calls: usize = 0,
     write_blocks: usize = 0,
+
+    pub const ScriptedInbound = struct {
+        bytes: []const u8,
+        after: enum { end_of_stream, fault },
+        offset: usize = 0,
+    };
 
     const Conn = struct { fd: i32, want_write: bool = false };
     /// Epoll user-data tag telling a connect-in-flight row from a live conn.
@@ -163,6 +184,8 @@ pub const FakeResident = struct {
         _: net.netlayer.OperationOptions,
     ) net.netlayer.DialError!void {
         const self = of(ctx);
+        self.start_calls += 1;
+        if (self.fail_start_on_call == self.start_calls) return error.NetworkUnreachable;
         const colon = std.mem.lastIndexOfScalar(u8, locator.designator, ':') orelse return error.InvalidAddress;
         const port = std.fmt.parseInt(u16, locator.designator[colon + 1 ..], 10) catch return error.InvalidAddress;
         var octets: [4]u8 = undefined;
@@ -195,6 +218,15 @@ pub const FakeResident = struct {
         const self = of(ctx);
         const row = self.connecting.fetchRemove(request_id) orelse return error.ConnectionLost;
         const fd = row.value;
+        if (self.fail_dial_permanent) {
+            _ = linux.close(fd);
+            return error.ConnectionRefused;
+        }
+        if (self.fail_dial_transient > 0) {
+            self.fail_dial_transient -= 1;
+            _ = linux.close(fd);
+            return error.NetworkUnreachable;
+        }
         var so_error: i32 = 0;
         var opt_len: linux.socklen_t = @sizeOf(i32);
         const rc = linux.getsockopt(fd, linux.SOL.SOCKET, linux.SO.ERROR, @ptrCast(&so_error), &opt_len);
@@ -240,6 +272,17 @@ pub const FakeResident = struct {
     fn tryRead(ctx: *anyopaque, conn_id: usize, buf: []u8) isize {
         const self = of(ctx);
         const conn = self.conns.get(conn_id) orelse return -1;
+        if (self.scripted_inbound) |*script| {
+            const remaining = script.bytes[script.offset..];
+            if (remaining.len == 0) return switch (script.after) {
+                .end_of_stream => 0,
+                .fault => -1,
+            };
+            const n = @min(buf.len, remaining.len);
+            @memcpy(buf[0..n], remaining[0..n]);
+            script.offset += n;
+            return @intCast(n);
+        }
         const rc = linux.read(conn.fd, buf.ptr, buf.len);
         return switch (linux.errno(rc)) {
             .SUCCESS => @intCast(rc),

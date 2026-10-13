@@ -1,14 +1,19 @@
 ---
 id: ADR-0053
-status: accepted
+status: superseded
 date: 2026-06-11
 tags: [net, driver, runtime, resilience]
 decision: "The blocking pump stays a single fiber by contract: its workload is cooperative request/response, where each side drains the replies it asked for. The read/write fiber split is refused, not pending (a second fiber over a single-threaded peer means a lock (a hidden runtime), and a bounded nonblocking write inside the pump means an fd-readiness dependency that breaks the type-erased transport contract and duplicates ADR-0042. Concurrent streaming and non-draining partners ride a completion loop) `net.TcpLoop` at the byte tier, or `completion.Loop(iroh.Backend, iroh.DialResolver)` over the sidecar (ADR-0057), both feeding `driver.Bridge` + Host (ADR-0076)."
 supersedes: []
-superseded_by: []
+superseded_by: [ADR-0193]
 ---
 
 # ADR-0053 The blocking pump stays one fiber. The loop is the duplex surface
+
+> Superseded by [ADR-0193](ADR-0193-one-io-runtime.md): the blocking pump
+> and `driver.BlockingSession` are deleted. Every Zig session runs on
+> `driver.HostRuntime`'s completion loop, the duplex surface this ADR
+> reserved for the loop.
 
 ## Context
 

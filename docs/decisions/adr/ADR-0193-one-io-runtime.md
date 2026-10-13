@@ -4,9 +4,9 @@ status: accepted
 date: 2026-10-04
 tags: [driver, runtime, performance, bindings, memory]
 decision: "Every front that runs I/O for a Host (driver.Session and Server, the C driver, and every binding) runs HostRuntime, and HostRuntime moves stream wires onto the completion loop's pooled buffers. Bridge becomes HostRuntime's internal loop adapter, and BlockingSession is replaced by a one-wire Host on the same runtime."
-supersedes: []
+supersedes: [ADR-0053]
 superseded_by: []
-amends: []
+amends: [ADR-0062, ADR-0082, ADR-0192]
 amended_by: [ADR-0202]
 ---
 
@@ -92,8 +92,9 @@ users run.
    redeem the same way as on every other front. A transport with no pollable
    descriptor joins through the resident contract, as iroh does today.
 4. **Policy gets one home on the runtime.**
-   - Dial retry runs in HostRuntime, through `driver.DialRetry`, and reaches
-     the bindings through the C driver. Bindings stop carrying their own loops.
+   - Dial retry runs in HostRuntime under its `driver.DialPolicy` option, and
+     reaches the bindings through the C driver. Bindings stop carrying their
+     own loops.
    - A stock Zig Loam worker sits beside HostRuntime with the contract of
      `c_abi/loam/work.zig`, and the C worker is built on it.
    - The release-on-drop setting is a Host option in Zig and C, which the
@@ -132,7 +133,9 @@ users run.
 ## Evidence and gate
 
 - The 500,000-session scale run through `HostRuntime`, at no more memory per
-  session than the `Bridge` run.
+  session than the `Bridge` run. Met on 2026-10-13: 3,804,768 KiB of
+  incremental server RSS against the `Bridge` run's 3,974,548 KiB on the
+  same machine class, recorded in `docs/ladder.md`.
 - `bench-peer-scaling` shows zero buffer bytes per idle stream wire.
 - `zig build check runtime-check check-external` and every binding check
   green on the shared runtime.

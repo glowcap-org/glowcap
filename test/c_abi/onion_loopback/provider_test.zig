@@ -407,6 +407,7 @@ test "c-abi driver lease owns onion provider through listener withdrawal" {
         c.GLOWCAP_CAPTP_V1_0,
         c.GLOWCAP_FEATURE_FULL,
         0,
+        1,
         &host,
     ));
     errdefer _ = cd.glowcap_host_release(host);

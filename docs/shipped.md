@@ -149,6 +149,8 @@ transactions over an in-memory backend or LMDB.
 - **Sleepy actors** keep their state in a record, load when a message arrives, and reply only after their change
   commits. Saved fields can hold references to other actors, attachments, and remote objects
   ([references](loam/references.md)).
+- **Storage work** runs on your threads. `hosting.Worker` carries an attachment's reads and commits to the backend,
+  and the C work handles are its slots ([API](loam/api.md#host-attachment-and-sleepy-actors)).
 - **Durable names** let peers fetch an actor after a restart. Only the fetched actor wakes
   ([publications](loam/publications.md)).
 - **Collection** removes unreachable records in bounded batches while the program runs

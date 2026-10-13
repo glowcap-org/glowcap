@@ -338,8 +338,12 @@ fn providerFinishConnect(
         .failure => |err| {
             _ = attempt.owner.tasks.reap(&attempt.operation);
             // std names the connect timeout `Timeout`; the shared table keys on
-            // the netlayer's `TimedOut`, so classify first.
-            return c.transport_provider.failProvider(out_failure, c.dialFailureCode(net.tcp.classifyConnect(err)), err);
+            // the netlayer's `TimedOut`, so classify first. The report names
+            // the classification, which the driver reads back onto the retry
+            // axis, and the std cause rides in the last-error text.
+            const classified = net.tcp.classifyConnect(err);
+            setLastError("connect: {s}: {s}", .{ @errorName(classified), @errorName(err) });
+            return c.transport_provider.failProvider(out_failure, c.dialFailureCode(classified), classified);
         },
         .pending => unreachable,
         .connection => |connection| {

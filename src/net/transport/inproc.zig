@@ -4,11 +4,12 @@
 //! A `Network` is a switchboard. A listener binds to a designator, a dialer
 //! names that designator, and the two are wired by a pair of in-process byte
 //! pipes, one per direction, exposed as the same `*std.Io.Reader` /
-//! `*std.Io.Writer` pair every other resident produces. The driver dials and
-//! hosts it through the identical `connectVia` / `acceptVia` path, with the same
-//! verified keyed handshake, and nothing in the driver or core knows which
-//! transport it got. That is what the netlayer contract (`../netlayer.zig`)
-//! buys: a resident with no sockets in it satisfies the contract unchanged.
+//! `*std.Io.Writer` pair every other resident produces. A resident with no
+//! sockets in it satisfies the netlayer contract (`../netlayer.zig`)
+//! unchanged. The runtime's `driver.connect` and `driver.listen` reach an
+//! in-process partner through the completion-loop sibling,
+//! `inproc_completion`, with the same verified keyed handshake every other
+//! transport runs.
 //!
 //! This transport is for in-process testing and mocking: a full OCapN
 //! conversation between two peers in one program, with no kernel transport and no
@@ -84,8 +85,8 @@ pub const ArrivalNotifier = struct {
 
 /// The in-process network: the shared state behind one or more `inproc` netlayer
 /// residents. Listeners register by designator. Dialers resolve against it. One
-/// network per test (or per process region). Pass `network.netlayer()` into the
-/// `[]const net.netlayer.Netlayer` transport slice beside tcp. The network must
+/// network per test (or per process region). `network.netlayer()` is the
+/// network as a stream netlayer, the shape `test/net` drives. The network must
 /// outlive every connection and listener it mints.
 pub const Network = struct {
     allocator: std.mem.Allocator,
@@ -102,7 +103,7 @@ pub const Network = struct {
         self.listeners.deinit(self.allocator);
     }
 
-    /// This network as a `net.netlayer.Netlayer` for the transport slice.
+    /// This network as a `net.netlayer.Netlayer`.
     pub fn netlayer(self: *Network) Netlayer {
         return .{ .ctx = self, .vtable = &netlayer_vtable };
     }

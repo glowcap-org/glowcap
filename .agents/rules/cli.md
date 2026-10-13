@@ -28,7 +28,10 @@ zig build check-external       # outside protocol authority and shipped browser 
   Colored output defeats text greps (a plain `grep error` can miss an
   ANSI-wrapped error), so redirect to a file and trust only the command's own
   exit code.
-- Iterate on the narrowest step. `-Dtest-filter=<name>` also skips
+- Iterate on the narrowest step. Lease time and tokens are the budget every
+  gate spends: the gate is the narrowest step that covers the changed
+  boundary, and a combined gate for a one-file change is waste, not
+  diligence. `-Dtest-filter=<name>` also skips
   analysis: code reached only by unmatched tests is never compiled, so a
   filtered green says nothing about their callers. It accepts one literal
   substring, not a comma-separated list; no matching tests is no evidence.

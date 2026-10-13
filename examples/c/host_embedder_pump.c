@@ -139,7 +139,7 @@ static GlowcapHost *new_host(uint8_t fill, size_t frame_cap) {
     memset(seed + 32, fill ^ 0xa5, 32);
     GlowcapHost *host = NULL;
     if (glowcap_host_new(seed, sizeof seed, frame_cap, 1, GLOWCAP_CODEC_SYRUP,
-                         GLOWCAP_CAPTP_V1_0, GLOWCAP_FEATURE_FULL, 0, &host) != GLOWCAP_OK) {
+                         GLOWCAP_CAPTP_V1_0, GLOWCAP_FEATURE_FULL, 0, 1, &host) != GLOWCAP_OK) {
         return NULL;
     }
     return host;

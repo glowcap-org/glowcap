@@ -354,7 +354,7 @@ test "runtime close preserves an exposed session until explicit release" {
     try runtime.releaseWire(session);
 }
 
-test "blocking session cancel returns after immediate transport teardown" {
+test "session cancel returns after immediate transport teardown" {
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();

@@ -53,7 +53,7 @@
 
 (define-host glowcap_host_archive_fingerprint (_fun -> _uint64))
 (define-host glowcap_host_new_in*
-  (_fun _pointer _pointer _size _size _uint32 _uint32 _uint32 _uint32 _uint32 _pointer -> _int32)
+  (_fun _pointer _pointer _size _size _uint32 _uint32 _uint32 _uint32 _uint32 _uint32 _pointer -> _int32)
   #:c-id glowcap_host_new_in)
 (define glowcap_host_new_in (wrap-out1 glowcap_host_new_in* _pointer #f))
 (define-host glowcap_host_diagnostic_id*

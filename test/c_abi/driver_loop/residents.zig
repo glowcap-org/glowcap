@@ -81,6 +81,9 @@ pub const InvalidMultiplexedResident = struct {
     connect_io: bool = false,
     finish_connect_success_report: bool = false,
     finish_connect_failure_output: bool = false,
+    /// Fail every `finishConnect` with the I/O status and the `DialError`
+    /// member name `ConnectionRefused`, the way the tcp provider reports one.
+    finish_connect_refused: bool = false,
     conn_close_failure: bool = false,
     conn_close_calls: usize = 0,
     cancel_connect_failure: bool = false,
@@ -188,6 +191,8 @@ pub const InvalidMultiplexedResident = struct {
         if (!self.connect_io or self.pending_request != request)
             return providerFailure(out_failure, c.GLOWCAP_ERR_INVALID_ARGUMENT, "InvalidTestDialClaim");
         self.pending_request = null;
+        if (self.finish_connect_refused)
+            return providerFailure(out_failure, c.GLOWCAP_ERR_IO, "ConnectionRefused");
         if (self.finish_connect_failure_output) {
             out_conn.?.* = 7;
             return providerFailure(out_failure, c.GLOWCAP_ERR_IO, "ContradictoryConnectRefusal");

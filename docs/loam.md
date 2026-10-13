@@ -76,7 +76,7 @@ and lets the owner pause, resume, or revoke that access later. The
 | revision | The store's commit counter. Each change names the revision it replaces. |
 | lease | A short-lived borrow of one record version from the cache. |
 | batch | The writes one transaction commits, handed to your worker as one unit. |
-| worker | Your code that runs reads and batches against the backend. |
+| worker | Runs reads and batches against the backend. `hosting.Worker` tracks each request until its result is installed, and your code picks the thread. |
 | backend | The storage engine: `Lmdb`, IndexedDB in the browser, or the in-memory `Volatile`. |
 | attachment | The connection between one store and a Host. It wakes actors and saves their state. |
 | behavior | The function that runs one schema's actors: saved state and a call in, a reply out. |
@@ -111,9 +111,9 @@ fn card(call_state: *hosting.Call, state: core.RecordView, verb: []const u8, arg
 ```
 
 **A store and a first record.** The program opens LMDB, builds a `core.Store`
-with explicit limits, and writes one rooted record so collection keeps it. A
-write takes three lines in the worker: prepare, let the backend commit the
-batch, and report the outcome.
+with explicit limits, and writes one rooted record so collection keeps it.
+Before an attachment exists, a write takes three lines: prepare, let the
+backend commit the batch, and report the outcome.
 
 ```zig
 const ticket = try store.prepare();
@@ -127,17 +127,15 @@ record back into an ordinary Host capability that can be called locally or
 handed to a peer.
 
 **A call, with its storage work.** The program sends `move` and then runs the
-loop every embedding runs: drive the Vat, call `attachment.advance()`, and
-carry out each item from `attachment.nextWork()`. The read wakes the card, the
-write saves its new state, and the reply is released only after the write
-commits.
+loop every embedding runs: drive the Vat, call `attachment.advance()`, and let
+a `hosting.Worker` carry out each item from `attachment.nextWork()`. The read
+wakes the card, the write saves its new state, and the reply is released only
+after the write commits.
 
 ```zig
-while (try attachment.nextWork()) |work| switch (work) {
-    .read => |request| try attachment.completeRead(request.ticket, db.read(request)),
-    .lookup => |request| try attachment.completeLookup(request.ticket, db.lookup(request)),
-    .write => |batch| try attachment.completeWrite(batch.ticket, db.commit(batch)),
-};
+var slot: [1]hosting.Worker.Slot = undefined;
+var worker: hosting.Worker = .init(&slot);
+try worker.drive(attachment, db);
 ```
 
 **A restart.** The second run reopens the directory with the same store
@@ -255,8 +253,9 @@ sequenceDiagram
 Workers receive borrowed read and batch requests and answer through
 `attachment.completeRead` or `completeWrite` on the owning context. They do not
 call into the Host. An unknown write outcome keeps ownership and fences the
-store: join the worker, get `recoveryBatch`, ask the backend to recover, then
-call `attachment.resolve`. Resume Host work through your usual pump. Purely
+store. Once every other slot is released, the worker's next request is the
+attachment's `recoveryBatch`, and completing it calls `attachment.resolve`.
+Resume Host work through your usual pump. Purely
 local ingress keeps running through the Vat's bounded drive. The
 [actor process test](../test/loam_actors_crash.zig) runs the complete LMDB
 call, commit and reopen path.

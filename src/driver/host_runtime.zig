@@ -60,7 +60,7 @@ const Contract = runtime_contract.Vocabulary(
     default_listener_setup_ms,
 );
 
-/// The owning face over one `driver_core.Host`: the core, the netlayer slice
+/// The owning face over one `driver_core.Host`: the core, the transports
 /// it dials through, and one wire per live session. One thread drives one
 /// `HostRuntime` and its core `Host`. Every blocking verb on a view pumps through
 /// here.

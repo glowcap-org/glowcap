@@ -1,4 +1,4 @@
-//! Live foreign-promise recipient proof on the owning native Session face.
+//! Live foreign-promise recipient proof on `driver.Session`.
 //!
 //! A real Goblins vat delivers one of its still-unsettled promises as an
 //! argument to a glowcap actor. glowcap installs `Session.listenTo` on that
@@ -205,7 +205,7 @@ pub fn main(init: std.process.Init) !void {
     if (session.closeOutcome() != .closed) return error.SessionDidNotClose;
 
     std.debug.print(
-        "goblins-listen-recipient: OK, one owning Session.listenTo observed one later Goblins settlement and called its nested capability\n",
+        "goblins-listen-recipient: OK, one Session.listenTo observed one later Goblins settlement and called its nested capability\n",
         .{},
     );
 }

@@ -19,7 +19,7 @@ const vocab = @import("vocab.zig");
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
 const HostError = host_mod.HostError;
-const localActorId = host_mod.localActorId;
+const localActorId = @import("host/capabilities/identity.zig").localActorId;
 const foundation = @import("foundation");
 const crypto = foundation.crypto;
 

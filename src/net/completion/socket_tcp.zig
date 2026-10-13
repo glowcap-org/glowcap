@@ -107,10 +107,10 @@ pub const BoundListener = struct { fd: i32, port: u16 };
 /// identity reason. `SO_REUSEADDR` here is a restart contract with two
 /// generations: the kernel lets a bind reclaim a port whose previous owner
 /// left sockets in TIME_WAIT only when the old and the new listener both set
-/// the option, so every blocking-tier listener sets it unconditionally. A
+/// the option, so every blocking listener sets it unconditionally. A
 /// predecessor without it parks the port for the full TIME_WAIT minute, which
 /// is how a stateful server restarted onto its pinned port fails
-/// under load. The fd stays blocking on both platforms: the blocking tier
+/// under load. The fd stays blocking on both platforms: the blocking listener
 /// wants `accept(2)` to park its caller.
 pub fn openListenerReuseAddr(comptime os: Os, ip4: Ip4, backlog: u31) !BoundListener {
     const fd = try openStream(os);

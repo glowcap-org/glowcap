@@ -85,43 +85,26 @@ through a completion resident
 Every client signs its own session and fetches a published capability before
 the barrier opens, and all sessions stay open while RSS is sampled.
 
-On 2026-08-24, a ReleaseFast run reached 500,000 sessions on Linux
-6.17.0-1029-nvidia, aarch64, 20 logical CPUs, 121.7 GiB RAM, and 16 GiB swap.
-The run selected the io_uring backend. The epoll fallback has no equivalent
-full-target measurement.
-The server grew from 573,828 KiB to 4,548,376 KiB RSS: 3,974,548 KiB
-(3.79 GiB) incremental. The separate load process used 3,015,316 KiB
-(2.88 GiB). The signed-handshake and bootstrap-fetch barrier completed in
-15.720 seconds, or 31.4 microseconds per session when amortized across the run.
-The figure is a same-machine capacity measurement, not WAN latency.
+On 2026-10-13, a ReleaseFast run reached 500,000 sessions on Linux
+7.0.0-1019-nvidia, aarch64, 20 logical CPUs, 121.7 GiB RAM, and 15 GiB swap,
+on the io_uring backend. The epoll fallback has no equivalent full-target
+measurement. The server grew from 11,816 KiB to 3,816,584 KiB RSS:
+3,804,768 KiB (3.63 GiB) incremental, about 7.6 KiB per session. The
+separate load process used 2,890,300 KiB (2.76 GiB). The signed-handshake
+and bootstrap-fetch barrier completed in 18.453 seconds, or 36.9 microseconds
+per session when amortized across the run. The figure is a same-machine
+capacity measurement, not WAN latency.
 
-That run's 32 listeners were each a `Bridge(TcpLoop)` Host sharing one identity
-key. `HostRuntime` has not run at this size. The connections are plain TCP, so
-each handshake is signed but the bytes are not encrypted. The host's
-connection-tracking table was smaller than the target, so the command below
-runs in its own user and network namespace with loopback tracking turned off.
-
-On a 16-CPU, 7 GiB Linux container with io_uring, the two servers measured
-side by side in ReleaseSafe:
-
-| Server | Live sessions | Server RSS after | Microseconds per round trip |
-| --- | --- | --- | --- |
-| `Bridge(TcpLoop)` | 50,000 | 526,872 KiB | 42.1 |
-| `HostRuntime` + TCP completion resident | 50,000 | 503,408 KiB | 43.8 |
-| `Bridge(TcpLoop)` | 100,000 | 995,036 KiB | 41.9 |
-| `HostRuntime` + TCP completion resident | 100,000 | 950,304 KiB | 43.8 |
-
-At 100,000 sessions `HostRuntime` uses about 4.5% less memory and each round
-trip takes about 4.5% longer.
+The connections are plain TCP, so each handshake is signed but the bytes are
+not encrypted. The command below runs in its own user and network namespace,
+which carries no connection-tracking rules, so the host's tracking table does
+not bind the run. It also raises the descriptor limit both processes need,
+which the bench does not raise itself.
 
 ```sh
 unshare -Urn sh -eu -c '
+ulimit -n 524288
 ip link set lo up
-nft add table inet glowcap_scale
-nft "add chain inet glowcap_scale prerouting { type filter hook prerouting priority raw; policy accept; }"
-nft "add chain inet glowcap_scale output { type filter hook output priority raw; policy accept; }"
-nft add rule inet glowcap_scale prerouting iifname lo notrack
-nft add rule inet glowcap_scale output oifname lo notrack
 exec zig build -Doptimize=ReleaseFast bench-peer-scaling -- --live --live-max=500000
 '
 ```

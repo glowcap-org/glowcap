@@ -438,7 +438,7 @@ pub const Peer = struct {
 /// the stream scan, bought by giving two others back: Every byte-stream consumer reaches the decoder
 /// through `recvStreamPrefix`, so holding the scan here serves the completion
 /// loop, the byte-fed host, the blocking pump, and the C ABI from one place,
-/// where holding it per consumer served two of them and charged a Bridge
+/// where holding it per consumer served two of them and charged a loop
 /// connection twice, once in its `Conn` slot and again in its `HostSession`
 /// shell, for a frame only one of the two ever framed. The other eight are the
 /// end of the session's export range. The allocator is monotonic and counts

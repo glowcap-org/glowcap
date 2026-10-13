@@ -1,6 +1,6 @@
-//! The owning tier's passable-value vocabulary (ADR-0096): `Value` is what an
-//! application passes to and receives from the opaque-capability verbs on the
-//! owning host face. It mirrors the codec-neutral `model.Argument` data arms,
+//! The Host's passable-value vocabulary (ADR-0096): `Value` is what an
+//! application passes to and receives from the Host's opaque-capability
+//! verbs. It mirrors the codec-neutral `model.Argument` data arms,
 //! with one difference: a capability is the opaque
 //! Host-scoped `Capability`, never a wire position or an actor id. The
 //! translation bodies live in `host/capabilities/lower.zig` and `lift.zig`.
@@ -15,7 +15,7 @@ const capability = @import("capability.zig");
 /// The opaque Host-scoped capability identity (see `capability.Ref`).
 pub const Capability = capability.Ref;
 
-/// A passable value on the owning host tier. Data arms mirror
+/// A passable value on the Host. Data arms mirror
 /// `model.Argument`. A capability mention is opaque. There is no handoff arm
 /// because the host redeems a give before the application sees it. An Error is
 /// a first-class value and remains distinct from `Reply.broken`: returning one

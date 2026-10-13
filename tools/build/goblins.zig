@@ -153,7 +153,7 @@ pub fn register(ctx: Context) Registered {
     // The reciprocal listener proof: glowcap receives a Goblins-owned pending
     // promise, queues Session.listenTo before asking Goblins to settle it, and
     // calls the nested capability carried by the fulfillment.
-    const goblins_listen_recipient = liveDriver(ctx, .{ .exe_name = "glowcap-goblins-listen-recipient", .source = "interop/goblins_interop/listen_recipient_driver.zig", .step_name = "goblins-listen-recipient", .description = "Live Goblins promise recipient: owning Session.listenTo observes a later settlement containing a callable capability (needs racket + goblins)", .posture = .{ .deterministic = 30 } });
+    const goblins_listen_recipient = liveDriver(ctx, .{ .exe_name = "glowcap-goblins-listen-recipient", .source = "interop/goblins_interop/listen_recipient_driver.zig", .step_name = "goblins-listen-recipient", .description = "Live Goblins promise recipient: Session.listenTo observes a later settlement containing a callable capability (needs racket + goblins)", .posture = .{ .deterministic = 30 } });
 
     // The third handoff role against live Goblins: glowcap as the *exporter*,
     // answering deposit-gift from a Goblins gifter and withdraw-gift from a
@@ -162,7 +162,7 @@ pub fn register(ctx: Context) Registered {
 
     // Live distributed-GC evidence vs Goblins: introduce a near export into the
     // suite echo and observe inbound op:gc-exports (needs racket + goblins).
-    _ = liveDriver(ctx, .{ .exe_name = "glowcap-goblins-gc", .source = "interop/goblins_interop/gc_driver.zig", .step_name = "goblins-gc", .description = "Live Goblins GC in both directions, including remote reclamation after capability and answer release with the owning Session open (needs racket + goblins)", .posture = .{ .deterministic = 30 } });
+    _ = liveDriver(ctx, .{ .exe_name = "glowcap-goblins-gc", .source = "interop/goblins_interop/gc_driver.zig", .step_name = "goblins-gc", .description = "Live Goblins GC in both directions, including remote reclamation after capability and answer release with the Session open (needs racket + goblins)", .posture = .{ .deterministic = 30 } });
 
     // Per-binding Goblins clients (interop / handoff / gift) register with the
     // root's shared `binding_families` table, same emitter as the iroh and

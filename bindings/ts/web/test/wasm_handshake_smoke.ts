@@ -56,6 +56,7 @@ type Exports = {
 		captpVersion: number,
 		features: number,
 		localTurnBudget: number,
+		releaseOnDrop: number,
 		outHost: number,
 	) => number;
 	glowcap_host_release: (host: number) => void;
@@ -217,6 +218,7 @@ function hostNew(seed: Uint8Array): number {
 			CAPTP_V1_0,
 			FEATURE_FULL,
 			0, // local_turn_budget: unbounded
+			0, // release_on_drop: a browser release rides the finalizer (ADR-0192)
 			outPtr,
 		);
 		if (rc !== OK) throw new Error(`glowcap_host_new failed: rc=${rc}`);

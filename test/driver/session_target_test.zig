@@ -1,4 +1,4 @@
-//! Eventual-send target refusal on the owning `driver.Session`: `call` /
+//! Eventual-send target refusal on `driver.Session`: `call` /
 //! `send` / `tell` admit only an _object_ capability. A promise-kind
 //! capability (an unresolved import promise) must be refused with
 //! `Error.UncallableTarget`, not silently coerced into an object turn:
@@ -8,8 +8,8 @@
 //! surface: the Host refuses them at the lift, so the facade has nothing to
 //! gate.
 //!
-//! Driven over TCP loopback, the owning tier multiplexes its blocking waits
-//! with poll, so it binds fd-backed transports only (ADR-0090). The positive
+//! Driven over TCP loopback, `driver.Session` multiplexes its blocking waits
+//! with poll over the runtime's readiness descriptors. The positive
 //! control is a genuine far object that still calls and settles. That shows
 //! the gate refuses on _kind_, not by over-rejecting every capability.
 

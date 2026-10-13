@@ -84,14 +84,12 @@ pub const Fixture = struct {
     }
 
     pub fn drain(self: *Fixture) !void {
+        var slot: [1]hosting.Worker.Slot = undefined;
+        var worker: hosting.Worker = .init(&slot);
         for (0..64) |_| {
             _ = try self.host.vat.driveIngressBudgeted(.local, 64);
             try self.attached.advance();
-            while (try self.attached.nextWork()) |work| switch (work) {
-                .read => |request| try self.attached.completeRead(request.ticket, self.data.backend.read(request)),
-                .lookup => |request| try self.attached.completeLookup(request.ticket, self.data.backend.lookup(request)),
-                .write => |batch| try self.attached.completeWrite(batch.ticket, self.data.backend.commit(batch)),
-            };
+            try worker.drive(self.attached, &self.data.backend);
             if (!self.attached.hasPendingWork()) return;
         }
         return error.DidNotQuiesce;

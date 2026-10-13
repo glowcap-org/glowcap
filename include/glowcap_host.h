@@ -324,11 +324,23 @@ uint64_t glowcap_host_archive_fingerprint(void);
    GLOWCAP_LOCAL_TURN_BUDGET_DEFAULT applies the Zig Host's finite default,
    GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED turns the cap off, and any other value
    is the cap.
+   release_on_drop is the Host-wide setting a binding reads when it projects a
+   far capability (ADR-0192): nonzero means the capability releases its Host
+   retain when the language's scope end for it is observed. A binding whose
+   release rides a finalizer passes 0 and keeps its per-session opt-in. Read it
+   with glowcap_host_release_on_drop and change it with
+   glowcap_host_set_release_on_drop. The Host attaches no behavior to it.
    *out_host receives the handle; release with glowcap_host_release. */
-int32_t glowcap_host_new(const uint8_t *seed, size_t seed_len, size_t frame_cap, uint32_t verify_partner, uint32_t codec, uint32_t captp_version, uint32_t features, uint32_t local_turn_budget, GlowcapHost **out_host);
+int32_t glowcap_host_new(const uint8_t *seed, size_t seed_len, size_t frame_cap, uint32_t verify_partner, uint32_t codec, uint32_t captp_version, uint32_t features, uint32_t local_turn_budget, uint32_t release_on_drop, GlowcapHost **out_host);
 /* glowcap_host_new allocating every byte the host owns through context's host
    allocator (glowcap_context_new_with_allocator). */
-int32_t glowcap_host_new_in(GlowcapContext *context, const uint8_t *seed, size_t seed_len, size_t frame_cap, uint32_t verify_partner, uint32_t codec, uint32_t captp_version, uint32_t features, uint32_t local_turn_budget, GlowcapHost **out_host);
+int32_t glowcap_host_new_in(GlowcapContext *context, const uint8_t *seed, size_t seed_len, size_t frame_cap, uint32_t verify_partner, uint32_t codec, uint32_t captp_version, uint32_t features, uint32_t local_turn_budget, uint32_t release_on_drop, GlowcapHost **out_host);
+/* Read the Host-wide release-on-drop setting (ADR-0192) into *out_enabled as 0 or 1. */
+int32_t glowcap_host_release_on_drop(GlowcapHost *host, uint32_t *out_enabled);
+/* Set the Host-wide release-on-drop setting (ADR-0192) for capabilities the
+   Host projects after this call: nonzero turns it on. A binding whose release
+   rides a finalizer leaves it off and keeps its per-session opt-in. */
+int32_t glowcap_host_set_release_on_drop(GlowcapHost *host, uint32_t enabled);
 /* Return the Host's stable identity in its owning Context's diagnostic namespace. The context-less convenience constructor reports zero because it has no Context diagnostic namespace to allocate from. */
 int32_t glowcap_host_diagnostic_id(GlowcapHost *host, uint64_t *out_id);
 /* Seal application admission and begin or escalate terminal Host close. now_ms is

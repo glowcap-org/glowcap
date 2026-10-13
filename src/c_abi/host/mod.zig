@@ -47,7 +47,8 @@
 //! leaves, so the header generator and the binding mirrors see the whole ABI
 //! from one place. The exports themselves are split by responsibility:
 //! `host.zig` owns host lifecycle, the pure dial/accept planners, the action
-//! queue, host-wide publish, GC, and the last-error slot. `locators.zig` owns
+//! queue, GC, and the last-error slot. `publications.zig` owns the host-wide
+//! publish verbs. `locators.zig` owns
 //! the identity-designator helper and advertised-locator admission. And
 //! `embedding.zig` owns the Zig-only driver transfer bridge.
 //! `session/lifecycle.zig` owns open/close/release. `session/pump.zig` owns the
@@ -73,6 +74,7 @@ const driver_core = @import("driver_core");
 const shared = @import("c_abi_shared");
 
 const host = @import("host.zig");
+const publications = @import("publications.zig");
 const locators = @import("locators.zig");
 const session_limits = @import("session_limits.zig");
 const session = @import("session.zig");
@@ -333,7 +335,7 @@ pub const GLOWCAP_DEFAULT_HANDSHAKE_CONCURRENCY: usize = 16;
 pub const GLOWCAP_MAX_HANDSHAKE_CONCURRENCY: usize = 32;
 
 /// Discovery-posture dial retry interval (ms), projected from the shared
-/// `driver_core` default that `driver.DialRetry` also consumes.
+/// `driver_core` default that the HostRuntime dial retry also consumes.
 pub const GLOWCAP_DISCOVERY_DIAL_RETRY_MS: u64 = driver_core.discovery_retry_ms;
 /// Discovery-posture dial attempt budget, including the first attempt.
 pub const GLOWCAP_DISCOVERY_DIAL_MAX_ATTEMPTS: u32 = driver_core.discovery_max_attempts;
@@ -461,6 +463,8 @@ pub const GLOWCAP_DURABLE_PROVENANCE_UNAUTHENTICATED = planning_abi.GLOWCAP_DURA
 pub const glowcap_host_new = host.glowcap_host_new;
 pub const glowcap_host_new_in = host.glowcap_host_new_in;
 pub const glowcap_host_diagnostic_id = host.glowcap_host_diagnostic_id;
+pub const glowcap_host_release_on_drop = host.glowcap_host_release_on_drop;
+pub const glowcap_host_set_release_on_drop = host.glowcap_host_set_release_on_drop;
 pub const glowcap_host_close = host.glowcap_host_close;
 pub const glowcap_host_close_progress = host.glowcap_host_close_progress;
 pub const glowcap_host_close_wait_ms = host.glowcap_host_close_wait_ms;
@@ -483,12 +487,12 @@ pub const glowcap_host_dial_failed = host.glowcap_host_dial_failed;
 pub const glowcap_host_dial_cancelled = host.glowcap_host_dial_cancelled;
 pub const glowcap_host_provide_gift_id = host.glowcap_host_provide_gift_id;
 pub const glowcap_host_gift_id_failed = host.glowcap_host_gift_id_failed;
-pub const glowcap_host_publish = host.glowcap_host_publish;
-pub const glowcap_host_spawn = @import("publications.zig").glowcap_host_spawn;
-pub const glowcap_host_unpublish = host.glowcap_host_unpublish;
-pub const glowcap_host_publish_durable = host.glowcap_host_publish_durable;
-pub const glowcap_host_publish_reference = host.glowcap_host_publish_reference;
-pub const glowcap_host_remove_durable = host.glowcap_host_remove_durable;
+pub const glowcap_host_publish = publications.glowcap_host_publish;
+pub const glowcap_host_spawn = publications.glowcap_host_spawn;
+pub const glowcap_host_unpublish = publications.glowcap_host_unpublish;
+pub const glowcap_host_publish_durable = publications.glowcap_host_publish_durable;
+pub const glowcap_host_publish_reference = publications.glowcap_host_publish_reference;
+pub const glowcap_host_remove_durable = publications.glowcap_host_remove_durable;
 pub const glowcap_host_ref_release = host.glowcap_host_ref_release;
 pub const glowcap_host_send = @import("application_delivery.zig").glowcap_host_send;
 pub const glowcap_host_tell = @import("application_delivery.zig").glowcap_host_tell;

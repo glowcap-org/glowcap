@@ -17,3 +17,4 @@ pub const ValueBounds = @import("values.zig").Bounds;
 pub const valueAllocationBound = @import("values.zig").allocationBound;
 pub const copyValue = @import("values.zig").copy;
 pub const inputAllocationBound = @import("call_memory.zig").inputAllocationBound;
+pub const Worker = @import("worker.zig").Worker;

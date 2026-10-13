@@ -17,7 +17,7 @@ import {
 } from "@glowcap/runtime";
 import { DriverListener, DriverLoop, DriverServer, retainCleanupFailures } from "@glowcap/runtime/transport";
 import { CLOSED, INVALID_ARGUMENT } from "@glowcap/runtime/ffi";
-import { dialResolving, IrohChannel, IrohLoop } from "./channel.ts";
+import { IrohChannel, IrohLoop } from "./channel.ts";
 import { type IrohConfig, IrohConnection, IrohNetlayer } from "./native.ts";
 
 export { Reachability } from "@glowcap/runtime";
@@ -94,10 +94,11 @@ export function connector(config: IrohConfig): Connector {
  * endpoint is ephemeral and released with the connection. `reachability` is
  * required. Needs the iroh ABI library (`zig build iroh-abi`).
  *
- * `handshakeTimeoutMs` bounds the OCapN handshake only. The dial-by-id budget
- * above it (a `Discovery` posture retries while the exporter's pkarr record
- * propagates, ADR-0082) is already spent by the time the channel exists, so a
- * slow discovery never eats the handshake's bound. */
+ * `handshakeTimeoutMs` bounds the OCapN handshake only. The dial is one
+ * transport attempt, finished by the time the channel exists, so a slow
+ * discovery never eats the handshake's bound. A dial staged through the
+ * driver loop retries transient faults on the runtime's
+ * `GLOWCAP_DISCOVERY_DIAL_*` budget instead (ADR-0193). */
 export async function _connectIroh(
 	nodeId: string,
 	directAddresses: string,
@@ -122,7 +123,7 @@ export async function _connectIroh(
 	signal?.addEventListener("abort", cancelPending, { once: true });
 	let conn: IrohConnection;
 	try {
-		conn = await dialResolving(loop, nodeId, directAddresses, reachability);
+		conn = await loop.dial(nodeId, directAddresses);
 	} catch (e) {
 		signal?.removeEventListener("abort", cancelPending);
 		loop.close();
@@ -174,9 +175,9 @@ export async function _connectIroh(
 
 /** Dial an iroh locator and return a byte channel for relay/bridge use.
  * Unlike `_connectIroh`, this returns just the channel, not a Session.
- * One call makes one transport attempt. A relay request is already one attempt
- * in its embedding application's reconnect policy, so retrying discovery here
- * would nest a second retry owner inside it.
+ * One call makes one transport attempt, as every raw transport dial is. A
+ * relay request is already one attempt in its embedding application's
+ * reconnect policy.
  * The channel owns the loop and netlayer; calling `close()` cleans up
  * both and terminates the connection. For transparent relay endpoints
  * (e.g., browser peer → relay → native iroh). */

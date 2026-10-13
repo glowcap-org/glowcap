@@ -10,7 +10,7 @@
 const std = @import("std");
 const glowcap = @import("glowcap");
 
-const model = glowcap.ocapn.model;
+const driver = glowcap.driver;
 
 /// The generated grammar, reached through this file so the client has one path
 /// to the table rather than two.
@@ -35,13 +35,13 @@ pub fn tailFor(comptime tag: []const u8) gen.RoomTail {
 }
 
 /// Whether one wire argument is a value of the declared type.
-pub fn admitsType(ty: gen.Ty, arg: model.Argument) bool {
+pub fn admitsType(ty: gen.Ty, arg: driver.Value) bool {
     return switch (ty) {
         .string => arg == .string,
         .text => arg == .string and arg.string.len > 0,
         .natural => arg == .integer and arg.integer >= 0,
         .boolean => arg == .boolean,
-        .reference => arg == .reference,
+        .reference => arg == .capability,
         .registration_id => arg == .string and registrationId(arg.string),
         .list => arg == .list,
         .any => true,
@@ -51,7 +51,7 @@ pub fn admitsType(ty: gen.Ty, arg: model.Argument) bool {
 /// Whether one wire argument fits its declared field: a wire null where the
 /// field admits one, a member of the enumeration where the field has one, and
 /// the declared type.
-pub fn admits(field: gen.Field, arg: model.Argument) bool {
+pub fn admits(field: gen.Field, arg: driver.Value) bool {
     if (arg == .void) return field.nullable;
     if (field.values.len > 0) {
         if (arg != .string) return false;
@@ -66,7 +66,7 @@ pub fn admits(field: gen.Field, arg: model.Argument) bool {
 
 /// Whether a run of wire arguments is exactly the declared fields, one value
 /// each.
-pub fn fits(fields: []const gen.Field, args: []const model.Argument) bool {
+pub fn fits(fields: []const gen.Field, args: []const driver.Value) bool {
     if (args.len != fields.len) return false;
     for (fields, args) |field, arg| {
         if (!admits(field, arg)) return false;
@@ -131,7 +131,7 @@ comptime {
 /// The publication a directory row or a room watch kind carries, or null when
 /// the arguments are not that record. A wire null is an unknown count and an
 /// absent offer, never a malformed row.
-pub fn roomInfo(fields: []const model.Argument) ?RoomInfo {
+pub fn roomInfo(fields: []const driver.Value) ?RoomInfo {
     if (!fits(&gen.publication_fields, fields)) return null;
     return .{
         .name = fields[publication.name].string,
@@ -168,7 +168,7 @@ fn malformedWatch(kind: gen.WatchKind) WatchError {
 /// kind answers the publication it carries. The member and truncation kinds are
 /// valid but carry no room for this small terminal client to print, so they
 /// answer null. A malformed or unknown event is refused rather than skipped.
-pub fn watchEvent(args: []const model.Argument) WatchError!?RoomInfo {
+pub fn watchEvent(args: []const driver.Value) WatchError!?RoomInfo {
     if (args.len == 0 or args[0] != .string) return error.MalformedWatchNotification;
     for (gen.watch_kinds) |kind| {
         if (!std.mem.eql(u8, kind.tag, args[0].string)) continue;
@@ -186,7 +186,7 @@ const snapshot = struct {
 
 /// Whether `watchPublications` answered the baseline a watcher folds its deltas
 /// into: the rooms, the registration rows, and the omission count.
-pub fn validWatchSnapshot(arg: model.Argument) bool {
+pub fn validWatchSnapshot(arg: driver.Value) bool {
     if (arg != .list or !fits(&gen.watch_snapshot_fields, arg.list)) return false;
     for (arg.list[snapshot.rooms].list) |row| {
         if (row != .list or roomInfo(row.list) == null) return false;
@@ -199,7 +199,7 @@ pub fn validWatchSnapshot(arg: model.Argument) bool {
 
 /// Whether a room line's sender, display text, and arguments after the tag are
 /// what the generated tail declares.
-pub fn tailFits(tail: gen.RoomTail, from: []const u8, text: []const u8, extra: []const model.Argument) bool {
+pub fn tailFits(tail: gen.RoomTail, from: []const u8, text: []const u8, extra: []const driver.Value) bool {
     const by_room = std.mem.eql(u8, from, gen.room_sender);
     switch (tail.sender) {
         .room => if (!by_room) return false,
@@ -223,7 +223,7 @@ pub fn tailFits(tail: gen.RoomTail, from: []const u8, text: []const u8, extra: [
 /// The presence a room line carries after its display text, when the tag names
 /// a presence tail and the arguments are that tail's shape. An ordinary chat
 /// line carries none, and so does a malformed tail, so the line still draws.
-pub fn presenceTail(from: []const u8, text: []const u8, args: []const model.Argument) ?gen.RoomTail {
+pub fn presenceTail(from: []const u8, text: []const u8, args: []const driver.Value) ?gen.RoomTail {
     if (args.len < 3 or args[2] != .string) return null;
     for (gen.room_tails) |tail| {
         if (!std.mem.eql(u8, tail.tag, args[2].string)) continue;

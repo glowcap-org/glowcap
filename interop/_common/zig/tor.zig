@@ -2,8 +2,10 @@
 //!
 //! It exists so the live onion checks are one command rather than a setup
 //! procedure: each run gets a private data directory under the system temporary
-//! directory with the SOCKS and control endpoints on Unix sockets inside it, and
-//! the whole tree goes away on the way out.
+//! directory, and the whole tree goes away on the way out. The daemon listens
+//! twice over: on Unix sockets inside that directory for the Goblins onion
+//! netlayer, which speaks only to socket paths, and on loopback TCP ports Tor
+//! picks for glowcap's stream stack, which dials Tor as a platform address.
 //!
 //! This is harness code, not a product path. The transport itself starts,
 //! supervises, and configures nothing, which is why `onion.Config` names where a
@@ -33,8 +35,12 @@ pub const Tor = struct {
     io: std.Io,
     child: std.process.Child,
     dir: []u8,
+    /// The Unix socket forms, for the Goblins netlayer.
     socks_path: []u8,
     control_path: []u8,
+    /// The `127.0.0.1:<port>` forms, for `driver.Transports.onion`.
+    socks_tcp: []u8,
+    control_tcp: []u8,
     log_path: []u8,
     cookie_bytes: []u8,
 
@@ -72,8 +78,12 @@ pub const Tor = struct {
                 dir,
                 "--SocksPort",
                 socks_arg,
+                "--SocksPort",
+                "auto",
                 "--ControlPort",
                 control_arg,
+                "--ControlPort",
+                "auto",
                 "--CookieAuthentication",
                 if (options.cookie_authentication) "1" else "0",
                 "--Log",
@@ -90,12 +100,18 @@ pub const Tor = struct {
             .dir = dir,
             .socks_path = socks_path,
             .control_path = control_path,
+            .socks_tcp = &.{},
+            .control_tcp = &.{},
             .log_path = log_path,
             .cookie_bytes = &.{},
         };
         errdefer self.child.kill(io);
 
         try self.awaitBootstrap();
+        self.socks_tcp = try self.readListenerPort("Socks");
+        errdefer gpa.free(self.socks_tcp);
+        self.control_tcp = try self.readListenerPort("Control");
+        errdefer gpa.free(self.control_tcp);
         // Only when it was asked for: an unauthenticated daemon writes no cookie
         // file at all, so reading one unconditionally would fail the start.
         if (options.cookie_authentication) self.cookie_bytes = try self.readCookie();
@@ -124,6 +140,21 @@ pub const Tor = struct {
         }
     }
 
+    /// The loopback port Tor chose for the `auto` listener of `kind` (`Socks`
+    /// or `Control`), as `127.0.0.1:<port>`. Tor reports each chosen port on
+    /// one notice line, so it is read from the same log the bootstrap wait
+    /// reads.
+    fn readListenerPort(self: *Tor, comptime kind: []const u8) ![]u8 {
+        const text = try std.Io.Dir.cwd().readFileAlloc(self.io, self.log_path, self.gpa, .limited(1 << 20));
+        defer self.gpa.free(text);
+        const marker = kind ++ " listener listening on port ";
+        const at = std.mem.indexOf(u8, text, marker) orelse return error.TorListenerPortMissing;
+        const digits_at = at + marker.len;
+        const digits_end = std.mem.indexOfScalarPos(u8, text, digits_at, '.') orelse return error.TorListenerPortMissing;
+        const port = std.fmt.parseInt(u16, text[digits_at..digits_end], 10) catch return error.TorListenerPortMissing;
+        return std.fmt.allocPrint(self.gpa, "127.0.0.1:{d}", .{port});
+    }
+
     /// The control cookie Tor wrote, read only when `Options.cookie_authentication`
     /// asked for one.
     fn readCookie(self: *Tor) ![]u8 {
@@ -143,6 +174,8 @@ pub const Tor = struct {
         std.Io.Dir.cwd().deleteTree(self.io, self.dir) catch {};
         self.gpa.free(self.cookie_bytes);
         self.gpa.free(self.log_path);
+        self.gpa.free(self.control_tcp);
+        self.gpa.free(self.socks_tcp);
         self.gpa.free(self.control_path);
         self.gpa.free(self.socks_path);
         self.gpa.free(self.dir);

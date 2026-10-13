@@ -14,8 +14,8 @@
 //! (DNS/pkarr with no relay fallback) needs the node to own a publishable,
 //! reachable direct address, which a NAT'd host or container does not have, so
 //! its dial-by-id is unreachable there and cannot be a portable build check. The
-//! `connect(locator)` dialers still settle/retry under `.discovery_no_relay` on the
-//! same propagation principle (it resolves by id). Only a *live build check* for
+//! The runtime's staged dial retries transient faults under `.discovery_no_relay`
+//! on the same shared budget (it resolves by id). Only a *live build check* for
 //! it is infeasible without a publicly-addressable host.
 //!
 //! Not part of the in-tree check (needs network). This step touches public n0
@@ -38,97 +38,60 @@ const harness = @import("interop_harness");
 
 const model = glowcap.ocapn.model;
 const driver = glowcap.driver;
-const net = glowcap.net;
 
 const frame_cap: usize = 4096;
 const greeting = "hello over the public internet";
 
-/// The published actor: answers `greet` with a static greeting.
-const Greeter = harness.StaticReplyActor("greet", greeting);
+/// Session budgets. Every partner here is this process, so a wait that never
+/// ends is a defect in the code under test, and the step's own deadline
+/// reports it.
+const opts: driver.SessionOptions = .{
+    .frame_cap = frame_cap,
+    .handshake = .unbounded,
+    .settle = .unbounded,
+};
 
-/// Server half: accept one partner discovered over the public network signing
-/// with `secret`, the endpoint's own key, so the dialing client's identity pin
-/// verifies the node id it dialed, publish the greeter, serve until the
-/// client hangs up.
-const hostOnce = harness.AcceptServeOne(
-    Greeter,
-    "greeter",
-    frame_cap,
-    "iroh-reachability: server accepted a discovered partner and opened the keyed session",
-).run;
+/// The published actor: answers `greet` with a static greeting.
+const Greeter = harness.StaticReplyBehavior("greet", greeting);
+
+/// Server half: accept one partner discovered over the public network on a
+/// server keyed with the endpoint's own secret, so the dialing client's
+/// identity pin verifies the node id it dialed, publish the greeter, serve
+/// until the client hangs up.
+const hostOnce = harness.AcceptServeOne(Greeter, "greeter", "iroh-reachability: server accepted a discovered partner and opened the keyed session").run;
 
 /// How long to let the server's pkarr record propagate to the n0 DNS resolver
-/// before the first dial, and the bounded retry budget afterward. Publish
-/// visibility over real discovery infrastructure is seconds-scale and variable,
-/// which is exactly why this step is opt-in and never part of the in-tree check.
+/// before the first dial. Publish visibility over real discovery
+/// infrastructure is seconds-scale and variable, which is exactly why this
+/// step is opt-in and never part of the in-tree check.
 const publish_settle_ms: u64 = 8_000;
-// Discovery dial budget: lockstep with `driver.DialRetry` / ADR-0082
-// (`GLOWCAP_DISCOVERY_DIAL_*`). Was 5s×12; unified to the binding budget.
-// Attempt/backoff values are read from `glowcap.driver.discovery_*` inside
-// `callByIdOnlyRetrying` so this file cannot drift from the policy owner.
 
-/// Dial by id alone, retrying while discovery has not yet resolved the partner.
-/// Only a dial-stage `ConnectionLost` (the sidecar's "no addressing information"
-/// while the publish propagates) is retried. A post-dial fault is a real
-/// failure and surfaces immediately.
-fn callByIdOnlyRetrying(
-    io: std.Io,
-    netlayers: []const net.netlayer.Netlayer,
-    server_id: []const u8,
-    allocator: std.mem.Allocator,
-) !void {
-    // Continuity policy is `driver.DialRetry` / `isTransientDialError`
-    // (ADR-0082). This harness owns `std.Io` sleep, so it applies the same
-    // classifier inline rather than remapping CapTP faults (e.g. WrongReply)
-    // onto DialError.
-    const max = glowcap.driver.discovery_max_attempts;
-    const retry_ms = glowcap.driver.discovery_retry_ms;
-    var attempt: u32 = 1;
-    while (true) : (attempt += 1) {
-        if (callByIdOnly(netlayers, server_id, allocator)) |_| {
-            return;
-        } else |err| {
-            const transient = switch (err) {
-                error.InvalidAddress => glowcap.driver.isTransientDialError(error.InvalidAddress),
-                error.ConnectionRefused => glowcap.driver.isTransientDialError(error.ConnectionRefused),
-                error.NetworkUnreachable => glowcap.driver.isTransientDialError(error.NetworkUnreachable),
-                error.TimedOut => glowcap.driver.isTransientDialError(error.TimedOut),
-                error.ConnectionLost => glowcap.driver.isTransientDialError(error.ConnectionLost),
-                error.OutOfMemory => glowcap.driver.isTransientDialError(error.OutOfMemory),
-                else => false,
-            };
-            if (!transient or attempt >= max) return err;
-            std.debug.print("iroh-reachability: dial attempt {d} not yet resolvable ({s}); retrying after publish propagates\n", .{ attempt, @errorName(err) });
-            std.Io.sleep(io, std.Io.Duration.fromMilliseconds(retry_ms), .real) catch {};
-        }
-    }
-}
+/// How long the server waits for the client: the runtime's whole dial-retry
+/// window (`driver.DialPolicy.discovery()`, the budget the bindings share),
+/// with one handshake-sized grace on top of each attempt, so the server never
+/// gives up before the client has.
+const accept_budget_ms: u64 = publish_settle_ms + @as(u64, glowcap.driver.discovery_max_attempts) * (glowcap.driver.discovery_retry_ms + 10_000);
 
 /// Client half: dial the server by node id ALONE, empty hint set, over real
 /// n0 discovery, then fetch and call the greeter so the discovered session is
 /// proven to carry real traffic.
 fn callByIdOnly(
-    netlayers: []const net.netlayer.Netlayer,
-    server_id: []const u8,
+    io: std.Io,
     allocator: std.mem.Allocator,
+    providers: []const driver.HostRuntime.ProviderRegistration,
+    server_id: []const u8,
 ) !void {
-    var scaffold = try harness.PeerScaffold.init(allocator, frame_cap);
-    defer scaffold.deinit();
-
     const locator: model.PeerLocator = .{
         .transport = iroh.transport_name,
         .designator = server_id,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(allocator, netlayers, &scaffold.peer, locator, .ephemeral, scaffold.read_buf, scaffold.write_buf, .{
-        .handshake = .unbounded,
-        .settle = .unbounded,
-    });
-    defer cv.deinit();
+    const session = try driver.connect(allocator, io, .{ .residents = providers }, locator, .ephemeral, opts);
+    defer session.deinit();
     std.debug.print("iroh-reachability: client dialed by node id alone and opened the keyed session\n", .{});
 
-    const greeter = try cv.fetch("greeter");
-    try harness.expectStringReply(&cv, allocator, greeter, "greet", &.{.{ .string = "world" }}, greeting);
+    const greeter = try session.fetch("greeter");
+    try harness.expectStringReply(session, allocator, greeter, "greet", &.{.{ .string = "world" }}, greeting);
     std.debug.print("iroh-reachability: client called greet over the discovered session and the reply matched\n", .{});
 }
 
@@ -164,24 +127,20 @@ pub fn main(init: std.process.Init) !void {
     const server_id = server.nodeId(&id_buf);
     std.debug.print("iroh-reachability: server endpoint id {s} (published to pkarr; no direct addrs shared)\n", .{server_id});
 
-    const server_entries = [_]net.netlayer.Netlayer{server.netlayer()};
-    const client_entries = [_]net.netlayer.Netlayer{client.netlayer()};
+    // Each endpoint's adapter borrows it and outlives the runtime built over it.
+    var server_adapter = try iroh.MultiplexedAdapter.init(allocator, &server);
+    defer if (server_adapter.deinit()) |failure| std.log.err("iroh server adapter: {s}", .{failure.primaryName()});
+    var client_adapter = try iroh.MultiplexedAdapter.init(allocator, &client);
+    defer if (client_adapter.deinit()) |failure| std.log.err("iroh client adapter: {s}", .{failure.primaryName()});
+    const server_providers = [_]driver.HostRuntime.ProviderRegistration{.{ .profile = iroh.transport_profile, .resident = server_adapter.multiplexed() }};
+    const client_providers = [_]driver.HostRuntime.ProviderRegistration{.{ .profile = iroh.transport_profile, .resident = client_adapter.multiplexed() }};
 
-    var listen_result = switch (net.netlayer.resolve(&server_entries, iroh.transport_name).?.listen(allocator, .{
-        .designator = "",
-    })) {
-        .admitted => |result| result,
-        .failed => |failure| return failure.cause,
-    };
-    var listener = switch (listen_result.requireReady()) {
-        .ready => |listener| listener,
-        .failed => |failure| return failure.cause,
-    };
-    defer std.debug.assert(listener.close() == null);
+    const listener = try driver.listen(allocator, io, .{ .residents = &server_providers }, iroh.transport_name, .{ .designator = "" }, .{ .keyed = server_secret }, opts);
+    defer listener.deinit();
 
-    var host_future = try io.concurrent(hostOnce, .{ listener, allocator, server_secret });
+    var host_future = try io.concurrent(hostOnce, .{ io, listener, accept_budget_ms });
     std.Io.sleep(io, std.Io.Duration.fromMilliseconds(publish_settle_ms), .real) catch {};
-    const client_result = callByIdOnlyRetrying(io, &client_entries, server_id, allocator);
+    const client_result = callByIdOnly(io, allocator, &client_providers, server_id);
     if (client_result) |_| {} else |err| {
         std.debug.print("iroh-reachability: client failed: {s}\n", .{@errorName(err)});
         server.close();

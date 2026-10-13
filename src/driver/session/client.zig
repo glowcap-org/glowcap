@@ -337,8 +337,8 @@ pub const Session = struct {
     /// routes the capability to its exporter session, so a redeemed or
     /// re-gifted capability is called the same way a directly fetched one is.
     /// An argument foreign to the routed session is refused whole
-    /// (`ForeignArgument`). Returns `ConnectionClosed` if the partner leaves
-    /// before the reply settles.
+    /// (`ForeignArgument`). A partner that leaves before the reply settles
+    /// breaks it with the wire's close reason.
     pub fn call(self: *Session, target: Capability, verb: []const u8, args: []const Value, arena: std.mem.Allocator) !Reply {
         self.enterCall();
         defer self.leaveCall();
@@ -436,16 +436,15 @@ pub const Session = struct {
         return switch (settled) {
             .fulfilled => |arg| .{ .fulfilled = try self.runtime.core.liftValue(hs, arena, arg) },
             .broken => |reason| .{ .broken = reason },
-            // The owning tier redeems a give inside the wait it settles under;
+            // `Session` redeems a give inside the wait it settles under;
             // one that still surfaces is a broken introduction, not a value.
             .give => .{ .broken = "unredeemed handoff give" },
         };
     }
 
     /// Register `listener` on host vow `id` behind a settle flag and block
-    /// until it fires. It is the host-vow twin of `BlockingSession.awaitVow`. The
-    /// flag lives on this frame for the wait, so the listener's ctx
-    /// outlives every fire. No pre-pump flush: `core.fetch` and the vow verbs
+    /// until it fires. The flag lives on this frame for the wait, so the
+    /// listener's ctx outlives every fire. No pre-pump flush: `core.fetch` and the vow verbs
     /// pump their own send before returning the id.
     fn awaitVowId(self: *Session, id: u64, listener: actors.Listener) !void {
         return self.awaitVowIdOn(self.hs, id, listener);
@@ -461,7 +460,7 @@ pub const Session = struct {
     /// failure the session's far vows break *before* the error unwinds, so a
     /// listener whose ctx is this frame's stack fires while the frame is
     /// alive. A later break firing it into a dead frame is the memory bug,
-    /// not the timeout (the same contract `BlockingSession`'s waits hold).
+    /// not the timeout.
     fn pumpWait(self: *Session, hs: *driver_core.HostSession, flag: *const bool) !void {
         self.attendAndPump(hs, flag) catch |err| {
             hs.served.port.breakFarVows(hs.served.closeReason("wait failed"));
@@ -575,7 +574,7 @@ pub const Session = struct {
 
     /// Serve this session until the partner leaves: run `step` until it
     /// reports `.closed`. Far vows break with the close reason inside the
-    /// pump's release, exactly as on the borrowing tier.
+    /// pump's release.
     pub fn serve(self: *Session) !void {
         self.enterCall();
         defer self.leaveCall();
@@ -587,8 +586,7 @@ pub const Session = struct {
     }
 
     /// The raw engine peer under this session, the explicit-ownership escape
-    /// for a consumer that outgrows the surface (the same contract
-    /// `BlockingSession.peer` carries on the borrowing tier).
+    /// for a consumer that outgrows the surface.
     pub fn peer(self: *Session) *engine.Peer {
         return self.hs.served.port.peer;
     }
@@ -609,4 +607,4 @@ pub const Session = struct {
 };
 
 pub const connect = connect_mod.connect;
-pub const connectUriOwned = connect_mod.connectUriOwned;
+pub const connectUri = connect_mod.connectUri;

@@ -26,10 +26,8 @@ const glowcap = @import("glowcap");
 const harness = @import("interop_harness");
 
 const model = glowcap.ocapn.model;
-const engine = glowcap.ocapn.engine;
 const driver = glowcap.driver;
-const actors = glowcap.actors;
-const onion = glowcap.net.onion;
+const net = glowcap.net;
 const Tor = harness.Tor;
 
 const frame_cap = 16 * 1024;
@@ -41,7 +39,20 @@ const greeting = "hello from a hidden service";
 /// because a failure here should mean unreachable, not merely slow.
 const publish_budget_ms = 240_000;
 
-const Greeter = harness.StaticReplyActor("greet", greeting);
+/// Session budgets for both processes: a handshake and each blocking answer
+/// wait complete well inside a minute once a circuit exists.
+const opts: driver.SessionOptions = .{
+    .frame_cap = frame_cap,
+    .handshake = .{ .ms = 60_000 },
+    .settle = .{ .ms = 60_000 },
+};
+
+const Greeter = harness.StaticReplyBehavior("greet", greeting);
+
+/// Accept the one circuit Tor forwards, publish the Greeter, and serve until
+/// the partner hangs up. The dialing parent retries across the publish
+/// budget, so the accept waits that long.
+const serve = harness.AcceptServeOne(Greeter, swiss, null).run;
 
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
@@ -65,34 +76,23 @@ pub fn main(init: std.process.Init) !void {
 
     var daemon = try Tor.start(gpa, io, .{ .cookie_authentication = true });
     defer daemon.stop();
-    std.debug.print("onion-interop: tor bootstrapped, socks {s}\n", .{daemon.socks_path});
+    std.debug.print("onion-interop: tor bootstrapped, socks {s}\n", .{daemon.socks_tcp});
 
-    var first_listener = switch (onion.Listener.create(gpa, io, .{
-        .socks = daemon.socks_path,
-        .control_endpoint = daemon.control_path,
-        .auth = .{ .cookie = daemon.cookie() },
-    })) {
-        .ready => |listener| listener,
-        .failed => |failure| return failure.cause,
-    };
-    const service_id = try gpa.dupe(u8, first_listener.designator());
+    const service_id, const service_key = try mintService(gpa, io, &daemon);
     defer gpa.free(service_id);
-    const service_key = try gpa.dupe(u8, first_listener.serviceKey());
     defer gpa.free(service_key);
-    if (service_key.len == 0) return error.MissingServiceKey;
 
     // This is the sturdyref an application keeps across the server process's
-    // lifetime. Withdraw the first listener before the replacement starts, so
-    // a successful fetch cannot have reached stale in-process state.
+    // lifetime. The first server was withdrawn before the replacement starts,
+    // so a successful fetch cannot have reached stale in-process state.
     const sturdyref: model.SturdyRef = .{
         .peer = .{
-            .transport = onion.transport_name,
+            .transport = model.transport.onion,
             .designator = service_id,
             .hints = model.Hints.emptyFalse(),
         },
         .swissnum = swiss,
     };
-    if (first_listener.deinit()) |failure| return failure.cause;
     std.debug.print("onion-interop: recorded ocapn://{s}.onion before server restart\n", .{service_id});
 
     const cookie_path = try std.fmt.allocPrint(gpa, "{s}/control_auth_cookie", .{daemon.dir});
@@ -101,8 +101,8 @@ pub fn main(init: std.process.Init) !void {
         .argv = &.{
             executable,
             "--restore-server",
-            daemon.socks_path,
-            daemon.control_path,
+            daemon.socks_tcp,
+            daemon.control_tcp,
             cookie_path,
             service_id,
         },
@@ -122,8 +122,11 @@ pub fn main(init: std.process.Init) !void {
     }
 
     // The dialing side has no control endpoint, so it cannot publish a service.
-    var dial_res: onion.Resident = .{ .io = io, .config = .{ .socks = daemon.socks_path } };
-    try dialAndGreet(gpa, io, &dial_res, sturdyref);
+    const dial_transports: driver.Transports = .{
+        .symbols = &.{.onion},
+        .onion = .{ .socks = try net.tcp.parseDesignator(daemon.socks_tcp) },
+    };
+    try dialAndGreet(gpa, io, dial_transports, sturdyref);
 
     const term = try child.wait(io);
     reaped = true;
@@ -133,6 +136,36 @@ pub fn main(init: std.process.Init) !void {
     }
 
     std.debug.print("onion-interop: OK, a pre-restart sturdyref resolved through the restored onion service\n", .{});
+}
+
+/// Ask Tor for a fresh service, record its id and the key that restores it,
+/// and withdraw the service again. Both are owned by the caller.
+fn mintService(gpa: std.mem.Allocator, io: std.Io, daemon: *const Tor) !struct { []u8, []u8 } {
+    const first = try driver.listen(gpa, io, .{
+        .symbols = &.{.onion},
+        .onion = .{
+            .socks = try net.tcp.parseDesignator(daemon.socks_tcp),
+            .control = try net.tcp.parseDesignator(daemon.control_tcp),
+            .auth = .{ .cookie = daemon.cookie() },
+        },
+    }, model.transport.onion, .{ .designator = "" }, .ephemeral, opts);
+    defer first.deinit();
+
+    var id_buf: [128]u8 = undefined;
+    const service_id = try gpa.dupe(u8, try first.localDesignator(&id_buf));
+    errdefer gpa.free(service_id);
+
+    // The service key is transport-owned restoration state: ask its size,
+    // then copy it out.
+    var probe: [0]u8 = .{};
+    const key_len = (try first.restorationState(&probe)) orelse return error.MissingServiceKey;
+    if (key_len == 0) return error.MissingServiceKey;
+    const service_key = try gpa.alloc(u8, key_len);
+    errdefer gpa.free(service_key);
+    if ((try first.restorationState(service_key)) != key_len) return error.MissingServiceKey;
+
+    if (first.close()) |failure| return failure.cause;
+    return .{ service_id, service_key };
 }
 
 fn serveRestored(
@@ -153,80 +186,40 @@ fn serveRestored(
 
     const cookie = try std.Io.Dir.cwd().readFileAlloc(io, cookie_path, gpa, .limited(4096));
     defer gpa.free(cookie);
-    var listener = switch (onion.Listener.create(gpa, io, .{
-        .socks = socks,
-        .control_endpoint = control,
-        .auth = .{ .cookie = cookie },
-        .service_key = service_key,
-    })) {
-        .ready => |listener| listener,
-        .failed => |failure| return failure.cause,
-    };
-    defer std.debug.assert(listener.deinit() == null);
-    if (!std.mem.eql(u8, listener.designator(), expected_service_id))
-        return error.RestoredServiceChangedAddress;
-    std.debug.print("onion-interop: fresh server process restored ocapn://{s}.onion\n", .{listener.designator()});
-
-    var server_err: ?anyerror = null;
-    var server = try io.concurrent(serve, .{ gpa, listener, &server_err });
-    server.await(io);
-    if (server_err) |err| return err;
-}
-
-/// Accept the one circuit Tor forwards, publish the Greeter, and serve until the
-/// partner hangs up.
-fn serve(gpa: std.mem.Allocator, listener: *onion.Listener, out_err: *?anyerror) void {
-    var scaffold = harness.PeerScaffold.init(gpa, frame_cap) catch |err| {
-        out_err.* = err;
-        return;
-    };
-    defer scaffold.deinit();
-
-    var session = driver.acceptVia(
-        gpa,
-        listener.asNetlayer(),
-        &scaffold.peer,
-        .ephemeral,
-        scaffold.read_buf,
-        scaffold.write_buf,
-        .{
-            .handshake = .{ .ms = 60_000 },
-            .settle = .{ .ms = 60_000 },
+    const server = try driver.listen(gpa, io, .{
+        .symbols = &.{.onion},
+        .onion = .{
+            .socks = try net.tcp.parseDesignator(socks),
+            .control = try net.tcp.parseDesignator(control),
+            .auth = .{ .cookie = cookie },
+            .service_key = service_key,
         },
-    ) catch |err| {
-        out_err.* = err;
-        return;
-    };
-    defer session.deinit();
+    }, model.transport.onion, .{ .designator = "" }, .ephemeral, opts);
+    defer server.deinit();
+    var id_buf: [128]u8 = undefined;
+    const restored_id = try server.localDesignator(&id_buf);
+    if (!std.mem.eql(u8, restored_id, expected_service_id))
+        return error.RestoredServiceChangedAddress;
+    std.debug.print("onion-interop: fresh server process restored ocapn://{s}.onion\n", .{restored_id});
 
-    _ = session.publish(swiss, Greeter, .{}) catch |err| {
-        out_err.* = err;
-        return;
-    };
-    session.serve() catch |err| {
-        out_err.* = err;
-    };
+    try serve(io, server, publish_budget_ms);
 }
 
 /// Dial the service through Tor, fetch the Greeter, and call it.
 fn dialAndGreet(
     gpa: std.mem.Allocator,
     io: std.Io,
-    res: *onion.Resident,
+    transports: driver.Transports,
     sturdyref: model.SturdyRef,
 ) !void {
-    var scaffold = try harness.PeerScaffold.init(gpa, frame_cap);
-    defer scaffold.deinit();
-
-    const layers = [_]glowcap.net.netlayer.Netlayer{res.netlayer()};
-    var session = try connectWhileDescriptorPublishes(gpa, io, &layers, &scaffold, sturdyref.peer);
+    const session = try connectWhileDescriptorPublishes(gpa, io, transports, sturdyref.peer);
     defer session.deinit();
 
     const greeter = try session.fetch(sturdyref.swissnum);
-    try harness.expectStringReply(&session, gpa, greeter, "greet", &.{}, greeting);
+    try harness.expectStringReply(session, gpa, greeter, "greet", &.{}, greeting);
 }
 
-/// `connectVia`, retried while Tor answers "no such service".
+/// `driver.connect`, retried while Tor answers "no such service".
 ///
 /// A freshly minted v3 service is not reachable the instant `ADD_ONION` returns:
 /// the descriptor has to reach the hash ring the client will ask, and until it
@@ -235,27 +228,14 @@ fn dialAndGreet(
 fn connectWhileDescriptorPublishes(
     gpa: std.mem.Allocator,
     io: std.Io,
-    layers: []const glowcap.net.netlayer.Netlayer,
-    scaffold: *harness.PeerScaffold,
+    transports: driver.Transports,
     locator: model.PeerLocator,
-) !driver.BlockingSession {
+) !*driver.Session {
     const deadline = harness.deadlineAfter(io, publish_budget_ms);
     var attempts: usize = 0;
     while (true) {
         attempts += 1;
-        return driver.connectVia(
-            gpa,
-            layers,
-            &scaffold.peer,
-            locator,
-            .ephemeral,
-            scaffold.read_buf,
-            scaffold.write_buf,
-            .{
-                .handshake = .{ .ms = 60_000 },
-                .settle = .{ .ms = 60_000 },
-            },
-        ) catch |err| switch (err) {
+        return driver.connect(gpa, io, transports, locator, .ephemeral, opts) catch |err| switch (err) {
             error.ConnectionRefused, error.ConnectionLost, error.NetworkUnreachable => {
                 if (harness.expired(io, deadline)) {
                     std.debug.print(

@@ -343,7 +343,7 @@ fn checkReferenceSizing(behavior: @import("loam_access").hosting.ContentBehavior
 fn checkOwnershipAndWorkers(backend: *n.GlowcapLoamLmdb, store: *c.GlowcapLoamStore, resource: c.GlowcapLoamResource) !void {
     const seed: [64]u8 = @splat(8);
     var host: ?*h.GlowcapHost = null;
-    try std.testing.expectEqual(shared.GLOWCAP_OK, h.glowcap_host_new(&seed, seed.len, 4096, 1, shared.GLOWCAP_CODEC_SYRUP, shared.GLOWCAP_CAPTP_V1_0, shared.GLOWCAP_FEATURE_FULL, 0, &host));
+    try std.testing.expectEqual(shared.GLOWCAP_OK, h.glowcap_host_new(&seed, seed.len, 4096, 1, shared.GLOWCAP_CODEC_SYRUP, shared.GLOWCAP_CAPTP_V1_0, shared.GLOWCAP_FEATURE_FULL, 0, 1, &host));
     const continuations = @import("loam_continuations.zig");
     var continuation_probe: continuations.Probe = .{ .host = host.? };
     const methods = continuations.methods;
@@ -476,7 +476,7 @@ test "Loam context allocator owns construction, refused attach and teardown" {
     const store_bytes = counter.live_bytes;
     const seed: [64]u8 = @splat(8);
     var host: ?*h.GlowcapHost = null;
-    try std.testing.expectEqual(shared.GLOWCAP_OK, h.glowcap_host_new(&seed, seed.len, 4096, 1, shared.GLOWCAP_CODEC_SYRUP, shared.GLOWCAP_CAPTP_V1_0, shared.GLOWCAP_FEATURE_FULL, 0, &host));
+    try std.testing.expectEqual(shared.GLOWCAP_OK, h.glowcap_host_new(&seed, seed.len, 4096, 1, shared.GLOWCAP_CODEC_SYRUP, shared.GLOWCAP_CAPTP_V1_0, shared.GLOWCAP_FEATURE_FULL, 0, 1, &host));
     const methods = [_]c.GlowcapLoamMethod{.{ .verb = "get", .verb_len = 3, .retry = 0 }};
     const contents = [_]c.GlowcapLoamContent{.{ .schema = 7, .version = 1, .context = null, .methods = &methods, .method_count = 1, .requirement = requirements, .invoke = invoke }};
     var attachment: ?*c.GlowcapLoamAttachment = null;
@@ -518,7 +518,7 @@ fn checkCallbackBinding(store: *c.GlowcapLoamStore, content_id: @import("loam_co
     const access = @import("loam_access");
     const seed: [64]u8 = @splat(8);
     var host: ?*h.GlowcapHost = null;
-    try std.testing.expectEqual(shared.GLOWCAP_OK, h.glowcap_host_new(&seed, seed.len, 4096, 1, shared.GLOWCAP_CODEC_SYRUP, shared.GLOWCAP_CAPTP_V1_0, shared.GLOWCAP_FEATURE_FULL, 0, &host));
+    try std.testing.expectEqual(shared.GLOWCAP_OK, h.glowcap_host_new(&seed, seed.len, 4096, 1, shared.GLOWCAP_CODEC_SYRUP, shared.GLOWCAP_CAPTP_V1_0, shared.GLOWCAP_FEATURE_FULL, 0, 1, &host));
     defer std.debug.assert(h.glowcap_host_release(host) == shared.GLOWCAP_OK);
     var probe: BindingProbe = .{};
     const methods = [_]c.GlowcapLoamMethod{.{ .verb = "get", .verb_len = 3, .retry = 0 }};

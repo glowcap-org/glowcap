@@ -284,9 +284,12 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
 
         fn tryRead(ctx: *anyopaque, id: usize, buf: []u8) isize {
             const self = of(ctx);
-            defer self.pump();
             const conn = self.conns.getPtr(id) orelse return -1;
             if (conn.close != .open) return -1;
+            // Turn waiting completions into held bytes before answering, as
+            // `lend` does, so a receive that landed since the last pump is
+            // copied now instead of costing one would-block turn.
+            if (conn.recv != .holding) self.pump();
             switch (conn.recv) {
                 .holding => |*held| {
                     const bytes = held.comp.borrowed.recvBytes().?;
@@ -298,6 +301,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
                         conn.recv = .idle;
                         self.recycle(spent);
                         self.armRecv(id, conn);
+                        self.pump();
                     }
                     return @intCast(n);
                 },
@@ -305,6 +309,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
                 .failed => return -1,
                 .idle => {
                     self.armRecv(id, conn);
+                    self.pump();
                     return resident_mod.would_block;
                 },
                 .armed, .starved => return resident_mod.would_block,
@@ -463,7 +468,8 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
 
         /// Keeps the exact cause in the chain and classifies it on the
         /// closed retry axis. A cause outside that axis is a lost connection,
-        /// except an unroutable locator, which no retry repairs.
+        /// except an unroutable locator and a provider that broke its contract
+        /// or lacks the verb, which no retry repairs.
         fn dialFailure(err: anyerror) netlayer.DialFailure {
             const classification: netlayer.DialError = switch (err) {
                 error.InvalidAddress,
@@ -478,6 +484,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
                 error.OutOfMemory,
                 => |known| known,
                 error.UnknownTransport, error.AddressNotAvailable => error.InvalidAddress,
+                error.ProviderContract, error.OperationUnsupported => error.InvalidOptions,
                 else => error.ConnectionLost,
             };
             return .fromChain(classification, .init(err));

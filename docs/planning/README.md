@@ -46,7 +46,7 @@ through the consumer.
 | Publication | Follow the maintainer account steps in the [maintainability and security plan](../roadmap.md#open-obligations-from-retired-plans), then exact-commit release evidence and archive publication. These external actions do not block local engineering. |
 | Crypto-version transition | Resume when the upstream wire contract is agreed. The upstream watch owns that condition. |
 | A2A | Deferred by ADR-0084. Do not expand it while picking up ready work. |
-| Runtime semantics | Local sends commit with the turn (ADR-0191) and far sends retract with a failed turn (ADR-0194). The [one I/O runtime plan](one-io-runtime.md) carries ADR-0193's remaining batches. |
+| Runtime semantics | Local sends commit with the turn (ADR-0191), far sends retract with a failed turn (ADR-0194), and one runtime owns dial retry and the release-on-drop setting (ADR-0193). |
 
 OS portability and target validation are outside this agent sequence, but
 support on a target is not claimed without them. The [roadmap](../roadmap.md)
@@ -123,4 +123,3 @@ governs evidence, planning cleanup and integration into `dev`.
 | --- | --- |
 | OCapN crypto-version transition | [Protocol plan](ocapn-crypto-version-handshake.md), waiting on [upstream](../upstream-watch.md). |
 | A2A facade | [Historical design sketch](glowcap-a2a-on-captp-design.md), deferred by ADR-0084. |
-| One I/O runtime | [Active plan](one-io-runtime.md): retire `BlockingSession`, runtime dial retry, a Zig Loam worker, release on drop as a Host option. |

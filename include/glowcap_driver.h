@@ -184,7 +184,10 @@ int32_t glowcap_driver_has_transport(GlowcapDriverLoop *loop, const uint8_t *tra
    provider defaults; a payload is interpreted only by the selected provider.
    Pre-admission failures return directly and mint no operation id. After admission,
    transport completion and the CapTP handshake advance through step; OPENED or
-   OPEN_FAILED carries the returned operation id. */
+   OPEN_FAILED carries the returned operation id. A transient transport fault
+   parks the dial for GLOWCAP_DISCOVERY_DIAL_RETRY_MS and dials again, up to
+   GLOWCAP_DISCOVERY_DIAL_MAX_ATTEMPTS attempts within the handshake deadline;
+   OPEN_FAILED carries a permanent fault or the exhausted budget. */
 int32_t glowcap_driver_dial(GlowcapDriverLoop *loop, const GlowcapLocatorView *locator, const GlowcapTransportOperationOptions *options, uint64_t *out_operation_id);
 /* Begin adoption of one externally established provider connection. Pre-admission failures return directly and mint no operation id. The subject is interpreted only by the provider registered under transport. role selects the Host/session half; after admission, OPENED or OPEN_FAILED carries the returned operation id. */
 int32_t glowcap_driver_adopt_external(GlowcapDriverLoop *loop, const uint8_t *transport, size_t transport_len, uint64_t subject, uint32_t role, uint64_t *out_operation_id);

@@ -270,8 +270,9 @@ differs.
 
 # Scale: many connections, one thread
 
-The blocking path uses one OS thread per connection. To serve many, a driver loop
-drives every connection from one readiness descriptor
+A session from `connect` runs its own runtime on the calling thread. To serve
+many sessions on one thread, one Host drives every connection from one
+readiness descriptor
 ([ADR-0057](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0057-iroh-completion-loop-bridge.md)).
 [Performance]($link.page('performance')) measures the serial and readiness-loop
 paths. iroh's memory is separate from glowcap's core session state.

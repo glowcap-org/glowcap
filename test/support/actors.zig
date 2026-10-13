@@ -1,7 +1,8 @@
-//! Canonical scenario actors for the driver and transport tests.
-//! Consumers: `test/driver/blocking_session/`,
-//! `test/driver/session_target_test.zig`, `test/driver/inproc_netlayer_test.zig`,
-//! `test/driver/keyed_tcp_restart_test.zig`, `test/driver/pluggability_test.zig`.
+//! Canonical scenario actors for the driver and transport tests under
+//! `test/driver/`: the one-verb greeter in both its wire-tier `actors.Turn`
+//! form (byte-fed `Served` hosts and `driver.spawnAt`) and its owning-tier
+//! `driver.HostTurn` form (`driver.Session.publish` and `spawn`), and the
+//! counting target the budget and reclaim scenarios drive.
 
 const std = @import("std");
 const glowcap = @import("glowcap");

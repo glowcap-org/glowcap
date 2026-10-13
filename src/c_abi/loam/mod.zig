@@ -111,6 +111,7 @@ pub const embedding = struct {
     pub const Store = common.Store;
     pub const Attachment = attached.Attachment;
     pub const Work = works.Work;
+    pub const Worker = works.Worker;
     pub const store = common.store;
     pub const attachment = attached.attachment;
     pub const work = works.from;
@@ -190,7 +191,7 @@ pub fn glowcap_loam_work_complete(raw: ?*GlowcapLoamWork, out_completed: ?*u32) 
     const target = out_completed orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     target.* = 0;
     const work = works.from(raw) catch |err| return common.code(err);
-    defer target.* = @intFromBool(work.completed);
+    defer target.* = @intFromBool(work.slot.completed);
     work.complete() catch |err| return common.code(err);
     if (work.owner.store.value.phase == .uncertain) return GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED;
     return shared.GLOWCAP_OK;
@@ -337,8 +338,8 @@ pub const GLOWCAP_LOAM_ERR_APPLICATION: i32 = -44;
 pub fn glowcap_loam_work_report_unknown(raw: ?*GlowcapLoamWork) callconv(.c) i32 {
     shared.lastErrorClear();
     const work = works.from(raw) catch |err| return common.code(err);
-    if (work.completed or work.request != .write) return common.code(error.StaleCompletion);
-    work.result = .{ .write = .unknown };
+    if (work.slot.completed or work.slot.request != .write) return common.code(error.StaleCompletion);
+    work.slot.result = .{ .write = .unknown };
     return shared.GLOWCAP_OK;
 }
 
@@ -386,8 +387,8 @@ fn policyValue(policy: ?*const GlowcapLoamPolicy, requirement: ?*const GlowcapLo
 pub fn glowcap_loam_work_report_unstarted(raw: ?*GlowcapLoamWork) callconv(.c) i32 {
     shared.lastErrorClear();
     const work = works.from(raw) catch |err| return common.code(err);
-    if (work.completed or work.result != null) return common.code(error.StaleCompletion);
-    work.result = switch (work.request) {
+    if (work.slot.completed or work.slot.result != null) return common.code(error.StaleCompletion);
+    work.slot.result = switch (work.slot.request) {
         .read => .{ .read = .{ .failed = error.StorageFailure } },
         .write => .{ .write = .{ .unchanged = error.WriteNotCommitted } },
         .lookup => .{ .lookup = .{ .failed = error.StorageFailure } },

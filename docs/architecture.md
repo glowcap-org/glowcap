@@ -81,9 +81,8 @@ embeds glowcap behind another runtime.
 
 | API | Use it when |
 | --- | --- |
-| `driver.Session` | You want one application-facing session with blocking calls, backed by a connection its `driver.HostRuntime` owns. Handoffs are redeemed before a call returns. |
-| `driver.HostRuntime` | You want one identity across several file-descriptor-backed sessions. |
-| `driver.BlockingSession` | You own the connection and buffers, or your transport has no pollable descriptor (an in-process pipe, or a WebRTC peer you already opened). Values are actor-layer references rather than opaque host capabilities. A call may return a handoff for you to redeem. |
+| `driver.Session` | You want one application-facing session with blocking calls, backed by a connection its `driver.HostRuntime` owns. Handoffs are redeemed before a call returns. A transport with no pollable descriptor joins as a multiplexed resident. |
+| `driver.HostRuntime` | You want one identity across several sessions over the transports it serves. |
 | `driver_core.Host` | Your runtime feeds bytes and drains actions without letting glowcap own I/O. Native bindings hand this Host to the driver. The browser package feeds it itself. |
 
 Consumers reach Host through `driver.core`. The files under `host/` are
@@ -174,9 +173,9 @@ uses one bounded spill buffer, so no connection retains a maximum-sized buffer.
 Read buffers are pooled across each completion resident. Outbound backpressure
 stops reads when queued reply bytes cross their limit.
 
-The blocking pump runs on one fiber. Applications that must keep reading
-while a partner streams use `Session` or `Server`. Session and HostRuntime
-accept two kinds of provider through one runtime. A stream provider gives each
+A `Session` keeps reading while a partner streams: each of its blocking
+waits is one `HostRuntime` pump that services every wire. Session and
+HostRuntime accept two kinds of provider through one runtime. A stream provider gives each
 connection its own readiness descriptor and nonblocking reads and writes, and
 runs on `net.external_completion`. A multiplexed provider carries many
 connections over one endpoint. A completion backend joins HostRuntime the same
@@ -228,7 +227,8 @@ amplification are separate decisions:
 | `driver.HostRuntime.Options.listener_setup` / `GlowcapDriverOptions.listener_setup_ms` | Maximum time one admitted listener construction may remain pending before its terminal failure. | 10 seconds |
 | `driver_core.Host.Options.limits.max_frame_bytes` | Protocol admission for every peer the byte-fed host creates. | 1 MiB |
 | `SessionLimits.max_retained_sent_answer_bytes` / `GlowcapSessionLimitOptions.max_retained_sent_answer_bytes` | Owned resolutions retained by sent inbound-answer rows after they leave transient flow accounting. | 16 MiB per session |
-| `driver_core.Host.Options.local_turn_budget` / `glowcap_host_new(... local_turn_budget ...)` | Local actor turns one session may amplify into during a drive before the Host condemns that session. | `driver.core.default_loop_local_turn_budget` (4096). `null` in Zig or `GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED` in C turns the cap off. A bare `Served`, as in `BlockingSession`, is unbounded. |
+| `driver_core.Host.Options.local_turn_budget` / `glowcap_host_new(... local_turn_budget ...)` | Local actor turns one session may amplify into during a drive before the Host condemns that session. | `driver.core.default_loop_local_turn_budget` (4096). `null` in Zig or `GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED` in C turns the cap off. A bare `Served` is unbounded. |
+| `driver_core.Host.Options.release_on_drop` / `glowcap_host_new(... release_on_drop ...)`, read with `glowcap_host_release_on_drop` and set with `glowcap_host_set_release_on_drop` | Whether a far capability a binding projects releases its Host retain when the language's scope end for it is observed. The Host stores the setting and attaches no behavior to it ([ADR-0192](decisions/adr/ADR-0192-rust-releases-on-drop-by-default.md)). | `true` in Zig. Rust passes 1. TypeScript, Python, and Racket pass 0, because their release rides a finalizer, and keep the per-session opt-in. |
 | Raw transport `max_frame_bytes` / `maxFrameBytes` / `max-frame` default | Admission for direct blocking frame-shuttle handles before a Host owns the session. | `GLOWCAP_RAW_TRANSPORT_DEFAULT_FRAME_CAP` (4 KiB) |
 | `net.completion.BackendOptions.read_buffer_bytes` | Each buffer in the loop-wide shared read pool. | 16 KiB |
 | `net.completion.Options.outbound_high_water_bytes` | Pending outbound bytes before one connection's reads park. | 64 KiB |
@@ -241,9 +241,11 @@ amplification are separate decisions:
 loop builds. `initWithBackend` accepts only runtime policy because the supplied
 backend already owns its resource configuration.
 
-`driver.DialRetry` adds reconnect policy above the loop. It classifies
-dial failures, opens a new CapTP session, and applies its own discovery budget.
-The protocol core has no reconnect policy.
+`HostRuntime` retries a staged dial above the loop on `driver.DialPolicy`,
+which classifies dial failures and sets the discovery budget. A transient
+fault parks the open for one interval and re-issues the dial on the same
+session, and a permanent fault fails the open at once. The protocol core has
+no reconnect policy.
 
 ## Session tables
 

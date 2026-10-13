@@ -157,14 +157,12 @@ fn call(host: *driver.Host, attachment: *hosting.Attachment, db: *Lmdb, card_cap
     var answer: Answer = .{};
     const target = host.localActorFor(card_cap) orelse return error.NotLocal;
     _ = try host.vat.sendObservedFromIngress(.local, target, .{ .verb = verb, .args = &.{} }, .{ .ctx = &answer, .func = Answer.record });
+    var slot: [1]hosting.Worker.Slot = undefined;
+    var worker: hosting.Worker = .init(&slot);
     for (0..64) |_| {
         _ = try host.vat.driveIngressBudgeted(.local, 64);
         try attachment.advance();
-        while (try attachment.nextWork()) |work| switch (work) {
-            .read => |request| try attachment.completeRead(request.ticket, db.read(request)),
-            .lookup => |request| try attachment.completeLookup(request.ticket, db.lookup(request)),
-            .write => |batch| try attachment.completeWrite(batch.ticket, db.commit(batch)),
-        };
+        try worker.drive(attachment, db);
         if (!attachment.hasPendingWork()) break;
     } else return error.DidNotSettle;
     return answer.value orelse error.NoReply;

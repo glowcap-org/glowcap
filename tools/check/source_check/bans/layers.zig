@@ -112,38 +112,38 @@ pub const readme_c_verb_names: []const Ban = &.{
     },
 };
 
-/// Discovery-posture dial defaults are shared by native `driver.DialRetry` and
-/// byte-fed binding connectors that see them through the Host C ABI. The values
-/// live in `driver_core`, `driver` owns retry execution and `c_abi_host` only
-/// projects the defaults.
+/// Discovery-posture dial defaults are shared by the HostRuntime's dial
+/// retry and byte-fed binding connectors that see them through the Host C
+/// ABI. The values live in `driver_core`, the runtime pump owns retry
+/// execution (ADR-0193) and `c_abi_host` only projects the defaults.
 pub const discovery_dial_budget_rows: []const Ban = &.{
     .{
         .where = .{ .file = "src/driver/core/vocab.zig" },
         .kind = .require,
         .needles = &.{"pub const discovery_retry_ms: u64 = 3_000;"},
         .check = "discovery-dial-budget",
-        .why = "driver_core owns the shared discovery-posture retry interval consumed by driver.DialRetry and the Host C ABI",
+        .why = "driver_core owns the shared discovery-posture retry interval consumed by the HostRuntime dial retry and the Host C ABI",
     },
     .{
         .where = .{ .file = "src/driver/core/vocab.zig" },
         .kind = .require,
         .needles = &.{"pub const discovery_max_attempts: u32 = 24;"},
         .check = "discovery-dial-budget",
-        .why = "driver_core owns the shared discovery-posture attempt budget consumed by driver.DialRetry and the Host C ABI",
+        .why = "driver_core owns the shared discovery-posture attempt budget consumed by the HostRuntime dial retry and the Host C ABI",
     },
     .{
         .where = .{ .file = "src/driver/dial_retry.zig" },
         .kind = .require,
         .needles = &.{"pub const discovery_retry_ms: u64 = driver_core.discovery_retry_ms;"},
         .check = "discovery-dial-budget",
-        .why = "driver.DialRetry projects the shared discovery retry interval instead of restating the value",
+        .why = "driver.DialPolicy projects the shared discovery retry interval instead of restating the value",
     },
     .{
         .where = .{ .file = "src/driver/dial_retry.zig" },
         .kind = .require,
         .needles = &.{"pub const discovery_max_attempts: u32 = driver_core.discovery_max_attempts;"},
         .check = "discovery-dial-budget",
-        .why = "driver.DialRetry projects the shared discovery attempt budget instead of restating the value",
+        .why = "driver.DialPolicy projects the shared discovery attempt budget instead of restating the value",
     },
     .{
         .where = .{ .file = "src/c_abi/host/mod.zig" },

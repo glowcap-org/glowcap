@@ -70,7 +70,7 @@ test "libglowcap_host: two byte-fed hosts open a keyed session through the C sur
     // library allocator, so both constructors are exercised.
     var dialer: ?*cd.GlowcapHost = null;
     const dialer_seed = hostSeed(0x0a);
-    try expectOk(cd.glowcap_host_new_in(context, &dialer_seed, dialer_seed.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, &dialer));
+    try expectOk(cd.glowcap_host_new_in(context, &dialer_seed, dialer_seed.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, 1, &dialer));
     defer _ = cd.glowcap_host_release(dialer);
     const acceptor = try newHost(0x0b);
     defer _ = cd.glowcap_host_release(acceptor);
@@ -450,11 +450,30 @@ test "libglowcap_host: a projected reference releases after its home session clo
 test "libglowcap_host: a nonzero local_turn_budget constructs a host (ADR-0076)" {
     var host: ?*cd.GlowcapHost = null;
     const seed = hostSeed(0x41);
-    try expectOk(cd.glowcap_host_new(&seed, seed.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 64, &host));
+    try expectOk(cd.glowcap_host_new(&seed, seed.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 64, 1, &host));
     defer _ = cd.glowcap_host_release(host);
     // 0 remains the unbounded default; a second host with 0 still constructs.
     const unbounded = try newHost(0x42);
     defer _ = cd.glowcap_host_release(unbounded);
+}
+
+test "libglowcap_host: release_on_drop is stored at construction and changed by its set verb (ADR-0192)" {
+    var host: ?*cd.GlowcapHost = null;
+    const seed = hostSeed(0x44);
+    try expectOk(cd.glowcap_host_new(&seed, seed.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, 0, &host));
+    defer _ = cd.glowcap_host_release(host);
+    var enabled: u32 = 7;
+    try expectOk(cd.glowcap_host_release_on_drop(host, &enabled));
+    try std.testing.expectEqual(@as(u32, 0), enabled);
+    try expectOk(cd.glowcap_host_set_release_on_drop(host, 1));
+    try expectOk(cd.glowcap_host_release_on_drop(host, &enabled));
+    try std.testing.expectEqual(@as(u32, 1), enabled);
+    try expectOk(cd.glowcap_host_set_release_on_drop(host, 0));
+    try expectOk(cd.glowcap_host_release_on_drop(host, &enabled));
+    try std.testing.expectEqual(@as(u32, 0), enabled);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NULL_POINTER, cd.glowcap_host_release_on_drop(null, &enabled));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NULL_POINTER, cd.glowcap_host_release_on_drop(host, null));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NULL_POINTER, cd.glowcap_host_set_release_on_drop(null, 1));
 }
 
 test "libglowcap_host: a zero frame cap is refused before allocation" {
@@ -462,7 +481,7 @@ test "libglowcap_host: a zero frame cap is refused before allocation" {
     const seed = hostSeed(0x43);
     try std.testing.expectEqual(
         c.GLOWCAP_ERR_INVALID_ARGUMENT,
-        cd.glowcap_host_new(&seed, seed.len, 0, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, &host),
+        cd.glowcap_host_new(&seed, seed.len, 0, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, 1, &host),
     );
     try std.testing.expect(host == null);
 }
@@ -471,11 +490,11 @@ test "libglowcap_host: the host codec option carries a Cap'n Proto session end t
     // Selectors outside their C ABI families are refused before allocation.
     var refused: ?*cd.GlowcapHost = null;
     const seed = hostSeed(0x31);
-    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cd.glowcap_host_new(&seed, seed.len, frame_cap, 1, c.GLOWCAP_CODEC_UNKNOWN, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, &refused));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cd.glowcap_host_new(&seed, seed.len, frame_cap, 1, c.GLOWCAP_CODEC_UNKNOWN, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, 1, &refused));
     try std.testing.expect(refused == null);
-    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cd.glowcap_host_new(&seed, seed.len, frame_cap, 1, 99, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, &refused));
-    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cd.glowcap_host_new(&seed, seed.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, 99, c.GLOWCAP_FEATURE_FULL, 0, &refused));
-    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cd.glowcap_host_new(&seed, seed.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL + 1, 0, &refused));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cd.glowcap_host_new(&seed, seed.len, frame_cap, 1, 99, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, 1, &refused));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cd.glowcap_host_new(&seed, seed.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, 99, c.GLOWCAP_FEATURE_FULL, 0, 1, &refused));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cd.glowcap_host_new(&seed, seed.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL + 1, 0, 1, &refused));
 
     const client = try newHostWith(0x31, c.GLOWCAP_CODEC_CAPNP);
     defer _ = cd.glowcap_host_release(client);

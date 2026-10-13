@@ -125,15 +125,21 @@ pub fn completeWrite(owner: *h.Attachment, ticket: core.Ticket, outcome: core.Ou
     }
 }
 
+/// True while this attachment's own write is uncertain and waits for
+/// `recoveryBatch` and `resolve`. A sibling's uncertain write is not this one.
+pub fn awaitsRecovery(owner: *const h.Attachment) bool {
+    return if (owner.writing) |writing| writing.uncertain else false;
+}
+
 pub fn recoveryBatch(owner: *h.Attachment) !core.Batch {
     try owner.topLevel();
-    if (owner.writing == null or !owner.writing.?.uncertain) return error.WrongPhase;
+    if (!awaitsRecovery(owner)) return error.WrongPhase;
     return owner.store.recoveryBatch();
 }
 
 pub fn resolve(owner: *h.Attachment, ticket: core.Ticket, resolution: core.Resolution) !void {
     try owner.topLevel();
-    if (owner.writing == null or !owner.writing.?.uncertain) return error.WrongPhase;
+    if (!awaitsRecovery(owner)) return error.WrongPhase;
     try owner.store.resolve(ticket, resolution);
     if (resolution == .committed) {
         publication.releaseRetirements(owner, false);

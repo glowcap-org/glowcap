@@ -230,6 +230,16 @@ test "loam read scope facade constructor refusal releases cache entries before r
     for (0..allocations) |index| _ = try endpointRefusal(index);
 }
 
+/// Execute storage work for calls that only read.
+fn readsOnly(fixture: *f.Fixture, worker: *f.hosting.Worker) !void {
+    while (try worker.next(fixture.attached, false)) |slot| {
+        if (slot.request == .write) return error.UnexpectedWrite;
+        try f.hosting.Worker.run(slot, &fixture.data.backend);
+        try worker.complete(slot, fixture.attached);
+        try worker.release(slot);
+    }
+}
+
 test "loam read scope mediates foreign recursive results and preserves identity across settlement retry" {
     const host_support = @import("../../support/core_host.zig");
     const pairs = @import("../../support/host_pair.zig");
@@ -271,17 +281,15 @@ test "loam read scope mediates foreign recursive results and preserves identity 
     defer result.deinit();
     // Stop after the wire result arrives, before the shared source recheck and
     // resolver settlement. The original reply remains under immutable custody.
+    var slot: [1]f.hosting.Worker.Slot = undefined;
+    var worker: f.hosting.Worker = .init(&slot);
     var completed = false;
     for (0..64) |_| {
         while (try exporter.nextAction()) |_| {}
         while (try fixture.host.nextAction()) |_| {}
         _ = try fixture.host.vat.driveIngressBudgeted(.local, 64);
         try fixture.attached.advance();
-        while (try fixture.attached.nextWork()) |work| switch (work) {
-            .read => |request| try fixture.attached.completeRead(request.ticket, fixture.data.backend.read(request)),
-            .lookup => |request| try fixture.attached.completeLookup(request.ticket, fixture.data.backend.lookup(request)),
-            .write => return error.UnexpectedWrite,
-        };
+        try readsOnly(&fixture, &worker);
         try fixture.host.flushSession(pair.a);
         try exporter.flushSession(pair.b);
         try pairs.pumpToQuiescence(&.{pair});
@@ -309,11 +317,7 @@ test "loam read scope mediates foreign recursive results and preserves identity 
             refused = true;
             break;
         };
-        while (try fixture.attached.nextWork()) |work| switch (work) {
-            .read => |request| try fixture.attached.completeRead(request.ticket, fixture.data.backend.read(request)),
-            .lookup => |request| try fixture.attached.completeLookup(request.ticket, fixture.data.backend.lookup(request)),
-            .write => return error.UnexpectedWrite,
-        };
+        try readsOnly(&fixture, &worker);
     }
     try std.testing.expect(refused);
     try std.testing.expect(result.result() == .pending);

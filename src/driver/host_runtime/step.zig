@@ -225,8 +225,8 @@ pub fn nudgeIfWorkRemains(self: *HostRuntime) void {
 /// next zero-timeout step: milliseconds until the nearest pending-work
 /// deadline (the close grace, a session's close grace, a dial or listener
 /// setup budget), clamped at zero, or -1 when no finite deadline is
-/// pending and readiness alone advances the loop. The blocking tiers get
-/// the same bound applied inside their own park.
+/// pending and readiness alone advances the loop. The blocking face applies
+/// the same bound inside its own park.
 pub fn stepWaitMs(self: *const HostRuntime) i32 {
     return clampTimeoutToPendingWork(self, -1);
 }
@@ -238,11 +238,21 @@ pub fn clampTimeoutToPendingWork(self: *const HostRuntime, timeout_ms: i32) i32 
     const core_wait = self.core.closeWaitMs(now_ms);
     var nearest_wait: ?i64 = if (core_wait >= 0) core_wait else null;
     for (self.pending_opens.items) |row| {
-        const deadline = row.deadline_ms orelse continue;
-        const wait = if (deadline <= now_ms)
+        var deadline = row.deadline_ms;
+        // A retrying dial also parks until its interval elapses. The wait
+        // must wake for that due even when no handshake deadline binds.
+        if (row.stage == .retry_wait) {
+            const due = row.stage.retry_wait.due_ms;
+            deadline = if (deadline) |bound|
+                (if (bound < due) bound else due)
+            else
+                due;
+        }
+        const bound = deadline orelse continue;
+        const wait = if (bound <= now_ms)
             0
         else
-            std.math.sub(i64, deadline, now_ms) catch std.math.maxInt(i64);
+            std.math.sub(i64, bound, now_ms) catch std.math.maxInt(i64);
         if (nearest_wait == null or wait < nearest_wait.?) nearest_wait = wait;
     }
     if (self.nearest_carrier_close_ms) |deadline| {

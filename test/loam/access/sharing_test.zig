@@ -201,14 +201,18 @@ test "loam cold discovery shares managed durable-name preparation read and its t
         store.evict();
         var held_name: f.captures.CapturedString = .{};
         try client.send(child, "durable-name", &.{}, &held_name);
-        const descriptor_read = waiting: for (0..64) |_| {
+        const Worker = h.loam.hosting.Worker;
+        var slot: [1]Worker.Slot = undefined;
+        var worker: Worker = .init(&slot);
+        const descriptor = waiting: for (0..64) |_| {
             try server.attached.advance();
-            while (try server.attached.nextWork()) |work| {
-                const read = work.read;
-                const result = backend.read(read);
-                const view = try h.loam.core.RecordView.decode(read.buffer[0..result.found.length], store.limits.records, &h.schemas);
-                if (view.schema == h.loam.hosting.publication.schema.id) break :waiting read;
-                try server.attached.completeRead(read.ticket, result);
+            while (try worker.next(server.attached, false)) |work| {
+                try Worker.run(work, &backend);
+                const read = work.request.read;
+                const view = try h.loam.core.RecordView.decode(read.buffer[0..work.result.?.read.found.length], store.limits.records, &h.schemas);
+                if (view.schema == h.loam.hosting.publication.schema.id) break :waiting work;
+                try worker.complete(work, server.attached);
+                try worker.release(work);
             }
         } else return error.NoPublicationRead;
         var fetched: f.captures.CapturedRef = .{};
@@ -219,11 +223,11 @@ test "loam cold discovery shares managed durable-name preparation read and its t
         try server.attached.advance();
         // Discovery joins the existing preparation read instead of issuing one.
         try std.testing.expect((try server.attached.nextWork()) == null);
-        const result = backend.read(descriptor_read);
         if (corrupt) {
-            descriptor_read.buffer[0] ^= 1;
-            try std.testing.expectError(error.Corrupt, server.attached.completeRead(descriptor_read.ticket, result));
-        } else try server.attached.completeRead(descriptor_read.ticket, result);
+            descriptor.request.read.buffer[0] ^= 1;
+            try std.testing.expectError(error.Corrupt, worker.complete(descriptor, server.attached));
+        } else try worker.complete(descriptor, server.attached);
+        try worker.release(descriptor);
         try server.drain(&backend);
         try client.pump();
         if (corrupt) {

@@ -443,7 +443,9 @@ permits `glowcap_loam_work_release`. The caller must join the worker before
 completion or release, because a result flag does not prove another thread has
 retired.
 Unknown writes select recovery only after the original work is completed and
-released. Failed or unstarted recovery preserves the barrier.
+released. Failed or unstarted recovery preserves the barrier. Each work handle
+is one slot of the attachment's `hosting.Worker`, so C and Zig embeddings
+follow the same slot, recovery, and retirement rules.
 
 `glowcap_loam_advance` reports newly runnable Host work through `out_progress`,
 including a fetch emitted while reference preparation still waits. Drain that

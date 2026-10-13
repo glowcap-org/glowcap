@@ -44,8 +44,16 @@ export const hostS = lazySymbols(() => libPath("glowcap_host"), {
 	glowcap_host_archive_fingerprint: { parameters: [], result: U64 },
 	// Lifecycle. `outBuffers` marks the buffer params the callee writes, so
 	// the wasm adapter copies back only true outputs (dlopen ignores it).
-	glowcap_host_new: { parameters: [B, U, U, "u32", "u32", "u32", "u32", "u32", B], result: I, outBuffers: [8] },
-	glowcap_host_new_in: { parameters: [P, B, U, U, "u32", "u32", "u32", "u32", "u32", B], result: I, outBuffers: [9] },
+	glowcap_host_new: {
+		parameters: [B, U, U, "u32", "u32", "u32", "u32", "u32", "u32", B],
+		result: I,
+		outBuffers: [9],
+	},
+	glowcap_host_new_in: {
+		parameters: [P, B, U, U, "u32", "u32", "u32", "u32", "u32", "u32", B],
+		result: I,
+		outBuffers: [10],
+	},
 	glowcap_host_diagnostic_id: { parameters: [P, B], result: I, outBuffers: [1] },
 	glowcap_host_close: { parameters: [P, B, "i64"], result: I, outBuffers: [] },
 	glowcap_host_close_progress: { parameters: [P, "i64", B], result: I, outBuffers: [2] },

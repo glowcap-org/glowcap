@@ -147,7 +147,7 @@ pub fn newHostWithProfile(seed_byte: u8, codec: u32, captp_version: u32) !?*cd.G
 pub fn newHostWithFeatures(seed_byte: u8, codec: u32, captp_version: u32, features: u32) !?*cd.GlowcapHost {
     var host: ?*cd.GlowcapHost = null;
     const seed = hostSeed(seed_byte);
-    try expectOk(cd.glowcap_host_new(&seed, seed.len, frame_cap, 1, codec, captp_version, features, 0, &host));
+    try expectOk(cd.glowcap_host_new(&seed, seed.len, frame_cap, 1, codec, captp_version, features, 0, 1, &host));
     return host;
 }
 

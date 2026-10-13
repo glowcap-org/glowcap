@@ -422,10 +422,6 @@ In Zig the profile is `glowcap.net.tcp.noise`. `driver.connect` and
 all four native bindings dial and listen through the TCP provider package,
 which owns `noise-tcp`, `keyed-tcp`, and testing `tcp` together.
 
-`BlockingSession` borrows an already-open byte stream and cannot apply the
-sealed-channel protocol, so its constructors reject `noise-tcp`. Use
-`driver.Session` or the C driver loop for Noise connections.
-
 # Through the relay
 
 `noise-relay` is the same sealed channel over the

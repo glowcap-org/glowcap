@@ -18,6 +18,26 @@ const capability_promise = @import("../../capability_promise.zig");
 const vocab = @import("../../vocab.zig");
 const host_pump = @import("../pump.zig");
 
+/// The far reference `arg` names, or null when `arg` is not a plain far
+/// capability: a break, a promise, a near, or a non-reference value. The one
+/// unwrap of the `reference → far` shape the foreign-proxy, enroll, and enliven
+/// paths each read off a fulfilled resolution.
+/// `pub` for the Host-core siblings, not for embedders. Host-core internal.
+pub fn asFarRef(arg: model.Argument) ?@FieldType(model.Reference, "far") {
+    if (arg != .reference or arg.reference != .far) return null;
+    return arg.reference.far;
+}
+
+/// The Vat-local id carried by `ref`. `pub` only for Host-core siblings: the
+/// total result keeps general `actors.Ref` inputs from becoming an implicit
+/// local-only precondition at a public Host verb.
+pub fn localActorId(ref: actors.Ref) actors.Error!u64 {
+    return switch (ref) {
+        .local => |id| id,
+        .far => actors.Error.NotLocal,
+    };
+}
+
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
 const HostError = host_mod.HostError;
@@ -150,7 +170,7 @@ fn retainLiveLocalCapability(self: *Host, actor_id: u64) !LocalRetain {
 /// its own Vat root. Repeated observations reuse that root and identity.
 pub fn retainLocalCapability(self: *Host, actor: actors.Ref) !capability.Ref {
     self.assertOwner();
-    const actor_id = try host_mod.localActorId(actor);
+    const actor_id = try localActorId(actor);
     // Vat retain is tolerant for relationships that outlive a restore. This
     // mint is not: no registry identity may be published for an actor that is
     // already gone.
@@ -166,7 +186,7 @@ pub fn retainLocalCapability(self: *Host, actor: actors.Ref) !capability.Ref {
 /// the final release reclaims it.
 pub fn liftLocalActor(self: *Host, actor: actors.Ref) !capability.Ref {
     self.assertOwner();
-    const actor_id = try host_mod.localActorId(actor);
+    const actor_id = try localActorId(actor);
     // Preflight before Registry mutation: `Vat.retainActor` and
     // `Vat.releaseActor` are tolerant no-ops for retired rows, while a Host
     // capability must never canonically name one.
@@ -251,7 +271,7 @@ pub fn retainReservedLocalCapability(
     actor: actors.Ref,
 ) capability.Ref {
     self.assertOwner();
-    const actor_id = host_mod.localActorId(actor) catch unreachable;
+    const actor_id = localActorId(actor) catch unreachable;
     const ref = self.capabilities.commitFreshLocal(reservation, actor_id);
     self.vat.retainActor(actor_id);
     return ref;
@@ -264,7 +284,7 @@ pub fn adoptReservedLocalCapability(
     actor: actors.Ref,
 ) capability.Ref {
     self.assertOwner();
-    return self.capabilities.commitFreshLocal(reservation, host_mod.localActorId(actor) catch unreachable);
+    return self.capabilities.commitFreshLocal(reservation, localActorId(actor) catch unreachable);
 }
 
 /// Re-scope an ABI-stored raw id to this Host. Resolution still validates the

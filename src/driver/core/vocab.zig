@@ -24,7 +24,7 @@ pub const Error = error{
     /// A `fetch` settled broken: the partner answered the bootstrap fetch with a
     /// break (an unpublished name, a refused handoff). The break reason is
     /// turn-borrowed and not retained here. A caller that needs it uses
-    /// `BlockingSession.fetchSettled`, which returns the reason in caller-owned
+    /// `driver.Session.fetchSettled`, which returns the reason in caller-owned
     /// memory.
     FetchBroken,
     /// A `fetch` fulfilled with something other than a far capability, so there
@@ -41,8 +41,8 @@ pub const Error = error{
     /// The OS entropy source could not fill a durable swiss mint (ADR-0098).
     MintEntropyFailed,
     /// A keyed handshake made no progress within its caller-set budget: the
-    /// partner accepted the socket but never spoke. The blocking
-    /// `BlockingSession` handshake breaks with this reason when its bounded
+    /// partner accepted the socket but never spoke. A `driver.connect` or
+    /// `Server.accept` handshake breaks with this reason when its bounded
     /// `handshake` budget elapses, instead of parking the fiber for the
     /// connection's life. A host-owned redeem dial reserves it for the same
     /// silent-exporter case (ADR-0081).
@@ -53,8 +53,9 @@ pub const Error = error{
     CloseTimedOut,
     /// A blocking answer-wait (`settle` / `call` / `fetch`) made no progress
     /// within its caller-set budget: the partner opened a session then stalled
-    /// without settling the vow. Bounded via `BlockingSession.settle`. Sibling
-    /// of `HandshakeTimedOut` for post-handshake waits (ADR-0076).
+    /// without settling the vow. Bounded by the session options' `settle`
+    /// budget. Sibling of `HandshakeTimedOut` for post-handshake waits
+    /// (ADR-0076).
     WaitTimedOut,
     /// A locator named a transport no registered netlayer hosts.
     UnknownTransport,
@@ -96,12 +97,6 @@ pub const Error = error{
     /// after `Server.close`. Close itself is idempotent. Every other operation
     /// refuses before touching the released runtime lease.
     ServerClosed,
-    /// The owning host face was asked to bind a session over a transport that
-    /// reports no pollable fd (inproc, a userspace stream). A
-    /// blocking multiplex cannot wait on a stream with no readiness signal.
-    /// The transport must supply a multiplexed resident or use another driver
-    /// whose readiness contract it can satisfy.
-    TransportNotPollable,
     /// `callReference` was given a target that is not an eventual-send target:
     /// a `sturdy`, `broken`, or bare `promise` reference. Only a near (local
     /// export) or far (partner-hosted) object reference is callable.
@@ -123,13 +118,6 @@ pub const Error = error{
     /// `driver_core.HostError.UnheldIdentity`, which the byte-fed tier raises
     /// for the same condition.
     UnheldIdentity,
-    /// A sealed-channel locator (`noise-*`, ADR-0107) reached the borrowing
-    /// blocking tier. The core Host runs the sealed channel, and
-    /// `BlockingSession` does not stand on one, so nothing here would seal
-    /// the wire. The open is refused rather than speaking cleartext CapTP
-    /// under a sealed name. Dial these through `driver.connect` /
-    /// `driver.listen` or any core-Host embedding.
-    SealedChannelRequiresHost,
 };
 
 /// The ordinary finite budget for a CapTP handshake after a byte channel opens.
@@ -139,8 +127,9 @@ pub const default_handshake_timeout_ms: i32 = 10_000;
 pub const default_handshake_budget: Budget = .{ .ms = default_handshake_timeout_ms };
 
 /// Shared discovery-posture dial defaults (pkarr / n0 DNS propagation).
-/// Attempts include the first dial. Sleeps happen only between transient
-/// failures. `driver.DialRetry` owns the retry executor above CapTP.
+/// Attempts include the first dial. Retry happens only between transient
+/// failures. The HostRuntime pump executes the retry policy above CapTP
+/// (ADR-0193).
 pub const discovery_retry_ms: u64 = 3_000;
 pub const discovery_max_attempts: u32 = 24;
 
@@ -158,8 +147,8 @@ pub const max_local_forward_hops: usize = 256;
 /// value that costs memory or
 /// speed, but a wait budget has a wrong value that costs the process. A
 /// partner can complete the socket connect and then say nothing at all, and
-/// an unbounded wait parks the caller on it forever, so the owning tier asks
-/// the question where it cannot be skipped.
+/// an unbounded wait parks the caller on it forever, so the session options
+/// ask the question where it cannot be skipped.
 ///
 /// `unbounded` stays available explicitly because an in-process pair and a
 /// harness that drives both ends want it. A `.ms` of zero or less
@@ -204,8 +193,8 @@ pub const unreachable_client_designator = "127.0.0.1:0";
 
 /// The durable-locator posture a driver half advertises in its keyed
 /// `op:start-session`. The session signing key is always drawn separately per
-/// connection. Every transport-neutral dial (`connectVia`) and accept
-/// (`acceptVia`) carries this posture explicitly: an ephemeral dialer has no
+/// connection. Every dial (`driver.connect`) carries this posture
+/// explicitly: an ephemeral dialer has no
 /// stable designator of its own, while a keyed peer names the durable
 /// designator its endpoint is reachable as.
 pub const Identity = union(enum) {
@@ -312,7 +301,7 @@ pub const PartnerIdentity = struct {
 /// reaching into the engine.
 pub const DurableProvenance = engine.DurableProvenance;
 
-/// The responder's durable-locator posture for `listen` / `acceptVia`. An
+/// The responder's durable-locator posture for `driver.listen`. An
 /// accepting host advertises its listener's bound designator, so unlike the
 /// dialer's `Identity` there is no designator to carry. `ephemeral` supplies no
 /// durable key. `keyed` supplies the caller-held endpoint key from which a
@@ -323,20 +312,21 @@ pub const AcceptIdentity = union(enum) {
     keyed: crypto.SecretKey,
 };
 
-/// The borrowing tier's handle to an eventual result: `actors.Vow`,
+/// The serve core's handle to an eventual result: `actors.Vow`,
 /// re-exported so a consumer holding only the driver vocabulary can name it
-/// without reaching into the actor layer. `BlockingSession.settleVow` drives
-/// it to a `Settled`. The owning tier returns a Host-accounted `driver.Promise`.
+/// without reaching into the actor layer. A `SettleCapture` drives it to a
+/// `Settled` inside a byte-fed drive. `driver.Session` returns a
+/// Host-accounted `driver.Promise`.
 pub const Vow = actors.Vow;
 
-/// A local actor bound to an export position, the borrowing tier's form
+/// A local actor bound to an export position, the serve core's form
 /// of "capability I host": `ref` is the vat-local reference, so the
 /// application can near-call or `send` to the actor it just published or
 /// spawned without redoing vat bookkeeping, and `nearRef()` returns the
 /// explicit wire reference the export position marshals to. This type lives
-/// on the serve core and the borrowing `BlockingSession` tier, where the
+/// on the serve core (`Served.publish` and `Served.spawn`), where the
 /// caller owns the peer and wire positions are the caller's own vocabulary.
-/// The owning host tier speaks the opaque Host-scoped `Capability` instead
+/// The Host speaks the opaque Host-scoped `Capability` instead
 /// (ADR-0096) and never surfaces these fields.
 pub const Exported = struct {
     /// The export position the session allocated for this actor.
@@ -390,12 +380,12 @@ pub const Settled = union(enum) {
     broken: []const u8,
     /// The answer fulfilled with a three-party introduction: a signed
     /// `desc:handoff-give` addressed to this session's session key. This
-    /// arm surfaces only on the borrowing `BlockingSession` tier, where
-    /// "no router" is the caller's choice. Every host-backed tier (the
-    /// owning face (ADR-0090), the Bridge, the bindings) claims the
-    /// give and redeems it itself, so its calls settle with the introduced
-    /// capability instead. The payload is materialized into the call's
-    /// allocator like any other outcome.
+    /// arm surfaces only on the byte-fed `Served` drive, where the caller
+    /// owns the loop and no router runs beneath it, so the caller redeems
+    /// the give. Every host-backed tier (the owning face (ADR-0090), the C
+    /// driver, the bindings) claims the give and redeems it itself, so its
+    /// calls settle with the introduced capability instead. The payload is
+    /// materialized into the call's allocator like any other outcome.
     give: actors.Give,
 
     /// Free what `call` / `fetchSettled` materialized into `allocator`: the
@@ -416,8 +406,7 @@ pub const Settled = union(enum) {
 };
 
 /// Captures a settling resolution into a caller-owned allocator as a
-/// `Settled`: the listener behind every blocking `call` / `settleVow` /
-/// `fetchSettled` on `BlockingSession`, and `call` / `fetchSettled` /
+/// `Settled`: the listener behind every blocking `call` / `fetchSettled` /
 /// `Promise.settle` on `Session`. Lives on
 /// the caller's stack for that bounded drive. The listener contract cannot
 /// carry an error, so an allocation failure is recorded and surfaced after
@@ -473,10 +462,9 @@ pub const SettleCapture = struct {
         }
     }
 
-    /// The one blocking-wait epilogue `BlockingSession` / `Session` share: an
-    /// allocation failure
-    /// recorded mid-fire surfaces as OOM, an unfired capture means the partner
-    /// left before the vow settled.
+    /// The one blocking-wait epilogue every `Session` wait runs: an
+    /// allocation failure recorded mid-fire surfaces as OOM, an unfired
+    /// capture means the partner left before the vow settled.
     pub fn finish(self: *const SettleCapture) !Settled {
         if (self.failed) return error.OutOfMemory;
         return self.settled orelse Error.ConnectionClosed;
@@ -485,7 +473,7 @@ pub const SettleCapture = struct {
 
 /// Wraps a blocking caller's listener so its drive loop can see when the vow
 /// settles. Lives on the waiting verb's stack for that bounded drive.
-/// `BlockingSession` / `Session` wait through it.
+/// `Session` waits through it.
 pub const SettleFlag = struct {
     inner: actors.Listener,
     done: bool = false,
@@ -497,8 +485,8 @@ pub const SettleFlag = struct {
     }
 };
 
-/// What a bootstrap fetch settled to, recorded by `BlockingSession` /
-/// `Session` fetch waits. The listener runs during the settling step with a
+/// What a bootstrap fetch settled to, recorded by `Session` fetch waits.
+/// The listener runs during the settling step with a
 /// turn-borrowed resolution, so it records only the shape and the POD far
 /// ref, never a borrow of the resolution's bytes. The break reason is
 /// not copied. A caller that needs it uses the settled-outcome

@@ -1,7 +1,8 @@
 //! Shared harness for the Zig interop drivers under `interop/*/driver.zig`:
-//! the one-verb scenario actor, deadline-guarded waits, the caller-owned
-//! peer-and-buffers scaffold, the `--port=` flag contract, loop-thread
-//! runners, and the fetch-call-assert client bracket.
+//! the one-verb scenario behaviors, deadline-guarded waits, the raw-peer
+//! scaffold for the drivers that speak to Goblins frame by frame, the
+//! `--port=` flag contract, the accept-and-serve bracket, and the
+//! fetch-call-assert client bracket.
 //!
 //! Each driver keeps its scenario, topology, narration, and per-step
 //! assertions stay local, and imports only the plumbing every driver
@@ -21,25 +22,11 @@ const engine = glowcap.ocapn.engine;
 const actors = glowcap.actors;
 const driver = glowcap.driver;
 const net = glowcap.net;
-const crypto = glowcap.foundation.crypto;
 
-/// A published actor that answers exactly one verb with a fixed string reply
-/// and refuses everything else with `error.NoSuchMethod`. Each driver picks a
-/// distinct reply text, so a cross-wired session fails its reply assertion
-/// instead of passing on another scenario's greeting.
-pub fn StaticReplyActor(comptime verb: []const u8, comptime reply: []const u8) type {
-    return struct {
-        pub fn handle(self: *@This(), turn: *actors.Turn, msg: actors.Message) !model.Argument {
-            _ = self;
-            _ = turn;
-            if (!std.mem.eql(u8, msg.verb, verb)) return error.NoSuchMethod;
-            return .{ .string = reply };
-        }
-    };
-}
-
-/// The `StaticReplyActor` contract as a `driver.Session`/`driver.Server`
-/// behavior.
+/// A published behavior that answers exactly one verb with a fixed string
+/// reply and refuses everything else with `error.NoSuchMethod`. Each driver
+/// picks a distinct reply text, so a cross-wired session fails its reply
+/// assertion instead of passing on another scenario's greeting.
 pub fn StaticReplyBehavior(comptime verb: []const u8, comptime reply: []const u8) type {
     return struct {
         pub fn handle(self: *@This(), turn: *driver.HostTurn, called: []const u8, args: []const driver.Value) !driver.Value {
@@ -52,12 +39,29 @@ pub fn StaticReplyBehavior(comptime verb: []const u8, comptime reply: []const u8
     };
 }
 
-/// An actor a live Goblins peer calls, for a driver whose partner invokes a cap
-/// **positionally**: `(<- actor "world")` carries no method symbol, so the first
-/// argument is the name rather than the verb. `template` is a format string with
-/// one `{s}` for that name. The reply is built on `turn.arena`, the per-turn
-/// allocator the vat reclaims. A partner that names a verb wants
-/// `StaticReplyActor` instead.
+/// A `driver.Session`/`driver.Server` behavior a live Goblins peer calls, for
+/// a driver whose partner invokes a cap **positionally**: `(<- actor "world")`
+/// carries no method symbol, so the first argument is the name rather than the
+/// verb. `template` is a format string with one `{s}` for that name. The reply
+/// is built on the turn's arena, which the vat reclaims after the reply is
+/// encoded. A partner that names a verb wants `StaticReplyBehavior` instead.
+pub fn PositionalReplyBehavior(comptime template: []const u8) type {
+    return struct {
+        pub fn handle(self: *@This(), turn: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+            _ = self;
+            _ = verb;
+            const name: []const u8 = if (args.len == 0) "stranger" else switch (args[0]) {
+                .string => |s| s,
+                .bytes => |b| b,
+                else => "stranger",
+            };
+            return .{ .string = try std.fmt.allocPrint(turn.turn.arena, template, .{name}) };
+        }
+    };
+}
+
+/// The `PositionalReplyBehavior` contract as a raw `actors.Vat` actor, for
+/// the driver that binds its actor to an `engine.Peer` export by hand.
 pub fn PositionalReplyActor(comptime template: []const u8) type {
     return struct {
         pub fn handle(self: *@This(), turn: *actors.Turn, msg: actors.Message) !model.Argument {
@@ -103,10 +107,11 @@ pub fn tcpConnectRetry(
     }
 }
 
-/// Block until `listener.waitAcceptable` reports a pending connection, failing
-/// loud with `error.WaitTimedOut` past the deadline. A bare blocking `accept`
-/// against a spawned dialer is a silent hang: a child that dies before dialing
-/// parks the driver in the kernel accept with no location and no failure.
+/// Block until `listener.waitAcceptable` (a `driver.Server` or a raw
+/// `tcp.Listener`) reports a pending connection, failing loud with
+/// `error.WaitTimedOut` past the deadline. A bare blocking `accept` against a
+/// spawned dialer is a silent hang: a child that dies before dialing parks
+/// the driver in the kernel accept with no location and no failure.
 pub fn untilAcceptable(io: std.Io, deadline_ms: u64, listener: anytype) !void {
     const deadline = deadlineAfter(io, deadline_ms);
     while (true) {
@@ -175,8 +180,11 @@ pub fn hasFlag(minimal_args: anytype, flag: []const u8) bool {
 }
 
 /// A caller-owned negotiating peer with its frame-capped read and write
-/// buffers, the setup every driver-side dial and accept shares. The scaffold
-/// owns the buffers and the peer, `deinit` releases both.
+/// buffers, for the drivers that speak to a Goblins vat frame by frame on a
+/// raw `engine.Peer` over cleartext TCP (`goblins_interop/driver.zig`,
+/// `converse.zig`, and `gc_driver.zig`). A driver that holds a session uses
+/// `driver.connect` and `driver.listen` instead. The scaffold owns the
+/// buffers and the peer, `deinit` releases both.
 pub const PeerScaffold = struct {
     peer: engine.Peer,
     read_buf: []u8,
@@ -184,17 +192,7 @@ pub const PeerScaffold = struct {
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator, frame_cap: usize) !PeerScaffold {
-        return initWith(allocator, frame_cap, .{});
-    }
-
-    /// `init` with the peer's negotiating options stated, for a driver whose
-    /// scenario needs a non-baseline preference on a caller-owned peer.
-    pub fn initWith(
-        allocator: std.mem.Allocator,
-        frame_cap: usize,
-        options: engine.Peer.NegotiatingOptions,
-    ) !PeerScaffold {
-        var peer = engine.Peer.initNegotiatingWith(allocator, options);
+        var peer = engine.Peer.initNegotiating(allocator);
         errdefer peer.deinit();
         peer.session_state.limits.max_frame_bytes = frame_cap;
         const read_buf = try allocator.alloc(u8, frame_cap);
@@ -210,53 +208,46 @@ pub const PeerScaffold = struct {
     }
 };
 
-/// Call `target` on the blocking session and require a fulfilled string reply
-/// equal to `expected`. A mismatch, break, or give is `error.WrongReply`. The
-/// settle materializes into a throwaway arena, so the caller keeps no reply
+/// Call `target` on `session` and require a fulfilled string reply equal to
+/// `expected`. A mismatch or a break is `error.WrongReply`. The reply
+/// materializes into a throwaway arena, so the caller keeps no reply
 /// ownership to manage.
 pub fn expectStringReply(
-    cv: *driver.BlockingSession,
+    session: *driver.Session,
     allocator: std.mem.Allocator,
-    target: actors.Ref,
+    target: driver.Capability,
     verb: []const u8,
-    args: []const model.Argument,
+    args: []const driver.Value,
     expected: []const u8,
 ) !void {
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
-    const settled = try cv.call(target, .{ .verb = verb, .args = args }, arena_state.allocator());
-    const ok = switch (settled) {
-        .fulfilled => |arg| arg == .string and std.mem.eql(u8, arg.string, expected),
-        .broken, .give => false,
+    const reply = try session.call(target, verb, args, arena_state.allocator());
+    const ok = switch (reply) {
+        .fulfilled => |value| value == .string and std.mem.eql(u8, value.string, expected),
+        .broken => false,
     };
     if (!ok) return error.WrongReply;
 }
 
-/// One keyed server bracket: accept a single partner on `listener` signing
-/// with `secret`, print `banner` once the session opens, publish `Actor`
-/// behind `swiss`, and serve until the partner hangs up.
+/// One server bracket on a `driver.Server` the caller bound: wait at most
+/// `accept_budget_ms` for a partner, accept it, print `banner` once the
+/// session opens, publish `Actor` behind `swiss`, and serve until the
+/// partner hangs up. The caller's `driver.listen` call names the identity
+/// the accept signs with and the session's budgets.
 pub fn AcceptServeOne(
     comptime Actor: type,
     comptime swiss: []const u8,
-    comptime frame_cap: usize,
     comptime banner: ?[]const u8,
 ) type {
     return struct {
-        pub fn run(
-            listener: net.netlayer.Listener,
-            allocator: std.mem.Allocator,
-            secret: crypto.SecretKey,
-        ) anyerror!void {
-            var scaffold = try PeerScaffold.init(allocator, frame_cap);
-            defer scaffold.deinit();
-            var cv = try driver.acceptVia(allocator, listener, &scaffold.peer, .{ .keyed = secret }, scaffold.read_buf, scaffold.write_buf, .{
-                .handshake = .unbounded,
-                .settle = .unbounded,
-            });
-            defer cv.deinit();
+        pub fn run(io: std.Io, server: *driver.Server, accept_budget_ms: u64) anyerror!void {
+            try untilAcceptable(io, accept_budget_ms, server);
+            const session = try server.accept();
+            defer session.deinit();
             if (banner) |line| std.debug.print("{s}\n", .{line});
-            _ = try cv.publish(swiss, Actor, .{});
-            try cv.serve();
+            _ = try session.publish(swiss, Actor, .{});
+            try session.serve();
         }
     };
 }

@@ -184,12 +184,10 @@ test "loam publication retirement fences discovery at its owned commit outcome" 
     try fixture.data.store.begin();
     try f.hosting.publication.stageRetirement(fixture.attached, active);
     try fixture.data.store.release(active);
-    const ticket = try fixture.attached.submit();
-    while (try fixture.attached.nextWork()) |work| switch (work) {
-        .read => |request| try fixture.attached.completeRead(request.ticket, fixture.data.backend.read(request)),
-        .lookup => |request| try fixture.attached.completeLookup(request.ticket, fixture.data.backend.lookup(request)),
-        .write => |batch| try fixture.attached.completeWrite(ticket, fixture.data.backend.commit(batch)),
-    };
+    _ = try fixture.attached.submit();
+    var slot: [1]f.hosting.Worker.Slot = undefined;
+    var worker: f.hosting.Worker = .init(&slot);
+    try worker.drive(fixture.attached, &fixture.data.backend);
     try std.testing.expectError(error.UnknownPublication, fixture.host.removeDurable(swiss.slice()));
 }
 

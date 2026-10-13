@@ -110,22 +110,26 @@ fn create(attachment: *hosting.Attachment, db: *Lmdb) !void {
 }
 
 fn drain(attachment: *hosting.Attachment, db: *Lmdb, boundary: ?[]const u8, answer: *actors.Capture) !void {
+    var slot: [1]hosting.Worker.Slot = undefined;
+    var worker: hosting.Worker = .init(&slot);
     for (0..64) |_| {
         try attachment.advance();
-        while (try attachment.nextWork()) |work| switch (work) {
-            .lookup => |request| try attachment.completeLookup(request.ticket, db.lookup(request)),
-            .read => |read| try attachment.completeRead(read.ticket, db.read(read)),
-            .write => |batch| {
+        while (try worker.next(attachment, false)) |work| {
+            if (work.request == .write) {
+                // The kill boundary sits inside the commit, so this probe
+                // executes the write itself instead of calling `run`.
                 if (answer.value != null) return error.PrematureReply;
-                var pending = try db.beginCommit(batch);
+                var pending = try db.beginCommit(work.request.write);
                 if (boundary) |mode| {
                     if (std.mem.eql(u8, mode, "after") and pending.finish() != .committed) return error.CommitFailed;
                     std.debug.print("READY\n", .{});
                     while (true) _ = pause();
                 }
-                try attachment.completeWrite(batch.ticket, pending.finish());
-            },
-        };
+                work.result = .{ .write = pending.finish() };
+            } else try hosting.Worker.run(work, db);
+            try worker.complete(work, attachment);
+            try worker.release(work);
+        }
         if (!attachment.hasPendingWork()) return;
     }
     return error.DidNotQuiesce;

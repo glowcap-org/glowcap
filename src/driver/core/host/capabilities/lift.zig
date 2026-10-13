@@ -238,7 +238,7 @@ fn liftValuesInner(
     return out;
 }
 
-/// Lift one wire-shaped argument into the owning tier's `Value`: every
+/// Lift one wire-shaped argument into the Host's `Value`: every
 /// reference becomes an opaque Host capability through the canonical identity
 /// owner. Spine containers are allocated in `arena`. Leaf bytes stay borrowed.
 /// Any failure retires completed and unvisited observations as one transaction.

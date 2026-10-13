@@ -83,30 +83,10 @@ pub const PeerProvenance = enum { verified, dial_target, assertion_only };
 pub const EnlivenPeerPolicy = enliven_mod.EnlivenPeerPolicy;
 pub const EnlivenStart = enliven_mod.EnlivenStart;
 
-/// The far reference `arg` names, or null when `arg` is not a plain far
-/// capability: a break, a promise, a near, or a non-reference value. The one
-/// unwrap of the `reference → far` shape the foreign-proxy, enroll, and enliven
-/// paths each read off a fulfilled resolution.
-/// `pub` for the Host-core siblings, not for embedders. Host-core internal.
-pub fn asFarRef(arg: model.Argument) ?@FieldType(model.Reference, "far") {
-    if (arg != .reference or arg.reference != .far) return null;
-    return arg.reference.far;
-}
-
 // The session wire owns the shell and byte ingress/egress. These direct aliases
 // preserve the supported core surface without exporting its internal module.
 pub const HostSession = host_session.HostSession;
 pub const host_session_struct_budget_bytes = host_session.host_session_struct_budget_bytes;
-
-/// The Vat-local id carried by `ref`. `pub` only for Host-core siblings: the
-/// total result keeps general `actors.Ref` inputs from becoming an implicit
-/// local-only precondition at a public Host verb.
-pub fn localActorId(ref: actors.Ref) actors.Error!u64 {
-    return switch (ref) {
-        .local => |id| id,
-        .far => actors.Error.NotLocal,
-    };
-}
 
 pub const DialTarget = crossed_hellos.DialTarget;
 
@@ -322,6 +302,8 @@ pub const Host = struct {
 
     pub const setSessionLimits = host_configuration.setSessionLimits;
     pub const setIngressLimits = host_configuration.setIngressLimits;
+    pub const releaseOnDrop = host_configuration.releaseOnDrop;
+    pub const setReleaseOnDrop = host_configuration.setReleaseOnDrop;
 
     pub const init = host_ownership.init;
     pub const deinit = host_ownership.deinit;

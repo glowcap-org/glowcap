@@ -168,6 +168,7 @@ fn newLoop(seed_byte: u8) !?*cdrv.GlowcapDriverLoop {
         cs.GLOWCAP_CAPTP_V1_0,
         cs.GLOWCAP_FEATURE_FULL,
         0,
+        1,
         &host,
     ));
     errdefer reportCleanup("iroh driver-provider host rollback failed", cd.glowcap_host_release(host));

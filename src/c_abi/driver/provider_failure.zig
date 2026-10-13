@@ -1,6 +1,12 @@
 //! Decode the one structured provider-failure ABI into native failure values.
 //! Provider archives own immutable cause names. The driver validates the
 //! stable result vocabulary once and projects it without allocating.
+//!
+//! A dial failure lands on the `DialError` retry axis by its primary cause
+//! name when that name is a `DialError` member, which is how every in-tree
+//! provider names a dial fault. The status code is the coarse projection a C
+//! embedder acts on, and it classifies alone only when the name is foreign to
+//! the axis.
 
 const std = @import("std");
 
@@ -121,7 +127,17 @@ pub fn chain(
     };
 }
 
-pub fn dialError(code: i32) net.netlayer.DialError {
+/// Project a provider's dial failure onto the `DialError` retry axis. A
+/// primary cause name that is a `DialError` member is that classification, so
+/// a refused connect the provider named stays permanent under ADR-0082
+/// `isTransient` even though it rides the I/O status code. Without such a
+/// name the status code decides, and an I/O fault is `ConnectionLost`.
+pub fn dialError(code: i32, cause_name: ?[]const u8) net.netlayer.DialError {
+    if (cause_name) |named| {
+        inline for (@typeInfo(net.netlayer.DialError).error_set.error_names.?) |member| {
+            if (std.mem.eql(u8, member, named)) return @field(net.netlayer.DialError, member);
+        }
+    }
     return switch (code) {
         shared.GLOWCAP_ERR_INVALID_ARGUMENT => error.InvalidAddress,
         shared.GLOWCAP_ERR_TIMEOUT => error.TimedOut,
@@ -137,7 +153,7 @@ pub fn dial(
 ) error{InvalidProviderFailure}!net.netlayer.DialFailure {
     const failure = try operation(code, report);
     return .{
-        .classification = dialError(code),
+        .classification = dialError(code, name(report.primary_name, report.primary_name_len)),
         .chain = failure.toChain(),
         .carrier_phase = failure.carrier_phase,
         .carrier_detail = failure.carrier_detail,

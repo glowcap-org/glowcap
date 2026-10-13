@@ -26,12 +26,15 @@ and storage, in order.
   checked. A public certificate at a real relay hostname is still unproven
   across every execution form outside the browser
   ([known limitations](boundaries.md#browser-reachability)).
-
-## Runtime and capability semantics
-
-One I/O runtime behind every front remains. The
-[open obligations](#open-obligations-from-retired-plans) hold the three steps
-left.
+- **Primary TypeScript runtime.** Cloudflare ends its development of the Deno
+  runtime after a one-year maintenance window that began in October 2026, and
+  Bun cannot host the binding's driver loop because its FFI runs on the
+  JavaScript thread.
+  [ADR-0210](decisions/adr/ADR-0210-bun-as-the-primary-typescript-runtime.md)
+  is the proposed record: Bun becomes the primary runtime through one
+  Node-API addon that serves Bun and Node, and Deno leaves the toolchain.
+  Nothing moves before the record is accepted. The pinned Deno release stays
+  the environment of record until then.
 
 ## Visualizer measurements
 
@@ -87,7 +90,6 @@ Each row is done when its evidence sentence is true. Then delete the row.
 
 | Lane | Remaining obligation | Evidence that closes it |
 | --- | --- | --- |
-| Runtime semantics ([ADR-0193](decisions/adr/ADR-0193-one-io-runtime.md)) | Retire `BlockingSession` and give dial retry, the Loam worker, and release on drop one home each, by the batches in the [one I/O runtime plan](planning/one-io-runtime.md) and its lane files ([A](planning/one-io-runtime-blocking-session.md), [B](planning/one-io-runtime-policy-home.md), [C](planning/one-io-runtime-loam-worker.md)). | The plan file is deleted: `src/driver/blocking_session.zig` is gone, no binding carries a dial-retry loop, `src/loam/hosting/worker.zig` exists, and `glowcap_host_new` takes `release_on_drop`. |
 | Loam acceptance | One successful macOS run of `zig build test loam-lmdb-test` plus the four crash probes (`loam-lmdb-crash-test`, `loam-actors-crash-test`, `loam-collection-crash-test`, `loam-managed-crash-test`), recorded with revision and commands. Maintainer-owned. Needs runners the private repository does not get. | `docs/stability.md` records the run. The macOS sentences in [stability](stability.md) and [shipped](shipped.md#resource-models) change to present tense. |
 | Loam | Exercise an independent non-chat application beside Rooms: plain records next to managed resources, returned facets, ancestor edits, reorganization, and restored subscriptions. Then compare backend and layout costs under matching durability before an ADR names the production profile ([architecture](loam/architecture.md#implementation-order-and-acceptance), [research](loam/research/memory-persistence.md#experiment-sequence-and-decision-points)). | The application and the comparison are in the tree and an ADR records the profile. |
 | Loam | Cross-resource content changes and a general operation journal ([managed access architecture](loam/access-architecture.md#atomic-content-and-access-changes)). | A scenario commits a content change across two resources in one transaction and the journal records it. |

@@ -32,6 +32,7 @@ unsafe extern "C" {
 		captp_version: u32,
 		features: u32,
 		local_turn_budget: u32,
+		release_on_drop: u32,
 		out: *mut *mut c_void,
 	) -> i32;
 	fn glowcap_host_release(host: *mut c_void) -> i32;
@@ -134,6 +135,7 @@ pub fn run() {
 					0,
 					31,
 					64,
+					1,
 					&mut host
 				),
 				0

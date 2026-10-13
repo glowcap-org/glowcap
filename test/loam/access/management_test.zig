@@ -198,25 +198,26 @@ const GrantInspection = struct {
 /// Exercise the preparation completion contract below Attachment's own ticket
 /// guard. A rejected completion must leave the real request routable.
 fn drainWithStaleCompletions(server: *h.Hosted, backend: anytype) !usize {
+    const Worker = h.loam.hosting.Worker;
+    var slot: [1]Worker.Slot = undefined;
+    var worker: Worker = .init(&slot);
     var rejected: usize = 0;
     for (0..256) |_| {
         _ = try server.host.vat.driveIngressBudgeted(.local, 64);
         try server.attached.advance();
-        while (try server.attached.nextWork()) |work| switch (work) {
-            .read => |request| {
-                for (server.attached.operations) |*operation| {
-                    if (!operation.pending_read) continue;
-                    const preparation = operation.call.?.preparation.?;
-                    var stale = request.ticket;
-                    stale.sequence += 1000;
-                    try std.testing.expectError(error.StaleCompletion, preparation.completeRead(stale, .missing));
-                    rejected += 1;
-                }
-                try server.attached.completeRead(request.ticket, backend.read(request));
-            },
-            .lookup => |request| try server.attached.completeLookup(request.ticket, backend.lookup(request)),
-            .write => |batch| try server.attached.completeWrite(batch.ticket, backend.commit(batch)),
-        };
+        while (try worker.next(server.attached, false)) |work| {
+            if (work.request == .read) for (server.attached.operations) |*operation| {
+                if (!operation.pending_read) continue;
+                const preparation = operation.call.?.preparation.?;
+                var stale = work.request.read.ticket;
+                stale.sequence += 1000;
+                try std.testing.expectError(error.StaleCompletion, preparation.completeRead(stale, .missing));
+                rejected += 1;
+            };
+            try Worker.run(work, backend);
+            try worker.complete(work, server.attached);
+            try worker.release(work);
+        }
         if (!server.attached.hasPendingWork()) return rejected;
     }
     return error.DidNotQuiesce;

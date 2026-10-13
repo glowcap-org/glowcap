@@ -36,7 +36,7 @@ without settling it. `sendToAnswer(vow, msg)` addresses a verb at that pending
 answer (the wire `desc:answer`, ADR-0007). `settleVow(vow, arena)` drives
 until a chosen answer settles. The flush is deferred to the next settle, so a
 batch of sends leaves the wire together. The triad delegates to
-[`BlockingSession`](../../../src/driver/blocking_session.zig), which owns the answer
+`BlockingSession`, which owned the answer
 bookkeeping over the engine's `allocateAnswer`.
 
 The byte-fed Host owns the binding-facing send/settle pair. (The retired raw C

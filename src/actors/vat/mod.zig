@@ -366,7 +366,7 @@ pub const Vat = struct {
     /// listener-opened drive cannot reset under the borrowed value.
     settle_arena: std.heap.ArenaAllocator,
     /// Nesting depth of in-flight far-resolve settles. A far listener can
-    /// re-enter `serve` (a driver pump: `BlockingSession.step` then `drainEvents`),
+    /// re-enter `serve` (a driver pump: `driver.Session.step` then `drainEvents`),
     /// and the nested settle must not reset the arena the outer listener's
     /// value still lives in. Only the return to depth 0 resets it.
     settle_depth: u32 = 0,

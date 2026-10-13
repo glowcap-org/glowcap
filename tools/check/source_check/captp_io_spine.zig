@@ -257,25 +257,6 @@ pub fn check(
         }
     }
 
-    // Dead BlockingSession.openKeyedSession: connectVia owns the dial-side
-    // session open; a transport-hardcoded parallel hello must not return.
-    {
-        const path = "src/driver/blocking_session.zig";
-        const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read for openKeyedSession ban with {s}", .{ path, @errorName(err) });
-            return;
-        };
-        defer gpa.free(contents);
-        if (std.mem.indexOf(u8, contents, "fn openKeyedSession") != null) {
-            try appendViolation(gpa, violations, "{s}: forbidden `openKeyedSession` — session open is `connectVia` / `startKeyedSession`", .{path});
-        }
-        for ([_][]const u8{ "pub fn connectTcp", "pub fn acceptTcp" }) |needle| {
-            if (std.mem.indexOf(u8, contents, needle) != null) {
-                try appendViolation(gpa, violations, "{s}: forbidden `{s}` — generic driver constructors dispatch through `connectVia` / `acceptVia`", .{ path, needle });
-            }
-        }
-    }
-
     // Hint name literal lives only in model.transport; production code aliases.
     {
         var src_dir = try root.openDir(io, "src", .{ .iterate = true });

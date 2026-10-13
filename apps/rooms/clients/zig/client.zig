@@ -2,13 +2,13 @@
 //! language; this runs on the same core every binding wraps, and it drives the
 //! real netlayers glowcap ships.
 //!
-//! On the driver surface this reads like the other languages: one borrowing
-//! `driver.connectVia`, `fetch` the directory by name, `call` it to enter or open
-//! the named room (which hands back a live reference to that room), `spawn` an
-//! inbox the room can call back, `send` the room a subscribe with that
-//! capability, `call` the returned membership seat with the post, and `step`
-//! the connection with one explicit pump per step, with the loop still owned by
-//! the caller the Zig way.
+//! On the driver surface this reads like the other languages: one
+//! `driver.connect`, `fetch` the directory by name, `call` it to enter or open
+//! the named room (which hands back a live capability to that room), `spawn`
+//! an inbox the room can call back, `call` the room with a subscribe carrying
+//! that capability, `call` the returned membership seat with the post, and
+//! `stepReadable` the session with one explicit pump per step, with the loop
+//! still owned by the caller the Zig way.
 //!
 //!   glowcap-rooms-client <locator> <room> <nick> <line> [roster]
 //!
@@ -42,8 +42,6 @@ const demo_rooms = @import("demo_rooms_cli");
 const demo_usage = @import("demo_usage");
 
 const model = glowcap.ocapn.model;
-const engine = glowcap.ocapn.engine;
-const actors = glowcap.actors;
 const driver = glowcap.driver;
 const net = glowcap.net;
 const tcp = glowcap.net.tcp;
@@ -118,26 +116,26 @@ const State = struct {
 const Inbox = struct {
     state: *State,
 
-    pub fn handle(self: *Inbox, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Inbox, turn: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
         _ = turn;
-        if (!std.mem.eql(u8, msg.verb, proto.notify)) return error.NoSuchMethod;
-        try applyNotify(self.state, msg.args);
+        if (!std.mem.eql(u8, verb, proto.notify)) return error.NoSuchMethod;
+        try applyNotify(self.state, args);
         return .{ .boolean = true };
     }
 };
 
 /// The sender a notify names, or "?" when the line does not name one.
-fn senderOf(args: []const model.Argument) []const u8 {
+fn senderOf(args: []const driver.Value) []const u8 {
     return if (args.len > 0 and args[0] == .string) args[0].string else "?";
 }
 
 /// The display text a notify carries, empty when it carries none.
-fn textOf(args: []const model.Argument) []const u8 {
+fn textOf(args: []const driver.Value) []const u8 {
     return if (args.len > 1 and args[1] == .string) args[1].string else "";
 }
 
 /// Print one notified line, then fold it into the roster state.
-fn applyNotify(state: *State, args: []const model.Argument) !void {
+fn applyNotify(state: *State, args: []const driver.Value) !void {
     std.debug.print("[{s}] {s}: {s}\n", .{ state.nick, senderOf(args), textOf(args) });
     return readNotify(state, args);
 }
@@ -152,7 +150,7 @@ const membership_ended_tail = wire.tailFor(proto.membership_ended);
 /// last word to this inbox (a steward's kick, say). Otherwise a membership line
 /// carries its change as structured args, a plain chat line does not, and a
 /// line from a member is presence too. Tests drive this so they print nothing.
-fn readNotify(state: *State, args: []const model.Argument) !void {
+fn readNotify(state: *State, args: []const driver.Value) !void {
     const from = senderOf(args);
     const text = textOf(args);
     if (args.len > 2 and args[2] == .string and std.mem.eql(u8, args[2].string, proto.membership_ended)) {
@@ -176,10 +174,10 @@ fn printRoomEvent(nick: []const u8, event_kind: []const u8, room: wire.RoomInfo)
 const Watcher = struct {
     nick: []const u8,
 
-    pub fn handle(self: *Watcher, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Watcher, turn: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
         _ = turn;
-        if (!std.mem.eql(u8, msg.verb, proto.notify)) return error.NoSuchMethod;
-        if (try wire.watchEvent(msg.args)) |room| printRoomEvent(self.nick, msg.args[0].string, room);
+        if (!std.mem.eql(u8, verb, proto.notify)) return error.NoSuchMethod;
+        if (try wire.watchEvent(args)) |room| printRoomEvent(self.nick, args[0].string, room);
         return .{ .boolean = true };
     }
 };
@@ -198,7 +196,7 @@ fn roomsSessionOpts() driver.SessionOptions {
 }
 
 /// Print a list/watch snapshot without turning unknown foreign occupancy into 0.
-fn printRooms(nick: []const u8, arg: model.Argument) !void {
+fn printRooms(nick: []const u8, arg: driver.Value) !void {
     std.debug.print("[{s}] rooms:", .{nick});
     var any = false;
     if (arg != .list) return error.InvalidRoomList;
@@ -221,7 +219,7 @@ fn printRooms(nick: []const u8, arg: model.Argument) !void {
 /// in or out, and the rest are facts about a member who is still here. Returns
 /// true when the line was a presence change, so the caller does not also count
 /// it as a chat line.
-fn applyPresence(state: *State, args: []const model.Argument) bool {
+fn applyPresence(state: *State, args: []const driver.Value) bool {
     const tail = wire.presenceTail(senderOf(args), textOf(args), args) orelse return false;
     const effect = tail.effect.?;
     const extra = args[3..];
@@ -282,21 +280,10 @@ pub fn main(init: std.process.Init) !void {
     }
 }
 
-/// Dial a `host:port` designator over the TCP netlayer glowcap ships.
+/// Dial a `host:port` designator over the cleartext TCP transport glowcap
+/// ships.
 fn runTcpRoom(io: std.Io, allocator: std.mem.Allocator, locator: []const u8, state: *State, room_name: []const u8, nick: []const u8, line: []const u8) !void {
-    var tcp_resident = tcp.Resident{ .io = io };
-    try dialVia(
-        io,
-        allocator,
-        &.{tcp_resident.netlayer()},
-        tcp.locator(locator),
-        roomsSessionOpts().handshake,
-        roomsSessionOpts().settle,
-        state,
-        room_name,
-        nick,
-        line,
-    );
+    try dialVia(io, allocator, .{ .symbols = &.{.tcp} }, tcp.locator(locator), state, room_name, nick, line);
 }
 
 /// Dial an `ocapn://<nodeid>.iroh?direct-addresses=…` URI over iroh's encrypted
@@ -315,57 +302,35 @@ fn dialIroh(io: std.Io, allocator: std.mem.Allocator, uri: []const u8, state: *S
     const iroh = @import("iroh");
     var resident = try iroh.Resident.init(io, null, .{ .reachability = reachability });
     defer resident.deinit() catch |err| std.log.err("iroh teardown failed: {s}", .{@errorName(err)});
-    // A userspace-multiplexed iroh stream has no pollable per-connection fd;
-    // the one-connection borrowing driver blocks in the resident itself.
-    try dialVia(io, allocator, &.{resident.netlayer()}, loc, .unbounded, .unbounded, state, room_name, nick, line);
+    var adapter = try iroh.MultiplexedAdapter.init(allocator, &resident);
+    defer if (adapter.deinit()) |failure| std.log.err("iroh adapter teardown failed: {s}", .{failure.primaryName()});
+    const providers = [_]driver.HostRuntime.ProviderRegistration{.{ .profile = iroh.transport_profile, .resident = adapter.multiplexed() }};
+    try dialVia(io, allocator, .{ .residents = &providers }, loc, state, room_name, nick, line);
 }
 
-/// One caller-owned peer and its bounded frame buffers, shared by TCP and
-/// iroh. `BlockingSession` is the transport-neutral one-connection face. The
-/// owning `Session` face multiplexes pollable sockets and therefore is not the
-/// contract for an iroh userspace stream.
+/// One `driver.Session` over the named transports, shared by TCP and iroh:
+/// `driver.connect` builds the runtime, completes the keyed handshake, and
+/// hands back the session the room loop pumps.
 fn dialVia(
     io: std.Io,
     allocator: std.mem.Allocator,
-    netlayers: []const net.netlayer.Netlayer,
+    transports: driver.Transports,
     locator: model.PeerLocator,
-    handshake: driver.Budget,
-    settle: driver.Budget,
     state: *State,
     room_name: []const u8,
     nick: []const u8,
     line: []const u8,
 ) !void {
-    var peer = engine.Peer.initNegotiatingWith(allocator, .{
-        .captp_version = model.Preference.native.captp_version,
-        .codec = model.Preference.native.codec,
-        .limits = .{ .max_frame_bytes = frame_cap },
-    });
-    defer peer.deinit();
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
-
-    var session = try driver.connectVia(
-        allocator,
-        netlayers,
-        &peer,
-        locator,
-        .ephemeral,
-        read_buf,
-        write_buf,
-        .{ .handshake = handshake, .settle = settle },
-    );
+    var session = try driver.connect(allocator, io, transports, locator, .ephemeral, roomsSessionOpts());
     defer session.deinit();
-    try runRoom(io, &session, allocator, state, room_name, nick, line);
+    try runRoom(io, session, allocator, state, room_name, nick, line);
 }
 
 /// The capability a `call` returned, or a refusal when the reply carried
 /// something else.
-fn roomRefFromArg(arg: model.Argument) !actors.Ref {
-    if (arg != .reference or arg.reference != .far) return error.NotACapability;
-    return .{ .far = arg.reference.far };
+fn roomRefFromArg(arg: driver.Value) !driver.Capability {
+    if (arg != .capability) return error.NotACapability;
+    return arg.capability;
 }
 
 /// Where the seat sits in the generated subscribe answer.
@@ -374,45 +339,43 @@ const seat_at = wire.indexOf(&proto.subscribe_answer_fields, "seat");
 /// The membership seat out of a `subscribe` answer, the whole answer held to
 /// the generated fields. Every later membership verb goes to the seat, never to
 /// the room it was answered for.
-fn membershipSeatFromArg(arg: model.Argument) !actors.Ref {
+fn membershipSeatFromArg(arg: driver.Value) !driver.Capability {
     if (arg != .list or !wire.fits(&proto.subscribe_answer_fields, arg.list)) return error.NotAMembership;
     return roomRefFromArg(arg.list[seat_at]);
 }
 
-/// Enter-or-open lives here because it materializes settled outcomes through the
-/// Zig driver's blocking `session.call`; see `_demo/rooms_cli.{py,rkt,rs}` for the
-/// same CLI leniency in other languages.
+/// Enter-or-open lives here because it materializes settled outcomes through
+/// `driver.Session.call`; see `_demo/rooms_cli.{py,rkt,rs}` for the same CLI
+/// leniency in other languages.
 /// Enter the named room, opening it if it does not exist. The wire stays strict (
 /// `enter` breaks if there is no such room, `open` breaks if the name is taken)
 /// so this tries `enter`, falls back to `open`, and on a creation race falls
 /// back to `enter` once more. The settled outcomes are materialized into a
-/// scratch arena that frees here; the returned far ref is POD and outlives it.
-fn enterOrOpen(session: *driver.BlockingSession, allocator: std.mem.Allocator, directory: actors.Ref, room_name: []const u8) !actors.Ref {
+/// scratch arena that frees here; the returned capability is a session-scoped
+/// handle and outlives it.
+fn enterOrOpen(session: *driver.Session, allocator: std.mem.Allocator, directory: driver.Capability, room_name: []const u8) !driver.Capability {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const scratch = arena.allocator();
-    const name_arg = model.Argument{ .string = room_name };
+    const name_arg = driver.Value{ .string = room_name };
 
-    switch (try session.call(directory, .{ .verb = proto.enter, .args = &.{name_arg} }, scratch)) {
+    switch (try session.call(directory, proto.enter, &.{name_arg}, scratch)) {
         .fulfilled => |arg| return roomRefFromArg(arg),
         .broken => |reason| if (!std.mem.eql(u8, demo_rooms.errorCode(reason), demo_rooms.no_such_room)) {
             std.debug.print("rooms-client: enter \"{s}\" broke: {s}\n", .{ room_name, reason });
             return error.EnterFailed;
         },
-        .give => return error.UnexpectedHandoff,
     }
-    switch (try session.call(directory, .{ .verb = proto.open, .args = &.{name_arg} }, scratch)) {
+    switch (try session.call(directory, proto.open, &.{name_arg}, scratch)) {
         .fulfilled => |arg| return roomRefFromArg(arg),
         .broken => |reason| if (!std.mem.eql(u8, demo_rooms.errorCode(reason), demo_rooms.room_exists)) {
             std.debug.print("rooms-client: open \"{s}\" broke: {s}\n", .{ room_name, reason });
             return error.OpenFailed;
         },
-        .give => return error.UnexpectedHandoff,
     }
-    switch (try session.call(directory, .{ .verb = proto.enter, .args = &.{name_arg} }, scratch)) {
+    switch (try session.call(directory, proto.enter, &.{name_arg}, scratch)) {
         .fulfilled => |arg| return roomRefFromArg(arg),
         .broken => return error.EnterFailed,
-        .give => return error.UnexpectedHandoff,
     }
 }
 
@@ -421,22 +384,21 @@ fn enterOrOpen(session: *driver.BlockingSession, allocator: std.mem.Allocator, d
 /// `subscribe` does instead of vanishing behind a fire-and-forget tell. The
 /// answer is the line's own reference, scratch here: this client never edits
 /// or withdraws.
-fn postLine(session: *driver.BlockingSession, allocator: std.mem.Allocator, seat: actors.Ref, line: []const u8) !void {
+fn postLine(session: *driver.Session, allocator: std.mem.Allocator, seat: driver.Capability, line: []const u8) !void {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    switch (try session.call(seat, .{ .verb = proto.post, .args = &.{.{ .string = line }} }, arena.allocator())) {
+    switch (try session.call(seat, proto.post, &.{.{ .string = line }}, arena.allocator())) {
         .fulfilled => {},
         .broken => |reason| {
             std.debug.print("rooms-client: post broke: {s}\n", .{reason});
             return error.PostFailed;
         },
-        .give => return error.UnexpectedHandoff,
     }
 }
 
 /// Enter the room, subscribe our inbox, and pump until every roster member's
 /// line has arrived, the transport-neutral body both dial paths share.
-fn runRoom(io: std.Io, session: *driver.BlockingSession, allocator: std.mem.Allocator, state: *State, room_name: []const u8, nick: []const u8, line: []const u8) !void {
+fn runRoom(io: std.Io, session: *driver.Session, allocator: std.mem.Allocator, state: *State, room_name: []const u8, nick: []const u8, line: []const u8) !void {
     const directory = try session.fetch(proto.directory);
 
     // Discovery: list the live rooms once, then watch the directory so the room
@@ -446,16 +408,14 @@ fn runRoom(io: std.Io, session: *driver.BlockingSession, allocator: std.mem.Allo
         var arena = std.heap.ArenaAllocator.init(allocator);
         defer arena.deinit();
         const scratch = arena.allocator();
-        switch (try session.call(directory, .{ .verb = proto.list_publications }, scratch)) {
+        switch (try session.call(directory, proto.list_publications, &.{}, scratch)) {
             .fulfilled => |arg| try printRooms(nick, arg),
             .broken => |reason| std.debug.print("[{s}] list broke: {s}\n", .{ nick, reason }),
-            .give => return error.UnexpectedHandoff,
         }
         const watcher = try session.spawn(Watcher, .{ .nick = nick });
-        switch (try session.call(directory, .{ .verb = proto.watch_publications, .args = &.{watcher.arg()} }, scratch)) {
+        switch (try session.call(directory, proto.watch_publications, &.{.{ .capability = watcher }}, scratch)) {
             .fulfilled => |arg| if (!wire.validWatchSnapshot(arg)) return error.InvalidWatchSnapshot,
             .broken => |reason| std.debug.print("[{s}] watch broke: {s}\n", .{ nick, reason }),
-            .give => return error.UnexpectedHandoff,
         }
     }
 
@@ -468,14 +428,13 @@ fn runRoom(io: std.Io, session: *driver.BlockingSession, allocator: std.mem.Allo
     const seat = blk: {
         var arena = std.heap.ArenaAllocator.init(allocator);
         defer arena.deinit();
-        const subscribe_args = [_]model.Argument{ .{ .string = nick }, inbox.arg() };
-        switch (try session.call(room, .{ .verb = proto.subscribe, .args = &subscribe_args }, arena.allocator())) {
+        const subscribe_args = [_]driver.Value{ .{ .string = nick }, .{ .capability = inbox } };
+        switch (try session.call(room, proto.subscribe, &subscribe_args, arena.allocator())) {
             .fulfilled => |arg| break :blk try membershipSeatFromArg(arg),
             .broken => |reason| {
                 std.debug.print("rooms-client: subscribe broke: {s}\n", .{reason});
                 return error.SubscribeFailed;
             },
-            .give => return error.UnexpectedHandoff,
         }
     };
 
@@ -505,7 +464,7 @@ fn runRoom(io: std.Io, session: *driver.BlockingSession, allocator: std.mem.Allo
 }
 
 test "a wire null is an unknown count and an absent offer, not a malformed record" {
-    const foreign = [_]model.Argument{
+    const foreign = [_]driver.Value{
         .{ .string = "lobby" },     .void,                    .{ .string = "id-1" },        .{ .string = "foreign" },
         .{ .string = "ocapn://x" }, .{ .string = "session" }, .{ .string = "participant" },
     };
@@ -513,7 +472,7 @@ test "a wire null is an unknown count and an absent offer, not a malformed recor
     const known = wire.roomInfo(&foreign).?;
     try std.testing.expect(known.count == null);
     try std.testing.expectEqualStrings("participant", known.offers.?);
-    const closed = [_]model.Argument{
+    const closed = [_]driver.Value{
         .{ .string = "lobby" }, .{ .integer = 2 },      .{ .string = "id-2" }, .{ .string = "local" },
         .{ .string = "" },      .{ .string = "local" }, .void,
     };
@@ -521,12 +480,12 @@ test "a wire null is an unknown count and an absent offer, not a malformed recor
     try std.testing.expect(wire.roomInfo(&closed).?.offers == null);
     // Both enumerations are the generated ones, so a value outside either is a
     // malformed record rather than a row this client prints.
-    const bad_offer = [_]model.Argument{
+    const bad_offer = [_]driver.Value{
         .{ .string = "lobby" }, .{ .integer = 2 },      .{ .string = "id-3" },    .{ .string = "local" },
         .{ .string = "" },      .{ .string = "local" }, .{ .string = "steward" },
     };
     try std.testing.expect(wire.roomInfo(&bad_offer) == null);
-    const bad_proof = [_]model.Argument{
+    const bad_proof = [_]driver.Value{
         .{ .string = "lobby" }, .{ .integer = 2 },        .{ .string = "id-4" }, .{ .string = "local" },
         .{ .string = "" },      .{ .string = "hearsay" }, .void,
     };
@@ -534,25 +493,25 @@ test "a wire null is an unknown count and an absent offer, not a malformed recor
 }
 
 test "malformed and unknown watch callbacks are refused" {
-    const malformed = [_]model.Argument{ .{ .string = "opened" }, .{ .string = "only-a-name" } };
+    const malformed = [_]driver.Value{ .{ .string = "opened" }, .{ .string = "only-a-name" } };
     try std.testing.expectError(error.MalformedRoomWatchNotification, wire.watchEvent(&malformed));
-    const registered = [_]model.Argument{
+    const registered = [_]driver.Value{
         .{ .string = "registered" },
         .{ .string = "ada" },
         .{ .integer = 1 },
         .{ .string = "00000000-0000-4000-8000-000000000001" },
     };
     try std.testing.expect((try wire.watchEvent(&registered)) == null);
-    const bad_id = [_]model.Argument{
+    const bad_id = [_]driver.Value{
         .{ .string = "registered" },
         .{ .string = "ada" },
         .{ .integer = 1 },
         .{ .string = "not-a-registration-id" },
     };
     try std.testing.expectError(error.MalformedMemberWatchNotification, wire.watchEvent(&bad_id));
-    const truncated = [_]model.Argument{ .{ .string = "truncated" }, .{ .integer = 3 } };
+    const truncated = [_]driver.Value{ .{ .string = "truncated" }, .{ .integer = 3 } };
     try std.testing.expect((try wire.watchEvent(&truncated)) == null);
-    const unknown = [_]model.Argument{ .{ .string = "renamed" }, .{ .string = "lobby" } };
+    const unknown = [_]driver.Value{ .{ .string = "renamed" }, .{ .string = "lobby" } };
     try std.testing.expectError(error.UnknownWatchEvent, wire.watchEvent(&unknown));
 }
 
@@ -560,17 +519,17 @@ test "a membership-ended notice ends the roster wait and is held to its shape" {
     var present = [_]bool{false};
     var seen = [_]bool{false};
     var state = State{ .nick = "zig", .roster = &.{"ada"}, .present = &present, .seen = &seen };
-    const room = model.Argument{ .string = proto.room_sender };
-    const tag = model.Argument{ .string = proto.membership_ended };
-    const notice = [_]model.Argument{ room, .{ .string = "kicked by the steward" }, tag };
+    const room = driver.Value{ .string = proto.room_sender };
+    const tag = driver.Value{ .string = proto.membership_ended };
+    const notice = [_]driver.Value{ room, .{ .string = "kicked by the steward" }, tag };
     try readNotify(&state, &notice);
     try std.testing.expect(state.ended);
     try std.testing.expect(!state.present[0]);
-    const blank = [_]model.Argument{ room, .{ .string = "" }, tag };
+    const blank = [_]driver.Value{ room, .{ .string = "" }, tag };
     try std.testing.expectError(error.MalformedMembershipEnded, readNotify(&state, &blank));
-    const not_the_room = [_]model.Argument{ .{ .string = "ada" }, .{ .string = "bye" }, tag };
+    const not_the_room = [_]driver.Value{ .{ .string = "ada" }, .{ .string = "bye" }, tag };
     try std.testing.expectError(error.MalformedMembershipEnded, readNotify(&state, &not_the_room));
-    const trailing = [_]model.Argument{ room, .{ .string = "bye" }, tag, .{ .string = "extra" } };
+    const trailing = [_]driver.Value{ room, .{ .string = "bye" }, tag, .{ .string = "extra" } };
     try std.testing.expectError(error.MalformedMembershipEnded, readNotify(&state, &trailing));
 }
 
@@ -578,20 +537,20 @@ test "presence follows the generated tails and the effect each declares" {
     var present = [_]bool{ false, false };
     var seen = [_]bool{ false, false };
     var state = State{ .nick = "zig", .roster = &.{ "ada", "bo" }, .present = &present, .seen = &seen };
-    const room = model.Argument{ .string = proto.room_sender };
-    const welcome = [_]model.Argument{ room, .{ .string = "welcome" }, .{ .string = "roster" }, .{ .string = "ada" }, .{ .string = "bo" } };
+    const room = driver.Value{ .string = proto.room_sender };
+    const welcome = [_]driver.Value{ room, .{ .string = "welcome" }, .{ .string = "roster" }, .{ .string = "ada" }, .{ .string = "bo" } };
     try readNotify(&state, &welcome);
     try std.testing.expect(state.allPresent());
-    const left = [_]model.Argument{ room, .{ .string = "bo left" }, .{ .string = "leave" }, .{ .string = "bo" } };
+    const left = [_]driver.Value{ room, .{ .string = "bo left" }, .{ .string = "leave" }, .{ .string = "bo" } };
     try readNotify(&state, &left);
     try std.testing.expect(!state.present[1]);
     // A tail that stays is a fact about a member who is still here, so it moves
     // nobody and counts as nobody's chat line.
-    const typing = [_]model.Argument{ room, .{ .string = "" }, .{ .string = "typing" }, .{ .string = "ada" }, .{ .boolean = true } };
+    const typing = [_]driver.Value{ room, .{ .string = "" }, .{ .string = "typing" }, .{ .string = "ada" }, .{ .boolean = true } };
     try readNotify(&state, &typing);
     try std.testing.expect(!state.seen[0]);
     // A line from a member is presence too, and the only thing counted as seen.
-    const said = [_]model.Argument{ .{ .string = "bo" }, .{ .string = "hi" } };
+    const said = [_]driver.Value{ .{ .string = "bo" }, .{ .string = "hi" } };
     try readNotify(&state, &said);
     try std.testing.expect(state.present[1] and state.seen[1]);
 }

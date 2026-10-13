@@ -146,6 +146,7 @@ class DriverLoop(
                     _c.DEFAULT_CAPTP_VERSION,
                     _c.DEFAULT_FEATURES,
                     0,
+                    0,
                     ctypes.byref(host),
                 )
             )

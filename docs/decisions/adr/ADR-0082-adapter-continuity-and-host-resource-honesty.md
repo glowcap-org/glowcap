@@ -7,7 +7,7 @@ decision: "Adapter continuity and Host resource honesty live above CapTP: driver
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0113, ADR-0124, ADR-0143]
+amended_by: [ADR-0113, ADR-0124, ADR-0143, ADR-0193]
 ---
 
 # ADR-0082 Adapter continuity and Host resource honesty

@@ -186,9 +186,12 @@ impl Host {
 	/// their Host retain when the last `Ref` clone drops (ADR-0063). On by
 	/// default: the partner learns through `op:gc-exports` that the import is
 	/// gone. Turn it off only to release every capability explicitly. The
-	/// setting applies to outcomes minted after the call, on every session.
-	pub fn set_release_on_drop(&self, enabled: bool) {
-		self.shared.release_on_drop.set(enabled);
+	/// setting lives on the Host archive (ADR-0192) and applies to outcomes
+	/// minted after the call, on every session.
+	pub fn set_release_on_drop(&self, enabled: bool) -> Result<()> {
+		// SAFETY: `self.shared.raw()` is this `HostShared`'s handle from `glowcap_host_new_in`, which the callee
+		// refuses as a null host once teardown has cleared it.
+		check_host(unsafe { ffi::glowcap_host_set_release_on_drop(self.shared.raw(), u32::from(enabled)) })
 	}
 
 	/// Claim every callerless failure retained by this Host's allocation

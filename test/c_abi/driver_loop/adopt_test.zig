@@ -157,6 +157,7 @@ test "failed Host adoption rolls runtime ownership back" {
         c.GLOWCAP_CAPTP_V1_0,
         c.GLOWCAP_FEATURE_FULL,
         0,
+        1,
         &host,
     ));
 

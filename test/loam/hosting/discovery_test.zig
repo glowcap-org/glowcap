@@ -85,13 +85,11 @@ test "loam publication own key cold enliven is canceled by Host shutdown while s
 }
 
 fn drain(fixture: *f.Fixture) !void {
+    var slot: [1]f.hosting.Worker.Slot = undefined;
+    var worker: f.hosting.Worker = .init(&slot);
     for (0..16) |_| {
         try fixture.attached.advance();
-        while (try fixture.attached.nextWork()) |work| switch (work) {
-            .lookup => |request| try fixture.attached.completeLookup(request.ticket, fixture.data.backend.lookup(request)),
-            .read => |request| try fixture.attached.completeRead(request.ticket, fixture.data.backend.read(request)),
-            .write => |batch| try fixture.attached.completeWrite(batch.ticket, fixture.data.backend.commit(batch)),
-        };
+        try worker.drive(fixture.attached, &fixture.data.backend);
         if (fixture.host.pending_operations == 0) return;
     }
     return error.DidNotQuiesce;

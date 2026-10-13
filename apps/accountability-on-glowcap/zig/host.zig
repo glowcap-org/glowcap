@@ -16,15 +16,18 @@ const identity = @import("identity.zig");
 const accountable = @import("accountable.zig");
 const affordance = @import("affordance.zig");
 
-/// A finite handshake budget for the accept below. Unbounded is the library
-/// default, and on the accepting side it means a stranger who connects and then
-/// stays silent holds this server's accept for as long as it likes.
-const handshake_budget: driver.Budget = .{ .ms = 10_000 };
+/// Finite budgets for the accept below: a stranger who connects and then
+/// stays silent holds this server's accept for ten seconds, not for as long
+/// as it likes.
+const session_opts: driver.SessionOptions = .{
+    .frame_cap = frame_cap,
+    .handshake = .{ .ms = 10_000 },
+    .settle = .{ .ms = 10_000 },
+};
 
-const engine = glowcap.ocapn.engine;
+const model = glowcap.ocapn.model;
 const driver = glowcap.driver;
 const tcp = glowcap.net.tcp;
-const ip = std.Io.net;
 
 const AFFORDANCE_NAME = affordance.AFFORDANCE_NAME;
 const frame_cap = affordance.frame_cap;
@@ -59,9 +62,12 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
-    var listener = try tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(bind_port) });
-    defer listener.deinit();
-    const address = listener.localAddress();
+    var bind_buf: [tcp.designator_buf_len]u8 = undefined;
+    const bind_designator = try std.fmt.bufPrint(&bind_buf, "127.0.0.1:{d}", .{bind_port});
+    var server = try driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, model.transport.tcp, .{ .designator = bind_designator }, .ephemeral, session_opts);
+    defer server.deinit();
+    var bound_buf: [tcp.designator_buf_len]u8 = undefined;
+    const address = try tcp.parseDesignator(try server.localDesignator(&bound_buf));
     const port: u16 = switch (address) {
         .ip4 => |a| a.port,
         .ip6 => |a| a.port,
@@ -73,25 +79,13 @@ pub fn main(init: std.process.Init) !void {
     var served: usize = 0;
 
     // The host and its foreign callers (Deno, Python) establish a real OCapN
-    // session: a negotiating peer that completes the keyed `op:start-session`
-    // handshake, the same exchange the application surface and a live Goblins
-    // peer require.
-    var peer = engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
-
-    var vat = try driver.acceptVia(allocator, listener.asNetlayer(), &peer, .ephemeral, read_buf, write_buf, .{
-        .handshake = handshake_budget,
-        .settle = .{ .ms = 10_000 },
-    });
+    // session: the accept completes the keyed `op:start-session` handshake,
+    // the same exchange the application surface and a live Goblins peer
+    // require.
+    var vat = try server.accept();
     defer vat.deinit();
 
-    _ = try vat.publish(AFFORDANCE_NAME, affordance.Affordance, .{
+    _ = try vat.publish(AFFORDANCE_NAME, affordance.HostAffordance, .{
         .state = .{
             .store = &store,
             .served = &served,

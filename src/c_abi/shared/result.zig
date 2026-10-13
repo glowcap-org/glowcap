@@ -30,7 +30,9 @@ pub fn locatorAdapterErrorCode(err: locator_adapter.CloneViewError) i32 {
 /// Project a dial's failure onto the C result an embedder can act on. One
 /// table for every transport archive, so a retry policy written against
 /// `GLOWCAP_ERR_TIMEOUT` or `GLOWCAP_ERR_WOULD_BLOCK` holds over each of them
-/// alike. An archive names the concrete cause in its last-error text.
+/// alike. An archive names the concrete cause in its last-error text, and its
+/// structured report names the `DialError` member as the primary cause, which
+/// is how the driver recovers the retry axis this table collapses.
 pub fn dialFailureCode(err: anyerror) i32 {
     return switch (err) {
         error.InvalidAddress, error.InvalidOptions => GLOWCAP_ERR_INVALID_ARGUMENT,

@@ -409,7 +409,7 @@ pub fn bindVerifiedChannelKey(self: *Host, session: *HostSession, designator: []
 }
 
 /// Per-session static-footprint ceiling for the byte-fed host shell. It is
-/// the third per-session static allocation on the 500k Bridge path (ADR-0076),
+/// the third per-session static allocation on the 500k `HostRuntime` path (ADR-0076),
 /// beside `engine.Peer` (gated at 1 KiB in `engine`) and the completion loop's
 /// `Conn` wrapper (gated at 128 bytes of overhead in `net.completion`). One
 /// `HostSession`, and therefore one inline `Served` Port, is minted per adopted

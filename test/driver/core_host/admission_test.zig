@@ -54,7 +54,7 @@ test "Host aggregate footprint and supported verb shapes stay within their budge
     try std.testing.expect(Host.RuntimeAdoptionError == error{ ReenteredHost, HostClosing, HostNotQuiescent });
     try std.testing.expectEqual(@as(usize, 2), @typeInfo(Host.BootstrapDurability).@"enum".field_names.len);
     try std.testing.expectEqual(@as(usize, 4), @typeInfo(Host.LifecyclePhase).@"enum".field_names.len);
-    try std.testing.expectEqual(@as(usize, 10), @typeInfo(Host.Options).@"struct".field_names.len);
+    try std.testing.expectEqual(@as(usize, 11), @typeInfo(Host.Options).@"struct".field_names.len);
 
     const set_session_limits: *const fn (*Host, ?usize, ?usize, ?usize, ?u32) error{ ReenteredHost, WrongThread, HostClosing }!void = &Host.setSessionLimits;
     const flush_session: *const fn (*Host, *HostSession) anyerror!void = &Host.flushSession;

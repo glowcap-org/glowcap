@@ -4,9 +4,9 @@
 //! `layer_table`, so blocking I/O, sockets, and threads are an `arch-check`
 //! failure here, as they are in `engine`. It gives the serve core the
 //! same I/O ban `engine.Node` already has, so the boundary the driver stands on
-//! is enforced by the build, not by convention (ADR-0072). The I/O bindings live
-//! above it in `driver`: `BlockingSession`, `driver.HostRuntime` (the
-//! transport-resident embedder over this layer's `Host`), and the transport constructors.
+//! is enforced by the build, not by convention (ADR-0072). The I/O binding
+//! lives above it in `driver`: `driver.HostRuntime`, the transport-resident
+//! embedder over this layer's `Host`, with its `Session` and `Server` views.
 
 const served = @import("served.zig");
 const pending_send = @import("pending_send.zig");
@@ -91,7 +91,7 @@ pub const Capability = capability.Ref;
 /// Injection seam for adapters that erase a native capability's Registry
 /// pointer. The adapter owns any synchronization and process-wide state.
 pub const CapabilityIdIssuer = capability.IdIssuer;
-/// The owning tier's passable value and reply (see `value.zig`): data arms
+/// The Host's passable value and reply (see `value.zig`): data arms
 /// mirror `model.Argument`, capability mentions are opaque.
 pub const copyValue = @import("value_copy.zig").copy;
 pub const valueCopyBytes = @import("value_copy.zig").measureSlice;

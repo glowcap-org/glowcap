@@ -56,9 +56,6 @@ For the command line instead of Zig, use the [CLI guide](../docs/cli.md).
 - [`readme_quick_start.zig`](zig/readme_quick_start.zig) compiles the
   sealed `noise-tcp` client shown in the root README and supplies the greeter
   it calls.
-- [`connect_explicit_buffers.zig`](zig/connect_explicit_buffers.zig) repeats
-  chapter 01's greeter conversation over testing TCP, with caller-owned
-  buffers and the lower-level blocking API, which cannot use Noise TCP.
 - [`many_sessions_one_loop.zig`](zig/many_sessions_one_loop.zig) repeats
   chapter 02's introduction for sixteen clients at once, served by one
   directory `Server` thread.

@@ -1,6 +1,6 @@
 //! Untrusted-bytes fuzzing of blocking frame reads, spill and all.
 //!
-//! `readFrameFrom` is what the blocking session calls to get one frame off a
+//! `readFrameFrom` is how a blocking `FrameStream` gets one frame off a
 //! stream. It has a job the frame parsers do not: a frame bigger than the read
 //! buffer cannot be decoded in place, so it accumulates in a spill and is
 //! decoded from there instead, and the spill is freed again when it drains

@@ -2,70 +2,42 @@
 const common = @import("common.zig");
 const attached = @import("attachment.zig");
 const core = common.core;
-pub const Request = union(enum) { read: core.Read, write: core.Batch, lookup: core.NameLookup, recover: core.Batch };
-pub const Result = union(enum) { read: core.ReadResult, write: core.Outcome, lookup: core.NameResult, recover: core.Resolution, failed: anyerror };
+pub const Worker = common.hosting.Worker;
+pub const Request = Worker.Request;
+pub const Result = Worker.Result;
 
-/// Fixed worker slots charge attachment initialization, never individual I/O.
-/// An active slot and its borrowed batch cannot be reused until the executor
-/// retires, completion consumes it, and the caller releases the handle. As
-/// with other C handles, using a released pointer is outside the contract.
-/// Core tickets retain incarnation, revision and sequence checks independently.
+/// The C handle for one `Worker.Slot`. The attachment's worker owns slot
+/// selection, the recovery exclusion, installation, and retirement. The handle
+/// adds the off-thread plan/finish state. Fixed slots charge attachment
+/// initialization, never individual I/O. An active slot and its borrowed batch
+/// cannot be reused until the executor retires, completion consumes it, and
+/// the caller releases the handle. As with other C handles, using a released
+/// pointer is outside the contract. Core tickets retain incarnation, revision
+/// and sequence checks independently.
 pub const Work = struct {
     owner: *attached.Attachment,
-    active: bool = false,
-    request: Request = undefined,
-    result: ?Result = null,
+    slot: *Worker.Slot,
     planned: ?Result = null,
     evaluation: ?core.Batch.Evaluation = null,
-    completed: bool = false,
     pub fn next(owner: *attached.Attachment, force_recovery: bool) !?*Work {
-        try owner.value.topLevel();
-        const recovery = force_recovery or owner.store.value.phase == .uncertain;
-        if (recovery and (owner.works != 0 or owner.recovery_work)) return error.Busy;
-        const work = for (owner.work_slots) |*slot| {
-            if (!slot.active) break slot;
-        } else return error.Busy;
-        const request: Request = if (recovery)
-            .{ .recover = try owner.value.recoveryBatch() }
-        else if (try owner.value.nextWork()) |effect| switch (effect) {
-            .read => |value| .{ .read = value },
-            .write => |value| .{ .write = value },
-            .lookup => |value| .{ .lookup = value },
-        } else return null;
-        work.* = .{ .owner = owner, .active = true, .request = request };
-        if (request == .write) work.evaluation = core.Batch.Evaluation.init(&work.request.write);
-        owner.works += 1;
-        if (recovery) owner.recovery_work = true;
+        const slot = try owner.worker.next(owner.value, force_recovery) orelse return null;
+        const work = &owner.work_slots[owner.worker.indexOf(slot).?];
+        work.* = .{ .owner = owner, .slot = slot };
+        if (slot.request == .write) work.evaluation = core.Batch.Evaluation.init(&slot.request.write);
         return work;
     }
     pub fn complete(self: *Work) !void {
-        if (self.completed) return error.StaleCompletion;
-        try self.owner.value.topLevel();
-        const result = self.result orelse return error.WorkerNotRetired;
-        // Completion consumes the submitted worker even when the core reports
-        // a read refusal or an uncertain install. A second completion is stale.
-        self.completed = true;
-        switch (result) {
-            .read => |value| try self.owner.value.completeRead(self.request.read.ticket, value),
-            .write => |value| try self.owner.value.completeWrite(self.request.write.ticket, value),
-            .lookup => |value| try self.owner.value.completeLookup(self.request.lookup.ticket, value),
-            .recover => |value| try self.owner.value.resolve(self.request.recover.ticket, value),
-            .failed => |err| return err,
-        }
+        try self.owner.worker.complete(self.slot, self.owner.value);
     }
     pub fn destroy(self: *Work) !void {
-        if (!self.completed) return error.Busy;
-        self.owner.works -= 1;
-        if (self.request == .recover) self.owner.recovery_work = false;
-        self.active = false;
-        self.result = null;
+        try self.owner.worker.release(self.slot);
         self.planned = null;
         self.evaluation = null;
     }
 };
 pub fn from(raw: ?*common.c.GlowcapLoamWork) !*Work {
     const work: *Work = @ptrCast(@alignCast(raw orelse return error.NullPointer));
-    if (!work.active) return error.StaleCompletion;
+    if (!work.slot.active) return error.StaleCompletion;
     try common.EvaluationGuard.check(work.owner.store);
     return work;
 }

@@ -242,7 +242,7 @@ pub fn Machine(
             // closes only that connection; one bad partner never tears down the
             // loop. A reply the hook enqueues on the peer flushes in the
             // `driveOut` below, matching the drain-then-flush order
-            // `driver.BlockingSession.step` uses.
+            // `driver.Session.step` uses.
             while (c.peer.pollEvent()) |ev_in| {
                 var ev = ev_in;
                 defer ev.deinit();

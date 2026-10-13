@@ -28,9 +28,9 @@ pub fn register(
     // so the prose and the API calls can't drift (each is built and run under
     // `check`); they read top-down, from the application surface to the raw
     // engine. `readme_quick_start` keeps the README's Quick Start snippet
-    // compiling. `frame_view` and `connect_explicit_buffers` are the
-    // lower-level library-mechanics walkthroughs; `many_sessions_one_loop`
-    // serves many sessions from one Server thread.
+    // compiling. `frame_view` is the lower-level library-mechanics
+    // walkthrough; `many_sessions_one_loop` serves many sessions from one
+    // Server thread.
     // `lmdb` examples also import the optional LMDB Loam backend and own a
     // fresh store directory per run.
     const zig_examples = [_]struct { name: []const u8, path: []const u8, lmdb: bool = false }{
@@ -43,7 +43,6 @@ pub fn register(
         .{ .name = "glowcap-ex-07-durable-card", .path = "examples/zig/07_durable_card.zig", .lmdb = true },
         .{ .name = "glowcap-readme-quick-start", .path = "examples/zig/readme_quick_start.zig" },
         .{ .name = "glowcap-dev-frame-view", .path = "examples/zig/frame_view.zig" },
-        .{ .name = "glowcap-dev-connect-explicit-buffers", .path = "examples/zig/connect_explicit_buffers.zig" },
         .{ .name = "glowcap-dev-many-sessions-one-loop", .path = "examples/zig/many_sessions_one_loop.zig" },
     };
     for (zig_examples) |ex| {

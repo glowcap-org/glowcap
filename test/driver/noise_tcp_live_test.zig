@@ -1,22 +1,16 @@
 //! The `noise-tcp` netlayer end to end over real 127.0.0.1 sockets
-//! (ADR-0107): a keyed listener on the owning face accepts
+//! (ADR-0107): a keyed `driver.listen` accepts
 //! a sealed session, a client dials the listener's key designator, the
 //! Noise_XK handshake completes inside the ordinary handshake pump, and both
 //! legs report `authenticated_transport` with no embedder testimony anywhere.
 //! The channel itself is the realizer. A fetch and a call round-trip
 //! through the sealed records prove CapTP is untouched above the channel.
-//!
-//! The negative half is the tier boundary: the borrowing `BlockingSession`
-//! tier stands on no core Host, so nothing there would seal the wire, and
-//! both of its constructors refuse the symbol outright.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
-const netlayer_test = @import("../support/netlayer.zig");
 const support_actors = @import("../support/actors.zig");
 
 const model = glowcap.ocapn.model;
-const engine = glowcap.ocapn.engine;
 const crypto = glowcap.foundation.crypto;
 const driver = glowcap.driver;
 const net = glowcap.net;
@@ -100,52 +94,4 @@ fn clientAsserts(allocator: std.mem.Allocator, io: std.Io, designator: []const u
     const settled = try client.call(greeter, "greet", &.{}, arena.allocator());
     try std.testing.expect(settled == .fulfilled and settled.fulfilled == .string);
     try std.testing.expectEqualStrings("hello through the sealed channel", settled.fulfilled.string);
-}
-
-test "noise-tcp: the borrowing blocking tier refuses the sealed symbol on both halves" {
-    const allocator = std.testing.allocator;
-    var threaded = std.Io.Threaded.init(allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
-
-    const secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x70)));
-    var resident = net.tcp.noise.Resident{ .io = io };
-    const netlayers = [_]net.netlayer.Netlayer{resident.netlayer()};
-
-    var peer = engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    var read_buf: [256]u8 = undefined;
-    var write_buf: [256]u8 = undefined;
-
-    const designator = secret.publicKey().toDesignator();
-    var entries: [1]model.HintEntry = undefined;
-    try std.testing.expectError(driver.Error.SealedChannelRequiresHost, driver.connectVia(
-        allocator,
-        &netlayers,
-        &peer,
-        .{
-            .transport = model.transport.noise_tcp,
-            .designator = designator[0..],
-            .hints = model.Hints.forDirectAddresses("127.0.0.1:1", &entries),
-        },
-        .ephemeral,
-        &read_buf,
-        &write_buf,
-        .{ .handshake = .{ .ms = 1_000 }, .settle = .{ .ms = 1_000 } },
-    ));
-
-    const listener = try netlayer_test.listenBlocking(resident.netlayer(), allocator, .{
-        .designator = "127.0.0.1:0",
-        .identity = secret.publicKey(),
-    });
-    defer netlayer_test.close(listener);
-    try std.testing.expectError(driver.Error.SealedChannelRequiresHost, driver.acceptVia(
-        allocator,
-        listener,
-        &peer,
-        .{ .keyed = secret },
-        &read_buf,
-        &write_buf,
-        .{ .handshake = .{ .ms = 1_000 }, .settle = .{ .ms = 1_000 } },
-    ));
 }

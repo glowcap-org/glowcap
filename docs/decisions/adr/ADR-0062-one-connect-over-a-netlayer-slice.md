@@ -7,7 +7,7 @@ decision: "Each application layer has one locator-aware connection front door. O
 supersedes: [ADR-0043]
 superseded_by: []
 amends: []
-amended_by: [ADR-0096]
+amended_by: [ADR-0096, ADR-0193]
 ---
 
 # ADR-0062 One typed-locator connection front door

@@ -40,7 +40,7 @@ pub fn prove(io: std.Io, allocator: std.mem.Allocator, port: u16) !void {
         if (collected.boolean) {
             try session.release(probe);
             try session.close(.{ .finish = .{ .ms = 5_000 } });
-            std.debug.print("goblins-gc: owning Session releases exports and answers; Goblins reclaimed the object before session close\n", .{});
+            std.debug.print("goblins-gc: the Session releases exports and answers; Goblins reclaimed the object before session close\n", .{});
             return;
         }
         _ = arena_state.reset(.retain_capacity);

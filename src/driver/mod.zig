@@ -2,29 +2,27 @@
 //!
 //! `actors.Vat` is a sync, no-I/O turn loop. `net` is where I/O lives.
 //! A networked Zig app normally has to open a socket, bind a vat to the peer, pump
-//! the connection, and dispatch each surfaced event into the vat. `BlockingSession`
-//! is that composition. It owns no protocol the engine lacks, and it hides no
-//! allocation or I/O. Every read and write is one explicit `step`. A host that
-//! wants to answer until the partner leaves can call `serve`. Either way, the
-//! caller owns the allocator, the buffers, and the peer's lifetime. This layer is
-//! above both `actors` and `net`, so it is the one place that may touch
-//! `std.Io` and the actor turn loop at the same time. It is not part of the
-//! no-I/O core.
+//! the connection, and dispatch each surfaced event into the vat. `HostRuntime`
+//! is that composition: one thread serves every session of one Host over its
+//! transport residents (ADR-0193, ADR-0202). `Session` and `Server` are its
+//! one-call views, handed back by `connect` and `listen`. It owns no protocol
+//! the engine lacks, and it hides no allocation or I/O: every read and write
+//! is one explicit `Session.step`, and a host that wants to answer until the
+//! partner leaves calls `Session.serve`. This layer is above both `actors`
+//! and `net`, so it is the one place that may touch `std.Io` and the actor
+//! turn loop at the same time. It is not part of the no-I/O core.
 //!
 //! The sans-io half of the driver lives one layer down in
 //! `driver_core`. It holds the serve core `Served` (which carries the
-//! publish/spawn/fetch verbs), its `ServeOptions`, and the shared vocabulary
-//! (`Error`, `Identity`, `Capability`, `Settled`). `arch-check` bans `driver_core` from touching I/O. This root
-//! re-exports them so callers keep reaching them as `driver.Served`,
-//! `driver.Error`, and so on, and adds the I/O members that must stay above the
-//! ban: the `drawSessionSecret` entropy boundary and the transport surfaces
-//! themselves. The surfaces live in sibling files and are re-exported here, so
-//! every driver surface is reached through this one root: the borrowing,
-//! caller-pumped `BlockingSession` and its transport constructors in
-//! `blocking_session.zig`, and the owning, one-call `Session`/`Server` views
-//! in `session.zig`. Zig-owned fan-out at scale is the same `HostRuntime`:
-//! one thread serves every session of one Host over its transport residents
-//! (ADR-0193, ADR-0202).
+//! publish/spawn/fetch verbs), its `ServeOptions`, the byte-fed `Host` the
+//! runtime feeds, and the shared vocabulary (`Error`, `Identity`,
+//! `Capability`, `Settled`). `arch-check` bans `driver_core` from touching
+//! I/O. This root re-exports them so callers keep reaching them as
+//! `driver.Served`, `driver.Error`, and so on, and adds the I/O members that
+//! must stay above the ban: the `drawSessionSecret` entropy boundary and the
+//! runtime itself. The runtime and its views live in sibling files and are
+//! re-exported here, so every driver surface is reached through this one
+//! root.
 
 const std = @import("std");
 
@@ -61,8 +59,8 @@ pub const FetchCapture = driver_core.FetchCapture;
 pub const Identity = driver_core.Identity;
 pub const AcceptIdentity = driver_core.AcceptIdentity;
 pub const Vow = driver_core.Vow;
-/// The opaque Host-scoped capability identity the owning tier speaks
-/// (ADR-0096). The borrowing tier's export-bound spelling is `Exported`.
+/// The opaque Host-scoped capability identity (ADR-0096). The serve core's
+/// export-bound form is `Exported`.
 pub const Capability = driver_core.Capability;
 pub const Exported = driver_core.Exported;
 pub const Value = driver_core.Value;
@@ -80,22 +78,14 @@ const crypto = foundation.crypto;
 
 /// Draw a fresh random session secret from `io` at the I/O boundary, never in the
 /// no-I/O core. The raw seed is wiped off the stack after `fromSeed` consumes it,
-/// so the ephemeral secret does not linger. The `BlockingSession` handshake halves
-/// and the Bridge embedder's identity key use this one entropy boundary.
+/// so the ephemeral secret does not linger. The `HostRuntime` handshake halves
+/// and its identity key use this one entropy boundary.
 pub fn drawSessionSecret(io: std.Io) Error!crypto.SecretKey {
     var seed: [crypto.SEED_BYTES]u8 = undefined;
     defer std.crypto.secureZero(u8, &seed);
     io.randomSecure(&seed) catch return Error.HandshakeEntropyFailed;
     return crypto.SecretKey.fromSeed(seed);
 }
-
-const blocking_session = @import("blocking_session.zig");
-/// The borrowing, caller-pumped session surface and transport-neutral constructors
-/// that bind one (see `blocking_session.zig`).
-pub const BlockingSession = blocking_session.BlockingSession;
-pub const connectVia = blocking_session.connectVia;
-pub const connectUri = blocking_session.connectUri;
-pub const acceptVia = blocking_session.acceptVia;
 
 const session = @import("session.zig");
 /// The owning native runtime (ADR-0090): transport I/O and a blocking,
@@ -131,16 +121,15 @@ pub const CloseOutcome = driver_core.CloseOutcome;
 /// The transports a runtime serves, as one value (ADR-0193).
 pub const Transports = HostRuntime.Transports;
 pub const connect = session.connect;
-pub const connectUriOwned = session.connectUriOwned;
+pub const connectUri = session.connectUri;
 pub const listen = session.listen;
 
 const dial_retry = @import("dial_retry.zig");
 /// Dial continuity (ADR-0082): DialError classification, discovery
 /// budget, and dial-retry. Not a Session facade: a rebuild yields a new session.
-pub const DialRetry = dial_retry.DialRetry;
 pub const DialPolicy = dial_retry.DialPolicy;
 pub const DialOutcome = dial_retry.DialOutcome;
-pub const OnDialOutcome = dial_retry.OnDialOutcome;
+pub const DialOutcomeObserver = dial_retry.DialOutcomeObserver;
 pub const isTransientDialError = dial_retry.isTransient;
 pub const discovery_retry_ms = driver_core.discovery_retry_ms;
 pub const discovery_max_attempts = driver_core.discovery_max_attempts;

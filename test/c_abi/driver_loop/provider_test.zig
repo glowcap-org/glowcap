@@ -91,6 +91,53 @@ test "provider dial admission pressure retains would-block classification throug
     try std.testing.expect(resident.pending == null);
 }
 
+test "a refused connect named on the DialError axis fails the dial at once through C" {
+    // The I/O status alone would read as the transient `ConnectionLost` and
+    // park the open for the discovery interval. The named refusal is
+    // permanent, so the failure surfaces within a few immediate steps.
+    const owned_loop = try newLoop(0x58);
+    defer owned_loop.deinit();
+    var resident = residents.InvalidMultiplexedResident{
+        .wake = try glowcap.net.wake_channel.WakeChannel.open(),
+        .connect_io = true,
+        .finish_connect_refused = true,
+    };
+    defer resident.wake.deinit();
+    var table = resident.table();
+    try expectOk(addMultiplexedProvider(owned_loop.raw, &table, "refused-connect"));
+    var ticket: u64 = 0;
+    try expectOk(try dialParts(owned_loop.raw, "refused-connect", "peer", "", &ticket));
+    var event: cdrv.GlowcapDriverEvent = undefined;
+    var steps: usize = 0;
+    while (steps < 8) : (steps += 1) {
+        try expectStep(cdrv.glowcap_driver_step(owned_loop.raw, 10));
+        if (cdrv.glowcap_driver_next_event(owned_loop.raw, &event) == c.GLOWCAP_OK) break;
+    } else return error.RefusedDialNeverFailed;
+    try std.testing.expectEqual(cdrv.GLOWCAP_DRIVER_EVENT_OPEN_FAILED, event.kind);
+    try std.testing.expectEqual(ticket, event.operation_id);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_IO, event.primary_result);
+    try std.testing.expectEqualStrings("ConnectionRefused", event.primary_name.?[0..event.primary_name_len]);
+}
+
+test "a refused tcp connect fails the C driver dial at once" {
+    // The tcp archive is a stream provider, so its refusal crosses the
+    // completion loop as one scalar error. Twenty short steps stay far
+    // below the discovery interval a parked retry would wait.
+    const owned_loop = try newLoop(0x59);
+    defer owned_loop.deinit();
+    var ticket: u64 = 0;
+    try expectOk(try dialParts(owned_loop.raw, "tcp", "127.0.0.1:1", "127.0.0.1:1", &ticket));
+    var event: cdrv.GlowcapDriverEvent = undefined;
+    var steps: usize = 0;
+    while (steps < 20) : (steps += 1) {
+        try expectStep(cdrv.glowcap_driver_step(owned_loop.raw, 50));
+        if (cdrv.glowcap_driver_next_event(owned_loop.raw, &event) == c.GLOWCAP_OK) break;
+    } else return error.RefusedDialNeverFailed;
+    try std.testing.expectEqual(cdrv.GLOWCAP_DRIVER_EVENT_OPEN_FAILED, event.kind);
+    try std.testing.expectEqual(ticket, event.operation_id);
+    try std.testing.expectEqualStrings("ConnectionRefused", event.primary_name.?[0..event.primary_name_len]);
+}
+
 test "a resident cannot return a count beyond the borrowed C buffer" {
     var resident = InvalidMultiplexedResident{ .wake = try glowcap.net.wake_channel.WakeChannel.open() };
     defer resident.wake.deinit();

@@ -1,17 +1,17 @@
-//! Four persistent native workers. Posting lends one request, completion
-//! returns its buffer custody. Store/Host installation stays on the owner.
+//! Four persistent worker threads, each running `hosting.Worker.run` on its
+//! slot. Posting lends one request, completion returns its buffer custody.
+//! Store/Host installation stays on the owner.
 const std = @import("std");
 const w = @import("workload.zig");
 const Work = w.hosting.Work;
-const Result = union(enum) { read: w.core.ReadResult, lookup: w.core.NameResult, write: w.core.Outcome };
+const Worker = w.hosting.Worker;
 const Future = @TypeOf(@as(std.Io, undefined).concurrent(execute, .{@as(*Slot, undefined)}) catch unreachable);
 pub const capacity = 4;
 
 const Slot = struct {
     io: std.Io = undefined,
     db: *w.Lmdb = undefined,
-    work: Work = undefined,
-    result: Result = undefined,
+    work: Worker.Slot = .{},
     posted: std.Io.Event = .unset,
     completed: std.Io.Event = .unset,
     stop: std.atomic.Value(bool) = .init(false),
@@ -28,11 +28,7 @@ fn execute(slot: *Slot) void {
         if (slot.stop.load(.acquire)) return;
         // Calibration alone holds workers; measured workloads never delay I/O.
         if (slot.gate) |gate| while (!gate.load(.acquire)) std.atomic.spinLoopHint();
-        slot.result = switch (slot.work) {
-            .read => |request| .{ .read = slot.db.read(request) },
-            .lookup => |request| .{ .lookup = slot.db.lookup(request) },
-            .write => |batch| .{ .write = slot.db.commit(batch) },
-        };
+        Worker.run(&slot.work, slot.db) catch unreachable; // `submit` posts only a fresh slot.
         // No request/buffer access after this release. The worker can now wait
         // for another post while the owner installs or retires this result.
         slot.completed.set(slot.io);
@@ -68,7 +64,11 @@ pub const Pool = struct {
             if (!slot.busy) break slot;
         } else return error.ExecutorFull;
         slot.db = workload.db;
-        slot.work = work;
+        slot.work = .{ .active = true, .request = switch (work) {
+            .read => |request| .{ .read = request },
+            .lookup => |request| .{ .lookup = request },
+            .write => |batch| .{ .write = batch },
+        } };
         slot.collection = collection;
         slot.gate = gate;
         slot.completed.reset();
@@ -98,7 +98,7 @@ pub const Pool = struct {
         if (self.active == capacity) self.saturation_turns += 1;
     }
 
-    // Await native completion before freeing borrowed memory, including on
+    // Await worker completion before freeing borrowed memory, including on
     // errors. Calibration opens its gate before reaching this deferred drain.
     pub fn drain(self: *Pool, workload: anytype) void {
         for (&self.slots) |*slot| if (slot.busy) slot.completed.waitUncancelable(self.io);
@@ -120,16 +120,18 @@ pub const Pool = struct {
 };
 
 fn install(workload: anytype, slot: *Slot) !void {
-    switch (slot.work) {
+    const result = slot.work.result.?;
+    switch (slot.work.request) {
         .read => |request| {
             workload.reads += 1;
-            try workload.attachment.completeRead(request.ticket, slot.result.read);
+            try workload.attachment.completeRead(request.ticket, result.read);
         },
-        .lookup => |request| try workload.attachment.completeLookup(request.ticket, slot.result.lookup),
+        .lookup => |request| try workload.attachment.completeLookup(request.ticket, result.lookup),
         .write => |batch| {
-            if (slot.collection) try workload.store.completeWrite(batch.ticket, slot.result.write) else try workload.attachment.completeWrite(batch.ticket, slot.result.write);
-            if (slot.result.write != .committed) return error.CommitFailed;
+            if (slot.collection) try workload.store.completeWrite(batch.ticket, result.write) else try workload.attachment.completeWrite(batch.ticket, result.write);
+            if (result.write != .committed) return error.CommitFailed;
             workload.writes += 1;
         },
+        .recover => unreachable, // `submit` never posts recovery.
     }
 }

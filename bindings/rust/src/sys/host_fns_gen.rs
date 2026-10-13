@@ -32,6 +32,7 @@ unsafe extern "C" {
 		captp_version: c_uint,
 		features: c_uint,
 		local_turn_budget: c_uint,
+		release_on_drop: c_uint,
 		out_host: *mut *mut GlowcapHost,
 	) -> c_int;
 	pub fn glowcap_host_new_in(
@@ -44,9 +45,12 @@ unsafe extern "C" {
 		captp_version: c_uint,
 		features: c_uint,
 		local_turn_budget: c_uint,
+		release_on_drop: c_uint,
 		out_host: *mut *mut GlowcapHost,
 	) -> c_int;
 	pub fn glowcap_host_diagnostic_id(host: *mut GlowcapHost, out_id: *mut u64) -> c_int;
+	pub fn glowcap_host_release_on_drop(host: *mut GlowcapHost, out_enabled: *mut u32) -> c_int;
+	pub fn glowcap_host_set_release_on_drop(host: *mut GlowcapHost, enabled: c_uint) -> c_int;
 	pub fn glowcap_host_close(host: *mut GlowcapHost, options: *const GlowcapCloseOptions, now_ms: i64) -> c_int;
 	pub fn glowcap_host_close_progress(host: *mut GlowcapHost, now_ms: i64, out_state: *mut u32) -> c_int;
 	pub fn glowcap_host_close_wait_ms(host: *mut GlowcapHost, now_ms: i64, out_wait_ms: *mut i64) -> c_int;

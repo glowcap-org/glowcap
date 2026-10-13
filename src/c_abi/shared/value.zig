@@ -226,8 +226,8 @@ pub fn argumentFromCWith(
 const ReferenceField = enum { reference, capability };
 
 /// The one conversion recursion behind both marshal lifetimes and both
-/// application value spellings. `Output` is either `model.Argument` or an
-/// owning tier's isomorphic opaque-capability value. `own_bytes` and the
+/// application value forms. `Output` is either `model.Argument` or the
+/// Host's isomorphic opaque-capability value. `own_bytes` and the
 /// reference field are comptime, so every projection remains straight-line.
 fn valueFromCImpl(
     comptime Output: type,
@@ -350,7 +350,7 @@ pub fn argsFromCWith(
     return valuesFromCImpl(model.Argument, .reference, RefError, ref_ctx, ref_from_c, arena, items, len, depth, own_bytes);
 }
 
-/// Decode the same C value algebra into an owning tier's opaque-capability
+/// Decode the same C value algebra into the Host's opaque-capability
 /// value without first manufacturing wire references. `Value` must carry the
 /// data arms accepted above plus a `capability` arm of the callback's payload.
 pub fn valuesFromCWith(

@@ -60,7 +60,7 @@ pub fn glowcap_loam_work_kind(raw: ?*c.GlowcapLoamWork, out_kind: ?*u32) callcon
     shared.lastErrorClear();
     const work = works.from(raw) catch |err| return common.code(err);
     const out = out_kind orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    out.* = switch (work.request) {
+    out.* = switch (work.slot.request) {
         .read => 0,
         .write => 1,
         .lookup => 2,
@@ -71,21 +71,21 @@ pub fn glowcap_loam_work_kind(raw: ?*c.GlowcapLoamWork, out_kind: ?*u32) callcon
 pub fn glowcap_loam_work_plan(raw: ?*c.GlowcapLoamWork, callback: ?execution.GlowcapLoamKvFn, context: ?*anyopaque) callconv(.c) i32 {
     shared.lastErrorClear();
     const work = works.from(raw) catch |err| return common.code(err);
-    if (work.completed or work.result != null or work.planned != null) return common.code(error.StaleCompletion);
+    if (work.slot.completed or work.slot.result != null or work.planned != null) return common.code(error.StaleCompletion);
     var kv: execution.Kv = .{ .callback = callback orelse return shared.GLOWCAP_ERR_NULL_POINTER, .context = context };
     var guard: common.EvaluationGuard = .{};
     guard.enter(work.owner.store) catch |err| return common.code(err);
     defer guard.leave();
-    const result = execution.plan(work.request, if (work.evaluation) |*cursor| cursor else null, &kv) catch |err| return common.code(err);
+    const result = execution.plan(work.slot.request, if (work.evaluation) |*cursor| cursor else null, &kv) catch |err| return common.code(err);
     work.planned = result;
     return shared.GLOWCAP_OK;
 }
 pub fn glowcap_loam_work_finish(raw: ?*c.GlowcapLoamWork, outcome: u32) callconv(.c) i32 {
     shared.lastErrorClear();
     const work = works.from(raw) catch |err| return common.code(err);
-    if (work.completed or work.result != null) return common.code(error.StaleCompletion);
-    const result = execution.finish(work.request, work.planned, outcome) catch |err| return common.code(err);
-    work.result = result;
+    if (work.slot.completed or work.slot.result != null) return common.code(error.StaleCompletion);
+    const result = execution.finish(work.slot.request, work.planned, outcome) catch |err| return common.code(err);
+    work.slot.result = result;
     work.planned = null;
     return shared.GLOWCAP_OK;
 }

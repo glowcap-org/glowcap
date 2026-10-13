@@ -7,8 +7,6 @@
 //!
 //! This is the application surface. Chapter 02 adds a third peer and a
 //! three-party introduction. Later chapters open the layers underneath.
-//! The buffer-explicit form of this same surface is
-//! `connect_explicit_buffers.zig`.
 //!
 //! Run: `zig build examples` (it also runs under `zig build check`).
 

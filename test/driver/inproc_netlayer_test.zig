@@ -1,14 +1,17 @@
-//! The in-process netlayer, driven through the contract.
+//! The in-process transport, with no sockets and no file descriptors: dial
+//! and accept rendezvous by designator on an in-process switchboard, and the
+//! bytes flow over in-process pipes.
 //!
-//! This is the second real resident proving the netlayer contract generalizes.
-//! Unlike the `x-loopback` test transport (which rides tcp under the hood), the
-//! `inproc` netlayer has no sockets and no file descriptors: dial and accept
-//! rendezvous by designator on an in-process switchboard, and the bytes flow over
-//! in-process pipes. The driver dials and hosts it through the same transport-
-//! neutral `connectVia` / `acceptVia` with the same verified keyed handshake it
-//! uses for tcp, and neither the driver nor the core was edited to add it. A full
-//! OCapN conversation: keyed `op:start-session`, bootstrap fetch, deliver, and
-//! the fulfilled reply round-trip entirely in process.
+//! The first two scenarios ride the runtime: `driver.listen` and
+//! `driver.connect` over the transports value's `inproc` symbol and one
+//! shared exchange, with the same verified keyed handshake it runs for
+//! tcp. A full OCapN conversation, keyed `op:start-session`, bootstrap fetch,
+//! deliver, and the fulfilled reply, round-trips entirely in process, and a
+//! dial to an unbound designator fails closed. The rest drive the blocking
+//! `inproc.Network` listener through the netlayer contract directly: a close
+//! wakes a parked accept and a finite wait, an unbounded wait parks until a
+//! dial arrives, and a close races in-flight dials without touching freed
+//! state.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -25,7 +28,15 @@ const inproc = net.inproc;
 const frame_cap = 4096;
 const node_designator = "greeter-node";
 
-const Greeter = support_actors.StaticReplyActor("greet", "hello over inproc");
+/// Finite budgets: a partner that goes quiet fails the suite instead of
+/// parking it.
+const dial_opts: driver.SessionOptions = .{
+    .frame_cap = frame_cap,
+    .handshake = .{ .ms = 10_000 },
+    .settle = .{ .ms = 10_000 },
+};
+
+const Greeter = support_actors.StaticReplyValueActor("greet", "hello over inproc");
 
 const ReplyState = struct {
     done: bool = false,
@@ -44,52 +55,33 @@ fn onGreeting(ctx: ?*anyopaque, resolution: actors.Resolution) void {
     };
 }
 
-/// Accept one partner over the bound in-process listener, publish the greeter, and
-/// serve until the client leaves. The listener is bound by the test body before
-/// the client dials, so there is no accept-before-bind race.
-fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyerror!void {
-    var peer = engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
-
-    var cv = try driver.acceptVia(allocator, listener, &peer, .ephemeral, read_buf, write_buf, .{ .handshake = .unbounded, .settle = .unbounded });
-    defer cv.deinit();
-
-    _ = try cv.publish("greeter", Greeter, .{});
-    try cv.serve();
+/// Accept one partner on the bound in-process server, publish the greeter,
+/// and serve until the client leaves. The server is bound by the test body
+/// before the client dials, so there is no accept-before-bind race.
+fn hostOnce(server: *driver.Server) anyerror!void {
+    var session = try server.accept();
+    defer session.deinit();
+    _ = try session.publish("greeter", Greeter, .{});
+    try session.serve();
 }
 
-/// Dial the in-process node by designator through `connectVia`, fetch the greeter,
-/// call it, and assert the reply.
-fn callOnce(network: *inproc.Network, allocator: std.mem.Allocator) !void {
-    var peer = engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
-
-    const netlayers = [_]net.netlayer.Netlayer{network.netlayer()};
-    var cv = try driver.connectVia(allocator, &netlayers, &peer, .{
-        .transport = inproc.transport_name,
+/// Dial the in-process node by designator through `driver.connect`, fetch
+/// the greeter, call it through the callback-and-step pump, and assert the
+/// reply.
+fn callOnce(io: std.Io, exchange: *net.inproc_completion.Exchange, allocator: std.mem.Allocator) !void {
+    var session = try driver.connect(allocator, io, .{ .symbols = &.{.inproc}, .inproc = exchange }, .{
+        .transport = model.transport.inproc,
         .designator = node_designator,
         .hints = model.Hints.emptyFalse(),
-    }, .ephemeral, read_buf, write_buf, .{ .handshake = .unbounded, .settle = .unbounded });
-    defer cv.deinit();
+    }, .ephemeral, dial_opts);
+    defer session.deinit();
 
-    const greeter = try cv.fetch("greeter");
-    const promise = try cv.send(greeter, .{ .verb = "greet", .args = &.{.{ .string = "glowcap" }} });
+    const greeter = try session.fetch("greeter");
+    const promise = try session.send(greeter, "greet", &.{.{ .string = "glowcap" }});
     var state = ReplyState{};
-    try cv.on(promise, .{ .ctx = &state, .func = onGreeting });
+    try promise.on(.{ .ctx = &state, .func = onGreeting });
     while (!state.done) {
-        const progress = try cv.step();
+        const progress = try session.step();
         if (progress == .closed) break;
     }
     try std.testing.expect(state.done and state.ok);
@@ -102,15 +94,15 @@ test "inproc netlayer: full keyed handshake + fetch + call round-trips with no s
     defer threaded.deinit();
     const io = threaded.io();
 
-    var network = inproc.Network.init(allocator, io);
-    defer network.deinit();
+    var exchange = net.inproc_completion.Exchange.init(allocator);
+    defer exchange.deinit();
 
-    // Bind the listener before the client dials, so the switchboard has the node.
-    const listener = try netlayer_test.listenBlocking(network.netlayer(), allocator, .{ .designator = node_designator });
-    defer netlayer_test.close(listener);
+    // Bind the server before the client dials, so the switchboard has the node.
+    var server = try driver.listen(allocator, io, .{ .symbols = &.{.inproc}, .inproc = &exchange }, model.transport.inproc, .{ .designator = node_designator }, .ephemeral, dial_opts);
+    defer server.deinit();
 
-    var host_future = try io.concurrent(hostOnce, .{ listener, allocator });
-    const client_result = callOnce(&network, allocator);
+    var host_future = try io.concurrent(hostOnce, .{server});
+    const client_result = callOnce(io, &exchange, allocator);
     const host_result = host_future.await(io);
     try client_result;
     try host_result;
@@ -122,23 +114,17 @@ test "inproc netlayer: dialing an unbound designator fails closed" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var network = inproc.Network.init(allocator, io);
-    defer network.deinit();
+    var exchange = net.inproc_completion.Exchange.init(allocator);
+    defer exchange.deinit();
 
-    var peer = engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    var read_buf: [256]u8 = undefined;
-    var write_buf: [256]u8 = undefined;
-
-    const netlayers = [_]net.netlayer.Netlayer{network.netlayer()};
     // No listener bound at that designator is the in-memory refused-partner
     // case (ADR-0081): the dial fails closed with ConnectionRefused, the typed
     // reason a reconnecting caller acts on.
-    try std.testing.expectError(error.ConnectionRefused, driver.connectVia(allocator, &netlayers, &peer, .{
-        .transport = inproc.transport_name,
+    try std.testing.expectError(error.ConnectionRefused, driver.connect(allocator, io, .{ .symbols = &.{.inproc}, .inproc = &exchange }, .{
+        .transport = model.transport.inproc,
         .designator = "no-such-node",
         .hints = model.Hints.emptyFalse(),
-    }, .ephemeral, &read_buf, &write_buf, .{ .handshake = .unbounded, .settle = .unbounded }));
+    }, .ephemeral, dial_opts));
 }
 
 /// Park an accept on the listener and expect the clean closed verdict: the

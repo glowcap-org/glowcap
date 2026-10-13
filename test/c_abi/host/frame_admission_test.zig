@@ -7,7 +7,7 @@ const harness = @import("harness.zig");
 test "libglowcap_host: whole-frame feed refuses an over-cap hello and retains the abort" {
     var tiny: ?*host.GlowcapHost = null;
     const seed = harness.hostSeed(0x91);
-    try harness.expectOk(host.glowcap_host_new(&seed, seed.len, 64, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, &tiny));
+    try harness.expectOk(host.glowcap_host_new(&seed, seed.len, 64, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, 1, &tiny));
     defer _ = host.glowcap_host_release(tiny);
     const dialer = try harness.newHost(0x92);
     defer _ = host.glowcap_host_release(dialer);

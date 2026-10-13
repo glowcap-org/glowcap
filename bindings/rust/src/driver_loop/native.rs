@@ -117,6 +117,7 @@ impl DriverLoop {
 				sys::DEFAULT_CAPTP_VERSION,
 				sys::DEFAULT_FEATURES,
 				0,
+				1,
 				&mut host,
 			)
 		})?;

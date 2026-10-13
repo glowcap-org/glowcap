@@ -42,6 +42,7 @@ comptime {
         _ = @import("loam/hosting/continuation_test.zig");
         _ = @import("loam/hosting/read_scope_test.zig");
         _ = @import("loam/hosting/discovery_test.zig");
+        _ = @import("loam/hosting/worker_test.zig");
         _ = @import("loam/access/hosting_test.zig");
         _ = @import("loam/access/registration_test.zig");
         _ = @import("loam/access/callback_context_test.zig");
@@ -190,9 +191,11 @@ comptime {
             _ = @import("driver/host_runtime_multiplexed/conversation_test.zig");
             _ = @import("driver/host_runtime_multiplexed/completion_resident_test.zig");
             _ = @import("driver/host_runtime_multiplexed/provider_test.zig");
+            _ = @import("driver/session_wire_fault_test.zig");
         }
         if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
             _ = @import("driver/host_runtime_step/serve_test.zig");
+        _ = @import("driver/host_runtime_step/dial_retry_test.zig");
         _ = @import("driver/host_runtime_step/staged_dial_test.zig");
         _ = @import("driver/host_runtime_step/wake_test.zig");
         _ = @import("driver/host_runtime_multiplexed/external_resident_test.zig");
@@ -201,9 +204,9 @@ comptime {
         _ = @import("driver/host_runtime_multiplexed/noise_tcp_resident_test.zig");
         _ = @import("driver/host_runtime_multiplexed/onion_resident_test.zig");
         _ = @import("driver/host_runtime_multiplexed/stream_stack_test.zig");
-        _ = @import("driver/blocking_session/loopback_test.zig");
-        _ = @import("driver/blocking_session/byte_fed_test.zig");
-        _ = @import("driver/blocking_session/fault_test.zig");
+        _ = @import("driver/session_loopback_test.zig");
+        _ = @import("driver/session_fault_test.zig");
+        _ = @import("driver/served_byte_fed_test.zig");
         _ = @import("driver/host_runtime_handoff_test.zig");
         _ = @import("driver/core_host/close_test.zig");
         _ = @import("driver/core_host/finish_test.zig");
@@ -256,7 +259,6 @@ comptime {
         _ = @import("driver/core_host_adopt_test.zig");
         _ = @import("driver/crossed_hellos_test.zig");
         _ = @import("driver/gc_stateless_test.zig");
-        _ = @import("driver/pluggability_test.zig");
         _ = @import("driver/inproc_netlayer_test.zig");
         _ = @import("driver/onion_host_test.zig");
         _ = @import("driver/session_target_test.zig");

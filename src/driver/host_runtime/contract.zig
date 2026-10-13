@@ -6,9 +6,12 @@ const std = @import("std");
 const model = @import("model");
 const driver_core = @import("driver_core");
 const lifecycle = @import("lifecycle.zig");
+const dial_retry = @import("../dial_retry.zig");
 const OperationFailure = @import("../operation_failure.zig").OperationFailure;
 
 const Budget = driver_core.Budget;
+const DialPolicy = dial_retry.DialPolicy;
+const DialOutcomeObserver = dial_retry.DialOutcomeObserver;
 const Error = driver_core.Error;
 const default_frame_cap = (driver_core.Host.Options{}).limits.max_frame_bytes;
 
@@ -75,7 +78,15 @@ pub fn Vocabulary(
             /// Recipient only for failures produced after deterministic return
             /// ownership is gone. Explicit close barriers return their failure.
             unhandled_failure: ?FailureObserver = null,
-            /// Which face drives the runtime. The native blocking tier is the
+            /// Dial retry policy the pump executes on staged resident dials
+            /// (ADR-0082 policy, ADR-0193 execution): a transient fault parks
+            /// the row until its interval elapses, then re-issues the dial on
+            /// the same session. The defaults are the shared discovery budget.
+            dial_retry: DialPolicy = .discovery(),
+            /// Optional embedder metric recipient, one report per dial
+            /// attempt outcome.
+            dial_outcome: ?DialOutcomeObserver = null,
+            /// Which face drives the runtime. The blocking face is the
             /// default. A step-driven embedder chooses `.stepped` here, with
             /// its recipients, and the readiness set exists from `init` on.
             drive: lifecycle.DriveOptions = .blocking,

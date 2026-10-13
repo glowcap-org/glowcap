@@ -10,19 +10,12 @@ const model = glowcap.ocapn.model;
 const engine = glowcap.ocapn.engine;
 const actors = glowcap.actors;
 const driver = glowcap.driver;
-const tcp = glowcap.net.tcp;
-const net = glowcap.net;
-const syrup = glowcap.ocapn.codec.syrup;
 const crypto = glowcap.foundation.crypto;
 
-const harness = @import("harness.zig");
-const handshake_budget = harness.handshake_budget;
-const frame_cap = harness.frame_cap;
-const dial_opts = harness.dial_opts;
-const connectPlain = harness.connectPlain;
-const acceptPlain = harness.acceptPlain;
-const Greeter = harness.Greeter;
-const HostedGreeter = harness.HostedGreeter;
+const support_actors = @import("../support/actors.zig");
+
+/// The published actor: answers `greet(name)` with a static greeting.
+const Greeter = support_actors.StaticReplyActor("greet", "hello from the hosting vat");
 
 // ── Byte-fed drive (ADR-0072) ────────────────────────────────────────────────
 //

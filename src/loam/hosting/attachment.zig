@@ -228,6 +228,7 @@ pub const Attachment = struct {
     pub const completeRead = storage.completeRead;
     pub const completeLookup = storage.completeLookup;
     pub const completeWrite = storage.completeWrite;
+    pub const awaitsRecovery = storage.awaitsRecovery;
     pub const recoveryBatch = storage.recoveryBatch;
     pub const resolve = storage.resolve;
     pub const submit = storage.submit;

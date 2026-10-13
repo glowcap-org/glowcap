@@ -1,7 +1,8 @@
 //! Host-wide publication projection for the C ABI Host subject.
 //!
-//! The core Host owns names and actors. This leaf owns only C argument
-//! admission and the exactly-once transfer of a foreign behavior context.
+//! The core Host owns names and actors. This leaf owns the host-wide publish
+//! exports, their C argument admission, and the exactly-once transfer of a
+//! foreign behavior context.
 
 const engine = @import("engine");
 
@@ -122,4 +123,106 @@ pub fn unpublish(host: ?*c.GlowcapHost, name: ?[*]const u8, name_len: usize) i32
         return shared.marshalErrorToCode(err);
     inst.core.unpublish(name_bytes) catch |err| return common.errToCode(err);
     return shared.GLOWCAP_OK;
+}
+
+/// Publish one hosted object in the Vat owned by this Host and bind `name` as its host-wide
+/// alias. Fetch lazily projects the actor onto the requesting Port. A deposited
+/// gift retains the exact actor and never consults the alias at withdrawal. The
+/// publication row owns `ctx`:
+/// `free`, if non-null, runs exactly once: at `glowcap_host_release` on
+/// success, or before this returns on any non-OK outcome (except the
+/// null-pointer and reentry refusals, which touch nothing and leave ctx the
+/// caller's). All-or-nothing over this call's own work: registration failure
+/// discards the fresh actor and frees `ctx`, so a retry starts with no partial
+/// alias or projection.
+pub fn glowcap_host_publish(
+    host: ?*c.GlowcapHost,
+    name: ?[*]const u8,
+    name_len: usize,
+    behavior: ?c.GlowcapHostBehavior,
+    ctx: ?*anyopaque,
+    free: ?c.GlowcapHostCtxFree,
+) callconv(.c) i32 {
+    shared.lastErrorClear();
+    return publish(host, name, name_len, behavior, ctx, free);
+}
+
+/// Publish one hosted object under a freshly minted durable swiss name
+/// (ADR-0098): the reserved-prefix namespace, unpredictable, never
+/// reassigned, removable only through `glowcap_host_remove_durable`, and
+/// structurally disjoint from every mutable alias. `entropy` supplies
+/// exactly GLOWCAP_HOST_DURABLE_ENTROPY_LEN caller-drawn random bytes: the
+/// embedder owns the entropy boundary, as it does for gift ids. The minted
+/// swiss (the name to place in a sturdyref beside this host's own locator)
+/// is written into `out_swiss`. `swiss_cap` must be at least
+/// GLOWCAP_HOST_DURABLE_SWISS_LEN or the call refuses BUFFER_TOO_SMALL and
+/// publishes nothing. Returns the written length. `ctx`/`free` follow
+/// `glowcap_host_publish`'s ownership exactly.
+pub fn glowcap_host_publish_durable(
+    host: ?*c.GlowcapHost,
+    entropy: ?[*]const u8,
+    entropy_len: usize,
+    behavior: ?c.GlowcapHostBehavior,
+    ctx: ?*anyopaque,
+    free: ?c.GlowcapHostCtxFree,
+    out_swiss: ?[*]u8,
+    swiss_cap: usize,
+) callconv(.c) i32 {
+    shared.lastErrorClear();
+    return publishDurable(
+        host,
+        entropy,
+        entropy_len,
+        behavior,
+        ctx,
+        free,
+        out_swiss,
+        swiss_cap,
+    );
+}
+
+/// Publish an already-held local capability under a durable name. The
+/// publication retains its own root. The caller's reference stays owned by
+/// the caller on success and failure. Entropy and output use the same bounds
+/// as glowcap_host_publish_durable. Foreign capabilities are refused.
+pub fn glowcap_host_publish_reference(
+    host: ?*c.GlowcapHost,
+    reference: ?*const shared.GlowcapReference,
+    entropy: ?[*]const u8,
+    entropy_len: usize,
+    out_swiss: ?[*]u8,
+    swiss_cap: usize,
+) callconv(.c) i32 {
+    shared.lastErrorClear();
+    return publishReference(host, reference, entropy, entropy_len, out_swiss, swiss_cap);
+}
+
+/// Remove a minted durable publication (ADR-0098): the sturdyref misses
+/// afterward, while capabilities already issued and deposited gifts keep
+/// the exact actor. A swiss outside the reserved durable namespace returns
+/// GLOWCAP_ERR_INVALID_ARGUMENT (mutable aliases leave through
+/// `glowcap_host_unpublish`). An unknown durable name returns
+/// GLOWCAP_ERR_NOT_FOUND.
+pub fn glowcap_host_remove_durable(
+    host: ?*c.GlowcapHost,
+    swiss: ?[*]const u8,
+    swiss_len: usize,
+) callconv(.c) i32 {
+    shared.lastErrorClear();
+    return removeDurable(host, swiss, swiss_len);
+}
+
+/// Remove the host-wide alias `name`. Discovery-only, alias-only (ADR-0096): a
+/// later fetch of the name misses on every session, while capabilities already
+/// issued, live Port projections, and deposited gifts keep naming the exact
+/// actor, which stays in the Host's Vat until `glowcap_host_release`. An
+/// absent alias returns GLOWCAP_ERR_NOT_FOUND, so a typo is loud instead of an
+/// idempotent no-op.
+pub fn glowcap_host_unpublish(
+    host: ?*c.GlowcapHost,
+    name: ?[*]const u8,
+    name_len: usize,
+) callconv(.c) i32 {
+    shared.lastErrorClear();
+    return unpublish(host, name, name_len);
 }

@@ -97,7 +97,7 @@ def driver_sigs(
     u64_p = ctypes.POINTER(u64)
     return {
         "glowcap_host_archive_fingerprint": ([], u64),
-        "glowcap_host_new_in": ([P, P, size, size, u32, u32, u32, u32, u32, ctypes.POINTER(P)], i32),
+        "glowcap_host_new_in": ([P, P, size, size, u32, u32, u32, u32, u32, u32, ctypes.POINTER(P)], i32),
         "glowcap_host_diagnostic_id": ([P, u64_p], i32),
         "glowcap_host_close": ([P, ctypes.POINTER(_CloseOptions), i64], i32),
         "glowcap_host_close_progress": ([P, i64, u32_p], i32),

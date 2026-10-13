@@ -4,6 +4,7 @@ const model = @import("model");
 const engine = @import("engine");
 const actors = @import("actors");
 const host_mod = @import("../host.zig");
+const capability_identity = @import("../host/capabilities/identity.zig");
 const vows = @import("../vows.zig");
 const pump = @import("../host/pump.zig");
 const observation = @import("observation.zig");
@@ -43,7 +44,7 @@ const Group = struct {
         if (host.sessions.get(self.key.peer)) |session| {
             const peer = session.served.port.peer;
             if (peer.session_state.pendingEnlivenSwissnum(self.key.answer)) |swissnum| {
-                if (if (resolution == .fulfilled) host_mod.asFarRef(resolution.fulfilled) else null) |far|
+                if (if (resolution == .fulfilled) capability_identity.asFarRef(resolution.fulfilled) else null) |far|
                     peer.session_state.settlePendingEnlivenIntoCache(swissnum, far)
                 else
                     peer.finishPendingEnliven(swissnum);

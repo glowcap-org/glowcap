@@ -122,7 +122,7 @@ pub fn main() !void {
     // calls onto the freshly attenuated record when `checkout` resolves. Each
     // `serve` is followed by `drive`, the attenuator answers by *forwarding*,
     // which queues a local send the drive loop runs (the serve-then-drive pump
-    // `BlockingSession.step` does over a real socket).
+    // `driver.Session.step` does over a real socket).
     var progressed = true;
     while (progressed) {
         progressed = false;

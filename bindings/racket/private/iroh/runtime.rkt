@@ -376,37 +376,6 @@
 ;; recorded, as a runtime TCP dial does. Delegates to the
 ;; node-keyed dial with a fresh host rather than keying the session
 ;; independently of the host it builds.
-;; Discovery-posture dial retry (ADR-0082): lockstep with GLOWCAP_DISCOVERY_DIAL_*.
-(define DISCOVERY-DIAL-RETRY-S (/ DISCOVERY-DIAL-RETRY-MS 1000.0))
-
-;; Dial, retrying only under a propagating-discovery posture (DISCOVERY and
-;; DISCOVERY-NO-RELAY) while it resolves the partner by id. A dial-by-id can fail
-;; with "no addressing information" until the exporter's pkarr record propagates
-;; to the n0 resolver (seconds, variable); every other posture dials once
-;; (Direct's addresses are in hand, local_discovery resolves instantly). Mirrors
-;; the TS `dialResolving` and the Zig `iroh-reachability` driver.
-(define (dial-resolving lp node-id direct-addresses retry?)
-  (let loop ([attempt 1])
-    (define result
-      ;; Let a break through rather than absorbing it into a retry: the retry
-      ;; loop sleeps for seconds under discovery, so catching exn:break here
-      ;; would make the dial uninterruptible. This is the same defect the convert-to-
-      ;; broken sites fixed. Only a non-break failure is a retry candidate.
-      ;; ADR-0082: only transient dial faults (ERR-IO) are retried.
-      (with-handlers ([(lambda (e) (not (exn:break? e)))
-                       (lambda (e)
-                         (define code
-                           (cond [(exn:fail:glowcap? e) (exn:fail:glowcap-code e)]
-                                 [else #f]))
-                         (if (and retry?
-                                  (eqv? code ERR-IO)
-                                  (< attempt DISCOVERY-DIAL-MAX-ATTEMPTS))
-                             'retry
-                             (raise e)))])
-        (loop-dial! lp node-id direct-addresses)))
-    (if (eq? result 'retry)
-        (begin (sleep DISCOVERY-DIAL-RETRY-S) (loop (add1 attempt)))
-        result)))
 
 ;; The node-keyed iroh dial behind a handoff redeem: dial the exporter
 ;; endpoint and bring the connection up under host `m` rather than a fresh
@@ -418,8 +387,9 @@
 ;; the host identity and drives it byte-fed over this transport), and
 ;; `handshake-timeout-ms` bounds it at `HANDSHAKE-TIMEOUT-MS` by default. The
 ;; bound covers only the handshake over an established QUIC connection, never
-;; the dial-by-id resolution before it: `dial-resolving` owns that wait and its
-;; discovery retries, so a slow n0 lookup is not charged to the handshake.
+;; the dial-by-id resolution before it, which is one transport attempt finished
+;; before the handshake starts. A dial staged through the driver loop retries
+;; transient faults on the runtime's GLOWCAP-DISCOVERY-DIAL-* budget (ADR-0193).
 ;; ── raw byte channels ────────────────────────────────────────────────────────
 ;; An iroh connection with nothing running over it: raw bytes in, raw bytes out,
 ;; and no CapTP handshake. Two consumers need exactly that. A byte-transparent
@@ -459,17 +429,12 @@
   (define-values (rc len) ((iroh-fn 'conn-remote-node-id) conn buf IROH-NODE-ID-BYTES))
   (and (= rc OK) (bytes->string/utf-8 (subbytes buf 0 len))))
 
-;; Should a dial under this posture retry while the partner's record propagates?
-(define (propagating-discovery? reachability)
-  (or (= reachability IROH-REACH-DISCOVERY)
-      (= reachability IROH-REACH-DISCOVERY-NO-RELAY)))
-
 ;; Dial an endpoint by id (plus direct-address hints, which a discovery posture
 ;; may leave empty) and answer the raw byte channel over it. `owned-netlayer` is
 ;; the endpoint the channel's close should tear down, or #f when the caller keeps
 ;; it and serves other connections from the same loop.
 (define (dial-channel-over lp owned-netlayer node-id direct-addresses reachability)
-  (define conn (dial-resolving lp node-id direct-addresses (propagating-discovery? reachability)))
+  (define conn (loop-dial! lp node-id direct-addresses))
   (loop-register! lp conn)
   (channel-over-transport (iroh-loop-transport lp conn owned-netlayer (and owned-netlayer #t))
                           (conn-verified-remote conn)))
@@ -477,7 +442,6 @@
 ;; Open the byte-fed Host's iroh transport. The transport owns the endpoint and
 ;; readiness loop; the second value is the remote endpoint key QUIC proved.
 (define (dial-byte-transport node-id direct-addresses reachability
-                             [retry-discovery? #t]
                              [worker-threads #f])
   (define-values (netlayer _seed)
     (iroh-netlayer-new
@@ -488,10 +452,7 @@
                      (loop-stop! lp)
                      (iroh-netlayer-close/release! netlayer)
                      (raise e))])
-    (define conn
-      (dial-resolving lp node-id direct-addresses
-                      (and retry-discovery?
-                           (propagating-discovery? reachability))))
+    (define conn (loop-dial! lp node-id direct-addresses))
     (loop-register! lp conn)
     (values (iroh-loop-transport lp conn netlayer #t)
             (conn-verified-remote conn))))
@@ -521,7 +482,6 @@
      (locator-designator loc)
      (hash-ref (locator-hints loc) HINT-DIRECT-ADDRESSES "")
      reachability
-     #f
      1))
   (channel-over-transport transport verified-remote))
 ;; ── the raw byte-channel endpoint ────────────────────────────────────────────

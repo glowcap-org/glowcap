@@ -216,16 +216,16 @@ backend work synchronously outside actor turns. Collection samples use 64 and
 
 ## Sustained native executor
 
-A separate conversation population uses four persistent native workers, an
+A separate conversation population uses four persistent worker threads, an
 eight-call admission window, sixteen cache slots and a 256 KiB pending-call
-limit. During these phases, only workers execute database reads and commits. The
-owner thread drives Host/Vat, prepares batches and installs completions. Posting
-a request lends its buffer to one worker. The completion event returns custody
-after native I/O finishes. Workers wait on events between requests. Shutdown
-waits for outstanding work, installs its completions, then stops and joins all
-workers before releasing attachment or Store state. Worker startup precedes
-borrowing any Store request. A partial startup failure stops and joins every
-worker it created.
+limit. During these phases, only worker threads execute database reads and
+commits, each through `hosting.Worker.run`. The owner thread drives Host/Vat,
+prepares batches and installs completions. Posting a request lends its buffer to
+one thread. The completion event returns custody after its I/O finishes. Workers
+wait on events between requests. Shutdown waits for outstanding work, installs
+its completions, then stops and joins all workers before releasing attachment or
+Store state. Worker startup precedes borrowing any Store request. A partial
+startup failure stops and joins every worker it created.
 
 Each read and mixed phase admits 1,024 calls, replacing settled calls immediately.
 The mixed phase edits every eighth header and reads the others. Reports include

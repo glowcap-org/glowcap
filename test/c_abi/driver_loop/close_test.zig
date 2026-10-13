@@ -293,6 +293,7 @@ test "driver close initiation succeeds under allocator pressure" {
         c.GLOWCAP_CAPTP_V1_0,
         c.GLOWCAP_FEATURE_FULL,
         0,
+        1,
         &host,
     ));
     var loop: ?*cdrv.GlowcapDriverLoop = null;
@@ -462,6 +463,7 @@ test "a loop built over a counting context releases every byte it took" {
         c.GLOWCAP_CAPTP_V1_0,
         c.GLOWCAP_FEATURE_FULL,
         0,
+        1,
         &host,
     ));
     var host_owned = true;
@@ -501,6 +503,7 @@ test "pending-open admission is bounded and failure publishes from reserved capa
         c.GLOWCAP_CAPTP_V1_0,
         c.GLOWCAP_FEATURE_FULL,
         0,
+        1,
         &host,
     ));
     errdefer _ = cd.glowcap_host_release(host);

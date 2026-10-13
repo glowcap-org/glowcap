@@ -89,7 +89,7 @@ pub const StreamProvider = struct {
                 self.sink.violation(self.sink.ctx, "stream connect start published outputs on failure");
                 cancelConnect(ctx, handle);
             }
-            return .{ .failed = self.cause(code, report, "stream connect start") };
+            return .{ .failed = self.dialCause(code, report, "stream connect start") };
         }
         const handle = self.checkedHandle(report, attempt, fd, "stream connect start") orelse {
             if (attempt) |orphan| cancelConnect(ctx, orphan);
@@ -104,7 +104,7 @@ pub const StreamProvider = struct {
         var fd: i32 = -1;
         var report = shared.transport_provider.emptyProviderFailure();
         const code = self.table.finish_connect.?(attempt, &conn, &fd, &report);
-        if (code != GLOWCAP_OK) return .{ .failed = self.cause(code, report, "stream connect finish") };
+        if (code != GLOWCAP_OK) return .{ .failed = self.dialCause(code, report, "stream connect finish") };
         const handle = self.checkedHandle(report, conn, fd, "stream connect finish") orelse {
             if (conn) |orphan| connClose(ctx, orphan);
             return .{ .failed = error.ProviderContract };
@@ -339,6 +339,24 @@ pub const StreamProvider = struct {
             return error.ProviderContract;
         };
         return chain.cause;
+    }
+
+    /// A dial verb's failure reaches the completion resident as one scalar
+    /// error, which it classifies on the `DialError` retry axis. The status
+    /// proxy error (`ProviderIo` and its siblings) sits outside that axis and
+    /// would read as a transient lost connection, so the scalar is the
+    /// classification the report names or its status code implies.
+    fn dialCause(
+        self: *StreamProvider,
+        code: i32,
+        report: shared.GlowcapProviderFailure,
+        comptime what: []const u8,
+    ) anyerror {
+        const chain = owner_mod.failureChainFromProvider(code, report) catch {
+            self.sink.violation(self.sink.ctx, what ++ " returned an invalid structured failure");
+            return error.ProviderContract;
+        };
+        return owner_mod.dialErrorFromProvider(code, chain.cause_name);
     }
 
     fn connTakeFailure(ctx: *anyopaque, conn: *anyopaque) ?foundation.FailureChain {
