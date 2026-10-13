@@ -362,7 +362,7 @@ test "sealed channel: an Ed25519 sign-bit alias cannot claim the initiator stati
     const responder_identity = crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x6e)));
     const initiator_static = crypto.x25519FromSecretKey(&initiator_identity).?;
     const responder_static = crypto.x25519FromSecretKey(&responder_identity).?;
-    const initiator_ephemeral = crypto.X25519KeyMaterial.fromSecret(@as([32]u8, @splat(0x6f))).?;
+    const initiator_ephemeral = crypto.X25519KeyMaterial.fromSecret(@as([32]u8, @splat(0x6f)));
 
     const responder_designator = responder_identity.publicKey().toDesignator();
     var prologue_buf: [96]u8 = undefined;

@@ -131,7 +131,7 @@ impl IrohLoop {
 	pub(super) async fn dial(&self, node_id: &str, hints: &str) -> Result<usize> {
 		let request_id = self
 			.next_request
-			.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| next.checked_add(1))
+			.try_update(Ordering::Relaxed, Ordering::Relaxed, |next| next.checked_add(1))
 			.map_err(|_| Error::from_code(sys::ERR_INTERNAL))?;
 		let (sender, receiver) = oneshot::channel();
 		lock_iroh(&self.state, "iroh-loop-state-lock-poison")

@@ -10,41 +10,41 @@
 # compatible system runtime below. Both pins name multi-architecture indexes;
 # update-pins tracks them and env-sync checks their Dockerfile consumers.
 DEBIAN_BASE_TAG="trixie-slim"
-DEBIAN_BASE_DIGEST="sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a"
+DEBIAN_BASE_DIGEST="sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f"
 
 # --- Production service images ---
-DISTROLESS_BASE_DIGEST="sha256:4594d59540d1948417f6ca2829ddd9294493a7c68b7528f4dd459de7f203a750"
+DISTROLESS_BASE_DIGEST="sha256:159783207c2cd44c2aa5715961d13c8612368ac9bd450f887e3f08fc8ea461e3"
 # The complete tag + digest is one pin because both identify the exact image
 # Compose runs. update-pins.sh selects PostgreSQL's newest stable release.
 POSTGRES_IMAGE_PIN="18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873"
 
 # --- Zig ---
-ZIG_VERSION="0.17.0-dev.2294+71403f299"
+ZIG_VERSION="0.17.0"
 ZLS_VERSION="0.17.0-dev"
-ZLS_SOURCE_REVISION="0ea69abdd8f50d81989c00b6a3b9cf8ced7f9522"
-ZLS_SOURCE_SHA256="1abfd6c1f4c5d6d09c069e80682d62340e2d27bbb1d49ef81eb68a409a8ccbe9"
+ZLS_SOURCE_REVISION="eab2be0fd74443a27662da809b771c4ad0d2afcf"
+ZLS_SOURCE_SHA256="e33ac991c827b3e38150530864d3d4deafc1ca020539a6358fb056b8c4a48606"
 
 # --- Rust (C ABI dogfood) ---
-RUST_VERSION="1.98.1"
+RUST_VERSION="1.99.0"
 RUSTUP_INIT_VERSION="1.29.1"
 
 # --- JavaScript / TypeScript dogfood ---
 DENO_VERSION="2.9.7"
-NODE_VERSION="26.10.0"
+NODE_VERSION="26.11.1"
 NPM_VERSION="12.2.0"
-BUN_VERSION="1.4.2"
+BUN_VERSION="1.4.3"
 
 # --- Playwright (the browser proofs' Chromium) ---
 # This is the one place the version is written. The root deno.json resolves the
 # browser proofs' `playwright` import from the same number, and
 # `zig build source-check` fails if the two ever disagree. The browser build
 # number (chromium-<rev>) is Playwright's to choose, so nothing here restates it.
-PLAYWRIGHT_VERSION="1.63.0"
+PLAYWRIGHT_VERSION="1.64.0"
 
 # --- Python (uv) / agent tools ---
-UV_VERSION="0.12.19"
+UV_VERSION="0.13.0"
 PYTHON_VERSION="3.14.7"
-SERENA_AGENT_VERSION="1.7.0"
+SERENA_AGENT_VERSION="2.0.0"
 # The four AI harnesses are managed tools, not image content: these versions
 # are the verified cold-install seeds the dispatcher installs on first use
 # (.devcontainer/tools), and update-pins keeps them fresh. An explicit
@@ -54,7 +54,7 @@ SERENA_AGENT_VERSION="1.7.0"
 # so it is copied verbatim into the download URL rather than composed from
 # parts.
 CLAUDE_CODE_VERSION="2.1.296"
-OPENCODE_VERSION="1.18.35"
+OPENCODE_VERSION="1.19.0"
 CODEX_VERSION="0.162.1"
 CURSOR_AGENT_VERSION="2026.10.01-e373342"
 

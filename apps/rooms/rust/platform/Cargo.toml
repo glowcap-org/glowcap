@@ -19,7 +19,7 @@ serde = { workspace = true, features = ["std"] }
 tokio-tungstenite = { workspace = true, features = ["connect", "rustls-tls-native-roots"] }
 futures-util = { workspace = true, features = ["sink"] }
 tokio-rustls = { workspace = true, features = ["ring", "tls12"] }
-rustls-native-certs = "=0.8.4"
+rustls-native-certs = "=0.8.5"
 bytes.workspace = true
 
 [dev-dependencies]

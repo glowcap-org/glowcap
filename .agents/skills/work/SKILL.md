@@ -38,7 +38,7 @@ is sound.
 | Frames, allocators, wire-path copies                  | [memory rule](../../rules/memory.md)                                                                       |
 | Semantic claims, fixtures, conformance                | [tests rule](../../rules/tests.md) + `test/oracle/`                                                        |
 | Docs, README, agent scaffolding                       | [doc-drift](../../rules/doc-drift.md) + [doc-voice](../../rules/doc-voice.md)                              |
-| Dependency or toolchain updates                       | [cli](../../rules/cli.md#devcontainer) + [prerelease](../../rules/prerelease.md)                           |
+| Dependency or toolchain updates                       | [`docs/dependencies.md`](../../../docs/dependencies.md) + [cli](../../rules/cli.md#devcontainer) + [prerelease](../../rules/prerelease.md) |
 | Live CapTP from the shell (argv/REPL/listen/`--json`) | [glowcap-cli skill](../glowcap-cli/SKILL.md)                                                               |
 | Live CapTP via Cursor/Claude MCP tools                | [glowcap-mcp skill](../glowcap-mcp/SKILL.md) (dogfood CapTP while editing glowcap)                         |
 | Room presence wake-loop                               | [rooms-peer skill](../rooms-peer/SKILL.md)                                                                   |

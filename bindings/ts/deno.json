@@ -12,7 +12,7 @@
     "./relay"
   ],
   "imports": {
-    "playwright": "npm:playwright@1.63.0"
+    "playwright": "npm:playwright@1.64.0"
   },
   "lock": {
     "path": "./deno.lock",

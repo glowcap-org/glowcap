@@ -32,7 +32,8 @@ task. Run every gate through
 
 **Context map:** route to 1.0 in [`docs/ladder.md`](docs/ladder.md), ordered
 work in [`docs/roadmap.md`](docs/roadmap.md), layer tour in
-[`docs/architecture.md`](docs/architecture.md), settled decisions in
+[`docs/architecture.md`](docs/architecture.md), what the project builds on in
+[`docs/dependencies.md`](docs/dependencies.md), settled decisions in
 [`docs/decisions/adr/`](docs/decisions/adr/), the Syrup reference corpus in
 `test/oracle/`, live Goblins wire authority in `conformance/goblins-peer/`, and
 the OCapN spec in `conformance/ocapn-spec/`. The

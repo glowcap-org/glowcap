@@ -170,8 +170,16 @@ glowcap_pins_query_version() {
             digest="$(glowcap_pins_docker_hub_index_digest library/postgres "${version}-alpine")"
             printf '%s-alpine@%s\n' "${version}" "${digest}"
             ;;
-        zig) glowcap_pins_fetch https://ziglang.org/download/index.json | jq -r .master.version ;;
-        zls) glowcap_pins_fetch https://api.github.com/repos/zigtools/zls/commits/master | jq -r .sha ;;
+        # The newest Zig release, not master: ZLS and Zine follow releases, and
+        # a dev build tends to outrun them.
+        zig) glowcap_pins_fetch https://ziglang.org/download/index.json \
+            | jq -r '[keys[] | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | max_by(split(".") | map(tonumber))' ;;
+        # The ZLS tag for the pinned Zig, or master until ZLS tags that release.
+        zls)
+            if ! glowcap_pins_fetch "https://api.github.com/repos/zigtools/zls/commits/${ZIG_VERSION}" 2>/dev/null | jq -r .sha; then
+                glowcap_pins_fetch https://api.github.com/repos/zigtools/zls/commits/master | jq -r .sha
+            fi
+            ;;
         # Several packages in the channel file carry a version line; only
         # [pkg.rust]'s is the toolchain version.
         rust) glowcap_pins_fetch https://static.rust-lang.org/dist/channel-rust-stable.toml \

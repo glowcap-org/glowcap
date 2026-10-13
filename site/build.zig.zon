@@ -2,11 +2,11 @@
     .name = .glowcap_site,
     .version = "0.1.0",
     .fingerprint = 0x433cd5dceff6bf04,
-    .minimum_zig_version = "0.17.0-dev.1818+7051f8e73",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .zine = .{
-            .url = "git+https://github.com/kristoff-it/zine.git#a8339ef8f61f08ce427694e5992b0e13975b0cab",
-            .hash = "zine-0.14.0-ou6nIFmTFwDMsQ_JiVWHBbHxKCzTd8iWHxzXmLV1YJPb",
+            .url = "git+https://github.com/kristoff-it/zine.git#6c9782957f46cf1162aa6fe8e881162b2d31480e",
+            .hash = "zine-0.14.1-ou6nIJKIFwBEjCLNI4Hryh9YWa73Rm_DCsypWHbEp5l8",
         },
     },
     .paths = .{

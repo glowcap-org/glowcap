@@ -25,6 +25,7 @@ pub const surfaces = [_][]const u8{
     "docs/stability.md",
     "docs/boundaries.md",
     "docs/community-review.md",
+    "docs/dependencies.md",
     "docs/decisions/README.md",
     "docs/protocol-diagrams/**",
     "site/content/**",

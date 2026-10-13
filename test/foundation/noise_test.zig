@@ -63,10 +63,10 @@ test "cacophony XK vector: both roles, all messages, byte for byte" {
     try std.testing.expectEqualStrings(noise.protocol_name, vec.protocol_name);
     try std.testing.expectEqual(@as(usize, 6), vec.messages.len);
 
-    const init_static = crypto.X25519KeyMaterial.fromSecret(try hex32(vec.init_static)).?;
-    const init_ephemeral = crypto.X25519KeyMaterial.fromSecret(try hex32(vec.init_ephemeral)).?;
-    const resp_static = crypto.X25519KeyMaterial.fromSecret(try hex32(vec.resp_static)).?;
-    const resp_ephemeral = crypto.X25519KeyMaterial.fromSecret(try hex32(vec.resp_ephemeral)).?;
+    const init_static = crypto.X25519KeyMaterial.fromSecret(try hex32(vec.init_static));
+    const init_ephemeral = crypto.X25519KeyMaterial.fromSecret(try hex32(vec.init_ephemeral));
+    const resp_static = crypto.X25519KeyMaterial.fromSecret(try hex32(vec.resp_static));
+    const resp_ephemeral = crypto.X25519KeyMaterial.fromSecret(try hex32(vec.resp_ephemeral));
     const init_remote_static = try hex32(vec.init_remote_static);
 
     // The vector's `init_remote_static` is the responder's public key; the
@@ -147,13 +147,13 @@ const Fixture = struct {
 
     fn make() Fixture {
         return .{
-            .init_static = crypto.X25519KeyMaterial.fromSecret(@as([32]u8, @splat(0x11))).?,
-            .resp_static = crypto.X25519KeyMaterial.fromSecret(@as([32]u8, @splat(0x22))).?,
+            .init_static = crypto.X25519KeyMaterial.fromSecret(@as([32]u8, @splat(0x11))),
+            .resp_static = crypto.X25519KeyMaterial.fromSecret(@as([32]u8, @splat(0x22))),
         };
     }
 
     fn initiator(self: *const Fixture, ephemeral_seed: u8, prologue: []const u8) noise.HandshakeState {
-        const ephemeral = crypto.X25519KeyMaterial.fromSecret(@as([32]u8, @splat(ephemeral_seed))).?;
+        const ephemeral = crypto.X25519KeyMaterial.fromSecret(@as([32]u8, @splat(ephemeral_seed)));
         return noise.HandshakeState.initInitiator(
             &self.init_static,
             self.resp_static.public,
@@ -163,7 +163,7 @@ const Fixture = struct {
     }
 
     fn responder(self: *const Fixture, ephemeral_seed: u8, prologue: []const u8) noise.HandshakeState {
-        const ephemeral = crypto.X25519KeyMaterial.fromSecret(@as([32]u8, @splat(ephemeral_seed))).?;
+        const ephemeral = crypto.X25519KeyMaterial.fromSecret(@as([32]u8, @splat(ephemeral_seed)));
         return noise.HandshakeState.initResponder(
             &self.resp_static,
             &ephemeral,
@@ -384,8 +384,8 @@ test "a full handshake through converted durable keys settles both ways" {
     const dialer_static = crypto.x25519FromSecretKey(&dialer_identity).?;
     const answerer_static = crypto.x25519FromSecretKey(&answerer_identity).?;
     const answerer_point = crypto.x25519FromPeerKey(answerer_identity.publicKey()).?;
-    const dialer_ephemeral = crypto.X25519KeyMaterial.fromSecret(@as([32]u8, @splat(0x51))).?;
-    const answerer_ephemeral = crypto.X25519KeyMaterial.fromSecret(@as([32]u8, @splat(0x61))).?;
+    const dialer_ephemeral = crypto.X25519KeyMaterial.fromSecret(@as([32]u8, @splat(0x51)));
+    const answerer_ephemeral = crypto.X25519KeyMaterial.fromSecret(@as([32]u8, @splat(0x61)));
 
     var dialer = noise.HandshakeState.initInitiator(
         &dialer_static,

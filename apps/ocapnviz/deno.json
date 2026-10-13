@@ -5,9 +5,9 @@
   "license": "Apache-2.0",
   "exports": "./src/main.tsx",
   "tasks": {
-    "dev": "deno run -A npm:vite@8.3.1",
-    "build": "deno run -A npm:vite@8.3.1 build",
-    "preview": "deno run -A npm:vite@8.3.1 preview",
+    "dev": "deno run -A npm:vite@8.3.4",
+    "build": "deno run -A npm:vite@8.3.4 build",
+    "preview": "deno run -A npm:vite@8.3.4 preview",
     "test:live-browser": "deno task build && deno run -A browser/live-mode-production-test.ts",
     "typecheck": "deno check src/main.tsx scripts/*.ts",
     "test": "deno test -A --parallel",
@@ -25,13 +25,13 @@
     "@types/react": "npm:@types/react@19.3.0",
     "@types/react-dom": "npm:@types/react-dom@19.3.0",
     "zod": "npm:zod@4.6.5",
-    "pixi.js": "npm:pixi.js@8.21.0",
+    "pixi.js": "npm:pixi.js@8.22.0",
     "pixi-viewport": "npm:pixi-viewport@6.0.3",
     "miniplex": "npm:miniplex@2.0.0",
     "d3-force": "npm:d3-force@3.0.0",
     "@types/d3-force": "npm:@types/d3-force@3.0.10",
-    "vite": "npm:vite@8.3.1",
-    "@vitejs/plugin-react": "npm:@vitejs/plugin-react@6.1.1",
+    "vite": "npm:vite@8.3.4",
+    "@vitejs/plugin-react": "npm:@vitejs/plugin-react@6.1.2",
     "@deno/vite-plugin": "npm:@deno/vite-plugin@2.0.4",
     "@glowcap/abi": "../../bindings/ts/abi/constants.ts",
     "@glowcap/runtime": "../../bindings/ts/runtime/mod.ts",
@@ -52,7 +52,7 @@
     // devcontainer image installs the browser .devcontainer/pins.sh names, and
     // a range here would let the library drift off the browser on disk.
     // `zig build source-check` holds the two together.
-    "playwright": "npm:playwright@1.63.0"
+    "playwright": "npm:playwright@1.64.0"
   },
   "lock": {
     "path": "./deno.lock",

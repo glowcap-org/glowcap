@@ -66,7 +66,8 @@ zig build runtime-check
 ```
 
 Toolchain versions live in
-[`.devcontainer/pins.sh`](.devcontainer/pins.sh). The
+[`.devcontainer/pins.sh`](.devcontainer/pins.sh), and
+[dependencies](docs/dependencies.md) explains what each one is for. The
 [devcontainer README](.devcontainer/README.md) covers maintenance and host
 integration, including the one explicit port-offset choice required for a
 linked worktree.

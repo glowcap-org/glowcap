@@ -168,11 +168,11 @@ pub const SealedChannel = struct {
         remote: crypto.PeerKey,
         ephemeral_seed: [crypto.SEED_BYTES]u8,
         transport: []const u8,
-    ) (noise.NoiseError || error{ InvalidIdentity, InvalidRemoteKey, InvalidEphemeral })!SealedChannel {
+    ) (noise.NoiseError || error{ InvalidIdentity, InvalidRemoteKey })!SealedChannel {
         var local = crypto.x25519FromSecretKey(identity) orelse return error.InvalidIdentity;
         defer std.crypto.secureZero(u8, &local.secret);
         const remote_x = crypto.x25519FromPeerKey(remote) orelse return error.InvalidRemoteKey;
-        var ephemeral = crypto.X25519KeyMaterial.fromSecret(ephemeral_seed) orelse return error.InvalidEphemeral;
+        var ephemeral = crypto.X25519KeyMaterial.fromSecret(ephemeral_seed);
         defer std.crypto.secureZero(u8, &ephemeral.secret);
         var prologue_buf: [identity_binding.prologue_max_bytes]u8 = undefined;
         const prologue = identity_binding.buildPrologue(&prologue_buf, transport, &remote.toDesignator());
@@ -204,10 +204,10 @@ pub const SealedChannel = struct {
         identity: *const crypto.SecretKey,
         ephemeral_seed: [crypto.SEED_BYTES]u8,
         transport: []const u8,
-    ) error{ InvalidIdentity, InvalidEphemeral }!SealedChannel {
+    ) error{InvalidIdentity}!SealedChannel {
         var local = crypto.x25519FromSecretKey(identity) orelse return error.InvalidIdentity;
         defer std.crypto.secureZero(u8, &local.secret);
-        var ephemeral = crypto.X25519KeyMaterial.fromSecret(ephemeral_seed) orelse return error.InvalidEphemeral;
+        var ephemeral = crypto.X25519KeyMaterial.fromSecret(ephemeral_seed);
         defer std.crypto.secureZero(u8, &ephemeral.secret);
         var prologue_buf: [identity_binding.prologue_max_bytes]u8 = undefined;
         const local_identity = identity.publicKey();

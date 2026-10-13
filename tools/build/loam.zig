@@ -14,9 +14,10 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
         .sanitize_c = .trap,
     });
     lmdb.addImport("loam_core", core);
-    lmdb.addIncludePath(b.path("third_party/lmdb"));
+    const lmdb_source = b.dependency("lmdb", .{}).path("libraries/liblmdb");
+    lmdb.addIncludePath(lmdb_source);
     lmdb.addCSourceFiles(.{
-        .root = b.path("third_party/lmdb"),
+        .root = lmdb_source,
         .files = &.{ "mdb.c", "midl.c" },
         .flags = &.{ "-fvisibility=hidden", "-pthread" },
     });

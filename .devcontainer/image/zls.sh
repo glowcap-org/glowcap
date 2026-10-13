@@ -15,10 +15,6 @@ trap 'rm -rf "${tmp}"' EXIT
 glowcap_fetch_verified "${url}" "${tmp}/${tarball}" "${ZLS_SOURCE_SHA256}"
 
 tar -xzf "${tmp}/${tarball}" --strip-components=1 -C "${tmp}"
-# The pinned source predates Zig's directory-dependency API rename. Keep
-# configuration invalidation on directory entries, and refuse patch drift.
-patch --batch --forward --fuzz=0 --directory "${tmp}" --strip=1 \
-    < "${dir}/image/patches/zls-directory-contents.patch"
 (
     cd "${tmp}"
     zig build -Doptimize=ReleaseSafe -Dversion-string="${ZLS_VERSION}"

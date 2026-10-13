@@ -338,7 +338,7 @@ async fn dial_raw(
 pub(crate) fn make_conn(ep: &GlowcapIrohEndpoint, raw: AcceptedRaw) -> Option<*mut GlowcapIrohConn> {
 	let id = ep
 		.next_conn_id
-		.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| next.checked_add(1))
+		.try_update(Ordering::Relaxed, Ordering::Relaxed, |next| next.checked_add(1))
 		.ok()?;
 	Some(Box::into_raw(Box::new(GlowcapIrohConn {
 		id,

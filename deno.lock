@@ -6,8 +6,8 @@
     "jsr:@std/internal@^1.0.12": "1.0.14",
     "npm:@types/react-dom@19.3.0": "19.3.0_@types+react@19.3.0",
     "npm:@types/react@19.3.0": "19.3.0",
-    "npm:es-module-lexer@3.0.2": "3.0.2",
-    "npm:playwright@1.63.0": "1.63.0",
+    "npm:es-module-lexer@3.0.3": "3.0.3",
+    "npm:playwright@1.64.0": "1.64.0",
     "npm:react-dom@19.3.0": "19.3.0_react@19.3.0",
     "npm:react-router@8.4.0": "8.4.0_react@19.3.0_react-dom@19.3.0",
     "npm:react@19.3.0": "19.3.0",
@@ -47,15 +47,15 @@
     "csstype@3.2.3": {
       "integrity": "sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ=="
     },
-    "es-module-lexer@3.0.2": {
-      "integrity": "sha512-BuIB67FngDSyQ/dpQNOZybwdEBDUGJQvOqwWr4ha/ufYiqzuEwPkKO2zLhRAgay28tStRIHUeWmszZAJo3GCOg=="
+    "es-module-lexer@3.0.3": {
+      "integrity": "sha512-yWGe1O/j+almnV4hOYrmZo8u58JdnmXEMneRQAYkWtqSiT86yoMIEKF4rpqEDj52tbYl3xceBD3DQIBwcsC9Pw=="
     },
-    "playwright-core@1.63.0": {
-      "integrity": "sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg==",
+    "playwright-core@1.64.0": {
+      "integrity": "sha512-T9r+MZkTECl2+oUcZ26YgZzTrYidTsIhYYkJix+6iDOymOb1FB2RLLSOxRGnZGv5DStt+aduIVbt+E8WygXYpg==",
       "bin": true
     },
-    "playwright@1.63.0": {
-      "integrity": "sha512-+7ziBLidS4NaNCdt57SUDT+wYmmd5fmiQejUic/kb+YsYSCPyOOE9sebzMjNmQrsnNpDJqd4WHvV/8lfKfUDUg==",
+    "playwright@1.64.0": {
+      "integrity": "sha512-kVzTnYFYEyQ9RGzBjNCd2+yEqWmVbxl3AHPynv3qQ6JTjv4a+kwRcnqQwIpuP3NnrnIrE/Q6wWAIAvMfIE2/Yg==",
       "dependencies": [
         "playwright-core"
       ],
@@ -105,8 +105,8 @@
     "dependencies": [
       "npm:@types/react-dom@19.3.0",
       "npm:@types/react@19.3.0",
-      "npm:es-module-lexer@3.0.2",
-      "npm:playwright@1.63.0",
+      "npm:es-module-lexer@3.0.3",
+      "npm:playwright@1.64.0",
       "npm:react-dom@19.3.0",
       "npm:react-router@8.4.0",
       "npm:react@19.3.0",

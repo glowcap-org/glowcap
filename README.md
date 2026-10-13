@@ -209,6 +209,7 @@ Reference pages:
 - [Known limitations](docs/boundaries.md) lists deployment and API constraints.
 - [Stability](docs/stability.md) says what recurring evidence supports them.
 - [Architecture](docs/architecture.md) explains the layers.
+- [Dependencies](docs/dependencies.md) lists what glowcap builds on.
 - [Capabilities](docs/capabilities.md) is the glossary when the ideas are new.
 - [The roadmap](docs/roadmap.md) lists the work that remains.
 

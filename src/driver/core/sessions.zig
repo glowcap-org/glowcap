@@ -279,7 +279,6 @@ fn attachSealedChannel(self: *Host, session: *HostSession, role: enum { initiato
                 // A designator whose key is degenerate for Diffie-Hellman
                 // names a peer no handshake can reach: an undialable address.
                 error.InvalidRemoteKey, error.IdentityElement => return error.InvalidAddress,
-                error.InvalidEphemeral => return HostError.SealedChannelFailed,
                 else => return HostError.SealedChannelFailed,
             };
         },

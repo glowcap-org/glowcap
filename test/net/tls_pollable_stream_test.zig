@@ -35,7 +35,7 @@ fn setSocketBuffer(fd: std.c.fd_t, opt: u32, bytes: c_int) !void {
 
 test "pollable TLS connection state has a measured footprint" {
     try std.testing.expectEqual(
-        @as(usize, 45_616),
+        @as(usize, 45_656),
         glowcap.net.tls.pollable_stream.connection_state_bytes,
     );
 }

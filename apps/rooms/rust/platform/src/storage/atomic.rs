@@ -15,7 +15,7 @@ pub(crate) fn is_staged(name: &std::ffi::OsStr) -> bool {
 pub fn staged(directory: &std::path::Path, name: &str) -> Result<(PathBuf, File), StorageError> {
 	for _ in 0..16 {
 		let next = NEXT_TEMP
-			.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+			.try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
 			.map_err(|_| io::Error::other("temporary-file identities exhausted"))?;
 		let path = directory.join(format!(".{}.tmp-{}-{next}", name, std::process::id()));
 		let mut options = OpenOptions::new();

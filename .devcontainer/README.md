@@ -237,10 +237,8 @@ The image installs the Rust browser target and the `wasm-bindgen` compiler.
 The compiler version comes from `apps/rooms/rust/Cargo.lock`, which the image
 copies and checks its installed compiler against.
 
-ZLS is built from the checksummed source revision in `pins.sh`.
-`image/zls.sh` applies `image/patches/zls-directory-contents.patch` for the
-pinned Zig's build API. A ZLS refresh must recheck or remove that patch and
-compile with the selected Zig before the image counts as verified.
+ZLS is built from the checksummed source revision in `pins.sh`. A ZLS refresh
+must compile with the selected Zig before the image counts as verified.
 
 The image also puts the repository's CapTP CLI on PATH: `glowcap` links to the
 repo-root development launcher, which runs `zig-out/product/bin/glowcap`. The
@@ -391,7 +389,9 @@ CLI is used only when its version matches. Otherwise `npx` runs the pinned
 release.
 
 The pin report covers image tools and conformance submodules. A complete
-dependency refresh also covers these owners:
+dependency refresh also covers these owners. [Dependencies](../docs/dependencies.md)
+says what each group is for, and `source-check` fails when a pinned tool or Zig
+package is missing from it.
 
 | Dependency | Update and evidence |
 | --- | --- |
@@ -399,7 +399,7 @@ dependency refresh also covers these owners:
 | Rust crates | Update direct requirements, then `cargo update` in each crate or workspace. Run the affected Zig build steps and `runtime-check` |
 | Deno packages | Update imports and task specifiers together, then `deno update --frozen=false` in each scope. Normal builds keep frozen locks |
 | Python packages | Update direct requirements, then `uv lock --upgrade --project <directory>`. Run binding and conformance checks |
-| Vendored code and Zig packages | Review upstream changes, retain only required compiler adaptations, record exact revisions, and exercise the consuming build steps, including `site` |
+| Zig packages | Review upstream changes, then move each `build.zig.zon` entry (root and `site/`). Fetch each over `git+https` at a commit, so `zig fetch --save` gives the hash the build checks. Update its revision and notice in `LICENSE-THIRD-PARTY`, and exercise the consuming build steps, including `site` and `cli-test` |
 | CI actions | Resolve current releases to full commit hashes. Keep workflow references immutable |
 
 An update is verified only with the new tool or dependency in use. Source

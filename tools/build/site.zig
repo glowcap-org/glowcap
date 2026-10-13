@@ -207,8 +207,6 @@ pub fn register(ctx: Context) Registered {
     brand_mark_write.addArg("site/assets/mark.js");
     brand_mark_write.has_side_effects = true;
 
-    const translate_c_fork = common.rootPath(b, "third_party/site-build/translate-c");
-    const superhtml_fork = common.rootPath(b, "third_party/site-build/superhtml");
     const render_site = execution.addSystemCommand(b, .build_tool, &.{
         b.graph.zig_exe, "build",
     });
@@ -221,8 +219,6 @@ pub fn register(ctx: Context) Registered {
     render_site.addDirectoryArg2(std.Build.LazyPath.cache_root, .{ .make_absolute = true });
     render_site.addArgs(&.{
         "--prefix", common.rootPath(b, "zig-out"),
-        "--fork",   translate_c_fork,
-        "--fork",   superhtml_fork,
         "site",
     });
     render_site.setCwd(b.path("site"));
@@ -338,10 +334,6 @@ pub fn register(ctx: Context) Registered {
     serve_site.addArgs(&.{
         "--prefix",
         common.rootPath(b, "zig-out"),
-        "--fork",
-        translate_c_fork,
-        "--fork",
-        superhtml_fork,
         "docs-serve",
     });
     if (ctx.pin_port) |p| serve_site.addArg(b.fmt("-Dport={d}", .{p}));

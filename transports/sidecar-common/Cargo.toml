@@ -33,4 +33,4 @@ name = "glowcap_sidecar_common"
 test-support = []
 
 [dependencies]
-tokio = { version = "=1.53.1", features = ["rt-multi-thread"] }
+tokio = { version = "=1.53.2", features = ["rt-multi-thread"] }

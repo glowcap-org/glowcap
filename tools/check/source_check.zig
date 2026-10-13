@@ -42,6 +42,7 @@ const ps_playwright = @import("source_check/project_shape/playwright.zig");
 const ps_npm_pins = @import("source_check/project_shape/npm_pins.zig");
 const ps_formatting = @import("source_check/project_shape/formatting.zig");
 const ps_zig_version = @import("source_check/project_shape/zig_version.zig");
+const ps_dependency_doc = @import("source_check/project_shape/dependency_doc.zig");
 const doc_orphans = @import("source_check/doc_orphans.zig");
 const prerelease_versions = @import("source_check/prerelease_versions.zig");
 const rust_unsafe_floor = @import("source_check/rust_unsafe_floor.zig");
@@ -293,6 +294,7 @@ pub fn check(
     try ps_npm_pins.checkSharedNpmPins(io, gpa, root, &violations);
     try ps_formatting.check(io, gpa, root, &violations);
     try ps_zig_version.check(io, gpa, root, &violations);
+    try ps_dependency_doc.check(io, gpa, root, &violations);
     try ps_hygiene.checkDevcontainerBashScripts(io, gpa, root, &violations);
     _ = zig_lib_path;
     try fuzz.checkFuzzRegressionSeeds(io, gpa, root, &violations);
@@ -366,6 +368,7 @@ test {
     _ = ps_gate_membership;
     _ = ps_execution_deadlines;
     _ = ps_zig_module_surface;
+    _ = ps_dependency_doc;
     _ = scaffolding;
     _ = captp_io_spine;
     _ = cp_deadlines;

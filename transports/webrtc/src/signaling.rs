@@ -7,7 +7,7 @@ use super::*;
 pub(crate) fn mint_peer_id(endpoint: &EndpointInner) -> Option<usize> {
 	endpoint
 		.next_peer_id
-		.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+		.try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
 		.ok()
 		.filter(|id| *id != 0)
 }

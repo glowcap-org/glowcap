@@ -139,7 +139,7 @@ const reader_scopes = [_]bans.Where{
 /// Markdown written for people building glowcap: design records, plans,
 /// guides, and the READMEs beside the code. It keeps the reader pages'
 /// punctuation rule but not their word list, because the working words
-/// belong here. Vendored upstream checkouts and `third_party/` are not ours.
+/// belong here. Vendored upstream checkouts are not ours.
 const contributor_scopes = [_]bans.Where{
     .{ .tree = .{ .dir = "docs", .suffixes = &.{".md"} } },
     .{ .tree = .{ .dir = "apps", .suffixes = &.{".md"} } },

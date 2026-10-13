@@ -11,10 +11,10 @@
 # are pinned here beside the Linux ones.
 zig_sha256() {
     case "$(uname -s)-$(uname -m)" in
-        Linux-x86_64) echo "a303125386ca689512de4a001cc8c140468e97e300d8d10ffae1587ec5c08933" ;;
-        Linux-aarch64) echo "fe804b078f68ed531764193a9b5b705ee9a4d9feba0ed5c1bca978df2c1b6b57" ;;
-        Darwin-arm64) echo "2c01d07e0c5c7f761ab9cedbfe8f75f5769679f8317d82817fc927d0c63f37e7" ;;
-        Darwin-x86_64) echo "a77996335301fb304070e35cab0a06e3908485ec4b4d289ae3a8c3412a1404c5" ;;
+        Linux-x86_64) echo "1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026" ;;
+        Linux-aarch64) echo "9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8" ;;
+        Darwin-arm64) echo "b607e9b9234790a008116ae5bdb71c6243b84b9fb42a53a9e70fde41c06c536a" ;;
+        Darwin-x86_64) echo "4f9a1c5269aa17ebda5e6d3c2b89d6cbf36f7d2b22a0306e9ab98f25f95529c6" ;;
         *)
             echo "zig_sha256: unsupported platform: $(uname -s)-$(uname -m)" >&2
             return 1
@@ -30,14 +30,14 @@ deno_sha256() {
 
 node_sha256() {
     glowcap_pick_by_arch node_sha256 \
-        "ca70e9e349de048b9522abb3adc05b3bd6f43c5ffd3ec57916c7da292f59f022" \
-        "7a6353f63eb3d04765004b4adf172616243e4522434635cb1d26288658b04ab5"
+        "3883bfc73f9a680ca4eab04b196068aaaab1373ffa77d8fc1a4408222495b651" \
+        "0945e2cde6aa0f54d980f03874dfe5cf3a549ce714c7fb9019e591ce0accf282"
 }
 
 bun_sha256() {
     glowcap_pick_by_arch bun_sha256 \
-        "36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913" \
-        "54328bbc2d9c8e0c9f892c544d66c57a83b84139e34909e5ee81758f1ac8fda7"
+        "3e730528d89775f03f87f05c06787c4df4099d0a37f3f252e7b829cb23816e18" \
+        "efa9813da5ed72423bf847f916e8d2c47c0d776add972354026a75e10da9aa21"
 }
 
 # Published beside each rustup-init binary as its .sha256 file, e.g.
@@ -50,8 +50,8 @@ rustup_init_sha256() {
 
 opencode_sha256() {
     glowcap_pick_by_arch opencode_sha256 \
-        "c8f888b451f5494a18f858fffb0e0b68f4e4baa9c241761c5f206884f0fa640d" \
-        "f7f2ba59ee8aa94d388f9696575a32d20e71c2ee48def9f80fc693a60fec6c72"
+        "7bb9e61ad6feacf2e89c10a6a2c1840e3de4220bb50ba1fc7110f31806076aec" \
+        "e9841d43d3e1a8f36ed2691592d3b8b4fb097e606c8b559a277a1b845840e26b"
 }
 
 cursor_agent_sha256() {
@@ -62,8 +62,8 @@ cursor_agent_sha256() {
 
 uv_sha256() {
     glowcap_pick_by_arch uv_sha256 \
-        "23bf5552d220e0842b65c862097b2ebaeba0064b74eda5e565e77fd25969d8c8" \
-        "0804e9b164c64b6914182d5920c08551958a095986f10a3731056df701126436"
+        "1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154" \
+        "3ccfb6af6e242433eb552f7d9676abd5412c6595c497e990d9c8cb7b5bd4d2c3"
 }
 
 racket_tarball_and_sha256() {

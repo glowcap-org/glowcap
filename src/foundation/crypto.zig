@@ -195,12 +195,10 @@ pub const X25519KeyMaterial = struct {
     secret: [X25519.secret_length]u8,
     public: [X25519.public_length]u8,
 
-    /// Derive the pair from a raw 32-byte X25519 secret. Null when the secret
-    /// maps to the identity element, which a uniformly random or properly
-    /// converted secret does not.
-    pub fn fromSecret(secret: [X25519.secret_length]u8) ?X25519KeyMaterial {
-        const public = X25519.recoverPublicKey(secret) catch return null;
-        return .{ .secret = secret, .public = public };
+    /// Derive the pair from a raw 32-byte X25519 secret. Clamping makes every
+    /// secret a nonzero multiple of the base point, so no secret fails.
+    pub fn fromSecret(secret: [X25519.secret_length]u8) X25519KeyMaterial {
+        return .{ .secret = secret, .public = X25519.recoverPublicKey(secret) };
     }
 };
 

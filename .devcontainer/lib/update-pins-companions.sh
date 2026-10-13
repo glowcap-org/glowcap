@@ -28,8 +28,12 @@ glowcap_pins_companions() {
     local dep="$1" old="$2" new="$3"
     case "${dep}" in
         zig)
+            # Every package glowcap owns declares the pinned compiler as its
+            # minimum.
             printf '%s\t%s\t%s\n' \
-                build.zig.zon ".minimum_zig_version = \"${old}\"" ".minimum_zig_version = \"${new}\""
+                build.zig.zon ".minimum_zig_version = \"${old}\"" ".minimum_zig_version = \"${new}\"" \
+                site/build.zig.zon ".minimum_zig_version = \"${old}\"" ".minimum_zig_version = \"${new}\"" \
+                tools/consumer/build.zig.zon ".minimum_zig_version = \"${old}\"" ".minimum_zig_version = \"${new}\""
             ;;
         debian)
             printf '%s\t%s\t%s\n' \

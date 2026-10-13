@@ -37,8 +37,7 @@
 #
 # Usage: docs-serve.sh <zig-exe> <build-args…>
 #   e.g. docs-serve.sh /usr/local/bin/zig --cache-dir <cache> \
-#          --prefix <repo>/zig-out --fork <repo>/third_party/site-build/translate-c \
-#          --fork <repo>/third_party/site-build/superhtml docs-serve [-Dport=N] [-Dhost=ADDR]
+#          --prefix <repo>/zig-out docs-serve [-Dport=N] [-Dhost=ADDR]
 set -u
 
 zig="${1:?usage: docs-serve.sh <zig-exe> <build-args...>}"
